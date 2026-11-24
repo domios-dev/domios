@@ -44,7 +44,7 @@ domios appearance propose --mesh INSTALLATION_ID --machine local --from-pad look
 
 Return one standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` per successful proposal in the same chat. Copy `result.id` and `result.machine.id` from each response. The owner taps Apply on the card for that machine, then can use Undo or Open in Lab. Name every offline machine in the reply and say its proposal can be made once it is online. Proposals are sent immediately with no offline queue.
 
-The proposal carries its previous look and contrast measurements. If a newer edit changed the destination, reload and review the current look before applying or undoing. The daemon retains a bounded history of recent proposals.
+The proposal carries its previous look and contrast measurements. If a newer edit changed the destination, reload and review the current look before applying or undoing. Each originating installation can keep up to three pending General proposals per destination. A new proposal can replace an older pending proposal from the same installation. If the destination's history is full and no entry can be replaced, the owner can create the next proposal in Appearance Lab.
 
 ### REST API
 
@@ -135,4 +135,4 @@ For Forest Night, pair green-black `#0f1a16` with warm ink `#d5e2d8` and a coole
 
 A technical look can start with roundness 0–0.35, border brightness 0.6–1, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

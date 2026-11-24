@@ -165,7 +165,8 @@ pub async fn mesh_relay_stream(
                 mesh.peer_route_endpoints(&peer_id)
                     .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
             };
-            let (_, client) = origin::signed_peer_client(state, headers, primary, alternatives)?;
+            let (_, client) =
+                origin::signed_peer_client(state, headers, primary, alternatives, None)?;
             Ok((diagnostic_level, client))
         })
         .await?;

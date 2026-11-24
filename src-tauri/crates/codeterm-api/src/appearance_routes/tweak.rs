@@ -172,6 +172,7 @@ fn apply_patch(
     let mut proposal = AppearanceProposal {
         id: id.to_owned(),
         rationale: String::new(),
+        proposed_by_installation: None,
         tweak: true,
         look,
         previous,
@@ -180,6 +181,6 @@ fn apply_patch(
         applied_at: None,
     };
     apply_proposal(config, &mut proposal)?;
-    retain_proposal(config, proposal);
+    history::retain(config, proposal)?;
     Ok(())
 }

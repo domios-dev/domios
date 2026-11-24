@@ -6,7 +6,6 @@ fn agent() -> AuthenticatedAgent {
         instance_id: "origin-machine".into(),
         tab_id: "origin-tab".into(),
         can_spawn: true,
-        general_main: false,
     }
 }
 

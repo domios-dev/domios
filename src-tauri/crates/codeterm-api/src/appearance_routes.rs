@@ -19,12 +19,12 @@ use crate::{
 
 pub(crate) mod authority;
 mod contrast;
+mod history;
 mod presets;
 mod tweak;
 use authority::Operation;
 use contrast::{measure, ContrastCheck};
 
-const PROPOSAL_LIMIT: usize = 12;
 type Refusal = (StatusCode, String);
 pub(super) type ApiRefusal = (StatusCode, Json<serde_json::Value>);
 
@@ -180,83 +180,113 @@ async fn propose(
     Json(draft): Json<Draft>,
 ) -> Result<Json<Receipt>, ApiRefusal> {
     crate::auth::off_runtime(&state, &headers, move |state, headers| {
-        let _writer = assets.settings_writer.lock();
         let machine = target(state, headers, &machine, Operation::Store)?;
-        let rationale = draft.rationale.trim().to_owned();
-        if rationale.is_empty() || rationale.len() > 480 || rationale.chars().any(char::is_control)
-        {
-            return Err(bad_request(
-                "Provide a single-line rationale of up to 480 bytes",
-            ));
-        }
-        let mut look = match (draft.look, draft.toml) {
-            (Some(look), None) => look,
-            (None, Some(toml)) if toml.len() <= 256 * 1024 => {
-                let file: LookFile = toml::from_str(&toml).map_err(|error| {
-                    bad_request(format!("Invalid appearance TOML: {}", error.message()))
-                })?;
-                AppearanceLook {
-                    theme: file.theme,
-                    tuning: file.appearance,
-                    wallpaper: file.chat_wallpaper,
-                }
-            }
-            _ => {
-                return Err(bad_request(
-                    "Provide exactly one look or TOML file (up to 256 KiB)",
-                ))
-            }
-        };
-        validate_wallpaper(&assets, &mut look.wallpaper)
-            .map_err(|(status, reason)| (status, reason.to_owned()))?;
-        validate(&look)?;
-        look.tuning = Some(look.tuning.unwrap_or_default());
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        let mut refused = None;
-        let config = update_appearance(state, &assets, |config| {
-            let previous = AppearanceLook::from_config(config);
-            if draft
-                .expected
-                .as_ref()
-                .is_some_and(|expected| *expected != previous)
-            {
-                return reject(
-                    &mut refused,
-                    StatusCode::CONFLICT,
-                    "Appearance changed. Reload the Lab before applying.",
-                );
-            }
-            let proposal = AppearanceProposal {
-                id: id.clone(),
-                rationale,
-                tweak: false,
-                look,
-                previous,
-                previous_active: config.appearance_active.clone(),
-                state: AppearanceState::Proposed,
-                applied_at: None,
-            };
-            retain_proposal(config, proposal);
-            Ok(())
-        })
-        .map_err(|error| refused.unwrap_or((StatusCode::INTERNAL_SERVER_ERROR, error)))?;
-        let proposal = find(&config.appearance_proposals, &id)?.clone();
-        receipt(machine, proposal, &config).map(Json)
+        store(state, &assets, machine, draft, None).map(Json)
     })
     .await
     .map_err(typed_refusal)
 }
 
-fn retain_proposal(config: &mut AppConfig, proposal: AppearanceProposal) {
-    let history = &mut config.appearance_proposals;
-    if history.len() >= PROPOSAL_LIMIT {
-        let oldest = history
-            .iter()
-            .position(|item| proposal.previous_active.as_ref() != Some(&item.id))
-            .unwrap_or(0);
-        history.remove(oldest);
+pub(crate) fn store_relay(
+    state: &AppState,
+    assets: &WallpaperAssets,
+    admission: crate::mesh_routes::relay::AdmittedAppearanceStore,
+) -> Result<serde_json::Value, ApiRefusal> {
+    let (grant, machine, body) = admission.into_parts();
+    let result = (|| {
+        let machine = local_machine(state, &machine)?;
+        let draft = serde_json::from_value(body).map_err(|error| bad_request(error.to_string()))?;
+        let receipt = store(state, assets, machine, draft, Some(&grant))?;
+        serde_json::to_value(receipt)
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+    })();
+    result.map_err(typed_refusal)
+}
+
+fn store(
+    state: &AppState,
+    assets: &WallpaperAssets,
+    machine: Machine,
+    draft: Draft,
+    grant: Option<&crate::auth::peer_grant::PeerGrant>,
+) -> Result<Receipt, Refusal> {
+    let _writer = assets.settings_writer.lock();
+    let rationale = draft.rationale.trim().to_owned();
+    if rationale.is_empty() || rationale.len() > 480 || rationale.chars().any(char::is_control) {
+        return Err(bad_request(
+            "Provide a single-line rationale of up to 480 bytes",
+        ));
     }
-    history.push(proposal);
+    let mut look = match (draft.look, draft.toml) {
+        (Some(look), None) => look,
+        (None, Some(toml)) if toml.len() <= 256 * 1024 => {
+            let file: LookFile = toml::from_str(&toml).map_err(|error| {
+                bad_request(format!("Invalid appearance TOML: {}", error.message()))
+            })?;
+            AppearanceLook {
+                theme: file.theme,
+                tuning: file.appearance,
+                wallpaper: file.chat_wallpaper,
+            }
+        }
+        _ => {
+            return Err(bad_request(
+                "Provide exactly one look or TOML file (up to 256 KiB)",
+            ))
+        }
+    };
+    validate_wallpaper(assets, &mut look.wallpaper)
+        .map_err(|(status, reason)| (status, reason.to_owned()))?;
+    validate(&look)?;
+    look.tuning = Some(look.tuning.unwrap_or_default());
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let mut refused = None;
+    let mut mesh_fence = None;
+    let result = update_appearance(state, assets, |config| {
+        let previous = AppearanceLook::from_config(config);
+        if draft
+            .expected
+            .as_ref()
+            .is_some_and(|expected| *expected != previous)
+        {
+            return reject(
+                &mut refused,
+                StatusCode::CONFLICT,
+                "Appearance changed. Reload the Lab before applying.",
+            );
+        }
+        let proposal = AppearanceProposal {
+            id: id.clone(),
+            rationale,
+            proposed_by_installation: grant.map(|grant| grant.peer_id().to_owned()),
+            tweak: false,
+            look,
+            previous,
+            previous_active: config.appearance_active.clone(),
+            state: AppearanceState::Proposed,
+            applied_at: None,
+        };
+        if let Err((status, message)) = history::retain(config, proposal) {
+            return reject(&mut refused, status, &message);
+        }
+        if let Some(grant) = grant {
+            let mesh = state.mesh.lock();
+            if !config.mesh.enabled || !grant.current(&mesh) {
+                return reject(
+                    &mut refused,
+                    StatusCode::FORBIDDEN,
+                    "Peer authorization changed before the proposal was saved.",
+                );
+            }
+            mesh_fence = Some(mesh);
+        }
+        Ok(())
+    });
+    drop(mesh_fence);
+    let config =
+        result.map_err(|error| refused.unwrap_or((StatusCode::INTERNAL_SERVER_ERROR, error)))?;
+    let proposal = find(&config.appearance_proposals, &id)?.clone();
+    receipt(machine, proposal, &config)
 }
 
 fn apply_proposal(
