@@ -2,7 +2,7 @@ import { MemoryFriendsProvider } from "./MemoryProvenance";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { listen } from "../../lib/bridge";
 import { memoryListControlsVisible } from "./memoryDetailModel";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { List, Network } from "lucide-react";
 import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import { MemorySnapshotCanvas } from "./MemorySnapshotCanvas";
@@ -174,9 +174,8 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
       data-testid="memory-panel"
       data-memory-active-tab={activeTab}
     >
-      {memoryListControlsVisible(detailOpen) && <>
         <div
-          className="flex shrink-0 flex-col border-b border-[var(--ct-border-subtle)] px-4 text-[var(--ct-fg)] sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6"
+          className={`flex shrink-0 flex-col border-b border-[var(--ct-border-subtle)] px-4 text-[var(--ct-fg)] sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6 ${detailOpen ? "max-sm:hidden" : ""}`}
         >
           <div className="flex min-h-[52px] min-w-0 items-center gap-2.5 whitespace-nowrap sm:min-h-14 sm:gap-3">
             <Network size={17} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
@@ -204,19 +203,36 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
             )}
           </div>
 
-          <div className="flex min-h-10 min-w-0 items-end sm:self-stretch">
-            <LiquidTabRail
-              value={activeTab}
-              options={TABS}
-              onChange={setActiveTab}
-              label="Memory sections"
-              touch={touchUi}
-              testIdPrefix="memory-tab"
-            />
+          <div className="flex min-h-10 min-w-0 items-end sm:items-stretch sm:self-stretch sm:[&_.ct-liquid-tab-rail__indicator]:!bottom-0">
+            {detailOpen ? (
+              <div
+                className="ct-liquid-tab-rail"
+                inert
+                style={{ "--rail-count": TABS.length, "--rail-index": TABS.indexOf(activeTab) } as CSSProperties}
+              >
+                <span className="ct-liquid-tab-rail__indicator" />
+                {TABS.map(tab => (
+                  <span
+                    key={tab}
+                    aria-selected={tab === activeTab}
+                    className={`ct-liquid-tab-rail__tab flex !cursor-default items-center justify-center ${tab === activeTab ? "" : "opacity-60"}`}
+                  >
+                    {tab}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <LiquidTabRail
+                value={activeTab}
+                options={TABS}
+                onChange={setActiveTab}
+                label="Memory sections"
+                touch={touchUi}
+                testIdPrefix="memory-tab"
+              />
+            )}
           </div>
         </div>
-
-      </>}
       {/* Tab content */}
       <div className="@container/memory relative flex-1 min-h-0">
         {activeTab === "dreams" && <MemoryDreamsTab api={api} />}

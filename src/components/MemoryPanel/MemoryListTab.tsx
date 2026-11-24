@@ -197,7 +197,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, viewToggle, onSelectItem
           return (
             <div
               key={n.id}
-              className={`group rounded-[10px] ${editorItemId === n.id ? "bg-[var(--ct-bg-selected)]" : "hover:bg-[var(--ct-bg-hover)]"}`}
+              className={`group rounded-[10px] ${editorItemId === n.id ? "bg-[light-dark(color-mix(in_srgb,var(--ct-bg-selected)_41%,var(--ct-bg)),color-mix(in_srgb,var(--ct-bg-selected)_50%,var(--ct-bg)))]" : "hover:bg-[var(--ct-bg-hover)]"}`}
               data-testid="memory-list-item"
               data-memory-id={n.id}
               data-memory-kind={n.kind}
@@ -208,7 +208,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, viewToggle, onSelectItem
                   <div className="truncate text-[13.5px] font-semibold text-[var(--ct-fg)]">{n.title}</div>
                   <MemoryProvenance author={n.author} compact />
                   <div className="truncate text-xs text-[var(--ct-muted-fg)]">
-                    <span className="font-[550]" style={{ color }}>{n.kind}</span>
+                    <span className="font-[550]" style={{ color: `light-dark(color-mix(in srgb, ${color} 55%, var(--ct-fg)), ${color})` }}>{n.kind}</span>
                     {n.area && <> &middot; {n.area}</>}
                     {(n.recurrence_count ?? 0) > 0 && (
                       <>
@@ -266,6 +266,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, viewToggle, onSelectItem
           itemId={editorItemId}
           api={api}
           onClose={() => setEditorItemId(null)}
+          onViewInGraph={onViewInGraph}
           onDeleted={(id) => { removeNode(id); onSelectItem(null); }}
           onUpdated={() => { /* graph refetch will pick up changes */ }}
         />

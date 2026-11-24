@@ -9,6 +9,14 @@ import { colorForKind } from "./nodeKind";
 export type MemoryFriend = Pick<Neighbor, "uid" | "friendship_id" | "displayName">;
 export const MemoryFriendsContext = createContext<readonly MemoryFriend[]>([]);
 
+const dayFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+function memoryDate(value?: string | null) {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date : null;
+}
+
 function friendName(author: MemAuthor, friends: readonly MemoryFriend[]): string | null {
   const friend = friends.find(friend => author.friendship_id
     ? friend.friendship_id === author.friendship_id && (!author.account_uid || friend.uid === author.account_uid)
@@ -29,23 +37,41 @@ export function MemoryFriendsProvider({ children }: { children: ReactNode }) {
   return <MemoryFriendsContext.Provider value={list?.friends ?? []}>{children}</MemoryFriendsContext.Provider>;
 }
 
-export function MemoryProvenance({ author, createdAt, compact = false }: { author?: MemAuthor | null; createdAt?: string | null; compact?: boolean }) {
+export function MemoryProvenance({ author, createdAt, compact = false, inline = false }: { author?: MemAuthor | null; createdAt?: string | null; compact?: boolean; inline?: boolean }) {
   const friends = useContext(MemoryFriendsContext);
   const label = memoryProvenance(author, friends);
   if (!label || !author) return null;
-  const name = friendName(author, friends) ?? "a neighbor";
-  const initials = name === "a neighbor" ? "?" : name.split(/\s+/).map(part => Array.from(part)[0]).slice(0, 2).join("").toUpperCase();
-  const date = createdAt ? new Date(createdAt) : null;
-  const savedAt = date && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date) : null;
+  const name = friendName(author, friends);
+  const initials = name ? name.split(/\s+/).map(part => Array.from(part)[0]).slice(0, 2).join("").toUpperCase() : "?";
+  const date = memoryDate(createdAt);
+  const savedAt = date ? `${dayFormat.format(date)} ${timeFormat.format(date)}` : null;
   const agent = author?.label?.trim();
-  const saved = [agent ? `Saved by their agent ${agent}` : savedAt ? "Saved" : null, savedAt].filter(Boolean).join(" · ");
-  return <div data-testid="memory-provenance" aria-label={label} className="min-w-0 text-xs text-[var(--ct-muted-fg)]">
-    <div className="flex min-w-0 items-center gap-1.5">
+  const saved = [agent ? `Saved by their agent ${agent}` : savedAt ? "Saved" : null, savedAt].filter(Boolean).join(agent ? " · " : " ");
+  return <div className={inline ? "contents" : "min-w-0 text-xs text-[var(--ct-muted-fg)]"}>
+    <div data-testid="memory-provenance" aria-label={label} className="flex min-w-0 items-center gap-1.5">
       <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center rounded-full bg-[var(--ct-bg-hover)] text-[10px] font-semibold text-[var(--ct-fg)]">{initials}</span>
-      <span className="min-w-0 truncate">From <strong className="font-semibold text-[var(--ct-fg)]">{name}</strong> &middot; neighbor</span>
+      <span className="min-w-0 truncate">From <strong className="font-semibold text-[var(--ct-fg)]">{name ?? "a neighbor"}</strong>{name && " · neighbor"}</span>
     </div>
-    {!compact && saved && <div className="mt-1 pl-[22px] text-[var(--ct-muted-fg)]">{saved}</div>}
+    {!compact && saved && <span className={inline ? undefined : "mt-1 block pl-[22px]"} title={date?.toLocaleString()}>{saved}</span>}
   </div>;
+}
+
+export function MemoryDetailMetadata({ author, updatedAt, createdAt, importance }: {
+  author?: MemAuthor | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+  importance?: number | null;
+}) {
+  const updated = memoryDate(updatedAt);
+  const created = memoryDate(createdAt);
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1 text-xs text-[var(--ct-muted-fg)] tabular-nums">
+      <MemoryProvenance author={author} createdAt={createdAt} inline />
+      {updated && <time dateTime={updatedAt ?? undefined} title={updated.toLocaleString()}>Updated {dayFormat.format(updated)}</time>}
+      {created && <time dateTime={createdAt ?? undefined} title={created.toLocaleString()}>Created {dayFormat.format(created)}</time>}
+      {importance != null && <MemoryImportance value={importance} />}
+    </div>
+  );
 }
 
 export function MemoryKindChip({ kind }: { kind: string }) {
