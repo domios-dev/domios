@@ -21,6 +21,8 @@ interface StagedWallpaper {
   peerId?: string;
   ready: boolean;
   update(wallpaper: ChatWallpaper | null): void;
+  discard(): void;
+  ask?(): void;
 }
 
 function thumbnailStyle(theme: ThemeConfig, wallpaper: ChatWallpaper, light: boolean, scale: number, assetUrl?: string) {
@@ -31,7 +33,7 @@ function thumbnailStyle(theme: ThemeConfig, wallpaper: ChatWallpaper, light: boo
 export function ChatWallpaperPicker({ config, showOwnInitially, stage }: { config: AppConfig; showOwnInitially?: boolean; stage?: StagedWallpaper }) {
   const selected = useContext(MachineAppearanceContext);
   if (stage) return <Picker key={stage.peerId ?? "local"} theme={stage.theme} installed={stage.wallpaper}
-    peerId={stage.peerId} ready={stage.ready} stage={stage.update} showOwnInitially={showOwnInitially} />;
+    peerId={stage.peerId} ready={stage.ready} stage={stage.update} discard={stage.discard} ask={stage.ask} showOwnInitially={showOwnInitially} />;
   const appearance = selected?.appearance ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null };
   return <Picker key={selected?.peerId ?? "local"} theme={appearance.theme} installed={appearance.wallpaper}
     machineColor={selected?.identity?.color} peerId={selected?.peerId} ready={selected?.ready ?? true}
@@ -47,9 +49,11 @@ interface PickerProps {
   project?: (wallpaper: ChatWallpaper | null) => void;
   showOwnInitially?: boolean;
   stage?: StagedWallpaper["update"];
+  discard?: StagedWallpaper["discard"];
+  ask?: StagedWallpaper["ask"];
 }
 
-function Picker({ theme, installed, machineColor, peerId, ready, project, showOwnInitially, stage }: PickerProps) {
+function Picker({ theme, installed, machineColor, peerId, ready, project, showOwnInitially, stage, discard, ask }: PickerProps) {
   const themeIsLight = isLightColor(theme.background);
   const [lightOverride, setLightOverride] = useState<boolean>();
   const light = lightOverride ?? themeIsLight;
@@ -197,6 +201,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
             {error.file && <strong>{error.file} wasn’t used</strong>}
             <span>{error.reason}</span>
           </div>}
+          {ask && <button type="button" className={UI_BUTTON.ghost} disabled={busy} onClick={ask}>Ask General for wallpaper</button>}
           {!stage && (undo ? <button type="button" className={UI_BUTTON.ghost} disabled={busy} onClick={() => void run(async () => {
             await persist(request.previous, installed);
             setRequest(undefined);
@@ -220,8 +225,10 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
           </form>)}
         </>}
         {(!showOwn || custom) && <WallpaperControls wallpaper={active} light={themeIsLight} disabled={!ready || busy}
-          onDraft={draft} onChange={change} onReset={stage ? undefined : () => change({ ...active, palette: undefined, fill: undefined, fill_strength: undefined,
-            background: { pattern: active.background.pattern, icon: active.background.icon, svg: active.background.svg } })} />}
+          onDraft={draft} onChange={change} onReset={stage ? discard : () => change({ ...active, palette: undefined, fill: undefined, fill_strength: undefined,
+            background: { pattern: active.background.pattern, icon: active.background.icon, svg: active.background.svg } })}
+          resetLabel={stage ? "Discard wallpaper changes" : undefined} />}
+        {showOwn && !custom && discard && <button type="button" className={UI_BUTTON.ghost} disabled={!ready} onClick={discard}>Discard wallpaper changes</button>}
         {error && !showOwn && <p className="ct-wallpaper-error" role="alert">{error.reason}</p>}
       </div>
       {!stage && <div className="ct-wallpaper-preview">

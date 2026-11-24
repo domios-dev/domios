@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import type { ChatWallpaper } from "../../gen/ChatWallpaper";
 import type { AppearanceTuning } from "../../gen/AppearanceTuning";
 import type { ThemeConfig } from "./types";
@@ -91,8 +90,8 @@ export function appearanceTokens(tuning?: AppearanceTuning | null): Record<strin
   };
 }
 
-export function appearancePreviewStyle(look: AppearanceLook): CSSProperties {
-  return { ...themeToCSS(look.theme, look.tuning?.border_strength), ...appearanceTokens(look.tuning) } as CSSProperties;
+export function appearanceLookStyle({ theme, tuning }: Pick<AppearanceLook, "theme" | "tuning">): Record<string, string> {
+  return { ...themeToCSS(theme, tuning?.border_strength), ...appearanceTokens(tuning) };
 }
 
 export function applyContrastFix(look: AppearanceLook, fix: NonNullable<ContrastCheck["fix"]>): AppearanceLook {

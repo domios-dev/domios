@@ -13,7 +13,7 @@ const choices = [
   ["none", "None"], ["dots", "Dots"], ["domios", "Domios"], ["space", "Space"], ["botanical", "Botanical"],
 ] as const;
 
-export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpenLab(): void }) {
+export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpenLab?(): void }) {
   const selected = useContext(MachineAppearanceContext);
   const theme = selected?.appearance.theme ?? config.theme;
   const wallpaper = (selected ? selected.appearance.wallpaper : config.chat_wallpaper) ?? undefined;
@@ -69,9 +69,9 @@ export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpe
       </div>
     </div>
     {error && <p role="alert" className="ct-appearance-error">{error}</p>}
-    <div className="ct-quick-wallpaper__footer">
+    {onOpenLab && <div className="ct-quick-wallpaper__footer">
       <small>More patterns, colours, your own file, shadows and roundness live in the Lab.</small>
       <Button variant="outline" className="gap-1.5" onClick={onOpenLab}><FlaskConical size={15} aria-hidden="true" /> Open Appearance Lab</Button>
-    </div>
+    </div>}
   </div>;
 }

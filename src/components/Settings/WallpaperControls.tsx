@@ -14,9 +14,10 @@ interface Props {
   onDraft: (wallpaper: ChatWallpaper) => void;
   onChange: (wallpaper: ChatWallpaper) => void;
   onReset?: () => void;
+  resetLabel?: string;
 }
 
-export function WallpaperControls({ wallpaper, light, disabled, onDraft, onChange, onReset }: Props) {
+export function WallpaperControls({ wallpaper, light, disabled, onDraft, onChange, onReset, resetLabel = "Reset" }: Props) {
   const id = useId();
   const { background, fill, palette } = wallpaper;
   const pattern = background.pattern;
@@ -138,6 +139,6 @@ export function WallpaperControls({ wallpaper, light, disabled, onDraft, onChang
       </label>
       <small id={id + "-fill-strength"}>{hasFill ? "0% is the plain theme background." : "Choose a solid or gradient background to use this."}</small>
     </div>}
-    {onReset && <button type="button" className={UI_BUTTON.ghost + " ct-wallpaper-reset"} onClick={onReset}>Reset</button>}
+    {onReset && <button type="button" className={UI_BUTTON.ghost + " ct-wallpaper-reset"} onClick={onReset}>{resetLabel}</button>}
   </fieldset>;
 }

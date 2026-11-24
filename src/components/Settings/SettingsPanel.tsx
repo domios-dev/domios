@@ -30,9 +30,9 @@ import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
-import { AppearanceLab } from "./AppearanceLab";
+import { AppearanceLabUndo } from "./AppearanceLabUndo";
 import { QuickWallpaper } from "./QuickWallpaper";
-import { appearanceError, type OpenAppearance } from "../../lib/appearanceClient";
+import { appearanceError } from "../../lib/appearanceClient";
 import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { AccountTab } from "./AccountTab";
@@ -58,7 +58,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   initialSection?: SettingsLinkId;
   guideRequest?: GuideRequest;
-  appearanceRequest?: OpenAppearance;
+  onOpenAppearance?: (showWallpaper?: boolean) => void;
   restoreNavigation?: boolean;
 }
 
@@ -90,7 +90,7 @@ export function SettingsPanel({
   onClose,
   initialSection,
   guideRequest,
-  appearanceRequest,
+  onOpenAppearance,
   restoreNavigation,
 }: SettingsPanelProps) {
   const [stack, setStack] = useSettingsNavigation(initialSection, guideRequest, restoreNavigation);
@@ -103,19 +103,9 @@ export function SettingsPanel({
   );
   const back = parent ? pop : onClose;
   const body = useRef<HTMLDivElement>(null);
-  const returnScroll = useRef<number | undefined>(undefined);
-  const openLab = useCallback(() => {
-    returnScroll.current = body.current?.scrollTop ?? 0;
-    push({ kind: "appearance-lab" });
-  }, [push]);
   useLayoutEffect(() => {
-    if (!body.current) return;
-    if (top.kind === "appearance-lab") body.current.scrollTop = 0;
-    else if (top.kind === "section" && top.id === "general" && returnScroll.current !== undefined) {
-      body.current.scrollTop = returnScroll.current;
-      returnScroll.current = undefined;
-    }
-  }, [top]);
+    if (top.kind === "appearance-lab") onOpenAppearance?.(top.showOwn);
+  }, [top, onOpenAppearance]);
   useEffect(() => pushBackDismissal(back), [back, top]);
 
   // Settings is a full-view modal — Esc closes it (matching the close button).
@@ -221,7 +211,7 @@ export function SettingsPanel({
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
         {jobsPage ? (
           <h2 id={SETTINGS_TITLE_ID} className="sr-only" data-testid="settings-header-title">{headerTitle}</h2>
-        ) : !appearancePage && (
+        ) : (
           <div className="ct-jobs-header ct-settings-head">
             {parent
               ? <BackPill label={routeTitle(parent)} onBack={back} testId="settings-back" />
@@ -234,7 +224,7 @@ export function SettingsPanel({
 
         {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
-          <div ref={body} className={appearancePage ? "flex-1 overflow-y-auto" : "flex-1 overflow-y-auto px-5 py-5"} data-testid="settings-body">
+          <div ref={body} className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
             {top.kind === "root" && (
               <div role="navigation" aria-label="Settings sections" className="ct-settings-nav">
                 {SETTINGS_SECTIONS.map((s) => {
@@ -261,11 +251,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "account" && <AccountTab focusCard={top.card} />}
             {top.kind === "section" && top.id === "mesh" && <MeshSettings />}
-            {top.kind === "appearance-lab" && <AppearanceLab
-              config={localConfig} open={appearanceRequest} showWallpaperOwn={top.showOwn} headingId={SETTINGS_TITLE_ID}
-              back={<BackPill label={parent ? routeTitle(parent) : undefined} onBack={back} testId="settings-back" />}
-              onNavigate={onClose}
-            />}
+            {appearancePage && <Loader label="Opening Appearance Lab…" />}
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">
@@ -292,7 +278,8 @@ export function SettingsPanel({
                 <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
 
                 <SettingsCard icon={<Palette size={16} />} title="Appearance" description="Theme and wallpaper for this machine"
-                  headerRight={<button type="button" className="ct-appearance-lab-link ct-settings-link" onClick={openLab}>Open Appearance Lab ›</button>}>
+                  headerRight={onOpenAppearance && <button type="button" className="ct-settings-link" onClick={() => onOpenAppearance()}>Open Appearance Lab ›</button>}>
+                  {onOpenAppearance && <AppearanceLabUndo key={machineAppearance?.peerId ?? "local"} peer={machineAppearance?.peerId} />}
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
                     <div className="w-56 min-w-0">
@@ -384,7 +371,7 @@ export function SettingsPanel({
                     checked={localConfig.font.ligatures}
                     onChange={(v) => update("font", { ligatures: v })}
                   />
-                  <QuickWallpaper config={localConfig} onOpenLab={openLab} />
+                  <QuickWallpaper config={localConfig} onOpenLab={onOpenAppearance ? () => onOpenAppearance(true) : undefined} />
                 </SettingsCard>
 
                 <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
