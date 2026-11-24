@@ -466,6 +466,7 @@ it("stages the preset wallpaper fallback and applies through the named theme rou
     await lab.render();
     await click([...lab.panel()!.querySelectorAll("button")].find(button => button.textContent === preset.name)!);
     expect(lab.projection()?.look).toEqual(preview);
+    expect(lab.host.textContent).toContain("Preset GitHub Dark → Light fixture");
     expect(lab.host.textContent).toContain("Theme wallpaper");
     await click(lab.button("Apply")!);
     expect(api.switchAppearanceTheme).toHaveBeenLastCalledWith({ machine: "local" }, {

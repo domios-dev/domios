@@ -49,8 +49,18 @@ export function machineLabel(name: string, identity?: MachineIdentity | null, st
 const presetThemeNames = new Map([
   ["github-dark", "GitHub Dark"],
   ["github-light", "GitHub Light"],
+  ["dracula", "Dracula"],
+  ["catppuccin-mocha", "Catppuccin Mocha"],
+  ["one-dark", "One Dark"],
+  ["nord", "Nord"],
+  ["solarized-light", "Solarized Light"],
+  ["pip-boy", "Pip-Boy"],
   ["paper-ink", "Paper & Ink"],
 ]);
+
+export function presetThemeName(name: string): string {
+  return presetThemeNames.get(name) ?? name;
+}
 
 export function machineThemeName(name: string): string {
   const preset = presetThemeNames.get(name);

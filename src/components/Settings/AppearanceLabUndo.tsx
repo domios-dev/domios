@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Undo2 } from "lucide-react";
 import type { AppearanceProposal } from "../../lib/appearance";
 import { APPEARANCE_CHANGED, appearanceError, changeAppearance, readAppearance, type AppearanceTarget } from "../../lib/appearanceClient";
-import { Button } from "../shared/Button";
+import { AppearanceAppliedLabel, AppearanceUndoButton } from "./AppearanceLabPanelControls";
+import "./appearance.css";
+import "./appearanceTry.css";
 
 export function AppearanceLabUndo({ peer, disabled }: { peer?: string; disabled?: boolean }) {
   const [active, setActive] = useState<AppearanceProposal>();
@@ -46,14 +47,13 @@ export function AppearanceLabUndo({ peer, disabled }: { peer?: string; disabled?
       setBusy(false);
     }
   }
-  return <div>
-    {active.theme_label && <p role="status">
-      Applied {active.theme_label}
-      {active.wallpaper_switched && " · wallpaper switched to the theme's for readability"}
-    </p>}
-    <Button variant="outline" disabled={busy || disabled} onClick={() => void undo()}>
-      <Undo2 size={15} aria-hidden="true" /> Undo · back to {active.previous.theme.name}
-    </Button>
-    {error && <p role="alert">{error}</p>}
+  return <div className="ct-appearance-lab text-[13px]">
+    <div className="ct-appearance-try__actions">
+      {active.theme_label && <div className="ct-appearance-changes__status" role="status" aria-live="polite" data-state="applied">
+        <AppearanceAppliedLabel receipt={active} />
+      </div>}
+      <AppearanceUndoButton label={`Undo · back to ${active.previous.theme.name}`} disabled={busy || Boolean(disabled)} onUndo={() => void undo()} />
+    </div>
+    {error && <p className="ct-appearance-error" role="alert">{error}</p>}
   </div>;
 }

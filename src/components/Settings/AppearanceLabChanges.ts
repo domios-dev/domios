@@ -1,5 +1,6 @@
 import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, type AppearanceLook, type AppearanceTuning } from "../../lib/appearance";
 import { effectiveWallpaper, FILLS, PALETTES, wallpaperSummary } from "../../lib/chatWallpaper";
+import { presetThemeName } from "../../lib/machineIdentity";
 import type { ThemeConfig } from "../../lib/types";
 
 const colourControls = [...PALETTE_CONTROLS, ...TERMINAL_COLOURS.map(key => ({ key, label: key.replaceAll("_", " ") }))];
@@ -51,7 +52,7 @@ export function appearanceLabChanges(current: AppearanceLook, draft: AppearanceL
         }
       }
       return { ...look, theme };
-    });
+    }, presetThemeName);
   }
   if (paletteBaseline) {
     for (const { key, label } of colourControls) {

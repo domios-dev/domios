@@ -33,6 +33,7 @@ import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import { AppearanceLabUndo } from "./AppearanceLabUndo";
 import { QuickWallpaper } from "./QuickWallpaper";
 import { appearanceError, switchAppearanceTheme } from "../../lib/appearanceClient";
+import { presetThemeName } from "../../lib/machineIdentity";
 import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
 import { AccountTab } from "./AccountTab";
 import { NetworkTab as MeshSettings } from "../MeshPanel/NetworkTab";
@@ -132,6 +133,7 @@ export function SettingsPanel({
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
   const themeIds = machineAppearance?.peerId ? builtinThemes : themes;
+  const selectedThemeId = themeIds.find(name => presetThemeName(name) === theme.name) ?? theme.name;
   const chooseTheme = async (name: string) => {
     if (themeBusy) return;
     setThemeError("");
@@ -293,12 +295,12 @@ export function SettingsPanel({
                       <DropdownSelect
                         data-testid="settings-theme-select"
                         aria-label="Theme"
-                        value={theme.name}
+                        value={selectedThemeId}
                         disabled={themeBusy}
                         onChange={(name) => void chooseTheme(name)}
-                        options={[...new Set([...themeIds, theme.name])].map((name) => ({
+                        options={[...new Set([...themeIds, selectedThemeId])].map((name) => ({
                           value: name,
-                          label: name,
+                          label: presetThemeName(name),
                           group: builtinThemes.includes(name) ? "Built-in" : themeIds.includes(name) ? "Custom" : "Current look",
                         }))}
                       />
