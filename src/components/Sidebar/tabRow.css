@@ -91,7 +91,9 @@
 .sidebar-tab-body__sub {
   grid-column: 2;
   grid-row: 2;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
