@@ -486,7 +486,7 @@ export function projectTranscript(
   const { echoes, pending, outside } = reconcileSends(
     sends, committedRows, state.authority, rowStarts, unloadedHistoryWindow(state, committedRows),
   );
-  const projectedCommittedRows = projectTranscriptParts(orderTimelineItems(committedRows), sends);
+  const projectedCommittedRows = projectTranscriptParts(orderTimelineItems(committedRows), sends, sourceSession);
   const structuredWindow = state.segments.some(segment => segment.range?.unit === "items");
   const structuredItems = new Set(sends.flatMap(({ matchedRow }) => {
     const record = matchedRow?.source.record;

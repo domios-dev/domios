@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTranscriptState, projectTranscript, projectTranscriptParts, type MessageSegment, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { createTranscriptState, projectTranscript, projectTranscriptParts, reduceTranscript, type MessageSegment, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { applyDeliveryStatus, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
+import { createDeliveryProjectionMemory, stableDeliveryEntries } from "./chatDeliveryProjection";
 import { enrichTimelineItems } from "./chatEnrichment";
+import { conversationEntries } from "./chatPagingModel";
 
 const body = "opaque routed payload";
 const wire = `<domios from="tab" label="Sender" tab="a1b2c3d4">${body} <tip>opaque reply hint</tip></domios>`;
@@ -32,6 +34,77 @@ test("untrusted user text keeps its literal leading envelope", () => {
   const [entry] = render(projectTranscript(createTranscriptState(), deliveryProjectionSends([send])).rows);
   assert.equal(entry.msg.content, wire);
   assert.equal(entry.origin, undefined);
+});
+
+test("a structured record claim keeps the routed card and key through plain echoes and tool updates", () => {
+  const authority = { sourceSessionId: "session", sessionBindingNonce: "launch" };
+  const at = 1_800_000_000_000;
+  const pending: DeliverySend = {
+    id: "send", correlationId: "route-token", content: wire, sentAtMs: at,
+    status: { tab_id: "target", send_id: "send", correlationId: "route-token", state: "written",
+      ledger_id: "ledger", sequence: 1, retained_from: 1, error: null,
+      system_send: { content: wire, sent_at_ms: at, segments } },
+  };
+  const delivered = applyDeliveryStatus(pending, {
+    ...pending.status!, state: "delivered", sequence: 2,
+    matched_row: { source: { source_session_id: "session", record: {
+      kind: "structured", thread_id: "session", item_id: "provider-row",
+    } }, ordinal: 1 },
+  });
+  const before: NormalizedChatMessage = { id: "before", type: "assistant", content: "before", timestamp: String(at - 1000) };
+  const after: NormalizedChatMessage = { id: "after", type: "tool_call", content: "after", timestamp: String(at + 1000) };
+  const echo: NormalizedChatMessage = { id: "provider-row", type: "user", content: wire, timestamp: String(at),
+    segments: [{ type: "text", text: wire }] };
+  const memory = createDeliveryProjectionMemory("session");
+  let transcript = createTranscriptState();
+  const project = (rows: NormalizedChatMessage[], send: DeliverySend, kind: "snapshot" | "delta" = "delta") => {
+    transcript = reduceTranscript(transcript, { kind, authority, range: null, rows }).state;
+    const sends = deliveryProjectionSends([send]);
+    const result = projectTranscript(transcript, sends);
+    return stableDeliveryEntries(conversationEntries(result.rows), sends, result.echoes, memory, result.outside);
+  };
+
+  const first = project([before, after], pending, "snapshot");
+  assert.deepEqual(first.map(entry => entry.msg.id), ["before", "send", "after"]);
+  assert.equal(first[1].msg.content, body);
+  assert.equal(first[1].origin?.kind, "tab");
+  for (const rows of [
+    [echo],
+    [{ ...echo, content: body, inboundKind: "tab" as const, segments }],
+    [{ ...echo, content: `<pasted_content>${wire}</pasted_content>`, segments: [{ type: "paste" as const, id: null, body: wire }] },
+      { ...after, toolStatus: "completed" as const }],
+  ]) {
+    const projected = project(rows, delivered);
+    assert.deepEqual(projected.map(entry => entry.msg.id), ["before", "send", "after"]);
+    assert.equal(projected[1].msg.content, body);
+    assert.deepEqual(projected[1].origin, first[1].origin);
+    assert.equal(projected[1].msg.routing?.tip, "opaque reply hint");
+  }
+  const unrelated = project([{ ...echo, id: "other-row" }], delivered).find(entry => entry.msg.sourceMessageId === "other-row");
+  assert.equal(unrelated?.msg.content, wire);
+  assert.equal(unrelated?.origin, undefined);
+});
+
+test("own-session rows with the host send ID keep one routed key before the claim arrives", () => {
+  const authority = { sourceSessionId: "session", sessionBindingNonce: "launch" };
+  const send: DeliverySend = {
+    id: "host-id", correlationId: "route-token", content: wire, sentAtMs: 2000,
+    status: { tab_id: "target", send_id: "host-id", correlationId: "route-token", state: "written",
+      ledger_id: "ledger", sequence: 1, retained_from: 1, error: null,
+      system_send: { content: wire, sent_at_ms: 2000, segments } },
+  };
+  const sends = deliveryProjectionSends([send]);
+  const memory = createDeliveryProjectionMemory("session");
+  const base: NormalizedChatMessage = { id: send.id, type: "user", content: wire };
+  for (const row of [
+    { ...base, segments: [{ type: "text" as const, text: wire }] },
+    { ...base, content: body, inboundKind: "tab" as const, segments },
+  ]) {
+    const transcript = reduceTranscript(createTranscriptState(), { kind: "snapshot", authority, range: null, rows: [row] }).state;
+    const result = projectTranscript(transcript, sends);
+    const entries = stableDeliveryEntries(render(result.rows), sends, result.echoes, memory);
+    assert.deepEqual(entries.map(({ msg, origin }) => [msg.id, msg.content, origin?.kind]), [[send.id, body, "tab"]]);
+  }
 });
 
 for (const kind of ["tab", "report", "mesh", "system", "telegram", "curator", "cli"] as const) {
