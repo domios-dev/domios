@@ -6,6 +6,17 @@
   background: var(--ct-bg);
 }
 
+/* Keep the clip on the snapshot while its radius interpolates. */
+@property --ct-appearance-reveal-size {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+html[data-appearance-motion="wave"] {
+  --ct-appearance-wave-time: 560ms;
+}
+
 html[data-appearance-motion="wave"] [data-appearance-surface] {
   background: transparent !important;
 }
@@ -52,29 +63,41 @@ html[data-appearance-motion]::view-transition-old(appearance-content) {
   opacity: 0;
 }
 
+html[data-appearance-motion="wave"]::view-transition-old(root),
+html[data-appearance-motion="wave"]::view-transition-old(appearance-base),
+html[data-appearance-motion="wave"]::view-transition-old(appearance-wallpaper) {
+  animation: ct-appearance-snapshot-hold var(--ct-appearance-wave-time) linear both;
+}
+
+html[data-appearance-motion="wave"]::view-transition-old(root) {
+  --ct-appearance-held-opacity: 0;
+}
+
 html[data-appearance-motion="wave"]::view-transition-new(appearance-base) {
   --ct-reveal-origin: var(--ct-appearance-origin);
   --ct-reveal-radius: var(--ct-appearance-radius);
-  animation: ct-appearance-wave 560ms cubic-bezier(.2,.7,.2,1) both;
+  clip-path: circle(var(--ct-appearance-reveal-size) at var(--ct-reveal-origin));
+  animation: ct-appearance-wave var(--ct-appearance-wave-time) cubic-bezier(.2,.7,.2,1) both;
   mix-blend-mode: normal;
 }
 
 html[data-appearance-motion="wave"]::view-transition-new(appearance-wallpaper) {
   --ct-reveal-origin: var(--ct-appearance-chat-origin);
   --ct-reveal-radius: var(--ct-appearance-chat-radius);
-  animation: ct-appearance-wave 560ms cubic-bezier(.2,.7,.2,1) both;
+  clip-path: circle(var(--ct-appearance-reveal-size) at var(--ct-reveal-origin));
+  animation: ct-appearance-wave var(--ct-appearance-wave-time) cubic-bezier(.2,.7,.2,1) both;
   mix-blend-mode: normal;
 }
 
 html[data-appearance-motion="wave"][data-appearance-content-fade]::view-transition-old(appearance-content),
 html[data-appearance-motion="fade"]::view-transition-old(root) {
-  animation: ct-appearance-content-fade-out var(--ct-appearance-fade-time, 560ms) ease both;
+  animation: ct-appearance-content-fade-out var(--ct-appearance-fade-time, var(--ct-appearance-wave-time)) ease both;
   mix-blend-mode: plus-lighter;
 }
 
 html[data-appearance-motion="wave"][data-appearance-content-fade]::view-transition-new(appearance-content),
 html[data-appearance-motion="fade"]::view-transition-new(root) {
-  animation: ct-appearance-content-fade-in var(--ct-appearance-fade-time, 560ms) ease both;
+  animation: ct-appearance-content-fade-in var(--ct-appearance-fade-time, var(--ct-appearance-wave-time)) ease both;
   mix-blend-mode: plus-lighter;
 }
 
@@ -83,8 +106,12 @@ html[data-appearance-motion="fade"] {
 }
 
 @keyframes ct-appearance-wave {
-  from { clip-path: circle(0 at var(--ct-reveal-origin)); }
-  to { clip-path: circle(var(--ct-reveal-radius) at var(--ct-reveal-origin)); }
+  from { --ct-appearance-reveal-size: 0px; }
+  to { --ct-appearance-reveal-size: var(--ct-reveal-radius); }
+}
+
+@keyframes ct-appearance-snapshot-hold {
+  from, to { opacity: var(--ct-appearance-held-opacity, 1); }
 }
 
 @keyframes ct-appearance-content-fade-in {
