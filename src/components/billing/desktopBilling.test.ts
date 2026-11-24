@@ -1,6 +1,6 @@
 import { planChangePrice } from "./planCatalog";
 import { expect, it } from "vitest";
-import { parseDesktopCatalog, parseSubscription } from "./desktopBilling";
+import { parseDesktopCatalog, parseSubscription, planChangeCopy, scheduledPlanCopy } from "./desktopBilling";
 
 import { desktopCatalogFixture } from "./desktopBilling.testdata";
 
@@ -25,6 +25,44 @@ it("parses persisted scheduled and confirmation states", () => {
   expect(subscription.pending_change).toEqual({ to_tier: "pro", effective_at: 1700000000, status: "scheduled" });
   expect(parseSubscription({ ...subscription, pending_change: { ...subscription.pending_change!, status: "confirmation_pending" } }).pending_change?.status).toBe("confirmation_pending");
   expect(() => parseSubscription({ current_tier: "max", paid_subscription: null, period_end: null, pending_change: { to_tier: "pro", effective_at: -1, status: "scheduled" } })).toThrow();
+});
+
+it.each([
+  ["Managed Payments", "at_renewal"],
+  ["legacy Stripe", "immediate"],
+  ["Paddle", "immediate"],
+] as const)("uses the server mode for %s plan-change copy", (_subscription, plan_change_mode) => {
+  const period_end = 1_700_000_000;
+  const renewal = "November 14";
+  for (const direction of ["upgrade", "downgrade"] as const) {
+    const [from, to] = direction === "upgrade" ? ["pro", "max"] : ["max", "pro"];
+    const subscription = parseSubscription({
+      current_tier: from,
+      paid_subscription: { tier: from, status: "active", period_end },
+      period_end,
+      plan_change_mode,
+      pending_change: { to_tier: to, effective_at: period_end, status: "scheduled" },
+    });
+    const copy = planChangeCopy(subscription.plan_change_mode, direction);
+    const scheduled = scheduledPlanCopy(subscription, () => renewal);
+    if (plan_change_mode === "at_renewal") {
+      expect(copy.card).toBe("Your plan changes at your next paid renewal. No charge now.");
+      expect(copy.dialog(from, to, renewal)).toContain(`at your next paid renewal (${renewal}). No charge now.`);
+      expect(copy.terms).toBe("Plan changes keep the same billing interval.");
+      expect(scheduled).toContain(`at your next paid renewal (${renewal}). There was no charge for scheduling this change.`);
+    } else {
+      expect(copy.card).toBe(direction === "upgrade" ? "Upgrade now with prorated billing." : "Your current tier stays active until the next renewal.");
+      expect(copy.dialog(from, to, renewal)).toContain(direction === "upgrade" ? "Paddle prorates the charge" : `Max until ${renewal}, Pro from ${renewal}.`);
+      expect(scheduled).toContain(`until ${renewal}`);
+    }
+  }
+});
+
+it("withholds charge and timing claims until the server supplies a valid mode for an upgrade", () => {
+  const value = { current_tier: "pro", paid_subscription: null, period_end: null, pending_change: null };
+  const subscription = parseSubscription(value);
+  expect(planChangeCopy(subscription.plan_change_mode, "upgrade")).toMatchObject({ card: null });
+  expect(() => parseSubscription({ ...value, plan_change_mode: "unexpected" })).toThrow("Invalid plan change mode");
 });
 
 it("uses the subscription interval for target prices and refuses unknown or missing intervals", () => {
