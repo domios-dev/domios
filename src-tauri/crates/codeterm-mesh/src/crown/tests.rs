@@ -41,7 +41,6 @@ fn relay_agent_identity_and_delegation_are_signed() {
         instance_id: "origin-machine".into(),
         tab_id: "agent-tab".into(),
         can_spawn: false,
-        general_main: false,
     };
     let token =
         sign_request_with_agent(&key, "forwarder", AuthenticatedOrigin::Agent, Some(&agent))

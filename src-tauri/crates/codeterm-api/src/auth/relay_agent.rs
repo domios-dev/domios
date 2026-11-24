@@ -1,7 +1,5 @@
 use axum::http::{HeaderMap, StatusCode};
 use codeterm_service_core::mesh::crown::{verify_request_claims, AuthenticatedAgent};
-use codeterm_service_core::service::general_agent::session_contract::owns_main;
-use codeterm_service_core::service::tab_credentials::TabCaller;
 
 use super::{authenticated_origin, AuthenticatedOrigin, RequestActor};
 use crate::routes::AppState;
@@ -48,26 +46,6 @@ fn bearer_token(headers: &HeaderMap) -> &str {
         .unwrap_or_default()
 }
 
-pub(crate) fn is_bound_main(state: &AppState, caller: &TabCaller) -> bool {
-    let mux = state.svc.mux.read();
-    mux.get_tab(&caller.tab_id)
-        .is_some_and(|tab| matches_bound_main(&mux, tab, caller))
-}
-
-fn matches_bound_main(
-    mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
-    tab: &codeterm_service_core::multiplexer::types::Tab,
-    caller: &TabCaller,
-) -> bool {
-    tab.protected
-        && owns_main(mux, tab)
-        && tab.team_id.is_none()
-        && tab.parent_tab_id.is_none()
-        && tab.neighbor_authority.is_none()
-        && tab.launch_session_authenticated()
-        && tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
-}
-
 fn tab_credential_agent(
     state: &AppState,
     token: &str,
@@ -86,7 +64,6 @@ fn tab_credential_agent(
         ));
     }
     let can_spawn = tab.can_spawn;
-    let general_main = matches_bound_main(&mux, tab, &caller);
     drop(mux);
     let can_spawn = can_spawn
         && codeterm_service_core::service::execution_sandbox_refuse_confined_mesh_delegation(
@@ -98,7 +75,6 @@ fn tab_credential_agent(
         instance_id: state.mesh.lock().ident.identity.instance_id.clone(),
         tab_id: caller.tab_id,
         can_spawn,
-        general_main,
     }))
 }
 
