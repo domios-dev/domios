@@ -2912,8 +2912,8 @@ function codexNeighborReplyMcpConfig(ctx) {
   if (server2?.name !== neighborReplyMcp) return {};
   return { [`mcp_servers.${neighborReplyMcp}`]: {
     command: server2.command,
-    args: server2.args,
-    env: server2.env ?? {},
+    args: [...server2.args],
+    env: { ...server2.env ?? {} },
     env_vars: ["CODETERM_API_TOKEN"],
     required: true
   } };

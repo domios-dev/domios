@@ -8,7 +8,7 @@ export function codexNeighborReplyMcpConfig(ctx: RuntimeContext): Record<string,
   const server = ctx.hostMcp;
   if (server?.name !== neighborReplyMcp) return {};
   return {[`mcp_servers.${neighborReplyMcp}`]: {
-    command:server.command,args:server.args,env:server.env ?? {},env_vars:["CODETERM_API_TOKEN"],required:true,
+    command:server.command,args:[...server.args],env:{...(server.env ?? {})},env_vars:["CODETERM_API_TOKEN"],required:true,
   }};
 }
 
