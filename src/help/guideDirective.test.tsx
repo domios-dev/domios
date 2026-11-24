@@ -1,7 +1,7 @@
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { AppConfig } from "../lib/types";
+import { defaultConfig } from "../hooks/useConfig";
 import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./guideNavigation";
 
 function assert(value: unknown, message: string): asserts value {
@@ -38,7 +38,7 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   const { SettingsPanel } = await import("../components/Settings/SettingsPanel");
   const { RichMarkdown } = await import("../../packages/chat-ui/src/MarkdownBody");
   const { GuideNavigationProvider, parseGuideDirective } = await import("../../packages/chat-ui/src/GuideDirective");
-  const config = { keybindings: {} } as AppConfig;
+  const config = defaultConfig();
 
   function Harness({ text, localArtifacts = true }: { text: string; localArtifacts?: boolean }) {
     const [request, setRequest] = useState<GuideRequest>();

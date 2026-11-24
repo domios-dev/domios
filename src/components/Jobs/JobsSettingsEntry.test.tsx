@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { act } from "react";
 import type { ReactNode } from "react";
-import type { AppConfig, Workspace } from "../../lib/types";
+import type { Workspace } from "../../lib/types";
+import { defaultConfig } from "../../hooks/useConfig";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -28,7 +29,7 @@ async function main() {
   function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
 
   test("Settings > Jobs sits right before Logs and opens the same view with no capsules", async () => {
-    const view = await mount(withMux(<SettingsPanel config={{ keybindings: {} } as AppConfig} onUpdateConfig={async () => {}} onClose={() => {}} />));
+    const view = await mount(withMux(<SettingsPanel config={defaultConfig()} onUpdateConfig={async () => {}} onClose={() => {}} />));
     try {
       const sections = Array.from(view.host.querySelectorAll<HTMLButtonElement>('[role="navigation"][aria-label="Settings sections"] button'));
       const jobsIndex = sections.findIndex((button) => button.textContent?.startsWith("Jobs"));
@@ -46,7 +47,7 @@ async function main() {
   });
 
   test("the workspace entry with its capsule removed renders exactly the Settings entry", async () => {
-    const settings = await mount(withMux(<SettingsPanel config={{ keybindings: {} } as AppConfig} onUpdateConfig={async () => {}} onClose={() => {}} initialSection="jobs" />));
+    const settings = await mount(withMux(<SettingsPanel config={defaultConfig()} onUpdateConfig={async () => {}} onClose={() => {}} initialSection="jobs" />));
     const workspace = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={jobsEntryFilter({ kind: "workspace", workspaceId: workspaceA })} adapter={machineTransport()} onClose={() => {}} />);
     try {
       await settle(() => renderedJobs(settings.host).length === 5);
