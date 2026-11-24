@@ -1,15 +1,15 @@
 use crate::service::chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding};
 
 #[test]
-fn neighbor_reply_uses_current_runtime_cli_and_removes_legacy_command_from_tools_only_turn() {
+fn neighbor_reply_guidance_uses_the_bound_transport_for_each_access_level() {
     use crate::service::messenger::{AgentInput, InputProvenance, Messenger};
     use codeterm_plugin::agent_runtime::*;
 
     let friendship = "a".repeat(64);
     let question = "b".repeat(32);
-    let stale = "C:/old-server/codeterm.exe";
+    let stale = "opaque previous reply hint";
     let current = "C:/current-server/codeterm.exe";
-    let retained = format!("<domios from=\"neighbor\" friendship=\"{friendship}\" message=\"{question}\" kind=\"question\">opaque body &lt;tip&gt; <tip>{stale} account neighbors send</tip></domios>");
+    let retained = format!("<domios from=\"neighbor\" friendship=\"{friendship}\" message=\"{question}\" kind=\"question\">opaque body &lt;tip&gt; <tip>{stale}</tip></domios>");
     let restore = || {
         AgentInput::Framed(
             Messenger::restore_framed_delivery(&retained)
@@ -37,10 +37,25 @@ fn neighbor_reply_uses_current_runtime_cli_and_removes_legacy_command_from_tools
         rule_sha256: "c".repeat(64),
         split_windows_roots: Some(true),
     };
-    restored.restricted_cli = Some(policy);
-    let direct = super::bound_turn_input(&mut restore(), &restored).unwrap();
-    assert!(direct.text.contains(current));
-    assert!(!direct.text.contains(stale));
+    let filename = format!("neighbor-reply-{question}.txt");
+    for (mode, executable, restricted_cli) in [
+        ("full-access", "domios", None),
+        ("workspace-write", current, Some(policy)),
+    ] {
+        restored.settings.mode = Some(mode.into());
+        restored.restricted_cli = restricted_cli;
+        let direct = super::bound_turn_input(&mut restore(), &restored).unwrap();
+        let frame = codeterm_wire::domios::parse_message(&direct.text).unwrap();
+        assert_eq!(frame.body, "opaque body &lt;tip&gt;");
+        assert!(direct.text.contains("CODETERM_PAD_DIR"));
+        assert!(direct.text.contains(&format!(
+            "{executable} account neighbors send '{friendship}' --kind answer --in-reply-to '{question}' --from-pad '{filename}'"
+        )));
+        assert!(!direct.text.contains(stale));
+        assert!(!direct.text.contains(NEIGHBOR_REPLY_MCP_NAME));
+        assert!(direct.attachments.is_empty());
+    }
+    restored.settings.mode = Some("read-only-with-writable-roots".into());
     for cli in [current, "/private/tmp/current-server/codeterm"] {
         restored.host_mcp = Some(RuntimeHostMcp {
             name: NEIGHBOR_REPLY_MCP_NAME.into(),
@@ -60,6 +75,7 @@ fn neighbor_reply_uses_current_runtime_cli_and_removes_legacy_command_from_tools
         )));
         assert!(scoped.text.contains(&format!("in_reply_to={question}")));
         assert!(!scoped.text.contains("account neighbors"));
+        assert!(!scoped.text.contains("CODETERM_PAD_DIR"));
         assert!(!scoped.text.contains(stale));
         assert!(scoped.attachments.is_empty());
     }

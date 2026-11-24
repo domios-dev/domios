@@ -297,11 +297,13 @@ for (const [cwd, pad, command] of [
     const params = plan.action.call.params as {config:Record<string,unknown>;runtimeWorkspaceRoots:string[];developerInstructions:string;approvalPolicy:string};
     assert.deepEqual(params.config["mcp_servers.domios_neighbor_reply"],{
       command,args:server.args,env:server.env,env_vars:["CODETERM_API_TOKEN"],required:true,
+      enabled_tools:["reply"],tools:{reply:{approval_mode:"approve"}},
     });
     assert.equal(params.config["sandbox_workspace_write.network_access"],false);
     assert.equal(params.approvalPolicy,"never");
     assert.deepEqual(params.runtimeWorkspaceRoots,[pad]);
-    assert.equal(params.developerInstructions,"opaque guidance");
+    assert.ok(params.developerInstructions.startsWith("opaque guidance\n\n"));
+    assert.ok(params.developerInstructions.includes(JSON.stringify(cwd)));
     assert.equal(params.config.projects,undefined);
   }
 }
