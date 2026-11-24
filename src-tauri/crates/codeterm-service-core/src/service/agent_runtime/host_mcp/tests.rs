@@ -160,9 +160,6 @@ fn neighbor_reply_uses_current_runtime_cli_with_exact_instance_and_tab_launch() 
     )));
     assert!(reply
         .instructions
-        .contains("Domios CLI calls and network access are unavailable"));
-    assert!(reply
-        .instructions
         .contains(&serde_json::to_string(scope).unwrap()));
     for old in [
         "account neighbors",
@@ -195,7 +192,7 @@ fn neighbor_reply_uses_current_runtime_cli_with_exact_instance_and_tab_launch() 
 }
 
 #[test]
-fn neighbor_reply_uses_current_runtime_cli_only_for_live_read_only_root() {
+fn neighbor_reply_selects_transport_from_the_bound_sandbox_and_cli_capability() {
     use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
 
     let (mut mux, root) = MultiplexerState::new();
@@ -207,29 +204,68 @@ fn neighbor_reply_uses_current_runtime_cli_only_for_live_read_only_root() {
         friendship_id: friendship.clone(),
         root_tab_id: None,
     });
-    tab.restorable_launch.execution_sandbox = Some(codeterm_types::plan::ExecutionSandboxPolicy {
+    let read_only = codeterm_types::plan::ExecutionSandboxPolicy {
         intent: ExecutionIntent::ReadOnly,
         cwd: "/friend".into(),
         launch_args: vec![],
         runtime_mode: Some("read-only-with-writable-roots".into()),
         writable_roots: vec!["/own-pad".into()],
         environment: Default::default(),
-    });
-    assert_eq!(
-        read_only_root_friendship(tab, "current"),
-        Some(friendship.as_str())
-    );
-    assert!(read_only_root_friendship(tab, "retired").is_none());
-    tab.neighbor_authority.as_mut().unwrap().root_tab_id = Some("parent".into());
-    assert!(read_only_root_friendship(tab, "current").is_none());
-    tab.neighbor_authority.as_mut().unwrap().root_tab_id = None;
+    };
+    let folder = codeterm_types::plan::ExecutionSandboxPolicy {
+        intent: ExecutionIntent::Mutating,
+        runtime_mode: Some("workspace-write".into()),
+        ..read_only.clone()
+    };
+    let mut context = RuntimeContext {
+        binding_nonce: "current".into(),
+        settings: codeterm_plugin::agent_runtime::RuntimeSettings {
+            network_access: Some(false),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let restricted_cli = RestrictedCliCapability::ExecpolicyServiceOperations {
+        metadata_directory: ".fixture".into(),
+    };
+    for platform in ["macos", "windows", "linux"] {
+        tab.restorable_launch.execution_sandbox = Some(read_only.clone());
+        assert_eq!(
+            sandboxed_reply_friendship(tab, &context, platform, Some(&restricted_cli)),
+            Some(friendship.as_str())
+        );
+        tab.restorable_launch.execution_sandbox = None;
+        tab.restorable_launch.permission_bypass_requested = true;
+        assert!(
+            sandboxed_reply_friendship(tab, &context, platform, Some(&restricted_cli)).is_none()
+        );
+        tab.restorable_launch.permission_bypass_requested = false;
+        tab.restorable_launch.execution_sandbox = Some(folder.clone());
+        let expected = (platform != "windows").then_some(friendship.as_str());
+        assert_eq!(
+            sandboxed_reply_friendship(tab, &context, platform, Some(&restricted_cli)),
+            expected
+        );
+        assert_eq!(
+            sandboxed_reply_friendship(tab, &context, platform, None),
+            Some(friendship.as_str())
+        );
+    }
     tab.restorable_launch
         .execution_sandbox
         .as_mut()
         .unwrap()
-        .intent = ExecutionIntent::Mutating;
-    assert!(read_only_root_friendship(tab, "current").is_none());
-    tab.restorable_launch.execution_sandbox = None;
-    tab.restorable_launch.permission_bypass_requested = true;
-    assert!(read_only_root_friendship(tab, "current").is_none());
+        .runtime_mode = Some("opaque-confined-mode".into());
+    assert_eq!(
+        sandboxed_reply_friendship(tab, &context, "windows", Some(&restricted_cli)),
+        Some(friendship.as_str())
+    );
+    context.settings.network_access = Some(true);
+    assert!(sandboxed_reply_friendship(tab, &context, "macos", Some(&restricted_cli)).is_none());
+    context.settings.network_access = Some(false);
+    context.binding_nonce = "retired".into();
+    assert!(sandboxed_reply_friendship(tab, &context, "macos", Some(&restricted_cli)).is_none());
+    context.binding_nonce = "current".into();
+    tab.neighbor_authority.as_mut().unwrap().root_tab_id = Some("parent".into());
+    assert!(sandboxed_reply_friendship(tab, &context, "macos", Some(&restricted_cli)).is_none());
 }
