@@ -71,8 +71,11 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
     expect(host.querySelector('[role="toolbar"][aria-label="Appearance"]')).not.toBeNull();
     expect(host.querySelector('button[aria-label="Presets"]')?.getAttribute("aria-pressed")).toBe("true");
     expect(host.querySelector('button[aria-label="Presets"]')?.getAttribute("aria-controls")).toBe(host.querySelector('[role="region"][aria-label="Presets"]')?.id);
-    expect([...host.querySelectorAll('select[aria-label="Appearance machine"] option')].map(option => option.textContent))
+    const more = host.querySelector<HTMLButtonElement>('button[aria-label="More appearance options"]')!;
+    await click(more);
+    expect([...document.querySelectorAll('select[aria-label="Appearance machine"] option')].map(option => option.textContent))
       .toEqual(["This machine · Desk #1", "Desk #2"]);
+    await click(more);
     expect(host.querySelector('[role="group"][aria-label="Preview appearance"]')).toBeNull();
     collect();
     await category(host, "Palette");
@@ -170,8 +173,9 @@ it("counts staged changes and discards wallpaper without losing other controls",
     expect(lab.status()).toBe("3 changes");
     expect(lab.button("Apply")?.disabled).toBe(false);
     await click(lab.button("3 changes")!);
-    expect(lab.region().textContent).toContain("Roundness 1.00 → 0.40");
-    await act(async () => lab.button("Revert Roundness")!.click());
+    const staged = document.querySelector('[aria-label="Staged changes"]')!;
+    expect(staged.textContent).toContain("Roundness 1.00 → 0.40");
+    await click(staged.querySelector<HTMLButtonElement>('button[aria-label="Revert Roundness"]')!);
     expect(lab.status()).toBe("2 changes");
     expect(roundness.isConnected).toBe(false);
     expect(lab.project.mock.lastCall?.[0]?.look.tuning).toMatchObject({ roundness: 1, shadow_strength: 0.6 });
@@ -250,7 +254,8 @@ it("keeps older Undo out of the dock and targets Apply to the selected machine a
     rememberNames();
     rememberPeers(paired);
     await lab.render();
-    const select = lab.host.querySelector<HTMLSelectElement>('select[aria-label="Appearance machine"]')!;
+    await click(lab.host.querySelector<HTMLButtonElement>('button[aria-label="More appearance options"]')!);
+    const select = document.querySelector<HTMLSelectElement>('select[aria-label="Appearance machine"]')!;
     await act(async () => {
       select.value = remote.id;
       select.dispatchEvent(new Event("change", { bubbles: true }));

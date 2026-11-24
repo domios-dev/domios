@@ -2,7 +2,7 @@
 
 export {};
 import type { ExtendedState } from "./tree";
-import { configureDaemonTransport } from "../../lib/daemonBootstrap";
+import { configureDaemonTransport, daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import type { FrontendCacheChanges, FrontendCacheCommit, FrontendCacheManifest, FrontendCacheRecord, FrontendCacheSnapshot, FrontendCacheStorage } from "../../lib/frontendCacheRecords";
 
 class FakeCacheStorage implements FrontendCacheStorage {
@@ -287,6 +287,8 @@ test("paired General cache restores rows before reconciliation without enabling 
   const account = "cache-owner";
   const scope = pairedGeneralCacheScope(account)!;
   const peerId = "peer-cache";
+  const peerTransport = daemonTransportForPeer(peerId);
+  const readPeerJson = peerTransport.json;
   const viewerId = `mesh:${peerId}/main`;
   const saved: Tab = { id: "main", title: "Saved General", tab_type: "Terminal", cwd: "/private", pty_id: "private",
     protected: true, role: "Manager", role_profile: "general_agent", agent_session_id: "private-session" };
@@ -329,6 +331,7 @@ test("paired General cache restores rows before reconciliation without enabling 
     return null;
   }
   try {
+    peerTransport.json = async <T,>(): Promise<T> => [] as T;
     await act(async () => root.render(React.createElement(MultiplexerProvider, { pairedCacheAccount: account, children: React.createElement(Probe) })));
     const cachedPeer = firstVisible?.generals[0];
     assert(cachedPeer?.cached && cachedPeer.sessions[0]?.viewerId === viewerId, "the first ready inventory includes the cached viewer");
@@ -349,6 +352,7 @@ test("paired General cache restores rows before reconciliation without enabling 
     assert(state.tabs[viewerId]?.id === viewerId && focusCalls.includes(viewerId), "the authoritative inventory enables activation");
   } finally {
     await act(async () => root.unmount());
+    peerTransport.json = readPeerJson;
     host.remove();
     __setInvokeForTest(null);
     __setListenForTest(null);
@@ -364,15 +368,15 @@ test("mux status-only updates persist one status row and identical status writes
 
   const handlers = new Map<string, Array<(event: { payload: unknown }) => void>>();
   const { __setInvokeForTest } = await import("../../lib/bridge");
-  let resolveMuxListeners!: () => void;
-  const muxListenersBound = new Promise<void>((resolve) => { resolveMuxListeners = resolve; });
+  let resolveMuxListener!: () => void;
+  const muxListenerBound = new Promise<void>((resolve) => { resolveMuxListener = resolve; });
   let resolveStatusListener!: () => void;
   const statusListenerBound = new Promise<void>((resolve) => { resolveStatusListener = resolve; });
   const listenForStatusTest = async <T,>(event: string, handler: (e: { payload: T }) => void): Promise<() => void> => {
     const registered = handlers.get(event) ?? [];
     registered.push(handler as (event: { payload: unknown }) => void);
     handlers.set(event, registered);
-    if (event === "mux-state-changed" && registered.length === 2) resolveMuxListeners();
+    if (event === "mux-state-changed") resolveMuxListener();
     if (event === "tab-status-changed") resolveStatusListener();
     return () => {};
   };
@@ -395,7 +399,7 @@ test("mux status-only updates persist one status row and identical status writes
     renderedState = state;
   }, listenForStatusTest);
   try {
-    await muxListenersBound;
+    await muxListenerBound;
     await statusListenerBound;
     const muxHandlers = handlers.get("mux-state-changed") ?? [];
     const acceptMuxSnapshot = muxHandlers[muxHandlers.length - 1];
@@ -561,4 +565,4 @@ async function main() {
   if (failed > 0) process.exit(1);
 }
 
-void main();
+await main();
