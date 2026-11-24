@@ -32,9 +32,8 @@ import { MessengersCard } from "./MessengersCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import { AppearanceLabUndo } from "./AppearanceLabUndo";
 import { QuickWallpaper } from "./QuickWallpaper";
-import { appearanceError } from "../../lib/appearanceClient";
+import { appearanceError, switchAppearanceTheme } from "../../lib/appearanceClient";
 import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
-import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { AccountTab } from "./AccountTab";
 import { NetworkTab as MeshSettings } from "../MeshPanel/NetworkTab";
 import { AnalyticsToggle } from "./AnalyticsToggle";
@@ -127,17 +126,23 @@ export function SettingsPanel({
   const machineAppearance = useContext(MachineAppearanceContext);
   const theme = machineAppearance?.appearance.theme ?? localConfig.theme;
   const [themeError, setThemeError] = useState("");
+  const [themeBusy, setThemeBusy] = useState(false);
   const [themesDir, setThemesDir] = useState<string>("");
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
   const themeIds = machineAppearance?.peerId ? builtinThemes : themes;
   const chooseTheme = async (name: string) => {
+    if (themeBusy) return;
     setThemeError("");
+    setThemeBusy(true);
     try {
-      await daemonTransportForPeer(machineAppearance?.peerId).json("POST", "/api/themes/apply", { name });
+      const peer = machineAppearance?.peerId;
+      await switchAppearanceTheme({ machine: peer ?? "local", peer }, { kind: "settings", name });
     } catch (failure) {
       setThemeError(appearanceError(failure));
+    } finally {
+      setThemeBusy(false);
     }
   };
 
@@ -281,7 +286,7 @@ export function SettingsPanel({
 
                 <SettingsCard icon={<Palette size={16} />} title="Appearance" description="Theme and wallpaper for this machine"
                   headerRight={onOpenAppearance && <button type="button" autoFocus={focusAppearance} className="ct-settings-link" onClick={() => onOpenAppearance()}>Open Appearance Lab ›</button>}>
-                  {onOpenAppearance && <AppearanceLabUndo key={machineAppearance?.peerId ?? "local"} peer={machineAppearance?.peerId} />}
+                  <AppearanceLabUndo key={machineAppearance?.peerId ?? "local"} peer={machineAppearance?.peerId} disabled={themeBusy} />
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
                     <div className="w-56 min-w-0">
@@ -289,6 +294,7 @@ export function SettingsPanel({
                         data-testid="settings-theme-select"
                         aria-label="Theme"
                         value={theme.name}
+                        disabled={themeBusy}
                         onChange={(name) => void chooseTheme(name)}
                         options={[...new Set([...themeIds, theme.name])].map((name) => ({
                           value: name,

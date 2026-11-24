@@ -34,6 +34,15 @@ pub(super) struct WallpaperAssets {
     draft: parking_lot::Mutex<Option<draft::Draft>>,
 }
 
+impl WallpaperAssets {
+    pub(super) fn svg_asset(&self, id: &str) -> Option<Vec<u8>> {
+        if !id.ends_with(".svg") {
+            return None;
+        }
+        self.store.read(id).ok().map(|(_, bytes)| bytes)
+    }
+}
+
 pub(super) fn routes() -> Router<AppState> {
     with_store(
         WallpaperStore::new(codeterm_service_core::paths::data_dir_path()),
