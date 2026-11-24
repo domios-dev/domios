@@ -444,6 +444,9 @@ pub fn is_local_only_path(path: &str) -> bool {
         || (path.starts_with("/api/tabs/") && path.contains("/preview/canvas/"))
         || (path.starts_with("/api/blueprints/") && path.ends_with("/webhook/configure"))
         || (path.starts_with("/api/teams/") && path.ends_with("/adopt-remote"))
+        || scoped_path(path, "/api/workspaces/").is_some_and(|(_, action)| {
+            scoped_path(action, "tabs/").is_some_and(|(_, action)| action == "close")
+        })
 }
 
 #[cfg(test)]

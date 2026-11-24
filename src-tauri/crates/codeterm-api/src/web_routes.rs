@@ -167,29 +167,45 @@ pub async fn tab_focus(
 
 pub async fn tab_close(
     AxumState(state): AxumState<AppState>,
+    axum::Extension(identity): axum::Extension<crate::auth::CallerIdentity>,
     headers: crate::auth::AgentHeaders,
-    Path((_workspace_id, tab_id)): Path<(String, String)>,
+    Path((workspace_id, tab_id)): Path<(String, String)>,
     Query(query): Query<crate::tab_routes::CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    if matches!(headers.actor, crate::auth::RequestActor::Owner) {
-        return close_tab_as_owner(&state, &tab_id, query.force).await;
+    if !matches!(identity, crate::auth::CallerIdentity::Local)
+        || !matches!(headers.actor, crate::auth::RequestActor::Owner)
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "This operation requires the local owner".into(),
+        ));
     }
-    state
-        .svc
-        .close_tab_async(&tab_id)
-        .await
-        .map_err(crate::tab_routes::map_close_error)?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    let service = state.svc.clone();
+    let requested_tab = tab_id.clone();
+    close_tab_as_owner(&state, &tab_id, query.force, move || {
+        let mux = service.mux.read();
+        if mux
+            .resolve_tab_id(&requested_tab)
+            .and_then(|tab_id| mux.find_workspace_for_tab(&tab_id))
+            .as_deref()
+            != Some(workspace_id.as_str())
+        {
+            return Err("Tab not found in this workspace".into());
+        }
+        Ok(())
+    })
+    .await
 }
 
 pub(crate) async fn close_tab_as_owner(
     state: &AppState,
     tab_id: &str,
     force: bool,
+    check: impl FnOnce() -> Result<(), String> + Send + 'static,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let closed = state
         .svc
-        .close_tab_as_owner_async(tab_id, force)
+        .close_tab_as_owner_async_checked(tab_id, force, check)
         .await
         .map_err(crate::tab_routes::map_close_error)?;
     if !closed {

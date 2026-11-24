@@ -143,10 +143,21 @@ pub(super) async fn close_tab_from_mesh_owner(
     state: &AppState,
     tab_id: &str,
     path: &str,
+    grant: crate::auth::peer_grant::PeerGrant,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let force = tab_close_force(path)?;
+    let mesh = state.mesh.clone();
     Ok(tab_close_relay_response(
-        crate::web_routes::close_tab_as_owner(state, tab_id, force).await,
+        crate::web_routes::close_tab_as_owner(state, tab_id, force, move || {
+            if !grant.current(&mesh.lock()) {
+                return Err(format!(
+                    "{}: Peer authorization changed",
+                    codeterm_service_core::service::tab::REMOTE_TAB_CLOSE_REFUSAL_PREFIX
+                ));
+            }
+            Ok(())
+        })
+        .await,
     ))
 }
 
