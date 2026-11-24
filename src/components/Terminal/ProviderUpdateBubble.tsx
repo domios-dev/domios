@@ -17,13 +17,13 @@ export function ProviderUpdateNotice({ model, onUpdate, onDismiss }: {
   </div>;
 }
 
-export function ProviderUpdateBubble({ providerId, callerTabId }: { providerId: string; callerTabId?: string }) {
+export function ProviderUpdateBubble({ providerId, callerTabId, turnInProgress = false }: { providerId: string; callerTabId?: string; turnInProgress?: boolean }) {
   const { status, refresh } = useProviderCliStatus(providerId);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const model = providerUpdateModel(status?.display_name ?? providerId, status);
-  if (!model || dismissed === `${providerId}:${model.key}`) return null;
+  if (turnInProgress || !model || dismissed === `${providerId}:${model.key}`) return null;
   const update = async () => {
     if (launching) return;
     setLaunching(true); setFailure(null);

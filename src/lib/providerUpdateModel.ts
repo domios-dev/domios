@@ -11,7 +11,8 @@ export function providerUpdateModel(provider: string, status: ProviderCliStatus 
   if (!status?.required || status.installed !== true) return null;
   const job = status.update_job;
   if (job) return {
-    key: `${job.tab_id}:${job.state}`, state: job.state, message: job.summary,
+    key: `${job.tab_id}:${job.state}`, state: job.state,
+    message: job.summary.replace(/^\S+(?= CLI (?:updated to |update: ))/, () => provider),
     canUpdate: job.state === "failed" && !!status.updater && !!status.latest_version,
   };
   if (!status.latest_version) return null;

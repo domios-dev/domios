@@ -1104,7 +1104,7 @@ function TabSessionChatBody({
       )}
       </div>
       <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
-      <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
+      <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId} turnInProgress={agentActivity.active || agentActivity.kind === "waiting-on-user"}>
         {remoteChatReconnecting && !remoteChat.state && <span className="sr-only" role="status" aria-live="polite">Reconnecting</span>}
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
