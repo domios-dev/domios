@@ -162,10 +162,6 @@
   border-radius: 50%;
 }
 
-.ct-machine-constellation[data-single] > i {
-  width: 9px;
-}
-
 .ct-machine-constellation > [data-offline] {
   opacity: .7;
 }
@@ -212,8 +208,97 @@
   background: var(--ct-green);
 }
 
+.ct-machine-footer {
+  margin: 6px 4px 0;
+  padding: 12px 4px 8px;
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+.ct-machine-footer[data-invitation] {
+  padding: 12px;
+}
+
+.ct-machine-footer__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ct-machine-footer__description {
+  margin: 8px 0 10px;
+  color: var(--ct-muted-fg);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.ct-machine-footer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.ct-machine-footer[data-invitation] .ct-machine-footer__actions {
+  justify-content: flex-start;
+}
+
+.ct-machine-footer__actions button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  gap: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ct-machine-footer__actions button:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+.ct-machine-footer__actions button:hover {
+  box-shadow: inset 0 0 0 1px var(--ct-border-subtle);
+}
+
+.ct-machine-footer__add {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.ct-machine-footer__plus {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  margin-inline-end: 4px;
+  place-items: center;
+  border: 1px dashed var(--ct-muted-fg);
+  border-radius: 8px;
+}
+
+.ct-machine-footer[data-invitation] .ct-machine-footer__add {
+  min-height: 30px;
+  padding-inline: 12px;
+  background: var(--ct-accent);
+  color: var(--ct-on-accent);
+}
+
+.ct-machine-footer[data-invitation] .ct-machine-footer__plus {
+  width: auto;
+  height: auto;
+  margin: 0;
+  border: 0;
+}
+
+.ct-machine-footer__mesh {
+  padding-inline: 6px;
+  color: var(--ct-muted-fg);
+  font-size: 12.5px;
+}
+
 @media (forced-colors: active) {
   .ct-machine-option:focus-visible,
+  .ct-machine-footer__actions button:focus-visible,
   .ct-bar-pill.ct-machine-switcher:focus-visible::before {
     outline-color: Highlight;
   }

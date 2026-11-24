@@ -104,6 +104,7 @@ import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
 import { useSessionRevocationScreen } from "./components/Settings/useSessionRevocationScreen";
 import { useAccount } from "./components/Settings/useAccount";
 import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
+import type { MeshTab } from "./components/MeshPanel/types";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 import { neighborsEnabled } from "./components/Neighbors/neighborsSwitch";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
@@ -276,7 +277,7 @@ function AppInner() {
       return open ? "memory" : "workspace";
     });
   }, []);
-  const [meshInventoryRequest, setMeshInventoryRequest] = useState(0);
+  const [meshTabRequest, setMeshTabRequest] = useState<{ tab: MeshTab }>();
   const setMeshOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "mesh";
@@ -447,6 +448,7 @@ function AppInner() {
         panel?: string;
         cwd?: string | null;
         memoryState?: MemoryInitialState;
+        meshTab?: MeshTab;
       }>).detail;
       const panel = detail?.panel;
       if (lockedRef.current) {
@@ -465,7 +467,7 @@ function AppInner() {
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
         openSettings(panel.slice("settings:".length) as SettingsLinkId);
       } else if (panel === "mesh") {
-        setMeshInventoryRequest(request => request + 1);
+        setMeshTabRequest({ tab: detail?.meshTab === "network" ? "network" : "inventory" });
         setMeshOpen(true);
         closeSidebarOnMobile();
       } else if (panel === "neighbors") {
@@ -970,7 +972,7 @@ function AppInner() {
                 config={config}
                 onConfigUpdate={updateConfig}
                 onClose={closeMesh}
-                inventoryRequest={meshInventoryRequest}
+                tabRequest={meshTabRequest}
               />
             </div>
           )}

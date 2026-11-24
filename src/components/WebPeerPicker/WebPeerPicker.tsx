@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Network } from "lucide-react";
+import { flushSync } from "react-dom";
+import { ArrowRight, Check, ChevronDown, Network, Plus } from "lucide-react";
 import type { MeshPeersResponse } from "../../../gen/MeshPeersResponse";
 import type { PairedPeer } from "../../../gen/PairedPeer";
 import { listen } from "../../lib/bridge";
@@ -129,12 +130,21 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     };
   }, [refresh]);
 
-  const options = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
-
   const close = () => {
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
   };
+
+  function openMesh(meshTab: "inventory" | "network") {
+    const previousFocus = document.activeElement;
+    flushSync(() => {
+      setOpen(false);
+      window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "mesh", meshTab } }));
+    });
+    if (document.activeElement === previousFocus || document.activeElement === document.body) {
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -147,7 +157,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       close();
       return;
     }
-    const items = options();
+    const items = Array.from(event.currentTarget.querySelectorAll("button"));
     const focused = items.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "Enter" && focused !== -1) {
       event.preventDefault();
@@ -165,8 +175,9 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine";
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
   const local = { name: accountNames.local ?? localName, identity: identities.local_machine_identity };
-  const all = filter === "all";
-  const localSelected = filter === "local";
+  const singleMachine = peers.length === 0;
+  const all = !singleMachine && filter === "all";
+  const localSelected = filter === "local" || (singleMachine && !target);
   const label = all ? "All machines" : target
     ? selectedPeer ? peerName(selectedPeer) : cleanMachineName(target.name, target.id) ?? "Machine"
     : local.name;
@@ -179,7 +190,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     desaturateMachineColor(selectedAppearance.theme.blue, selectedOnline), viewer.background, viewer.foreground, 0.15,
   ) : undefined;
   const onlineCount = 1 + peers.filter(peer => peer.online).length;
-  const machineCount = `${peers.length + 1} ${peers.length ? "machines" : "machine"}`;
+  const machineCount = `${peers.length + 1} machines`;
 
   function select(selection: Parameters<typeof setSidebarMachineFilter>[0], option: HTMLButtonElement, animate = true) {
     const bounds = option.getBoundingClientRect();
@@ -218,40 +229,59 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         <ChevronDown size={12} className="ct-machine-switcher__chevron shrink-0 opacity-60" aria-hidden="true" />
       </button>
       <AnchoredPopover open={open} anchor={triggerRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={() => setOpen(false)}>
-        <div id={menuId} ref={menuRef} data-testid="peer-picker-menu" role="listbox" aria-label="Machines"
+        <div ref={menuRef}
           onKeyDown={onOptionKeyDown} onBlur={event => {
             if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== triggerRef.current) setOpen(false);
           }}
           className="ct-menu ct-menu--opaque ct-machine-list"
         >
-          <button type="button" role="option" tabIndex={-1} data-testid="peer-picker-all" aria-selected={all}
-            aria-label={`All machines, ${machineCount}, ${onlineCount} online`}
-            onClick={event => select("all", event.currentTarget)} className="ct-machine-option ct-machine-option--all">
-            <span className="ct-machine-constellation" aria-hidden="true" data-single={peers.length === 0 || undefined}
-              style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peers.length + 1))}, minmax(0, 1fr))` }}>
-              <MachineDot online />
-              {peers.map(peer => <MachineDot key={peer.instance_id} peerId={peer.instance_id} online={peer.online} />)}
-            </span>
-            <span className="ct-machine-option__copy">
-              <span>All machines</span>
-              <span className="ct-machine-option__status">{machineCount} · {onlineCount} online</span>
-            </span>
-            {all && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}
-          </button>
-          <MachineOption {...local} local status="online" working={localWorking} online selected={localSelected}
-            viewer={viewer}
-            onSelect={option => select("local", option)} />
-          {peers.map(peer => {
-            const name = peerName(peer);
-            const status = peerStatus(peer);
-            const working = browse?.target.id === peer.instance_id && browse.availability === "online"
-              ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
-              : 0;
-            return <MachineOption key={peer.instance_id} name={name} identity={identities.machine_identities?.[peer.instance_id]}
-              peerId={peer.instance_id} status={status} working={working} online={peer.online} selected={target?.id === peer.instance_id}
+          <div id={menuId} data-testid="peer-picker-menu" role="listbox" aria-label="Machines">
+            {!singleMachine && <button type="button" role="option" tabIndex={-1} data-testid="peer-picker-all" aria-selected={all}
+              aria-label={`All machines, ${machineCount}, ${onlineCount} online`}
+              onClick={event => select("all", event.currentTarget)} className="ct-machine-option ct-machine-option--all">
+              <span className="ct-machine-constellation" aria-hidden="true"
+                style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peers.length + 1))}, minmax(0, 1fr))` }}>
+                <MachineDot online />
+                {peers.map(peer => <MachineDot key={peer.instance_id} peerId={peer.instance_id} online={peer.online} />)}
+              </span>
+              <span className="ct-machine-option__copy">
+                <span>All machines</span>
+                <span className="ct-machine-option__status">{machineCount} · {onlineCount} online</span>
+              </span>
+              {all && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}
+            </button>}
+            <MachineOption {...local} local status="online" working={localWorking} online selected={localSelected}
               viewer={viewer}
-              onSelect={option => select({ id: peer.instance_id, name }, option, status === "online")} />;
-          })}
+              onSelect={option => select("local", option)} />
+            {peers.map(peer => {
+              const name = peerName(peer);
+              const status = peerStatus(peer);
+              const working = browse?.target.id === peer.instance_id && browse.availability === "online"
+                ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
+                : 0;
+              return <MachineOption key={peer.instance_id} name={name} identity={identities.machine_identities?.[peer.instance_id]}
+                peerId={peer.instance_id} status={status} working={working} online={peer.online} selected={target?.id === peer.instance_id}
+                viewer={viewer}
+                onSelect={option => select({ id: peer.instance_id, name }, option, status === "online")} />;
+            })}
+          </div>
+          <div role="group" aria-label="Mesh actions" className="ct-machine-footer" data-invitation={singleMachine || undefined}>
+            {singleMachine && <>
+              <p className="ct-machine-footer__title">Work across your computers</p>
+              <p className="ct-machine-footer__description">Install Domios on another computer and pair it to see its agents here.</p>
+            </>}
+            <div className="ct-machine-footer__actions">
+              <button type="button" tabIndex={-1} className="ct-machine-footer__add" onClick={() => openMesh("network")}>
+                <span className="ct-machine-footer__plus" aria-hidden="true"><Plus size={14} /></span>
+                Add machine
+              </button>
+              <button type="button" tabIndex={-1} className="ct-machine-footer__mesh" onClick={() => openMesh("inventory")}>
+                {!singleMachine && <Network size={13} aria-hidden="true" />}
+                Open Mesh
+                <ArrowRight size={12} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </div>
       </AnchoredPopover>
     </div>
