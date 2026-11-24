@@ -9,6 +9,7 @@ pub struct ActionCompletion {
     session: String,
     target: String,
     requested: bool,
+    loading_started: bool,
     loader: Option<String>,
     loaded: HashSet<String>,
     url: Option<String>,
@@ -48,6 +49,7 @@ impl ActionCompletion {
             session: page.session_id().into(),
             target: page.target_id().into(),
             requested: false,
+            loading_started: false,
             loader: None,
             loaded: HashSet::new(),
             url: None,
@@ -71,10 +73,12 @@ impl ActionCompletion {
             return Ok(());
         }
         match event.method.as_str() {
-            "Page.frameRequestedNavigation" | "Page.frameStartedLoading"
-                if p["frameId"] == self.frame =>
-            {
+            "Page.frameRequestedNavigation" if p["frameId"] == self.frame => {
                 self.requested = true;
+                self.same_document = false;
+            }
+            "Page.frameStartedLoading" if p["frameId"] == self.frame => {
+                self.loading_started = true;
                 self.same_document = false;
             }
             "Page.frameStartedNavigating" if p["frameId"] == self.frame => {
@@ -115,6 +119,7 @@ impl ActionCompletion {
             }
             "Page.navigatedWithinDocument" if p["frameId"] == self.frame => {
                 self.same_document = true;
+                self.loading_started = false;
                 self.url = p["url"].as_str().map(str::to_string);
             }
             "Page.lifecycleEvent" if p["frameId"] == self.frame && p["name"] == "load" => {
@@ -177,7 +182,7 @@ impl ActionCompletion {
                 if self.same_document && self.loader.is_none() && !self.requested {
                     return Ok((reply, format!("same-document navigation: {}", self.url.as_deref().unwrap_or("(unknown URL)"))));
                 }
-                if !navigation_required && !self.requested {
+                if !navigation_required && !self.requested && !self.loading_started {
                     return Ok((reply, "action acknowledged; asynchronous effects require an explicit state wait".into()));
                 }
                 let event = self.events.recv().await.ok_or("action_unconfirmed: browser observation closed")?;
