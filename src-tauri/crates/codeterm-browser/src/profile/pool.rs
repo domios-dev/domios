@@ -234,7 +234,8 @@ impl ProfileLease {
     }
 }
 
-/// Closes a page target while accepting only `beforeunload` dialogs raised by closing it.
+/// Closes a page target while accepting only a `beforeunload` dialog raised by closing it.
+/// Tracks ordered open/close generations so a superseded `beforeunload` never answers a later dialog.
 async fn close_target_accepting_beforeunload(
     client: &CdpClient,
     target_id: &str,
@@ -244,7 +245,10 @@ async fn close_target_accepting_beforeunload(
     let mut dialogs = session_id.map(|sid| {
         client.subscribe(EventFilter {
             session: SessionFilter::Session(sid.to_string()),
-            methods: vec!["Page.javascriptDialogOpening".into()],
+            methods: vec![
+                "Page.javascriptDialogOpening".into(),
+                "Page.javascriptDialogClosed".into(),
+            ],
         })
     });
     let close = client.send_to(
@@ -254,6 +258,9 @@ async fn close_target_accepting_beforeunload(
         deadline,
     );
     tokio::pin!(close);
+    let mut next_gen: u64 = 0;
+    let mut current_dialog: Option<(u64, bool)> = None;
+    let mut handled_gen: Option<u64> = None;
     let result = loop {
         tokio::select! {
             result = &mut close => break result,
@@ -263,25 +270,42 @@ async fn close_target_accepting_beforeunload(
                     None => std::future::pending().await,
                 }
             } => {
-                let Some(event) = event else {
+                let Some(first) = event else {
                     dialogs = None;
                     continue;
                 };
-                if event
-                    .params
-                    .get("type")
-                    .and_then(serde_json::Value::as_str)
-                    == Some("beforeunload")
-                {
-                    if let Some(sid) = session_id {
-                        let _ = client
-                            .send_to(
-                                Some(sid),
-                                "Page.handleJavaScriptDialog",
-                                json!({ "accept": true }),
-                                deadline,
-                            )
-                            .await;
+                let mut apply = |ev: &crate::cdp_wire::CdpEvent| {
+                    if ev.method == "Page.javascriptDialogOpening" {
+                        next_gen += 1;
+                        let is_beforeunload = ev
+                            .params
+                            .get("type")
+                            .and_then(serde_json::Value::as_str)
+                            == Some("beforeunload");
+                        current_dialog = Some((next_gen, is_beforeunload));
+                    } else if ev.method == "Page.javascriptDialogClosed" {
+                        current_dialog = None;
+                    }
+                };
+                apply(first.as_ref());
+                if let Some(stream) = dialogs.as_mut() {
+                    while let Ok(queued) = stream.try_recv() {
+                        apply(queued.as_ref());
+                    }
+                }
+                if let Some((dialog_gen, true)) = current_dialog {
+                    if handled_gen != Some(dialog_gen) {
+                        handled_gen = Some(dialog_gen);
+                        if let Some(sid) = session_id {
+                            let _ = client
+                                .send_to(
+                                    Some(sid),
+                                    "Page.handleJavaScriptDialog",
+                                    json!({ "accept": true }),
+                                    deadline,
+                                )
+                                .await;
+                        }
                     }
                 }
             }

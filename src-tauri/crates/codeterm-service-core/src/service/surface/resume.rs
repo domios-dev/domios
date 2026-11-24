@@ -73,35 +73,73 @@ impl ServiceContext {
 
 async fn follow_resume(
     tab_id: String,
-    mut updates: watch::Receiver<SurfaceResume>,
+    updates: watch::Receiver<SurfaceResume>,
     mux: MuxState,
     svc: ServiceContext,
 ) {
-    // Sync once on attach in case the runtime recorded a profile before this watcher subscribed.
+    drive_resume_updates(updates, RESUME_COALESCE, move |resume| {
+        let (mux, svc, tab) = (mux.clone(), svc.clone(), tab_id.clone());
+        async move {
+            let written = tokio::task::spawn_blocking(move || {
+                write_surface_resume(&svc, &mux, &tab, &resume)
+            })
+            .await;
+            matches!(written, Ok(Some(_)))
+        }
+    })
+    .await;
+}
+
+/// Persists profile changes immediately (even during an active URL coalesce window) while
+/// coalescing rapid URL-only updates into a single write.
+async fn drive_resume_updates<F, Fut>(
+    mut updates: watch::Receiver<SurfaceResume>,
+    coalesce: Duration,
+    mut on_write: F,
+) where
+    F: FnMut(SurfaceResume) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
     let initial = updates.borrow_and_update().clone();
-    let mut last_profile = initial.profile.clone();
-    if !initial.is_empty() {
-        let (mux, svc, tab) = (mux.clone(), svc.clone(), tab_id.clone());
-        let written =
-            tokio::task::spawn_blocking(move || write_surface_resume(&svc, &mux, &tab, &initial))
-                .await;
-        if !matches!(written, Ok(Some(_))) {
-            return;
-        }
+    let mut last_written_profile = initial.profile.clone();
+    if !initial.is_empty() && !on_write(initial).await {
+        return;
     }
-    while updates.changed().await.is_ok() {
-        let profile_changed = updates.borrow().profile != last_profile;
-        if !profile_changed {
-            tokio::time::sleep(RESUME_COALESCE).await;
-        }
-        let resume = updates.borrow_and_update().clone();
-        last_profile = resume.profile.clone();
-        let (mux, svc, tab) = (mux.clone(), svc.clone(), tab_id.clone());
-        let written =
-            tokio::task::spawn_blocking(move || write_surface_resume(&svc, &mux, &tab, &resume))
-                .await;
-        if !matches!(written, Ok(Some(_))) {
-            break;
+    let mut pending_url_deadline: Option<tokio::time::Instant> = None;
+    loop {
+        let flush_now = match pending_url_deadline {
+            Some(deadline) => {
+                tokio::select! {
+                    biased;
+                    changed = updates.changed() => {
+                        if changed.is_err() {
+                            true
+                        } else {
+                            updates.borrow_and_update().profile != last_written_profile
+                        }
+                    }
+                    _ = tokio::time::sleep_until(deadline) => true,
+                }
+            }
+            None => {
+                if updates.changed().await.is_err() {
+                    break;
+                }
+                if updates.borrow_and_update().profile != last_written_profile {
+                    true
+                } else {
+                    pending_url_deadline = Some(tokio::time::Instant::now() + coalesce);
+                    false
+                }
+            }
+        };
+        if flush_now {
+            pending_url_deadline = None;
+            let resume = updates.borrow_and_update().clone();
+            last_written_profile = resume.profile.clone();
+            if !on_write(resume).await {
+                break;
+            }
         }
     }
 }
@@ -164,5 +202,69 @@ mod tests {
             backing_resume(mux.get_tab(&tab_id).unwrap().surface().unwrap()),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn profile_change_during_url_coalesce_persists_immediately() {
+        let (tx, rx) = watch::channel(SurfaceResume::default());
+        let (written_tx, mut written_rx) = tokio::sync::mpsc::unbounded_channel();
+        // Long coalesce window proves the profile change wakes immediately rather than waiting on the timer.
+        let driver = tokio::spawn(drive_resume_updates(
+            rx,
+            Duration::from_secs(60),
+            move |resume| {
+                let written_tx = written_tx.clone();
+                async move { written_tx.send(resume).is_ok() }
+            },
+        ));
+        tx.send_replace(SurfaceResume {
+            url: Some("https://a.test/1".into()),
+            profile: None,
+        });
+        tx.send_replace(SurfaceResume {
+            url: Some("https://a.test/1b".into()),
+            profile: None,
+        });
+        tokio::task::yield_now().await;
+        assert!(
+            written_rx.try_recv().is_err(),
+            "URL-only updates should coalesce inside the window"
+        );
+        tx.send_replace(SurfaceResume {
+            url: Some("https://a.test/2".into()),
+            profile: Some("Andrey".into()),
+        });
+        let persisted = tokio::time::timeout(Duration::from_secs(1), written_rx.recv())
+            .await
+            .expect("profile change must flush immediately without waiting for URL coalesce")
+            .unwrap();
+        assert_eq!(persisted.url.as_deref(), Some("https://a.test/2"));
+        assert_eq!(persisted.profile.as_deref(), Some("Andrey"));
+        drop(tx);
+        driver.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn initial_non_empty_resume_flushes_immediately_on_attach() {
+        let (tx, rx) = watch::channel(SurfaceResume {
+            url: None,
+            profile: Some("Work".into()),
+        });
+        let (written_tx, mut written_rx) = tokio::sync::mpsc::unbounded_channel();
+        let driver = tokio::spawn(drive_resume_updates(
+            rx,
+            Duration::from_secs(60),
+            move |resume| {
+                let written_tx = written_tx.clone();
+                async move { written_tx.send(resume).is_ok() }
+            },
+        ));
+        let persisted = tokio::time::timeout(Duration::from_secs(1), written_rx.recv())
+            .await
+            .expect("pre-existing resume must flush on attach")
+            .unwrap();
+        assert_eq!(persisted.profile.as_deref(), Some("Work"));
+        drop(tx);
+        driver.await.unwrap();
     }
 }

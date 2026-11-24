@@ -143,13 +143,36 @@ fn browser_page_navigation_drops_refs_and_dialogs_flag_needs_human() {
 }
 
 #[test]
-fn browser_page_agent_navigation_absorbs_beforeunload_but_surfaces_alert() {
+fn browser_page_agent_navigation_tracks_beforeunload_and_surfaces_on_cancel_or_alert() {
     let shared = PageShared::new("Orla");
     shared.session.lock().bound_session = Some("s".into());
-    assert_eq!(
-        shared.begin_agent_navigation("s").unwrap(),
-        NavigationStartPlan::Proceed
+    let token = shared.begin_agent_navigation("s").unwrap();
+    shared.apply(
+        "s",
+        PageUpdate::DialogOpened(ActiveDialog::from_cdp_params(&json!({
+            "type": "beforeunload",
+            "message": "Draft",
+            "url": "https://x.com/compose/post",
+        }))),
     );
+    assert_eq!(shared.state().needs_human, NEEDS_NONE);
+    assert!(shared.can_accept_beforeunload("s", token, 1));
+
+    // Ending/cancelling navigation before the dialog closes immediately surfaces it as blocking.
+    shared.end_agent_navigation("s", token);
+    assert_eq!(shared.state().needs_human, "dialog");
+    assert!(!shared.can_accept_beforeunload("s", token, 1));
+    assert_eq!(
+        shared.active_dialog().map(|d| d.status_line()),
+        Some("dialog: beforeunload — Draft".into())
+    );
+    assert!(shared.check_page_verb().is_err());
+
+    shared.apply("s", PageUpdate::DialogClosed);
+    assert_eq!(shared.state().needs_human, NEEDS_NONE);
+
+    // Authority revocation also revokes beforeunload auto-accept immediately.
+    let token2 = shared.begin_agent_navigation("s").unwrap();
     shared.apply(
         "s",
         PageUpdate::DialogOpened(ActiveDialog::from_cdp_params(&json!({
@@ -158,9 +181,15 @@ fn browser_page_agent_navigation_absorbs_beforeunload_but_surfaces_alert() {
             "url": "https://x.com/compose/post",
         }))),
     );
+    assert!(shared.can_accept_beforeunload("s", token2, 2));
+    shared.invalidate_action();
+    assert!(!shared.can_accept_beforeunload("s", token2, 2));
+    assert_eq!(shared.state().needs_human, "dialog");
+    shared.apply("s", PageUpdate::DialogClosed);
     assert_eq!(shared.state().needs_human, NEEDS_NONE);
-    assert_eq!(shared.active_dialog(), None);
 
+    // An alert during agent navigation always blocks immediately.
+    let token3 = shared.begin_agent_navigation("s").unwrap();
     shared.apply(
         "s",
         PageUpdate::DialogOpened(ActiveDialog::from_cdp_params(&json!({
@@ -170,9 +199,10 @@ fn browser_page_agent_navigation_absorbs_beforeunload_but_surfaces_alert() {
         }))),
     );
     assert_eq!(shared.state().needs_human, "dialog");
-    assert!(shared.check_page_verb("goto").is_err());
-    shared.end_agent_navigation("s");
-    shared.clear_dialog("s");
+    assert!(!shared.can_accept_beforeunload("s", token3, 3));
+    assert!(shared.check_page_verb().is_err());
+    shared.end_agent_navigation("s", token3);
+    shared.apply("s", PageUpdate::DialogClosed);
     assert_eq!(shared.state().needs_human, NEEDS_NONE);
 }
 

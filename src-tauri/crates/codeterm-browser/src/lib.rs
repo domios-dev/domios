@@ -96,13 +96,7 @@ pub fn plan_open(current: Option<(&BrowserMode, bool)>, wanted: &ProfileKind) ->
         Some((BrowserMode::Launched { profile }, true)) => {
             let same = match (profile, wanted) {
                 (ProfileKind::Clean { .. }, ProfileKind::Clean { .. }) => true,
-                (ProfileKind::Named { name: a }, ProfileKind::Named { name: b }) => {
-                    if crate::sweep::paths_case_insensitive() {
-                        a.eq_ignore_ascii_case(b)
-                    } else {
-                        a == b
-                    }
-                }
+                (ProfileKind::Named { name: a }, ProfileKind::Named { name: b }) => a == b,
                 _ => false,
             };
             if same {

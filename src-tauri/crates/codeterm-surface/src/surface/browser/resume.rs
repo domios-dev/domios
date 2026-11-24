@@ -40,23 +40,14 @@ pub(super) fn restored_profile(wanted: &str, available: &[String]) -> Option<Str
     )
 }
 
-/// Resolves a remembered profile against available directory names, honoring OS path casing.
+/// Resolves a remembered profile against available directory names, preferring exact matches first.
 pub(super) fn restored_profile_matching(
     wanted: &str,
     available: &[String],
     case_insensitive: bool,
 ) -> Option<String> {
     let name = resumable_profile(wanted)?;
-    if let Some(exact) = available.iter().find(|known| *known == &name) {
-        return Some(exact.clone());
-    }
-    if case_insensitive {
-        return available
-            .iter()
-            .find(|known| known.eq_ignore_ascii_case(&name))
-            .cloned();
-    }
-    None
+    codeterm_browser::profile::match_profile_name(&name, available, case_insensitive)
 }
 
 #[cfg(test)]
@@ -133,6 +124,16 @@ mod tests {
         assert_eq!(restored_profile_matching("Andrey", &available, false), None);
         assert_eq!(
             restored_profile_matching("Work", &available, false).as_deref(),
+            Some("Work")
+        );
+        // When both spellings exist (e.g. case-sensitive macOS volume), exact match wins.
+        let both = vec!["Work".to_string(), "work".to_string()];
+        assert_eq!(
+            restored_profile_matching("work", &both, true).as_deref(),
+            Some("work")
+        );
+        assert_eq!(
+            restored_profile_matching("Work", &both, true).as_deref(),
             Some("Work")
         );
     }

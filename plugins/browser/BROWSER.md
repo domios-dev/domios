@@ -45,7 +45,7 @@ Rules:
 
 ## When the page needs the user
 
-Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Blocking JS dialogs print `dialog: <type>` in `status` and fail page verbs promptly. Never dismiss `alert`/`confirm`/`prompt`; name the blocker for *Take control*, then re-snapshot. Agent `goto`/`reload`/`back`/`forward`/`close` accept their own `beforeunload` prompt and report `(beforeunload dialog accepted)`.
+Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Blocking JS dialogs print `dialog: <type>` in `status` and fail page verbs promptly. Never dismiss `alert`/`confirm`/`prompt` or any pre-existing dialog; name the blocker for *Take control*, then re-snapshot. Agent `goto`/`reload`/`back`/`forward` accept a `beforeunload` prompt they raise and report `(beforeunload dialog accepted)`; `close` also accepts a `beforeunload` prompt raised by closing the tab.
 
 ## User annotations
 

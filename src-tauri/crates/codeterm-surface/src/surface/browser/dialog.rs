@@ -74,7 +74,7 @@ impl ActiveDialog {
         };
         if self.kind.is_beforeunload() {
             format!(
-                "blocked: page has an open {detail}; run `goto`, `reload`, `back`, `forward`, or `close` to leave the page, or ask the user to use Take control"
+                "blocked: page has an open {detail} (needs human: dialog); agents cannot dismiss pre-existing dialogs — ask the user to use Take control, then inspect before continuing"
             )
         } else {
             format!(
@@ -95,85 +95,116 @@ fn bound_dialog_message(raw: &str) -> String {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DialogOpeningDecision {
-    /// Agent-initiated navigation caused this `beforeunload`; the navigation verb resolves it.
-    AcceptForAgentNavigation,
-    /// Must remain open and surface as `needs human: dialog`.
-    BlockForHuman,
-}
-
+/// One observed JavaScript dialog with its monotonic generation and causal navigation owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum NavigationStartPlan {
-    /// No blocking dialog; send the requested navigation directly.
-    Proceed,
-    /// A stale `beforeunload` dialog is already open; dismiss (`accept: false`) to cancel
-    /// the prior navigation and unblock the renderer before issuing the new navigation.
-    DismissStaleBeforeUnloadThenProceed,
-    /// A page-raised `alert`/`confirm`/`prompt` dialog is open; refuse without dismissing it.
-    Blocked(ActiveDialog),
+pub(super) struct TrackedDialog {
+    pub generation: u64,
+    pub dialog: ActiveDialog,
+    /// Present only when this `beforeunload` opened while an authorized agent navigation was in flight.
+    pub owned_by_nav: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DialogState {
-    active: Option<ActiveDialog>,
-    agent_nav_in_flight: bool,
+    next_generation: u64,
+    next_nav_token: u64,
+    active: Option<TrackedDialog>,
+    active_nav_token: Option<u64>,
 }
 
 impl DialogState {
-    pub(super) fn active(&self) -> Option<&ActiveDialog> {
-        self.active.as_ref()
+    /// Whether an open dialog must surface as `needs human: dialog` right now.
+    /// An in-flight navigation's own `beforeunload` stays tracked and immediately surfaces if the
+    /// navigation ends, fails, or is cancelled before the dialog closes.
+    pub(super) fn is_blocking_for_human(&self) -> bool {
+        self.active.as_ref().is_some_and(|tracked| {
+            !(self.active_nav_token.is_some()
+                && tracked.owned_by_nav == self.active_nav_token
+                && tracked.dialog.kind.is_beforeunload())
+        })
     }
 
-    pub(super) fn is_blocking(&self) -> bool {
-        self.active.is_some()
+    pub(super) fn active_blocking(&self) -> Option<&ActiveDialog> {
+        self.is_blocking_for_human()
+            .then(|| self.active.as_ref().map(|tracked| &tracked.dialog))
+            .flatten()
     }
 
-    pub(super) fn check_page_verb(&self, verb: &str) -> Result<(), String> {
-        let Some(dialog) = &self.active else {
-            return Ok(());
-        };
-        if dialog.kind.is_beforeunload() && is_agent_navigation_verb(verb) {
-            return Ok(());
+    pub(super) fn current_tracked(&self) -> Option<TrackedDialog> {
+        self.active.clone()
+    }
+
+    /// Any open dialog — including a pre-existing `beforeunload` — blocks page verbs immediately.
+    pub(super) fn check_page_verb(&self) -> Result<(), String> {
+        if let Some(tracked) = &self.active {
+            return Err(tracked.dialog.blocking_error());
         }
-        Err(dialog.blocking_error())
+        Ok(())
     }
 
-    pub(super) fn begin_agent_navigation(&mut self) -> NavigationStartPlan {
-        match &self.active {
-            Some(dialog) if !dialog.kind.is_beforeunload() => {
-                NavigationStartPlan::Blocked(dialog.clone())
-            }
-            Some(_) => {
-                self.agent_nav_in_flight = true;
-                NavigationStartPlan::DismissStaleBeforeUnloadThenProceed
-            }
-            None => {
-                self.agent_nav_in_flight = true;
-                NavigationStartPlan::Proceed
-            }
+    /// Begins an authorized agent navigation; refuses immediately if any dialog is already open.
+    pub(super) fn begin_agent_navigation(&mut self) -> Result<u64, ActiveDialog> {
+        if let Some(tracked) = &self.active {
+            return Err(tracked.dialog.clone());
         }
+        self.next_nav_token += 1;
+        let token = self.next_nav_token;
+        self.active_nav_token = Some(token);
+        Ok(token)
     }
 
-    pub(super) fn end_agent_navigation(&mut self) {
-        self.agent_nav_in_flight = false;
+    pub(super) fn end_agent_navigation(&mut self, token: u64) -> bool {
+        if self.active_nav_token == Some(token) {
+            self.active_nav_token = None;
+            return true;
+        }
+        false
     }
 
-    pub(super) fn on_dialog_opening(&mut self, dialog: ActiveDialog) -> DialogOpeningDecision {
-        if self.agent_nav_in_flight && dialog.kind.is_beforeunload() {
-            DialogOpeningDecision::AcceptForAgentNavigation
+    pub(super) fn revoke_agent_navigation(&mut self) -> bool {
+        self.active_nav_token.take().is_some()
+    }
+
+    /// Always records the dialog as active with a fresh generation until closed or navigated away.
+    pub(super) fn on_dialog_opening(&mut self, dialog: ActiveDialog) -> TrackedDialog {
+        self.next_generation += 1;
+        let owned_by_nav = if dialog.kind.is_beforeunload() {
+            self.active_nav_token
         } else {
-            self.active = Some(dialog);
-            DialogOpeningDecision::BlockForHuman
-        }
+            None
+        };
+        let tracked = TrackedDialog {
+            generation: self.next_generation,
+            dialog,
+            owned_by_nav,
+        };
+        self.active = Some(tracked.clone());
+        tracked
     }
 
-    pub(super) fn record_blocking(&mut self, dialog: ActiveDialog) {
-        self.active = Some(dialog);
+    /// True only when `nav_token` is still authorized and `generation` is still the active `beforeunload`.
+    pub(super) fn can_accept_beforeunload(&self, nav_token: u64, generation: u64) -> bool {
+        self.active_nav_token == Some(nav_token)
+            && self.active.as_ref().is_some_and(|tracked| {
+                tracked.generation == generation
+                    && tracked.owned_by_nav == Some(nav_token)
+                    && tracked.dialog.kind.is_beforeunload()
+            })
     }
 
     pub(super) fn on_dialog_closed(&mut self) {
         self.active = None;
+    }
+
+    /// Clears the active dialog only if it is still the exact generation that was accepted.
+    pub(super) fn ack_beforeunload_closed(&mut self, generation: u64) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|tracked| tracked.generation == generation)
+        {
+            self.active = None;
+        }
     }
 
     /// A committed top-level navigation proves any prior `beforeunload` dialog has resolved.
@@ -181,15 +212,11 @@ impl DialogState {
         if self
             .active
             .as_ref()
-            .is_some_and(|dialog| dialog.kind.is_beforeunload())
+            .is_some_and(|tracked| tracked.dialog.kind.is_beforeunload())
         {
             self.active = None;
         }
     }
-}
-
-pub(super) fn is_agent_navigation_verb(verb: &str) -> bool {
-    matches!(verb, "goto" | "reload" | "back" | "forward")
 }
 
 pub(super) fn is_no_dialog_cdp_error(error: &str) -> bool {

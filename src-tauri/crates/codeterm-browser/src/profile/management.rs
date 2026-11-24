@@ -13,6 +13,24 @@ pub fn validate_named_profile(raw: &str) -> Result<&str, String> {
     Ok(raw)
 }
 
+/// Resolves `wanted` against `available`, always preferring an exact spelling before any folding.
+pub fn match_profile_name(
+    wanted: &str,
+    available: &[String],
+    case_insensitive: bool,
+) -> Option<String> {
+    if let Some(exact) = available.iter().find(|known| known.as_str() == wanted) {
+        return Some(exact.clone());
+    }
+    if case_insensitive {
+        return available
+            .iter()
+            .find(|known| known.eq_ignore_ascii_case(wanted))
+            .cloned();
+    }
+    None
+}
+
 impl ProfileLayout {
     pub fn require_named(&self, raw: &str) -> Result<std::path::PathBuf, String> {
         let name = validate_named_profile(raw)?;
@@ -29,16 +47,11 @@ impl ProfileLayout {
     pub fn resolve_named(&self, raw: &str) -> Result<String, String> {
         let name = validate_named_profile(raw)?;
         self.require_named(name)?;
-        if crate::sweep::paths_case_insensitive() {
-            if let Some(canonical) = self
-                .list_named()
-                .into_iter()
-                .find(|known| known.eq_ignore_ascii_case(name))
-            {
-                return Ok(canonical);
-            }
-        }
-        Ok(name.to_string())
+        let available = self.list_named();
+        Ok(
+            match_profile_name(name, &available, crate::sweep::paths_case_insensitive())
+                .unwrap_or_else(|| name.to_string()),
+        )
     }
 
     pub fn create_named(&self, raw: &str) -> Result<(), String> {
@@ -66,6 +79,28 @@ mod tests {
             assert_eq!(layout.resolve_named("work").unwrap(), "Work");
         }
         assert!(layout.create_named("Work").is_err());
+    }
+
+    #[test]
+    fn profile_name_matching_prefers_exact_spelling_when_both_cases_exist() {
+        let both = vec!["Work".to_string(), "work".to_string()];
+        assert_eq!(
+            match_profile_name("work", &both, true).as_deref(),
+            Some("work")
+        );
+        assert_eq!(
+            match_profile_name("Work", &both, true).as_deref(),
+            Some("Work")
+        );
+        assert_eq!(
+            match_profile_name("WORK", &both, true).as_deref(),
+            Some("Work")
+        );
+        assert_eq!(match_profile_name("WORK", &both, false), None);
+        assert_eq!(
+            match_profile_name("work", &both, false).as_deref(),
+            Some("work")
+        );
     }
 
     #[test]

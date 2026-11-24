@@ -758,6 +758,22 @@ impl CloseDialogConnection {
             !sender.is_closed()
         });
     }
+
+    fn has_queued_events(&self) -> bool {
+        self.subscribers
+            .lock()
+            .iter()
+            .any(|(_, sender)| !sender.is_closed() && sender.capacity() < 64)
+    }
+
+    async fn wait_events_drained(&self, deadline: Duration) {
+        let _ = tokio::time::timeout(deadline, async {
+            while self.has_queued_events() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+    }
 }
 
 #[async_trait::async_trait]
@@ -810,6 +826,25 @@ impl CdpConnection for CloseDialogConnection {
             }
             "Target.closeTarget" => {
                 let mut accepted = self.accepted.subscribe();
+                if self.dialog_type == "beforeunload-then-prompt" {
+                    self.emit(
+                        "Page.javascriptDialogOpening",
+                        Some("ST1"),
+                        json!({ "type": "beforeunload", "message": "leave?", "url": "https://a.test" }),
+                    );
+                    self.emit(
+                        "Page.javascriptDialogClosed",
+                        Some("ST1"),
+                        json!({ "result": false, "userInput": "" }),
+                    );
+                    self.emit(
+                        "Page.javascriptDialogOpening",
+                        Some("ST1"),
+                        json!({ "type": "prompt", "message": "confirm", "url": "https://a.test" }),
+                    );
+                    self.wait_events_drained(deadline).await;
+                    return Ok(json!({ "success": true }));
+                }
                 self.emit(
                     "Page.javascriptDialogOpening",
                     Some("ST1"),
@@ -820,6 +855,8 @@ impl CdpConnection for CloseDialogConnection {
                         .await
                         .map_err(|_| CdpError::Deadline("Target.closeTarget".into()))?
                         .map_err(|_| CdpError::Closed("dialog channel closed".into()))?;
+                } else {
+                    self.wait_events_drained(deadline).await;
                 }
                 Ok(json!({ "success": true }))
             }
@@ -830,7 +867,11 @@ impl CdpConnection for CloseDialogConnection {
 
 #[tokio::test]
 async fn closing_target_accepts_beforeunload_and_never_accepts_alert() {
-    for (dialog_type, expect_accept) in [("beforeunload", true), ("alert", false)] {
+    for (dialog_type, expect_accept) in [
+        ("beforeunload", true),
+        ("alert", false),
+        ("beforeunload-then-prompt", false),
+    ] {
         let dir = PathBuf::from(format!("/fake-close-dialog/{}", uuid::Uuid::new_v4()));
         let connection = CloseDialogConnection::new(dialog_type);
         let launch_conn = connection.clone();

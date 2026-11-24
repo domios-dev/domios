@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use serde_json::Value;
 use tokio::sync::{broadcast, watch};
 
-use super::dialog::{ActiveDialog, DialogState, NavigationStartPlan};
+use super::dialog::{ActiveDialog, DialogState, TrackedDialog};
 use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
 use super::resume::{resumable_profile, resumable_url};
 use crate::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
@@ -140,6 +140,7 @@ pub(super) struct PageShared {
     notices: broadcast::Sender<SurfaceNotice>,
     resume: watch::Sender<SurfaceResume>,
     cursor: watch::Sender<String>,
+    dialogs: watch::Sender<Option<TrackedDialog>>,
     session: Mutex<PageSession>,
 }
 
@@ -204,7 +205,22 @@ impl PageShared {
     }
 
     pub(super) fn invalidate_action(&self) {
-        self.session.lock().action = None;
+        let (revoked, blocking, tracked) = {
+            let mut session = self.session.lock();
+            session.action = None;
+            let revoked = session.dialog.revoke_agent_navigation();
+            (
+                revoked,
+                session.dialog.is_blocking_for_human(),
+                session.dialog.current_tracked(),
+            )
+        };
+        if revoked {
+            self.dialogs.send_replace(tracked);
+            self.update(|state| {
+                state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
+            });
+        }
     }
     pub(super) fn new(owner: &str) -> Arc<Self> {
         Self::new_with_profile(owner, None)
@@ -225,6 +241,7 @@ impl PageShared {
             notices: broadcast::channel(16).0,
             resume: watch::channel(SurfaceResume::default()).0,
             cursor: watch::channel("default".to_string()).0,
+            dialogs: watch::channel(None).0,
             session: Mutex::new(PageSession::default()),
         })
     }
@@ -334,7 +351,11 @@ impl PageShared {
                 bound_session: Some(page.session_id().to_string()),
                 ..Default::default()
             };
-            self.update(|state| state.target_id = page.target_id().to_string());
+            self.dialogs.send_replace(None);
+            self.update(|state| {
+                state.target_id = page.target_id().to_string();
+                state.needs_human = needs_human(&state.url, &state.title, false).to_string();
+            });
             page.subscribe(PAGE_EVENTS)
         };
         let listener = tokio::spawn(listen(
@@ -359,6 +380,7 @@ impl PageShared {
         }
         *session = PageSession::default();
         drop(session);
+        self.dialogs.send_replace(None);
         self.update(|state| {
             state.target_id.clear();
             state.needs_human = needs_human(&state.url, &state.title, false).to_string();
@@ -366,103 +388,139 @@ impl PageShared {
     }
 
     pub(super) fn active_dialog(&self) -> Option<ActiveDialog> {
-        self.session.lock().dialog.active().cloned()
+        self.session.lock().dialog.active_blocking().cloned()
     }
 
-    pub(super) fn check_page_verb(&self, verb: &str) -> Result<(), String> {
-        self.session.lock().dialog.check_page_verb(verb)
+    pub(super) fn subscribe_dialogs(&self) -> watch::Receiver<Option<TrackedDialog>> {
+        self.dialogs.subscribe()
     }
 
-    pub(super) fn begin_agent_navigation(
-        &self,
-        session_id: &str,
-    ) -> Result<NavigationStartPlan, String> {
+    pub(super) fn check_page_verb(&self) -> Result<(), String> {
+        self.session.lock().dialog.check_page_verb()
+    }
+
+    pub(super) fn begin_agent_navigation(&self, session_id: &str) -> Result<u64, String> {
         let mut session = self.session.lock();
         if session.bound_session.as_deref() != Some(session_id) {
             return Err("stale: browser session changed".into());
         }
-        Ok(session.dialog.begin_agent_navigation())
+        session
+            .dialog
+            .begin_agent_navigation()
+            .map_err(|active| active.blocking_error())
     }
 
-    pub(super) fn end_agent_navigation(&self, session_id: &str) {
-        let mut session = self.session.lock();
-        if session.bound_session.as_deref() == Some(session_id) {
-            session.dialog.end_agent_navigation();
+    pub(super) fn end_agent_navigation(&self, session_id: &str, nav_token: u64) {
+        let (ended, blocking, tracked) = {
+            let mut session = self.session.lock();
+            if session.bound_session.as_deref() != Some(session_id) {
+                return;
+            }
+            let ended = session.dialog.end_agent_navigation(nav_token);
+            (
+                ended,
+                session.dialog.is_blocking_for_human(),
+                session.dialog.current_tracked(),
+            )
+        };
+        if ended {
+            self.dialogs.send_replace(tracked);
+            self.update(|state| {
+                state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
+            });
         }
     }
 
-    pub(super) fn record_blocking_dialog(&self, session_id: &str, dialog: ActiveDialog) {
-        let blocking = {
+    pub(super) fn can_accept_beforeunload(
+        &self,
+        session_id: &str,
+        nav_token: u64,
+        generation: u64,
+    ) -> bool {
+        let session = self.session.lock();
+        session.bound_session.as_deref() == Some(session_id)
+            && session
+                .dialog
+                .can_accept_beforeunload(nav_token, generation)
+    }
+
+    pub(super) fn ack_beforeunload_closed(&self, session_id: &str, generation: u64) {
+        let (blocking, tracked) = {
             let mut session = self.session.lock();
             if session.bound_session.as_deref() != Some(session_id) {
                 return;
             }
-            session.dialog.record_blocking(dialog);
-            session.dialog.is_blocking()
+            session.dialog.ack_beforeunload_closed(generation);
+            (
+                session.dialog.is_blocking_for_human(),
+                session.dialog.current_tracked(),
+            )
         };
+        self.dialogs.send_replace(tracked);
         self.update(|state| {
             state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
         });
     }
 
-    pub(super) fn clear_dialog(&self, session_id: &str) {
-        let blocking = {
-            let mut session = self.session.lock();
-            if session.bound_session.as_deref() != Some(session_id) {
-                return;
-            }
-            session.dialog.on_dialog_closed();
-            session.dialog.is_blocking()
-        };
-        self.update(|state| {
-            state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
-        });
-    }
-
-    /// True once per bound page session, so Runtime/Network/overlay setup is not re-sent on every verb.
-    pub(super) fn claim_domains_setup(&self, page: &PageChannel) -> bool {
-        let mut session = self.session.lock();
+    /// True until Runtime/overlay/Network setup has completed and been committed for `page`.
+    pub(super) fn needs_domains_setup(&self, page: &PageChannel) -> bool {
+        let session = self.session.lock();
         session
             .bound_page
             .as_ref()
             .is_some_and(|bound| bound.same_page(page))
-            && !std::mem::replace(&mut session.domains_ready, true)
+            && !session.domains_ready
     }
 
-    pub(super) fn reset_domains_setup(&self, page: &PageChannel) {
+    /// Commits domain setup only after every enable command has succeeded for `page`.
+    pub(super) fn mark_domains_ready(&self, page: &PageChannel) {
         let mut session = self.session.lock();
         if session
             .bound_page
             .as_ref()
             .is_some_and(|bound| bound.same_page(page))
         {
-            session.domains_ready = false;
+            session.domains_ready = true;
         }
     }
 
     fn apply(&self, session_id: &str, update: PageUpdate) {
-        let dialog = {
+        let (dialog, tracked, dialog_changed) = {
             let mut session = self.session.lock();
             if session.bound_session.as_deref() != Some(session_id) {
                 return;
             }
+            let mut dialog_changed = false;
             match &update {
                 PageUpdate::Navigated { .. } | PageUpdate::SameDocument { .. } => {
                     session.snapshot = None;
                     session.capture = None;
                     if matches!(update, PageUpdate::Navigated { .. }) {
                         session.cursor_visible = false;
+                        let before = session.dialog.current_tracked();
                         session.dialog.on_navigated();
+                        dialog_changed = session.dialog.current_tracked() != before;
                     }
                 }
                 PageUpdate::DialogOpened(opened) => {
                     let _ = session.dialog.on_dialog_opening(opened.clone());
+                    dialog_changed = true;
                 }
-                PageUpdate::DialogClosed => session.dialog.on_dialog_closed(),
+                PageUpdate::DialogClosed => {
+                    session.dialog.on_dialog_closed();
+                    dialog_changed = true;
+                }
                 PageUpdate::TargetInfo { .. } => {}
             }
-            session.dialog.is_blocking()
+            (
+                session.dialog.is_blocking_for_human(),
+                session.dialog.current_tracked(),
+                dialog_changed,
+            )
         };
+        if dialog_changed {
+            self.dialogs.send_replace(tracked);
+        }
         if matches!(&update, PageUpdate::Navigated { .. }) {
             self.set_cursor("default");
         }
@@ -538,6 +596,31 @@ impl PageShared {
     }
 }
 
+fn process_event(shared: &PageShared, session_id: &str, target_id: &str, event: &CdpEvent) {
+    if event.session_id.as_deref() == Some(session_id) {
+        if event.method == "Runtime.bindingCalled"
+            && event.params.get("name").and_then(Value::as_str) == Some(CURSOR_BINDING)
+        {
+            if let Some(payload) = event.params.get("payload").and_then(Value::as_str) {
+                shared.set_cursor(payload);
+            }
+            return;
+        }
+        if let Some(entry) = super::diagnostics::record(&event.method, &event.params) {
+            let mut session = shared.session.lock();
+            if session.bound_session.as_deref() == Some(session_id) {
+                session.diagnostics.push_back(entry);
+                while session.diagnostics.len() > 200 {
+                    session.diagnostics.pop_front();
+                }
+            }
+        }
+    }
+    if let Some(update) = page_update(&event.method, &event.params, target_id) {
+        shared.apply(session_id, update);
+    }
+}
+
 async fn listen(
     shared: Arc<PageShared>,
     mut events: EventStream,
@@ -545,28 +628,9 @@ async fn listen(
     target_id: String,
 ) {
     while let Some(event) = events.recv().await {
-        let event: &CdpEvent = &event;
-        if event.session_id.as_deref() == Some(session_id.as_str()) {
-            if event.method == "Runtime.bindingCalled"
-                && event.params.get("name").and_then(Value::as_str) == Some(CURSOR_BINDING)
-            {
-                if let Some(payload) = event.params.get("payload").and_then(Value::as_str) {
-                    shared.set_cursor(payload);
-                }
-                continue;
-            }
-            if let Some(entry) = super::diagnostics::record(&event.method, &event.params) {
-                let mut session = shared.session.lock();
-                if session.bound_session.as_deref() == Some(session_id.as_str()) {
-                    session.diagnostics.push_back(entry);
-                    while session.diagnostics.len() > 200 {
-                        session.diagnostics.pop_front();
-                    }
-                }
-            }
-        }
-        if let Some(update) = page_update(&event.method, &event.params, &target_id) {
-            shared.apply(&session_id, update);
+        process_event(&shared, &session_id, &target_id, &event);
+        while let Ok(queued) = events.try_recv() {
+            process_event(&shared, &session_id, &target_id, &queued);
         }
     }
     let session = shared.session.lock();

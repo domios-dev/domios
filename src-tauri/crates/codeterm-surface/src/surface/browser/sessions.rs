@@ -74,8 +74,6 @@ impl BrowserRuntime {
         {
             let _launch = self.launch_gate.lock().await;
             self.cancel_resume().await;
-            self.accept_open_beforeunload_for_close(super::DIALOG_DEADLINE)
-                .await;
             let viewport = self.host.viewport();
             let opened = self
                 .host

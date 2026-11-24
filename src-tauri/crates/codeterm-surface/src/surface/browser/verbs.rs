@@ -179,9 +179,9 @@ impl BrowserRuntime {
             "open" => self.open_verb(args).await,
             "help" | "close" | "annotate" => Err(format!("{verb} is answered by the surface host")),
             _ => {
-                self.shared.check_page_verb(verb)?;
+                self.shared.check_page_verb()?;
                 let page = self.ensure_page().await?;
-                self.shared.check_page_verb(verb)?;
+                self.shared.check_page_verb()?;
                 self.page_verb(ctx, &page, verb, args).await
             }
         }

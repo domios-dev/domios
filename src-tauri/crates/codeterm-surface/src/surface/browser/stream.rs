@@ -64,11 +64,20 @@ pub async fn connect(
         if let Some(frame) = latest {
             yield SurfaceEvent::Frame(frame);
         }
-        if let Err(error) = runtime.ensure_page().await {
-            yield runtime.redact_event(SurfaceEvent::Notice(SurfaceNotice::error(format!("the browser could not start: {error}"))));
-        }
+        let ensure = runtime.ensure_page();
+        tokio::pin!(ensure);
+        let mut ensured = false;
         loop {
             let next = tokio::select! {
+                result = &mut ensure, if !ensured => {
+                    ensured = true;
+                    match result {
+                        Ok(_) => continue,
+                        Err(error) => Some(SurfaceEvent::Notice(SurfaceNotice::error(format!(
+                            "the browser could not start: {error}"
+                        )))),
+                    }
+                },
                 changed = state.changed() => match changed {
                     Ok(()) => {
                         let current = state.borrow_and_update().clone();

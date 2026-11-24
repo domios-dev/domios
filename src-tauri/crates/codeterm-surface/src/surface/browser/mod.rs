@@ -279,28 +279,28 @@ impl BrowserRuntime {
                 self.shared.remember_profile(&opened.profile);
             }
             self.shared.bind(&page);
-            if self.shared.claim_domains_setup(&page) {
-                let setup = async {
-                    self.send(&page, "Runtime.enable", json!({})).await?;
-                    self.install_overlay(&page).await?;
-                    self.send(
-                        &page,
-                        "Network.enable",
-                        json!({"maxTotalBufferSize":0,"maxResourceBufferSize":0,"maxPostDataSize":0}),
-                    )
-                    .await?;
-                    Ok::<(), String>(())
-                }
-                .await;
-                if let Err(error) = setup {
-                    self.shared.reset_domains_setup(&page);
-                    return Err(error);
-                }
-            }
+            self.ensure_page_domains(&page).await?;
             page
         };
         self.apply_resume_url(&page).await;
         Ok(page)
+    }
+
+    /// Cancellation-safe domain setup: commits `domains_ready` only after all three acks succeed.
+    pub(super) async fn ensure_page_domains(&self, page: &PageChannel) -> Result<(), String> {
+        if !self.shared.needs_domains_setup(page) {
+            return Ok(());
+        }
+        self.send(page, "Runtime.enable", json!({})).await?;
+        self.install_overlay(page).await?;
+        self.send(
+            page,
+            "Network.enable",
+            json!({"maxTotalBufferSize":0,"maxResourceBufferSize":0,"maxPostDataSize":0}),
+        )
+        .await?;
+        self.shared.mark_domains_ready(page);
+        Ok(())
     }
 
     async fn send(&self, page: &PageChannel, method: &str, params: Value) -> Result<Value, String> {
@@ -353,25 +353,6 @@ impl BrowserRuntime {
         Ok(())
     }
 
-    async fn accept_open_beforeunload_for_close(&self, deadline: Duration) {
-        let Some(active) = self.shared.active_dialog() else {
-            return;
-        };
-        if !active.kind.is_beforeunload() {
-            return;
-        }
-        if let Some(page) = self.host.page() {
-            let _ = page
-                .send_with_deadline(
-                    "Page.handleJavaScriptDialog",
-                    json!({ "accept": true }),
-                    deadline,
-                )
-                .await;
-            self.shared.clear_dialog(page.session_id());
-        }
-    }
-
     async fn navigate(
         &self,
         page: &PageChannel,
@@ -379,35 +360,13 @@ impl BrowserRuntime {
         target: Option<&str>,
     ) -> Result<String, String> {
         let _guard = self.action_gate.lock().await;
-        let plan = self.shared.begin_agent_navigation(page.session_id())?;
+        let mut dialog_events = self.shared.subscribe_dialogs();
+        let nav_token = self.shared.begin_agent_navigation(page.session_id())?;
         let _nav_guard = AgentNavigationGuard {
             shared: self.shared.clone(),
             session_id: page.session_id().to_string(),
+            nav_token,
         };
-        match plan {
-            dialog::NavigationStartPlan::Blocked(active) => return Err(active.blocking_error()),
-            dialog::NavigationStartPlan::DismissStaleBeforeUnloadThenProceed => {
-                match page
-                    .send_with_deadline(
-                        "Page.handleJavaScriptDialog",
-                        json!({ "accept": false }),
-                        DIALOG_DEADLINE,
-                    )
-                    .await
-                {
-                    Ok(_) => self.shared.clear_dialog(page.session_id()),
-                    Err(error) if dialog::is_no_dialog_cdp_error(&error.to_string()) => {
-                        self.shared.clear_dialog(page.session_id());
-                    }
-                    Err(error) => {
-                        return Err(format!(
-                            "failed to clear open beforeunload dialog before navigation: {error}"
-                        ));
-                    }
-                }
-            }
-            dialog::NavigationStartPlan::Proceed => {}
-        }
         let (method, params) = match action {
             NavAction::Reload => ("Page.reload", json!({})),
             NavAction::Goto => {
@@ -415,28 +374,63 @@ impl BrowserRuntime {
                 ("Page.navigate", json!({"url":href}))
             }
             NavAction::Back | NavAction::Forward => {
-                let history = self
-                    .send(page, "Page.getNavigationHistory", json!({}))
-                    .await?;
+                let history = {
+                    let fetch = self.send(page, "Page.getNavigationHistory", json!({}));
+                    tokio::pin!(fetch);
+                    loop {
+                        tokio::select! {
+                            result = &mut fetch => break result?,
+                            changed = dialog_events.changed() => {
+                                if changed.is_err() {
+                                    break fetch.await?;
+                                }
+                                if let Some(tracked) = dialog_events.borrow_and_update().clone() {
+                                    return Err(tracked.dialog.blocking_error());
+                                }
+                            }
+                        }
+                    }
+                };
                 match input::history_entry(&history, action == NavAction::Back) {
                     Some(entry_id) => ("Page.navigateToHistoryEntry", json!({"entryId":entry_id})),
                     None => return Ok("no history entry; no navigation performed".into()),
                 }
             }
         };
-        let mut dialogs = page.subscribe_session(&["Page.javascriptDialogOpening"]);
+        if let Some(tracked) = dialog_events.borrow_and_update().clone() {
+            return Err(tracked.dialog.blocking_error());
+        }
         let mut beforeunload_accepted = false;
+        let mut handled_generation: Option<u64> = None;
         let completion = self.complete_action(page, true, self.send(page, method, params));
         tokio::pin!(completion);
         let outcome = loop {
             tokio::select! {
                 result = &mut completion => break result,
-                event = dialogs.recv() => {
-                    let Some(event) = event else {
+                changed = dialog_events.changed() => {
+                    if changed.is_err() {
                         break completion.await;
+                    }
+                    let Some(tracked) = dialog_events.borrow_and_update().clone() else {
+                        continue;
                     };
-                    let opened = dialog::ActiveDialog::from_cdp_params(&event.params);
-                    if opened.kind.is_beforeunload() {
+                    if tracked.owned_by_nav == Some(nav_token)
+                        && tracked.dialog.kind.is_beforeunload()
+                    {
+                        if handled_generation == Some(tracked.generation) {
+                            continue;
+                        }
+                        if !self.shared.can_accept_beforeunload(
+                            page.session_id(),
+                            nav_token,
+                            tracked.generation,
+                        ) {
+                            if let Some(blocking) = self.shared.active_dialog() {
+                                break Err(blocking.blocking_error());
+                            }
+                            continue;
+                        }
+                        handled_generation = Some(tracked.generation);
                         match page
                             .send_with_deadline(
                                 "Page.handleJavaScriptDialog",
@@ -447,23 +441,22 @@ impl BrowserRuntime {
                         {
                             Ok(_) => {
                                 beforeunload_accepted = true;
-                                self.shared.clear_dialog(page.session_id());
+                                self.shared
+                                    .ack_beforeunload_closed(page.session_id(), tracked.generation);
                             }
                             Err(error) if dialog::is_no_dialog_cdp_error(&error.to_string()) => {
                                 beforeunload_accepted = true;
-                                self.shared.clear_dialog(page.session_id());
+                                self.shared
+                                    .ack_beforeunload_closed(page.session_id(), tracked.generation);
                             }
                             Err(error) => {
-                                self.shared.record_blocking_dialog(page.session_id(), opened);
                                 break Err(format!(
                                     "failed to accept beforeunload dialog during navigation: {error}"
                                 ));
                             }
                         }
                     } else {
-                        let error = opened.blocking_error();
-                        self.shared.record_blocking_dialog(page.session_id(), opened);
-                        break Err(error);
+                        break Err(tracked.dialog.blocking_error());
                     }
                 }
             }
@@ -539,8 +532,6 @@ impl BrowserRuntime {
             .notice(SurfaceNotice::info(format!("Switching to {label}…")));
         let _launch = self.launch_gate.lock().await;
         self.cancel_resume().await;
-        self.accept_open_beforeunload_for_close(DIALOG_DEADLINE)
-            .await;
         let opened = self.host.use_profile(&wanted).await?;
         *self.profile_request.lock() = wanted;
         if !opened.reused {
@@ -696,8 +687,6 @@ impl SurfaceRuntime for BrowserRuntime {
     }
 
     async fn dispose(&self) {
-        self.accept_open_beforeunload_for_close(DIALOG_DEADLINE)
-            .await;
         self.shared.unbind();
         if let Err(error) =
             codeterm_browser::process::termination::close_result(self.host.shutdown().await)
@@ -707,16 +696,12 @@ impl SurfaceRuntime for BrowserRuntime {
     }
 
     async fn close(&self) -> Result<(), super::model::SurfaceError> {
-        self.accept_open_beforeunload_for_close(DIALOG_DEADLINE)
-            .await;
         self.shared.unbind();
         codeterm_browser::process::termination::close_result(self.host.close().await)
             .map_err(super::model::SurfaceError::TerminationFailed)
     }
 
     async fn shutdown(&self, graceful: Duration) -> bool {
-        self.accept_open_beforeunload_for_close(graceful.min(DIALOG_DEADLINE))
-            .await;
         self.shared.unbind();
         !matches!(
             self.host.shutdown_within(graceful).await,
@@ -728,11 +713,13 @@ impl SurfaceRuntime for BrowserRuntime {
 struct AgentNavigationGuard {
     shared: Arc<PageShared>,
     session_id: String,
+    nav_token: u64,
 }
 
 impl Drop for AgentNavigationGuard {
     fn drop(&mut self) {
-        self.shared.end_agent_navigation(&self.session_id);
+        self.shared
+            .end_agent_navigation(&self.session_id, self.nav_token);
     }
 }
 
