@@ -30,7 +30,10 @@ use std::time::Duration;
 use tokio::sync::{broadcast, watch};
 use viewport::{Viewport, ViewportDecision, ViewportMode, ViewportModel, ViewportRequest};
 
-pub use cdp::{CdpClient, CdpError, DispatchGate, EventStream, PageChannel};
+pub use cdp::{
+    CdpClient, CdpError, DispatchGate, EventStream, PageChannel, WireDialogEvent,
+    WireDialogOpening, WireDialogOrder,
+};
 
 #[derive(Clone, Debug)]
 pub struct BrowserHostConfig {

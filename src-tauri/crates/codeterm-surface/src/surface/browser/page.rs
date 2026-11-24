@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 
 use super::dialog::{ActiveDialog, DialogState, TrackedDialog};
 use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
@@ -10,7 +10,7 @@ use super::resume::{resumable_profile, resumable_url};
 use crate::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
 use codeterm_browser::cdp_wire::CdpEvent;
 use codeterm_browser::snapshot::{resolve_target, ResolvedTarget, Snapshot};
-use codeterm_browser::{EventStream, PageChannel};
+use codeterm_browser::{EventStream, PageChannel, WireDialogEvent};
 
 const ATTACHED_PROFILE: &str = "attached";
 pub(super) const CURSOR_BINDING: &str = "__domiosCursor";
@@ -23,8 +23,6 @@ pub(super) const PAGE_EVENTS: &[&str] = &[
     "Page.frameNavigated",
     "Page.navigatedWithinDocument",
     "Target.targetInfoChanged",
-    "Page.javascriptDialogOpening",
-    "Page.javascriptDialogClosed",
 ];
 
 pub(super) fn sanitize_cursor(raw: &str) -> &'static str {
@@ -128,10 +126,6 @@ pub(super) struct DialogSnapshot {
     pub blocking: bool,
 }
 
-enum ListenerFence {
-    BeginAgentNavigation(oneshot::Sender<Result<u64, String>>),
-}
-
 #[derive(Default)]
 struct PageSession {
     cursor_visible: bool,
@@ -143,7 +137,6 @@ struct PageSession {
     capture: Option<String>,
     dialog: DialogState,
     dialog_seq: u64,
-    fence_tx: Option<mpsc::UnboundedSender<ListenerFence>>,
     domains_ready: bool,
     grab_ready: bool,
     listener: Option<tokio::task::AbortHandle>,
@@ -243,14 +236,19 @@ impl PageShared {
     }
 
     pub(super) fn invalidate_action(&self) {
-        let snapshot = {
+        let (bound_page, snapshot) = {
             let mut session = self.session.lock();
             session.action = None;
-            session
+            let bound_page = session.bound_page.clone();
+            let snapshot = session
                 .dialog
                 .revoke_agent_navigation()
-                .then(|| next_dialog_snapshot(&mut session))
+                .then(|| next_dialog_snapshot(&mut session));
+            (bound_page, snapshot)
         };
+        if let Some(page) = bound_page {
+            page.disarm_dialog_owner(None);
+        }
         if let Some(snapshot) = snapshot {
             self.publish_dialog_snapshot(snapshot);
         }
@@ -367,7 +365,7 @@ impl PageShared {
 
     /// Binds the listener to `page` once per CDP session; a relaunch brings a new session.
     pub(super) fn bind(self: &Arc<Self>, page: &PageChannel) {
-        let (events, fence_rx, snapshot) = {
+        let (events, wire_dialogs, snapshot) = {
             let mut session = self.session.lock();
             if session
                 .bound_page
@@ -380,25 +378,27 @@ impl PageShared {
                 listener.abort();
             }
             let dialog_seq = session.dialog_seq;
-            let (fence_tx, fence_rx) = mpsc::unbounded_channel();
             *session = PageSession {
                 bound_page: Some(page.clone()),
                 bound_session: Some(page.session_id().to_string()),
                 dialog_seq,
-                fence_tx: Some(fence_tx),
                 ..Default::default()
             };
             let snapshot = next_dialog_snapshot(&mut session);
-            (page.subscribe(PAGE_EVENTS), fence_rx, snapshot)
+            (
+                page.subscribe(PAGE_EVENTS),
+                page.subscribe_wire_dialogs(),
+                snapshot,
+            )
         };
         self.publish_dialog_snapshot(snapshot);
         self.update(|state| {
             state.target_id = page.target_id().to_string();
         });
-        let listener = tokio::spawn(listen_with_fences(
+        let listener = tokio::spawn(listen_with_dialogs(
             self.clone(),
             events,
-            Some(fence_rx),
+            Some(wire_dialogs),
             page.session_id().to_string(),
             page.target_id().to_string(),
         ))
@@ -442,44 +442,44 @@ impl PageShared {
         self.session.lock().dialog.check_page_verb()
     }
 
-    fn begin_agent_navigation_inner(&self, session_id: &str) -> Result<u64, String> {
+    pub(super) fn register_agent_navigation(
+        &self,
+        session_id: &str,
+        nav_token: u64,
+    ) -> Result<(), String> {
         let mut session = self.session.lock();
         if session.bound_session.as_deref() != Some(session_id) {
             return Err("stale: browser session changed".into());
         }
         session
             .dialog
-            .begin_agent_navigation()
+            .register_agent_navigation(nav_token)
             .map_err(|active| active.blocking_error())
     }
 
-    #[cfg(test)]
-    pub(super) fn begin_agent_navigation(&self, session_id: &str) -> Result<u64, String> {
-        self.begin_agent_navigation_inner(session_id)
+    pub(super) fn is_agent_navigation_authorized(&self, session_id: &str, nav_token: u64) -> bool {
+        let session = self.session.lock();
+        session.bound_session.as_deref() == Some(session_id)
+            && session.dialog.is_agent_navigation_authorized(nav_token)
     }
 
-    /// Drains all earlier CDP events in `listen` before arming agent navigation ownership.
-    pub(super) async fn begin_agent_navigation_ordered(
-        &self,
-        session_id: &str,
-    ) -> Result<u64, String> {
-        let fence_tx = {
-            let session = self.session.lock();
+    pub(super) fn apply_wire_dialog(&self, session_id: &str, event: WireDialogEvent) {
+        let snapshot = {
+            let mut session = self.session.lock();
             if session.bound_session.as_deref() != Some(session_id) {
-                return Err("stale: browser session changed".into());
+                return;
             }
-            session.fence_tx.clone()
+            match event {
+                WireDialogEvent::Opening(opening) => {
+                    let _ = session.dialog.on_wire_dialog_opening(&opening);
+                }
+                WireDialogEvent::Closed => {
+                    session.dialog.on_dialog_closed();
+                }
+            }
+            next_dialog_snapshot(&mut session)
         };
-        let Some(fence_tx) = fence_tx else {
-            return self.begin_agent_navigation_inner(session_id);
-        };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        fence_tx
-            .send(ListenerFence::BeginAgentNavigation(reply_tx))
-            .map_err(|_| "stale: browser session changed".to_string())?;
-        reply_rx
-            .await
-            .map_err(|_| "stale: browser session changed".to_string())?
+        self.publish_dialog_snapshot(snapshot);
     }
 
     pub(super) fn end_agent_navigation(&self, session_id: &str, nav_token: u64) {
@@ -564,7 +564,7 @@ impl PageShared {
                     }
                 }
                 PageUpdate::DialogOpened(opened) => {
-                    let _ = session.dialog.on_dialog_opening(opened.clone());
+                    let _ = session.dialog.on_unowned_dialog_opening(opened.clone());
                     dialog_changed = true;
                 }
                 PageUpdate::DialogClosed => {
@@ -686,19 +686,36 @@ async fn listen(
     session_id: String,
     target_id: String,
 ) {
-    listen_with_fences(shared, events, None, session_id, target_id).await;
+    listen_with_dialogs(shared, events, None, session_id, target_id).await;
 }
 
-async fn listen_with_fences(
+async fn listen_with_dialogs(
     shared: Arc<PageShared>,
     mut events: EventStream,
-    mut fences: Option<mpsc::UnboundedReceiver<ListenerFence>>,
+    mut wire_dialogs: Option<mpsc::Receiver<WireDialogEvent>>,
     session_id: String,
     target_id: String,
 ) {
     loop {
         tokio::select! {
             biased;
+            dialog = async {
+                match wire_dialogs.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                let Some(first) = dialog else {
+                    wire_dialogs = None;
+                    continue;
+                };
+                shared.apply_wire_dialog(&session_id, first);
+                if let Some(rx) = wire_dialogs.as_mut() {
+                    while let Ok(queued) = rx.try_recv() {
+                        shared.apply_wire_dialog(&session_id, queued);
+                    }
+                }
+            }
             event = events.recv() => {
                 let Some(event) = event else {
                     break;
@@ -706,25 +723,6 @@ async fn listen_with_fences(
                 process_event(&shared, &session_id, &target_id, &event);
                 while let Ok(queued) = events.try_recv() {
                     process_event(&shared, &session_id, &target_id, &queued);
-                }
-            }
-            fence = async {
-                match fences.as_mut() {
-                    Some(rx) => rx.recv().await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                let Some(fence) = fence else {
-                    fences = None;
-                    continue;
-                };
-                while let Ok(queued) = events.try_recv() {
-                    process_event(&shared, &session_id, &target_id, &queued);
-                }
-                match fence {
-                    ListenerFence::BeginAgentNavigation(reply) => {
-                        let _ = reply.send(shared.begin_agent_navigation_inner(&session_id));
-                    }
                 }
             }
         }

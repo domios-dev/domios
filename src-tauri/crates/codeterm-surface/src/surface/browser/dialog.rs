@@ -66,6 +66,13 @@ impl ActiveDialog {
         Self { kind, message }
     }
 
+    pub(super) fn from_wire_opening(opening: &codeterm_browser::WireDialogOpening) -> Self {
+        Self {
+            kind: DialogKind::parse(&opening.dialog_type),
+            message: bound_dialog_message(&opening.message),
+        }
+    }
+
     pub(super) fn status_line(&self) -> String {
         if self.message.is_empty() {
             format!("dialog: {}", self.kind.as_str())
@@ -114,20 +121,18 @@ pub(super) struct TrackedDialog {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DialogState {
-    next_generation: u64,
-    next_nav_token: u64,
     active: Option<TrackedDialog>,
-    active_nav_token: Option<u64>,
+    authorized_nav_token: Option<u64>,
 }
 
 impl DialogState {
     /// Whether an open dialog must surface as `needs human: dialog` right now.
-    /// An in-flight navigation's own `beforeunload` stays tracked and immediately surfaces if the
-    /// navigation ends, fails, or is cancelled before the dialog closes.
+    /// An in-flight navigation's transport-owned `beforeunload` stays tracked and immediately
+    /// surfaces if the navigation ends, fails, is revoked, or is cancelled before close.
     pub(super) fn is_blocking_for_human(&self) -> bool {
         self.active.as_ref().is_some_and(|tracked| {
-            !(self.active_nav_token.is_some()
-                && tracked.owned_by_nav == self.active_nav_token
+            !(self.authorized_nav_token.is_some()
+                && tracked.owned_by_nav == self.authorized_nav_token
                 && tracked.dialog.kind.is_beforeunload())
         })
     }
@@ -150,39 +155,44 @@ impl DialogState {
         Ok(())
     }
 
-    /// Begins an authorized agent navigation; refuses immediately if any dialog is already open.
-    pub(super) fn begin_agent_navigation(&mut self) -> Result<u64, ActiveDialog> {
+    /// Registers an authorized in-flight agent navigation token; refuses if any dialog is open.
+    pub(super) fn register_agent_navigation(&mut self, token: u64) -> Result<(), ActiveDialog> {
         if let Some(tracked) = &self.active {
             return Err(tracked.dialog.clone());
         }
-        self.next_nav_token += 1;
-        let token = self.next_nav_token;
-        self.active_nav_token = Some(token);
-        Ok(token)
+        self.authorized_nav_token = Some(token);
+        Ok(())
+    }
+
+    pub(super) fn is_agent_navigation_authorized(&self, token: u64) -> bool {
+        self.authorized_nav_token == Some(token)
     }
 
     pub(super) fn end_agent_navigation(&mut self, token: u64) -> bool {
-        if self.active_nav_token == Some(token) {
-            self.active_nav_token = None;
+        if self.authorized_nav_token == Some(token) {
+            self.authorized_nav_token = None;
             return true;
         }
         false
     }
 
     pub(super) fn revoke_agent_navigation(&mut self) -> bool {
-        self.active_nav_token.take().is_some()
+        self.authorized_nav_token.take().is_some()
     }
 
-    /// Always records the dialog as active with a fresh generation until closed or navigated away.
-    pub(super) fn on_dialog_opening(&mut self, dialog: ActiveDialog) -> TrackedDialog {
-        self.next_generation += 1;
+    /// Records a transport-stamped dialog opening using its wire generation and causal owner.
+    pub(super) fn on_wire_dialog_opening(
+        &mut self,
+        opening: &codeterm_browser::WireDialogOpening,
+    ) -> TrackedDialog {
+        let dialog = ActiveDialog::from_wire_opening(opening);
         let owned_by_nav = if dialog.kind.is_beforeunload() {
-            self.active_nav_token
+            opening.owner_token
         } else {
             None
         };
         let tracked = TrackedDialog {
-            generation: self.next_generation,
+            generation: opening.generation,
             dialog,
             owned_by_nav,
         };
@@ -190,9 +200,21 @@ impl DialogState {
         tracked
     }
 
+    /// Records a dialog opening without transport ownership (never auto-accepted).
+    pub(super) fn on_unowned_dialog_opening(&mut self, dialog: ActiveDialog) -> TrackedDialog {
+        let next_gen = self.active.as_ref().map_or(1, |t| t.generation + 1);
+        let tracked = TrackedDialog {
+            generation: next_gen,
+            dialog,
+            owned_by_nav: None,
+        };
+        self.active = Some(tracked.clone());
+        tracked
+    }
+
     /// True only when `nav_token` is still authorized and `generation` is still the active `beforeunload`.
     pub(super) fn can_accept_beforeunload(&self, nav_token: u64, generation: u64) -> bool {
-        self.active_nav_token == Some(nav_token)
+        self.authorized_nav_token == Some(nav_token)
             && self.active.as_ref().is_some_and(|tracked| {
                 tracked.generation == generation
                     && tracked.owned_by_nav == Some(nav_token)
@@ -241,14 +263,15 @@ pub(super) fn navigation_outcome(completion: String, beforeunload_accepted: bool
 
 struct AgentNavigationGuard {
     shared: Arc<PageShared>,
-    session_id: String,
+    page: PageChannel,
     nav_token: u64,
 }
 
 impl Drop for AgentNavigationGuard {
     fn drop(&mut self) {
+        self.page.disarm_dialog_owner(Some(self.nav_token));
         self.shared
-            .end_agent_navigation(&self.session_id, self.nav_token);
+            .end_agent_navigation(self.page.session_id(), self.nav_token);
     }
 }
 
@@ -293,6 +316,7 @@ impl BrowserRuntime {
             }
         };
         self.shared.check_page_verb()?;
+        let nav_token = page.allocate_dialog_token();
         let nav_guard_slot: Mutex<Option<AgentNavigationGuard>> = Mutex::new(None);
         let nav_token_slot: Mutex<Option<u64>> = Mutex::new(None);
         let mut beforeunload_accepted = false;
@@ -310,18 +334,32 @@ impl BrowserRuntime {
             )> = None;
             let nav_action = async {
                 // `ActionCompletion::observe` finishes before `observation.finish` polls this future.
-                // Fence through `listen` so earlier CDP dialog events apply before arming ownership.
-                let token = self
-                    .shared
-                    .begin_agent_navigation_ordered(page.session_id())
-                    .await?;
+                // Transport `write_loop` arms `nav_token` only at actual wire write of `method`.
+                self.shared
+                    .register_agent_navigation(page.session_id(), nav_token)?;
                 *nav_guard_slot.lock() = Some(AgentNavigationGuard {
                     shared: self.shared.clone(),
-                    session_id: page.session_id().to_string(),
-                    nav_token: token,
+                    page: page.clone(),
+                    nav_token,
                 });
-                *nav_token_slot.lock() = Some(token);
-                self.send(page, method, params).await
+                *nav_token_slot.lock() = Some(nav_token);
+                let shared = self.shared.clone();
+                let session_id = page.session_id().to_string();
+                let nav_gate: codeterm_browser::DispatchGate =
+                    Arc::new(move || shared.is_agent_navigation_authorized(&session_id, nav_token));
+                page.send_causal_nav(method, params, nav_token, nav_gate)
+                    .await
+                    .map_err(|error| {
+                        if matches!(error, codeterm_browser::CdpError::Cancelled(_)) {
+                            if let Some(blocking) = self.shared.active_dialog() {
+                                return blocking.blocking_error();
+                            }
+                            if let Some(wire) = page.active_wire_dialog() {
+                                return ActiveDialog::from_wire_opening(&wire).blocking_error();
+                            }
+                        }
+                        super::cdp_error(error)
+                    })
             };
             let completion = self.complete_action(page, true, nav_action);
             tokio::pin!(completion);
@@ -352,6 +390,9 @@ impl BrowserRuntime {
                                 if let Some(blocking) = self.shared.active_dialog() {
                                     break Err(blocking.blocking_error());
                                 }
+                                if let Some(wire) = page.active_wire_dialog() {
+                                    break Err(ActiveDialog::from_wire_opening(&wire).blocking_error());
+                                }
                             }
                             Err(error) => {
                                 break Err(format!(
@@ -374,10 +415,10 @@ impl BrowserRuntime {
                             && tracked.owned_by_nav == current_nav
                             && tracked.dialog.kind.is_beforeunload()
                         {
-                            let nav_token = current_nav.unwrap();
+                            let token = current_nav.unwrap();
                             if !self.shared.can_accept_beforeunload(
                                 page.session_id(),
-                                nav_token,
+                                token,
                                 tracked.generation,
                             ) {
                                 pending_accept = None;
@@ -394,13 +435,13 @@ impl BrowserRuntime {
                             let session_id = page.session_id().to_string();
                             let generation = tracked.generation;
                             let gate: codeterm_browser::DispatchGate = Arc::new(move || {
-                                shared.can_accept_beforeunload(&session_id, nav_token, generation)
+                                shared.can_accept_beforeunload(&session_id, token, generation)
                             });
                             pending_accept = Some((
                                 generation,
-                                Box::pin(page.send_guarded_with_deadline(
-                                    "Page.handleJavaScriptDialog",
-                                    json!({ "accept": true }),
+                                Box::pin(page.send_dialog_accept(
+                                    generation,
+                                    token,
                                     DIALOG_DEADLINE,
                                     gate,
                                 )),

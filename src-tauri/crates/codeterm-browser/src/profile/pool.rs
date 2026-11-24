@@ -1,7 +1,6 @@
 use super::lease_model::LeaseModel;
 use super::ProfileKind;
 use crate::cdp::CdpClient;
-use crate::cdp_wire::{EventFilter, SessionFilter};
 use crate::process::{BrowserProcess, CloseOutcome, CLOSE_DEADLINE};
 use parking_lot::Mutex;
 use serde_json::json;
@@ -234,54 +233,45 @@ impl ProfileLease {
     }
 }
 
-#[derive(Default)]
-struct CloseDialogTracker {
-    next_gen: u64,
-    current: Option<(u64, bool)>,
-    authorized: bool,
+struct CloseAuthGuard<'a> {
+    client: &'a CdpClient,
+    session_id: Option<&'a str>,
+    token: u64,
+    authorized: Arc<std::sync::atomic::AtomicBool>,
 }
 
-struct CloseAuthGuard {
-    tracker: Arc<Mutex<CloseDialogTracker>>,
-}
-
-impl Drop for CloseAuthGuard {
+impl Drop for CloseAuthGuard<'_> {
     fn drop(&mut self) {
-        self.tracker.lock().authorized = false;
+        self.authorized
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Some(sid) = self.session_id {
+            self.client.disarm_dialog_owner(sid, Some(self.token));
+        }
     }
 }
 
-/// Closes a page target while accepting only a `beforeunload` dialog raised by closing it.
-/// Tracks ordered open/close generations and re-validates authority at ordered CDP dispatch.
+/// Closes a page target while accepting only a `beforeunload` dialog causally raised by closing it.
+/// Dialog generations and causal ownership are stamped by the transport's ordered reader/writer.
 async fn close_target_accepting_beforeunload(
     client: &CdpClient,
     target_id: &str,
     session_id: Option<&str>,
     deadline: Duration,
 ) {
-    let mut dialogs = session_id.map(|sid| {
-        client.subscribe(EventFilter {
-            session: SessionFilter::Session(sid.to_string()),
-            methods: vec![
-                "Page.javascriptDialogOpening".into(),
-                "Page.javascriptDialogClosed".into(),
-            ],
-        })
-    });
-    let tracker = Arc::new(Mutex::new(CloseDialogTracker {
-        next_gen: 0,
-        current: None,
-        authorized: true,
-    }));
+    let close_token = client.allocate_dialog_token();
+    let authorized = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let _auth_guard = CloseAuthGuard {
-        tracker: tracker.clone(),
+        client,
+        session_id,
+        token: close_token,
+        authorized: authorized.clone(),
     };
-    let close = client.send_to(
-        None,
-        "Target.closeTarget",
-        json!({ "targetId": target_id }),
-        deadline,
-    );
+    let mut dialogs = session_id.map(|sid| client.subscribe_wire_dialogs(sid));
+    let close_gate_flag = authorized.clone();
+    let close_gate: crate::DispatchGate =
+        Arc::new(move || close_gate_flag.load(std::sync::atomic::Ordering::SeqCst));
+    let close =
+        client.send_causal_close_target(target_id, session_id, close_token, deadline, close_gate);
     tokio::pin!(close);
     let mut handled_gen: Option<u64> = None;
     let mut pending_accept: Option<(
@@ -314,49 +304,45 @@ async fn close_target_accepting_beforeunload(
                     dialogs = None;
                     continue;
                 };
-                let latest = {
-                    let mut state = tracker.lock();
-                    let mut apply = |ev: &crate::cdp_wire::CdpEvent| {
-                        if ev.method == "Page.javascriptDialogOpening" {
-                            state.next_gen += 1;
-                            let is_beforeunload = ev
-                                .params
-                                .get("type")
-                                .and_then(serde_json::Value::as_str)
-                                == Some("beforeunload");
-                            state.current = Some((state.next_gen, is_beforeunload));
-                        } else if ev.method == "Page.javascriptDialogClosed" {
-                            state.current = None;
-                        }
-                    };
-                    apply(first.as_ref());
-                    if let Some(stream) = dialogs.as_mut() {
-                        while let Ok(queued) = stream.try_recv() {
-                            apply(queued.as_ref());
-                        }
-                    }
-                    state.current
+                let mut latest = match first {
+                    crate::WireDialogEvent::Opening(opening) => Some(opening),
+                    crate::WireDialogEvent::Closed => None,
                 };
+                if let Some(stream) = dialogs.as_mut() {
+                    while let Ok(queued) = stream.try_recv() {
+                        latest = match queued {
+                            crate::WireDialogEvent::Opening(opening) => Some(opening),
+                            crate::WireDialogEvent::Closed => None,
+                        };
+                    }
+                }
                 if let Some((active_gen, _)) = &pending_accept {
-                    if latest != Some((*active_gen, true)) {
+                    let still_matching = latest.as_ref().is_some_and(|opening| {
+                        opening.generation == *active_gen
+                            && opening.owner_token == Some(close_token)
+                            && opening.dialog_type.eq_ignore_ascii_case("beforeunload")
+                    });
+                    if !still_matching {
                         pending_accept = None;
                     }
                 }
-                if let Some((dialog_gen, true)) = latest {
-                    if handled_gen != Some(dialog_gen) {
-                        handled_gen = Some(dialog_gen);
+                if let Some(opening) = latest {
+                    if opening.owner_token == Some(close_token)
+                        && opening.dialog_type.eq_ignore_ascii_case("beforeunload")
+                        && handled_gen != Some(opening.generation)
+                    {
+                        handled_gen = Some(opening.generation);
                         if let Some(sid) = session_id {
-                            let tracker_for_gate = tracker.clone();
+                            let flag = authorized.clone();
                             let gate: crate::DispatchGate = Arc::new(move || {
-                                let state = tracker_for_gate.lock();
-                                state.authorized && state.current == Some((dialog_gen, true))
+                                flag.load(std::sync::atomic::Ordering::SeqCst)
                             });
                             pending_accept = Some((
-                                dialog_gen,
-                                Box::pin(client.send_guarded_to(
-                                    Some(sid),
-                                    "Page.handleJavaScriptDialog",
-                                    json!({ "accept": true }),
+                                opening.generation,
+                                Box::pin(client.send_dialog_accept(
+                                    sid,
+                                    opening.generation,
+                                    close_token,
                                     deadline,
                                     gate,
                                 )),

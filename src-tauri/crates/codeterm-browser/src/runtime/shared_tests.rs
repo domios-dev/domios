@@ -730,6 +730,7 @@ struct CloseDialogConnection {
     dialog_type: &'static str,
     closed: watch::Sender<Option<String>>,
     subscribers: Mutex<Vec<(EventFilter, mpsc::Sender<Arc<CdpEvent>>)>>,
+    wire_dialogs: crate::WireDialogOrder,
     dialog_replies: Mutex<Vec<(Option<String>, Value)>>,
     accepted: watch::Sender<bool>,
     accept_queued: watch::Sender<bool>,
@@ -742,6 +743,7 @@ impl CloseDialogConnection {
             dialog_type,
             closed: watch::channel(None).0,
             subscribers: Mutex::new(Vec::new()),
+            wire_dialogs: crate::WireDialogOrder::new(),
             dialog_replies: Mutex::new(Vec::new()),
             accepted: watch::channel(false).0,
             accept_queued: watch::channel(false).0,
@@ -755,6 +757,7 @@ impl CloseDialogConnection {
             session_id: session.map(str::to_string),
             params,
         });
+        self.wire_dialogs.on_incoming_event(&event);
         self.subscribers.lock().retain(|(filter, sender)| {
             if filter.matches(&event) {
                 let _ = sender.try_send(event.clone());
@@ -790,6 +793,7 @@ impl CdpConnection for CloseDialogConnection {
     }
     fn close(&self, reason: &str) {
         self.closed.send_replace(Some(reason.into()));
+        self.wire_dialogs.close_all();
         self.subscribers.lock().clear();
     }
     fn subscribe(&self, filter: EventFilter) -> EventStream {
@@ -797,23 +801,65 @@ impl CdpConnection for CloseDialogConnection {
         self.subscribers.lock().push((filter, sender));
         EventStream::from_receiver(receiver)
     }
-    async fn send_guarded_to(
+    fn allocate_dialog_token(&self) -> u64 {
+        self.wire_dialogs.allocate_token()
+    }
+    fn subscribe_wire_dialogs(&self, session_id: &str) -> mpsc::Receiver<crate::WireDialogEvent> {
+        self.wire_dialogs.subscribe(session_id)
+    }
+    fn disarm_dialog_owner(&self, session_id: &str, token: Option<u64>) {
+        self.wire_dialogs.disarm(session_id, token);
+    }
+    async fn send_causal_close_target(
         &self,
-        session: Option<&str>,
-        method: &str,
-        params: Value,
+        target_id: &str,
+        target_session_id: Option<&str>,
+        token: u64,
         deadline: Duration,
         can_dispatch: crate::DispatchGate,
     ) -> Result<Value, CdpError> {
-        if method == "Page.handleJavaScriptDialog" && self.dialog_type == "blocked-queue-replaced" {
+        if let Some(sid) = target_session_id {
+            if can_dispatch() {
+                self.wire_dialogs.arm_for_close(sid, token);
+            }
+        }
+        self.send_to(
+            None,
+            "Target.closeTarget",
+            json!({ "targetId": target_id }),
+            deadline,
+        )
+        .await
+    }
+    async fn send_dialog_accept(
+        &self,
+        session_id: &str,
+        expected_generation: u64,
+        expected_owner_token: u64,
+        deadline: Duration,
+        can_dispatch: crate::DispatchGate,
+    ) -> Result<Value, CdpError> {
+        if self.dialog_type == "blocked-queue-replaced" {
             self.accept_queued.send_replace(true);
             let mut release = self.release_outgoing.subscribe();
             let _ = tokio::time::timeout(deadline, release.wait_for(|open| *open)).await;
         }
-        if !can_dispatch() {
-            return Err(CdpError::Cancelled("dispatch authorization revoked".into()));
+        if !can_dispatch()
+            || !self
+                .wire_dialogs
+                .can_accept(session_id, expected_generation, expected_owner_token)
+        {
+            return Err(CdpError::Cancelled(
+                "dialog accept superseded or revoked".into(),
+            ));
         }
-        self.send_to(session, method, params, deadline).await
+        self.send_to(
+            Some(session_id),
+            "Page.handleJavaScriptDialog",
+            json!({ "accept": true }),
+            deadline,
+        )
+        .await
     }
     async fn send_to(
         &self,
@@ -853,13 +899,13 @@ impl CdpConnection for CloseDialogConnection {
                     self.emit(
                         "Page.javascriptDialogOpening",
                         Some("ST1"),
-                        json!({ "type": "beforeunload", "message": "leave?", "url": "https://a.test" }),
+                        json!({ "type": "beforeunload", "message": "leave A?", "url": "https://a.test" }),
                     );
                     tokio::time::timeout(deadline, queued.wait_for(|hit| *hit))
                         .await
                         .map_err(|_| CdpError::Deadline("accept_queued".into()))?
                         .map_err(|_| CdpError::Closed("accept_queued".into()))?;
-                    // Replace the beforeunload with a prompt while the accept is blocked in the outgoing queue.
+                    // Replace beforeunload A with a SECOND beforeunload B while A's accept is queued.
                     self.emit(
                         "Page.javascriptDialogClosed",
                         Some("ST1"),
@@ -868,10 +914,28 @@ impl CdpConnection for CloseDialogConnection {
                     self.emit(
                         "Page.javascriptDialogOpening",
                         Some("ST1"),
-                        json!({ "type": "prompt", "message": "enter pin", "url": "https://a.test" }),
+                        json!({ "type": "beforeunload", "message": "leave B?", "url": "https://a.test" }),
                     );
-                    self.wait_events_drained(deadline).await;
                     self.release_outgoing.send_replace(true);
+                    tokio::task::yield_now().await;
+                    return Ok(json!({ "success": true }));
+                }
+                if self.dialog_type == "beforeunload-then-beforeunload" {
+                    self.emit(
+                        "Page.javascriptDialogOpening",
+                        Some("ST1"),
+                        json!({ "type": "beforeunload", "message": "leave A?", "url": "https://a.test" }),
+                    );
+                    self.emit(
+                        "Page.javascriptDialogClosed",
+                        Some("ST1"),
+                        json!({ "result": false, "userInput": "" }),
+                    );
+                    self.emit(
+                        "Page.javascriptDialogOpening",
+                        Some("ST1"),
+                        json!({ "type": "beforeunload", "message": "leave B?", "url": "https://a.test" }),
+                    );
                     tokio::task::yield_now().await;
                     return Ok(json!({ "success": true }));
                 }
@@ -920,6 +984,7 @@ async fn closing_target_accepts_beforeunload_and_never_accepts_alert() {
         ("beforeunload", true),
         ("alert", false),
         ("beforeunload-then-prompt", false),
+        ("beforeunload-then-beforeunload", false),
         ("blocked-queue-replaced", false),
     ] {
         let dir = PathBuf::from(format!("/fake-close-dialog/{}", uuid::Uuid::new_v4()));
