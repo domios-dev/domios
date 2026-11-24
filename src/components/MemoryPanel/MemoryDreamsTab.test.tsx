@@ -68,7 +68,7 @@ assert.ok(dialog.open, "a phone night opens the sheet");
 let escapedToWindow = false;
 const outerEscape = () => { escapedToWindow = true; };
 window.addEventListener("keydown", outerEscape);
-await act(async () => { dialog.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+await act(async () => { dialog.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }) as unknown as Event); });
 assert.equal(dialog.open, false);
 assert.equal(escapedToWindow, false, "sheet Escape cannot close the outer Memory panel");
 window.removeEventListener("keydown", outerEscape);
