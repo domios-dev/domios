@@ -6,7 +6,6 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use codeterm_neighbors_service::NeighborsNeighborsRuntime1Ext;
 use codeterm_service_core::config::schema::{
     AppConfig, AppearanceLook, AppearanceProposal, AppearanceState, ChatPattern, ChatWallpaper,
     ThemeConfig,
@@ -14,14 +13,15 @@ use codeterm_service_core::config::schema::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::{AuthenticatedOrigin, CallerIdentity},
     routes::AppState,
     wallpaper_routes::{update_appearance, validate_wallpaper, WallpaperAssets},
 };
 
+pub(crate) mod authority;
 mod contrast;
 mod presets;
 mod tweak;
+use authority::Operation;
 use contrast::{measure, ContrastCheck};
 
 const PROPOSAL_LIMIT: usize = 12;
@@ -48,24 +48,13 @@ pub(crate) fn router() -> Router<AppState> {
         )
 }
 
-fn target(state: &AppState, headers: &HeaderMap, selection: &str) -> Result<Machine, Refusal> {
-    let origin = crate::auth::authenticated_origin(state, headers)?;
-    let identity = crate::auth::caller_identity(state, headers)?;
-    let authorized = match identity {
-        CallerIdentity::Local => origin == AuthenticatedOrigin::Owner,
-        CallerIdentity::Peer { access_level, .. } => {
-            origin == AuthenticatedOrigin::Owner
-                && access_level == codeterm_service_core::mesh::types::AccessLevel::Full
-        }
-        CallerIdentity::Tab(caller) => state
-            .svc
-            .require_neighbor_general(Some(&caller.tab_id), Some(&caller.binding_nonce))
-            .is_ok(),
-        _ => false,
-    };
-    if !authorized {
-        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
-    }
+fn target(
+    state: &AppState,
+    headers: &HeaderMap,
+    selection: &str,
+    operation: Operation,
+) -> Result<Machine, Refusal> {
+    authority::authorize_request(state, headers, operation)?;
     local_machine(state, selection)
 }
 
@@ -132,7 +121,7 @@ async fn read(
     headers: HeaderMap,
 ) -> Result<Json<Current>, Refusal> {
     crate::auth::off_runtime(&state, &headers, move |state, headers| {
-        let machine = target(state, headers, &machine)?;
+        let machine = target(state, headers, &machine, Operation::Inspect)?;
         let config = state.config.lock().clone();
         let look = AppearanceLook::from_config(&config);
         let active = config
@@ -177,7 +166,7 @@ async fn diagnose(
     Json(look): Json<AppearanceLook>,
 ) -> Result<Json<Vec<ContrastCheck>>, Refusal> {
     crate::auth::off_runtime(&state, &headers, move |state, headers| {
-        target(state, headers, &machine)?;
+        target(state, headers, &machine, Operation::Inspect)?;
         measure(&look).map(Json).map_err(bad_request)
     })
     .await
@@ -191,7 +180,8 @@ async fn propose(
     Json(draft): Json<Draft>,
 ) -> Result<Json<Receipt>, ApiRefusal> {
     crate::auth::off_runtime(&state, &headers, move |state, headers| {
-        let machine = target(state, headers, &machine)?;
+        let _writer = assets.settings_writer.lock();
+        let machine = target(state, headers, &machine, Operation::Store)?;
         let rationale = draft.rationale.trim().to_owned();
         if rationale.is_empty() || rationale.len() > 480 || rationale.chars().any(char::is_control)
         {
@@ -217,7 +207,6 @@ async fn propose(
                 ))
             }
         };
-        let _writer = assets.settings_writer.lock();
         validate_wallpaper(&assets, &mut look.wallpaper)
             .map_err(|(status, reason)| (status, reason.to_owned()))?;
         validate(&look)?;
@@ -288,7 +277,7 @@ async fn show(
     headers: HeaderMap,
 ) -> Result<Json<Receipt>, ApiRefusal> {
     crate::auth::off_runtime(&state, &headers, move |state, headers| {
-        let machine = target(state, headers, &machine)?;
+        let machine = target(state, headers, &machine, Operation::Inspect)?;
         let config = state.config.lock().clone();
         let proposal = find(&config.appearance_proposals, &id)?.clone();
         receipt(machine, proposal, &config).map(Json)
@@ -339,15 +328,8 @@ async fn use_theme_wallpaper(
     State(state): State<AppState>,
     Path((machine, id)): Path<(String, String)>,
     headers: HeaderMap,
-    Extension(origin): Extension<AuthenticatedOrigin>,
     Extension(assets): Extension<Arc<WallpaperAssets>>,
 ) -> Result<Json<Receipt>, ApiRefusal> {
-    if origin != AuthenticatedOrigin::Owner {
-        return Err(typed_refusal((
-            StatusCode::FORBIDDEN,
-            "Owner authorization required".into(),
-        )));
-    }
     transition(
         state,
         &headers,
@@ -371,8 +353,8 @@ async fn transition(
     use_theme_wallpaper: bool,
 ) -> Result<Json<Receipt>, Refusal> {
     crate::auth::off_runtime(&state, headers, move |state, headers| {
-        let machine = target(state, headers, &machine)?;
         let _writer = assets.settings_writer.lock();
+        let machine = target(state, headers, &machine, Operation::Commit)?;
         let mut refused = None;
         let mut changed = false;
         let config = update_appearance(state, &assets, |config| {

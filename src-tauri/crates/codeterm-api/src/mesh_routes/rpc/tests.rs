@@ -232,6 +232,7 @@ fn agent_remote_ack_and_report_match_the_signed_worker() {
         instance_id: "worker-machine".into(),
         tab_id: "worker-tab".into(),
         can_spawn: false,
+        general_main: false,
     };
     for (method, params) in [
         (
