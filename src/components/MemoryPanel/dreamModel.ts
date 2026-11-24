@@ -64,19 +64,42 @@ export function nightState(entry?: DreamDiaryEntry, worker?: DreamWorker): Dream
   return "complete";
 }
 
+export function stoppedDreamCopy(worker?: DreamWorker) {
+  const duration = worker?.done_at == null ? null : worker.done_at - worker.spawned_at;
+  const headline = !worker?.stage || duration === 0
+    ? "This night didn't run."
+    : "This night didn't finish.";
+  const rawReason = worker?.finalization && "reason" in worker.finalization
+    ? worker.finalization.reason : worker?.report;
+  const kind = worker?.execution_end?.kind;
+  const reason = kind === "cancelled" || /\bworker cancel(?:led|ed)\b/i.test(rawReason ?? "")
+    ? "Stopped by you"
+    : kind === "timed_out" ? "The run timed out"
+      : kind === "orphaned" ? "The run lost contact"
+        : rawReason?.trim() || "The run stopped";
+  return { headline, reason };
+}
+
+function nightCounters(body: string, worker?: DreamWorker): DreamCounters {
+  const counters = dreamCounters(body);
+  return worker?.created_edges?.length
+    ? { ...counters, links: dreamRunData(worker).edges.length }
+    : counters;
+}
+
 export function dreamNights(entries: DreamDiaryEntry[], workers: DreamWorker[]): DreamNight[] {
   const ordered = [...workers].sort((a, b) => b.spawned_at - a.spawned_at);
   const represented = new Set(entries.map((entry) => entry.id));
   const nights = entries.map((entry): DreamNight => {
     const worker = ordered.find((run) => run.diary_id === entry.id);
     return { id: entry.id, at: worker?.spawned_at ?? Date.parse(entry.created_at), entry, worker,
-      state: nightState(entry, worker), counters: dreamCounters(entry.body) };
+      state: nightState(entry, worker), counters: nightCounters(entry.body, worker) };
   });
   for (const worker of ordered) {
     if (worker.diary_id && represented.has(worker.diary_id)) continue;
     if (worker.diary_id) represented.add(worker.diary_id);
     nights.push({ id: worker.worker_id, at: worker.spawned_at, worker,
-      state: nightState(undefined, worker), counters: dreamCounters("") });
+      state: nightState(undefined, worker), counters: nightCounters("", worker) });
   }
   return nights.filter((night) => Number.isFinite(night.at)).sort((a, b) => b.at - a.at);
 }
@@ -121,9 +144,19 @@ export function selectDreamNight(nights: DreamNight[], selected: string | null):
 }
 
 export function dreamRunData(worker?: DreamWorker) {
-  const ids = [...new Set(worker?.touched_nodes ?? [])];
+  const diaryId = worker?.diary_id;
+  const created = worker?.created_edges ?? [];
+  const realEdges = created.filter((edge) => edge.from !== diaryId && edge.to !== diaryId);
+  const realEndpoints = new Set(realEdges.flatMap((edge) => [edge.from, edge.to]));
+  const diaryEndpoints = new Set(created.filter((edge) => edge.from === diaryId || edge.to === diaryId)
+    .flatMap((edge) => [edge.from, edge.to]));
+  const ids = [...new Set(worker?.touched_nodes ?? [])].filter((id) => {
+    if (id === diaryId) return false;
+    const action = worker?.node_actions?.[id];
+    return !diaryEndpoints.has(id) || realEndpoints.has(id) || (action !== undefined && action !== "linked");
+  });
   const idSet = new Set(ids);
-  const edges = (worker?.created_edges ?? []).filter((edge) => idSet.has(edge.from) && idSet.has(edge.to));
+  const edges = realEdges.filter((edge) => idSet.has(edge.from) && idSet.has(edge.to));
   const actions = Object.entries(worker?.node_actions ?? {}).filter(([id]) => idSet.has(id));
   return { ids, edges, actions, hasConstellation: ids.length > 0, hasItems: actions.length > 0 };
 }
