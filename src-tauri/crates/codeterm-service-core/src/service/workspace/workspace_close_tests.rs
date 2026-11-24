@@ -3,10 +3,18 @@ use super::WorkspaceCloseCaller;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 use crate::plan::{OrchestratorRef, Plan};
+use crate::service::close_authority::MeshCloseGrant;
 use crate::service::plan::NewTask;
 use crate::service::tab::{normalize_tab_description, validate_tab_title, MAX_TAB_TITLE_CHARS};
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::workspace::{validate_workspace_name, MAX_WORKSPACE_NAME_CHARS};
+
+fn mesh_close_grant(fixture: &ServiceFixture) -> MeshCloseGrant {
+    MeshCloseGrant::new(
+        fixture.service.ext::<crate::MeshStateHandle>().clone(),
+        |_| true,
+    )
+}
 
 #[test]
 fn names_and_titles_validated() {
@@ -290,15 +298,16 @@ fn unattributed_caller_closes_an_empty_workspace() {
 #[test]
 fn workspace_close_guard_mesh_requires_force() {
     let (fixture, workspace_id, tab_id, _) = workspace_with_agent_tab();
+    let grant = mesh_close_grant(&fixture);
 
     assert!(fixture
         .service
-        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, false)
+        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, false, &grant)
         .is_err());
     assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
     fixture
         .service
-        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, true)
+        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, true, &grant)
         .unwrap();
     assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
 }
@@ -363,7 +372,12 @@ fn authenticated_mesh_peer_may_close_a_protected_workspace() {
 
     fixture
         .service
-        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, true)
+        .close_workspace_from_authenticated_mesh_peer(
+            "paired-peer",
+            &workspace_id,
+            true,
+            &mesh_close_grant(&fixture),
+        )
         .unwrap();
 
     assert!(fixture
@@ -380,7 +394,12 @@ fn empty_mesh_peer_provenance_is_rejected() {
 
     let error = fixture
         .service
-        .close_workspace_from_authenticated_mesh_peer(" ", &workspace_id, false)
+        .close_workspace_from_authenticated_mesh_peer(
+            " ",
+            &workspace_id,
+            false,
+            &mesh_close_grant(&fixture),
+        )
         .unwrap_err();
 
     assert!(error.contains("peer id"));

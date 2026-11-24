@@ -437,6 +437,7 @@ pub fn is_local_only_path(path: &str) -> bool {
                 | "/api/mesh/relay-stream"
                 | "/api/mesh/disconnect"
                 | "/api/mesh/unrevoke"
+                | "/api/surfaces/close"
         )
         || path.starts_with("/api/mesh/peers/disconnect/")
         || path.starts_with("/api/mesh/peers/") && path.ends_with("/access")

@@ -180,20 +180,14 @@ pub async fn tab_close(
             "This operation requires the local owner".into(),
         ));
     }
-    let service = state.svc.clone();
-    let requested_tab = tab_id.clone();
-    close_tab_as_owner(&state, &tab_id, query.force, move || {
-        let mux = service.mux.read();
-        if mux
-            .resolve_tab_id(&requested_tab)
-            .and_then(|tab_id| mux.find_workspace_for_tab(&tab_id))
-            .as_deref()
-            != Some(workspace_id.as_str())
-        {
-            return Err("Tab not found in this workspace".into());
-        }
-        Ok(())
-    })
+    close_tab_as_owner(
+        &state,
+        &tab_id,
+        query.force,
+        codeterm_service_core::service::close_authority::OwnerTabCloseScope::Workspace(
+            workspace_id,
+        ),
+    )
     .await
 }
 
@@ -201,11 +195,11 @@ pub(crate) async fn close_tab_as_owner(
     state: &AppState,
     tab_id: &str,
     force: bool,
-    check: impl FnOnce() -> Result<(), String> + Send + 'static,
+    scope: codeterm_service_core::service::close_authority::OwnerTabCloseScope,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let closed = state
         .svc
-        .close_tab_as_owner_async_checked(tab_id, force, check)
+        .close_tab_as_owner_async_scoped(tab_id, force, scope)
         .await
         .map_err(crate::tab_routes::map_close_error)?;
     if !closed {

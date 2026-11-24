@@ -32,9 +32,11 @@ fn restore_plan_metadata(
 pub(super) struct WorkspaceCloseGuard(String);
 
 impl WorkspaceCloseGuard {
-    pub fn new(id: &str) -> Self {
-        WORKSPACE_CLOSES.lock().insert(id.into());
-        Self(id.into())
+    pub fn begin(id: &str) -> Result<Self, String> {
+        if !WORKSPACE_CLOSES.lock().insert(id.into()) {
+            return Err(format!("Workspace is closing: {id}"));
+        }
+        Ok(Self(id.into()))
     }
 }
 

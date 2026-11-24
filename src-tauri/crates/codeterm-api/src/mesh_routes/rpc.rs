@@ -179,6 +179,9 @@ pub(super) async fn handle_mesh_rpc(
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
     authenticate: impl FnOnce() -> Result<String, (axum::http::StatusCode, String)>,
 ) -> MeshRpcResponse {
+    if request.method == "team.close" {
+        return authority_refusal("Team close requires a local caller".into());
+    }
     if !origin_admitted(origin, &request.method) {
         return authority_refusal(
             "Mesh RPC requires an owner credential or an explicit peer lifecycle capability".into(),

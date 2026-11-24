@@ -1,5 +1,6 @@
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab, TabCloseReason};
+use crate::service::close_authority::OwnerTabCloseScope;
 use crate::service::tab::TabCloseCleanup;
 use crate::service::ServiceContext;
 use std::time::Duration;
@@ -42,21 +43,25 @@ impl ServiceContext {
         tab_id: &str,
         confirmed: bool,
     ) -> Result<bool, String> {
-        self.close_tab_as_owner_async_checked(tab_id, confirmed, || Ok(()))
+        self.close_tab_as_owner_async_scoped(tab_id, confirmed, OwnerTabCloseScope::Local)
             .await
     }
 
-    pub async fn close_tab_as_owner_async_checked(
+    pub async fn close_tab_as_owner_async_scoped(
         &self,
         tab_id: &str,
         confirmed: bool,
-        check: impl FnOnce() -> Result<(), String> + Send + 'static,
+        scope: OwnerTabCloseScope,
     ) -> Result<bool, String> {
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         crate::service::blocking::run(move || {
-            check()?;
-            let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
+            let tab_id = {
+                let mux = svc.mux.read();
+                let id = mux.resolve_tab_id(&tab_id).unwrap_or(tab_id);
+                scope.check(&mux, &id)?;
+                id
+            };
             if !confirmed
                 && !svc
                     .in_progress_assignments_for_tab(&tab_id)
@@ -65,13 +70,22 @@ impl ServiceContext {
             {
                 return Ok(false);
             }
-            svc.close_tab_as_owner(&tab_id)?;
+            svc.close_tab_as_owner_scoped(&tab_id, scope)?;
             Ok(true)
         })
         .await
     }
 
     pub(crate) fn close_tab_as_owner(&self, tab_id: &str) -> Result<(), String> {
+        self.close_tab_as_owner_scoped(tab_id, OwnerTabCloseScope::Local)
+    }
+
+    fn close_tab_as_owner_scoped(
+        &self,
+        tab_id: &str,
+        scope: OwnerTabCloseScope,
+    ) -> Result<(), String> {
+        let reserve = |mux: &mut MultiplexerState, id: &str| scope.reserve(mux, id);
         let tabs = {
             let mux = self.mux.read();
             if !mux
@@ -79,7 +93,22 @@ impl ServiceContext {
                 .is_some_and(|tab| tab.role == Some(AgentRole::Worker))
             {
                 drop(mux);
-                return self.close_tab(tab_id);
+                return self.close_tab_with_teardown_and_cleanup(
+                    tab_id,
+                    TabCloseReason::User,
+                    |mux, id| {
+                        if mux
+                            .get_tab(id)
+                            .is_some_and(|tab| tab.role == Some(AgentRole::Worker))
+                        {
+                            return Err("Tab became a Worker before close".into());
+                        }
+                        reserve(mux, id)
+                    },
+                    || Ok(()),
+                    |_, _| Ok(()),
+                    TabCloseCleanup::Standard,
+                );
             }
             closing_tabs(&mux, tab_id)
         };
@@ -96,7 +125,10 @@ impl ServiceContext {
         self.close_tab_with_teardown_and_cleanup(
             tab_id,
             TabCloseReason::User,
-            validate,
+            |mux, id| {
+                validate(mux, id)?;
+                reserve(mux, id)
+            },
             || {
                 self.terminate_executor_tabs(&tabs)?;
                 validate(&self.mux.read(), tab_id)?;
