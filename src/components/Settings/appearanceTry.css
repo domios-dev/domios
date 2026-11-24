@@ -113,7 +113,11 @@
 }
 .ct-appearance-try__controls .ct-wallpaper-gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .ct-appearance-try__controls .ct-wallpaper-tile { aspect-ratio: auto; min-height: 72px; padding: 4px; font-size: .7rem; }
-.ct-appearance-try__pill { bottom: calc(var(--lab-dock-inset) + 8px); inset-inline-end: 12px; }
+.ct-appearance-try__pill {
+  bottom: calc(max(12px, var(--ct-safe-bottom, 0px)) + 52px);
+  inset-inline-end: 12px;
+  white-space: nowrap;
+}
 .ct-appearance-try__dock {
   z-index: 3;
   display: flex;
@@ -189,6 +193,9 @@
 }
 
 @media (min-width: 721px) {
+  [data-appearance-lab]:has(.ct-appearance-try__pill) {
+    --lab-dock-inset: calc(max(12px, var(--ct-safe-bottom, 0px)) + 92px);
+  }
   .ct-appearance-try__controls > .ct-settings-card > .ct-settings-card__head .ct-settings-card__heading {
     position: absolute;
     width: 1px;
