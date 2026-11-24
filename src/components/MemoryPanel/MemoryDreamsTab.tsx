@@ -3,12 +3,7 @@ import { daemonFetch } from "../../lib/webApi";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { formatDuration, formatUntil } from "../../lib/timeLabels";
 import { listen } from "../../lib/bridge";
-import {
-  Moon,
-  Play,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { Moon, Play } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { authHeaders } from "./memoryApi";
 import { BusyState } from "../shared/BusyState";
@@ -26,6 +21,8 @@ interface Props {
   api: ApiConfig;
 }
 
+const diaryGridClass = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,290px),1fr))] gap-3 px-4 @lg:px-7";
+
 function MemoryDreamsTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
@@ -37,7 +34,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [showAllSessions, setShowAllSessions] = useState(false);
-  const carouselRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -191,24 +187,16 @@ function MemoryDreamsTabImpl({ api }: Props) {
   // is shown and never becomes a second count competing with diaryTotal.
   const unfinishedInView = diaryStates.some((s) => s.state === "incomplete_recoverable");
 
-  const scrollCarousel = useCallback((dir: 1 | -1) => {
-    const el = carouselRef.current;
-    if (!el) return;
-    const card = el.querySelector("[data-dream-card]") as HTMLElement | null;
-    const step = card ? card.offsetWidth + 16 : el.clientWidth * 0.7;
-    el.scrollBy({ left: dir * step, behavior: "smooth" });
-  }, []);
-
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]" data-testid="memory-dreams-tab">
-      <div className="relative px-4 sm:px-5 pt-5 pb-5 flex flex-wrap items-start gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 text-lg font-medium text-[var(--ct-fg)] leading-tight">
-            <Moon size={18} className="shrink-0 text-[var(--ct-magenta)]" />
-            <span>What memory dreamt.</span>
-          </div>
+    <div className="@container absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]" data-testid="memory-dreams-tab">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-4 px-4 pt-5 pb-7 @lg:grid-cols-[minmax(0,1fr)_auto_auto] @lg:gap-x-3 @lg:px-7 @lg:pt-6">
+        <div>
+          <h2 className="flex items-center gap-2.5 text-xl leading-tight font-bold text-[var(--ct-fg)]">
+            <Moon size={18} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
+            <span>What memory dreamt</span>
+          </h2>
           <div
-            className="mt-1.5 text-[11px] text-[var(--ct-muted-fg)] flex items-center gap-2 flex-wrap"
+            className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--ct-muted-fg)]"
             data-testid="memory-dream-meta"
           >
             {(() => {
@@ -221,13 +209,13 @@ function MemoryDreamsTabImpl({ api }: Props) {
                     : null;
               return (
                 <>
+                  <span>{diaryTotal} dream{diaryTotal === 1 ? "" : "s"} recorded</span>
                   {statusText && (
                     <>
+                      <span aria-hidden="true">·</span>
                       <span>{statusText}</span>
-                      <span className="opacity-30">·</span>
                     </>
                   )}
-                  <span>{diaryTotal} dream{diaryTotal === 1 ? "" : "s"} recorded</span>
                   {unfinishedInView && (
                     <>
                       <span className="opacity-30">·</span>
@@ -245,100 +233,70 @@ function MemoryDreamsTabImpl({ api }: Props) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
-          {dreamCron && (
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              data-testid="memory-dream-nightly-toggle"
-              className="gap-1.5"
-              onClick={() => toggleDreamCron(!dreamCron.enabled)}
-              aria-label={dreamCron.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}
-            >
-              <span
-                className="inline-block w-1.5 h-1.5 rounded-full"
-                style={{ background: dreamCron.enabled ? "var(--ct-green)" : "var(--ct-muted-fg)" }}
-              />
-              <span
-                className="text-xs"
-                style={{ color: dreamCron.enabled ? "var(--ct-green)" : "var(--ct-muted-fg)" }}
-              >
-                {dreamCron.enabled ? "Nightly on" : "Nightly off"}
-              </span>
-            </Button>
-          )}
+        {dreamCron && (
           <Button
-            variant="primary"
+            variant="ghost"
             size="sm"
-            data-testid="memory-dream-run-now"
-            className="gap-1.5"
-            onClick={runNow}
-            disabled={running || !!inflight}
+            type="button"
+            data-testid="memory-dream-nightly-toggle"
+            className="col-start-2 row-start-1 gap-1.5 whitespace-nowrap"
+            onClick={() => toggleDreamCron(!dreamCron.enabled)}
+            aria-label={dreamCron.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}
           >
-            {running || inflight ? (
-              <>
-                <BusyState inline hideLabel label={inflight ? "Dreaming" : "Starting"} phase="work" dotSize="micro" />
-                {inflight ? "Dreaming…" : "Starting…"}
-              </>
-            ) : (
-              <>
-                <Play size={12} />
-                Dream now
-              </>
-            )}
+            <span
+              className="inline-block w-1.5 h-1.5 rounded-full"
+              style={{ background: dreamCron.enabled ? "var(--ct-green)" : "var(--ct-muted-fg)" }}
+            />
+            <span className="text-xs text-[var(--ct-muted-fg)]">
+              {dreamCron.enabled ? "Nightly on" : "Nightly off"}
+            </span>
           </Button>
-        </div>
+        )}
+        <Button
+          variant="accent"
+          data-testid="memory-dream-run-now"
+          className="col-start-1 row-start-2 justify-self-start gap-2 border-[color-mix(in_srgb,var(--ct-accent)_36%,transparent)]! @lg:col-start-3 @lg:row-start-1"
+          onClick={runNow}
+          disabled={running || !!inflight}
+        >
+          {running || inflight ? (
+            <>
+              <BusyState inline hideLabel label={inflight ? "Dreaming" : "Starting"} phase="work" dotSize="micro" />
+              {inflight ? "Dreaming…" : "Starting…"}
+            </>
+          ) : (
+            <>
+              <Play size={12} />
+              Dream now
+            </>
+          )}
+        </Button>
       </div>
 
       {runError && (
         <div data-testid="memory-dream-run-error"><InlineErrorNotice error={runError} operation="running memory maintenance" blocking /></div>
       )}
 
-      <section className="relative pb-8">
-        <div className="flex items-center justify-between px-4 sm:px-5 pb-2">
-          <h3 className="text-xs font-medium text-[var(--ct-muted-fg)]">
-            Dream diary
-          </h3>
-          {diaryEntries.length > 1 && (
-            <div className="flex gap-1">
-              <Button
-                variant="icon"
-                size="sm"
-                onClick={() => scrollCarousel(-1)}
-                data-testid="memory-dream-scroll-left"
-                aria-label="Scroll left"
-              >
-                <ChevronLeft size={14} />
-              </Button>
-              <Button
-                variant="icon"
-                size="sm"
-                onClick={() => scrollCarousel(1)}
-                data-testid="memory-dream-scroll-right"
-                aria-label="Scroll right"
-              >
-                <ChevronRight size={14} />
-              </Button>
-            </div>
+      <section className="pb-7">
+        <div className="flex items-baseline gap-2 px-4 pb-3 text-xs @lg:px-7">
+          <h3 className="font-semibold text-[var(--ct-fg)]">Dream diary</h3>
+          {!!diaryEntries.length && (
+            <span className="text-[var(--ct-muted-fg)]">· newest first</span>
           )}
         </div>
 
         {diaryLoading ? (
-          <SkeletonCarousel />
+          <SkeletonDiary />
         ) : diaryEntries.length === 0 ? (
           <EmptyDream />
         ) : (
-          <div
-            ref={carouselRef}
-            className="flex gap-4 overflow-x-auto px-4 sm:px-5 pb-3 snap-x snap-mandatory scroll-pl-5"
-            data-testid="memory-dream-carousel"
-          >
+          <div className={diaryGridClass} data-testid="memory-dream-grid">
             {diaryEntries.map((entry, index) => (
               <DreamCard
                 key={entry.id}
                 entry={entry}
                 recordState={diaryStates[index]}
+                newest={index === 0}
                 onOpen={() => setOpenDream(entry)}
               />
             ))}
@@ -346,8 +304,8 @@ function MemoryDreamsTabImpl({ api }: Props) {
         )}
       </section>
 
-      <section className="px-4 sm:px-5 pb-6" data-testid="memory-dream-sessions">
-        <h3 className="text-xs font-medium text-[var(--ct-muted-fg)] mb-2">
+      <section className="px-4 pb-6 @lg:px-7" data-testid="memory-dream-sessions">
+        <h3 className="mb-3 text-xs font-semibold text-[var(--ct-fg)]">
           Recent sessions
         </h3>
         <RecentSessionsList
@@ -387,8 +345,8 @@ function MemoryDreamsTabImpl({ api }: Props) {
 
 function EmptyDream() {
   return (
-    <div className="ct-card ct-card--static mx-4 sm:mx-5 px-6 py-10 flex flex-col items-center gap-2 text-center" data-testid="memory-dream-empty">
-      <Moon size={28} className="text-[var(--ct-magenta,#a78bfa)] opacity-70" />
+    <div className="ct-card ct-card--static mx-4 px-6 py-10 flex flex-col items-center gap-2 text-center @lg:mx-7" data-testid="memory-dream-empty">
+      <Moon size={28} className="text-[var(--ct-accent)] opacity-70" />
       <div className="text-sm font-medium text-[var(--ct-fg)]">No dreams yet</div>
       <div className="text-xs text-[var(--ct-muted-fg)] max-w-[300px] leading-relaxed">
         Start a session or wait for the nightly run to see what memory dreamt.
@@ -399,37 +357,24 @@ function EmptyDream() {
 
 function SkeletonDream() {
   return (
-    <div
-      data-dream-card
-      className="ct-card ct-card--static snap-start shrink-0 w-[260px] h-[280px] animate-pulse overflow-hidden flex flex-col"
-    >
-      <div className="ct-card__head justify-between">
+    <div className="ct-card ct-card--static flex animate-pulse flex-col gap-3 px-[17px] py-[15px]">
+      <div className="flex items-center gap-2">
         <div className="ct-card__icon bg-[var(--ct-border)]" />
-        <div className="flex flex-col items-end gap-1.5">
-          <div className="h-6 w-10 rounded bg-[var(--ct-border)]" />
-          <div className="h-2 w-12 rounded bg-[var(--ct-border)]/70" />
-        </div>
+        <div className="h-3 w-28 rounded bg-[var(--ct-border)]" />
       </div>
-      <div className="px-4 mt-3">
-        <div className="h-3 w-20 rounded bg-[var(--ct-border)]" />
-      </div>
-      <div className="flex-1 px-4 pt-3 pb-3 flex flex-col gap-2">
-        <div className="h-2.5 w-[90%] rounded bg-[var(--ct-border)]" />
-        <div className="h-2.5 w-[80%] rounded bg-[var(--ct-border)]" />
-        <div className="h-2.5 w-[85%] rounded bg-[var(--ct-border)]" />
-        <div className="h-2.5 w-[60%] rounded bg-[var(--ct-border)]" />
-      </div>
-      <div className="px-4 pb-3 pt-1 flex items-center gap-2">
-        <div className="h-3 w-12 rounded bg-[var(--ct-border)]" />
-        <div className="h-3 w-10 rounded bg-[var(--ct-border)] ml-auto" />
+      <div className="h-4 w-[85%] rounded bg-[var(--ct-border)]" />
+      <div className="flex flex-col gap-2">
+        <div className="h-2.5 w-[90%] rounded bg-[var(--ct-border)]/70" />
+        <div className="h-2.5 w-[80%] rounded bg-[var(--ct-border)]/70" />
+        <div className="h-2.5 w-[60%] rounded bg-[var(--ct-border)]/70" />
       </div>
     </div>
   );
 }
 
-function SkeletonCarousel() {
+function SkeletonDiary() {
   return (
-    <div className="flex gap-4 overflow-x-hidden px-4 sm:px-5 pb-3">
+    <div className={diaryGridClass} aria-hidden="true">
       <SkeletonDream />
       <SkeletonDream />
       <SkeletonDream />
@@ -466,15 +411,16 @@ function RecentSessionsList({
         data-worker-status={w.status}
         data-run-label={run.label}
         title={run.reason ?? undefined}
-        className="ct-card flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 cursor-pointer"
+        className="grid cursor-pointer grid-cols-[7ch_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 px-3.5 py-2.5 text-xs hover:bg-[var(--ct-hover)] @lg:grid-cols-[13ch_23ch_minmax(0,1fr)]"
       >
         <span
-          className="text-[11px] w-[74px] shrink-0"
+          className="flex items-baseline gap-1.5"
           style={{ color: run.color }}
         >
-          {w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}
+          <span aria-hidden="true" className="size-1.5 shrink-0 self-center rounded-full bg-current" />
+          <span className="wrap-anywhere">{w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}</span>
         </span>
-        <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
+        <span className="text-[var(--ct-fg)] tabular-nums">
           {new Date(w.spawned_at).toLocaleString("en-US", {
             month: "short",
             day: "numeric",
@@ -482,23 +428,30 @@ function RecentSessionsList({
             minute: "2-digit",
           })}
         </span>
-        {w.model && (
-          <span className="text-[9px] text-[var(--ct-muted-fg)] truncate max-w-[120px]">
-            {w.model}
+        <div className="col-start-2 flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 text-[var(--ct-muted-fg)] @lg:col-start-3 @lg:col-end-4 @lg:row-start-1 @lg:flex-nowrap @lg:gap-x-3">
+          {w.model && (
+            <>
+              <span className="min-w-0 wrap-anywhere @lg:truncate @lg:font-mono" title={w.model}>{w.model}</span>
+              <span aria-hidden="true" className="@lg:hidden">·</span>
+            </>
+          )}
+          <span className="shrink-0 tabular-nums @lg:ml-auto">
+            {time.age} · {time.duration}
           </span>
-        )}
+        </div>
         {run.reason && (
-          <div data-testid="memory-dream-session-reason"><InlineErrorNotice error={{ code: "memory_run_incomplete", raw: run.reason }} /></div>
+          <div className="col-span-full" data-testid="memory-dream-session-reason">
+            <InlineErrorNotice error={{ code: "memory_run_incomplete", raw: run.reason }} />
+          </div>
         )}
-        <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">
-          {time.age} · {time.duration}
-        </span>
       </div>
     );
   };
   return (
     <div data-testid="memory-dream-session-list">
-      <div className="space-y-1">{first.map(renderRow)}</div>
+      <div className="overflow-hidden rounded-xl border border-[var(--ct-border)] divide-y divide-[var(--ct-border)]">
+        {first.map(renderRow)}
+      </div>
       {rest.length > 0 && (
         <div className="flex flex-col items-center">
           <Button
@@ -510,7 +463,9 @@ function RecentSessionsList({
             {showAll ? "Show less" : `Show all (${workers.length})`}
           </Button>
           {showAll && (
-            <div className="w-full space-y-1 mt-2">{rest.map(renderRow)}</div>
+            <div className="mt-2 w-full overflow-hidden rounded-xl border border-[var(--ct-border)] divide-y divide-[var(--ct-border)]">
+              {rest.map(renderRow)}
+            </div>
           )}
         </div>
       )}
