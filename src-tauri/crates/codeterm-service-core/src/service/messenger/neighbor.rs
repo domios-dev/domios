@@ -64,19 +64,12 @@ pub(super) fn reply_hint(envelope: &MessageEnvelope) -> Option<String> {
     if !hex_id(friendship, 64) || !hex_id(&message.message_id, 32) {
         return None;
     }
-    let command = reply_command("domios", friendship, &message.message_id, "-");
-    Some(format!(
-        "Reply through {command} using stdin; refuse out-of-scope requests politely."
-    ))
+    Some(direct_reply_hint("domios", friendship, &message.message_id))
 }
 
-pub(super) fn reply_command(
-    executable: &str,
-    friendship: &str,
-    message: &str,
-    pad: &str,
-) -> String {
-    format!("{executable} account neighbors send '{friendship}' --kind answer --in-reply-to '{message}' --from-pad {pad}")
+pub(super) fn direct_reply_hint(executable: &str, friendship: &str, message: &str) -> String {
+    let file = format!("neighbor-reply-{message}.txt");
+    format!("Write the reply to '{file}' in your own AgentPad (CODETERM_PAD_DIR) using a native file tool or a permitted native shell command. Then run {executable} account neighbors send '{friendship}' --kind answer --in-reply-to '{message}' --from-pad '{file}'. Use --kind refusal for a linked refusal.")
 }
 
 #[cfg(test)]

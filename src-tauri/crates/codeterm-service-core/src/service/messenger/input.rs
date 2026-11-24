@@ -86,15 +86,10 @@ impl FramedDelivery {
         .then(|| (friendship.to_owned(), message.to_owned()))
     }
 
-    pub(crate) fn set_neighbor_reply_executable(&mut self, executable: &str) {
+    pub(crate) fn set_neighbor_direct_reply(&mut self, executable: &str) {
         if let Some((friendship, message)) = self.neighbor_reply_ids() {
-            let command = super::neighbor::reply_command(
-                executable,
-                &friendship,
-                &message,
-                "'<relative_reply_file>'",
-            );
-            self.suffix = format!(" <tip>Use this launch's pinned command in place of any executable from earlier turns. Write the reply in your own AgentPad and run {command}. Use --kind refusal for a linked refusal.</tip>");
+            let hint = super::neighbor::direct_reply_hint(executable, &friendship, &message);
+            self.suffix = format!(" <tip>{hint}</tip>");
         }
     }
 
