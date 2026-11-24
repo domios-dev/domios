@@ -71,12 +71,14 @@ assert.deepEqual(collapsed, []);
 const invisibleMessages = [
   { id: "empty-assistant", type: "assistant", content: " " },
   { id: "empty-status", type: "status", content: "" },
+  { id: "label-only-system", type: "system", systemSubtype: "Update", content: " " },
   { id: "empty-tool-call", type: "tool_call", content: "" },
   { id: "empty-tool-result", type: "tool_result", content: "", toolResult: "unrendered" },
   { id: "internal-flow", type: "tool_flow", content: "start" },
   { id: "empty-custom", type: "custom", content: "" },
 ] satisfies NormalizedChatMessage[];
 assert.deepEqual(chatWindowRows(invisibleMessages.map((msg) => ({ msg }))), []);
+assert.deepEqual(chatWindowRows([{ msg: { id: "aborted", type: "system", systemSubtype: "turn_aborted", content: "" } }]).map(({ msg }) => msg.id), ["aborted"]);
 
 const queuedMessage = {
   id: "queued-message",

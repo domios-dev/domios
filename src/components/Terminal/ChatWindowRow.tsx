@@ -13,6 +13,7 @@ export function ChatWindowRow({ message, children, liveActivityLabel }: {
     data-testid={liveActivityLabel ? "chat-live-operation" : undefined}
     role={liveActivityLabel ? "status" : undefined}
     aria-live={liveActivityLabel ? "polite" : undefined}
+    aria-atomic={liveActivityLabel ? false : undefined}
     aria-label={liveActivityLabel}
     style={{ display: "flow-root" }}
   >{children}</div>;

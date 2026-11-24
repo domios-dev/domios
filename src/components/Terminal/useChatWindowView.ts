@@ -53,6 +53,7 @@ import { cancelChatStartPaintTiming, paintChatStartTiming } from "./chatStartTim
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
 import { CHAT_INITIAL_HISTORY_SCAN_BYTES, searchOlderChatHistory, type OlderChatPage } from "./chatHistorySearch";
+import { useVisibleChatTools } from "./useVisibleChatTools";
 
 /** Viewport projection over the committed transcript and the tab's sends: window anchor
  *  and enriched rows. It reads both stores and never keeps a copy of either. */
@@ -72,11 +73,13 @@ export function useChatWindowView({
   loadHistoryPage,
   queueSendsBehindTurn = false,
   hostRows,
+  liveToolsScope = null,
 }: {
   tabId: string;
   cwd?: string | null;
   queueSendsBehindTurn?: boolean;
   hostRows?:readonly NormalizedChatMessage[];
+  liveToolsScope?: string | null;
   agentSessionId?: string | null;
   windowKey: string;
   transcript: TranscriptState;
@@ -157,10 +160,11 @@ export function useChatWindowView({
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const gaps = useChatHistoryGaps(windowKey, loadHistoryPage, cwd);
+  const visibleMessages = useVisibleChatTools(allMessages, liveToolsScope);
   const baseEntries = useMemo(() => stableDeliveryEntries(
-    conversationEntries(allMessages, enrichmentCacheRef.current, cwd), liveSends, projection.echoes, deliveryMemory.current,
+    conversationEntries(visibleMessages, enrichmentCacheRef.current, cwd, liveToolsScope !== null), liveSends, projection.echoes, deliveryMemory.current,
     projection.outside,
-  ), [allMessages, cwd, liveSends, projection.echoes, projection.outside, windowKey]);
+  ), [visibleMessages, cwd, liveSends, liveToolsScope, projection.echoes, projection.outside, windowKey]);
   const documentAttachmentNames = useMemo(() => new Map(
     baseEntries.flatMap(({ msg }) => msg.attachmentNames ? [[msg.sourceMessageId ?? msg.id, msg.attachmentNames] as const] : []),
   ), [baseEntries]);

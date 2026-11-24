@@ -15,6 +15,7 @@ import { COMMAND_TREE_CAP, CommandTree, commandCallKey, openSegmentOf, rememberO
 import { StatusGlyph, statusName } from "./ToolActivityStream";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 import { shellFileOperationPreview } from "./ShellFileOperations";
+import { LiveCommandOutput } from "./LiveCommandOutput";
 
 interface CommandGroupCardProps extends CodetermNavigationProps {
   event: ToolEvent;
@@ -124,6 +125,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       <div className="pb-1 pr-2">
         <CommandGroupDetail event={event} rows={rows} expanded={expanded || fullscreen} onExpand={() => onToggle(true)} {...navigation} />
       </div>
+      {!fullscreen && <LiveCommandOutput event={event} />}
       <div id={regionId} role="region" aria-label="Command output" hidden={!technicalOpen} className="px-3 pb-2">
         {technicalOpen && event.result && <><div className="mb-1 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Output</div><ToolOutputContent text={event.result} maxHeight="12rem" /></>}
       </div>

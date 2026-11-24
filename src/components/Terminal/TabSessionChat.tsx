@@ -31,7 +31,7 @@ import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { composerRunningTool, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { composerRunningTool, projectChatTranscriptActivity, supportsChatTranscriptActivity } from "./chatTranscriptActivity";
 import { latestFailedToolCallId as findLatestFailedToolCallId, latestTurnStopNoticeId, submitTurnContinuation } from "./chatTurnTail";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
@@ -301,6 +301,7 @@ function TabSessionChatBody({
     observeChatSendStatus,
   } = useChatSession({
     hostRows:hostAccountRows,
+    showLiveTools: supportsChatTranscriptActivity(descriptor, tab?.backing, effectiveChatBackend),
     tabId,
     cwd,
     agentSessionId,
@@ -394,7 +395,6 @@ function TabSessionChatBody({
     attachmentError: attachmentState === "failed" ? error : null,
     locked: tabLock.locked,
   });
-
   const renderedEnrichedMessages = useMemo(
     () => chatWindowRows(enrichedMessages.filter(({ msg }) => setupView.kind !== "none" ? isLocalSendRow(msg, undelivered)
       : !isSessionIntentOnlyMessage(msg) && (showRemoteState || snapshotReady || !firstTurnReady || isLocalSendRow(msg, localFirstTurnSends)))),
@@ -1023,7 +1023,7 @@ function TabSessionChatBody({
             <ChatTranscriptRow
               key={msg.id}
               entry={entry}
-              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? "Live operation" : undefined}
+              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? chatTranscriptActivity.label : undefined}
               daySeparator={daySeparators.get(messageIndex)}
               originProps={originPropsById.get(msg.id)}
               reports={reports}
