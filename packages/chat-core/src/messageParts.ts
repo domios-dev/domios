@@ -1,6 +1,7 @@
-import type { ChatSend } from "./sendOrder";
+import { matchesMatchedRow, type ChatSend } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
 import type { MessageSegment } from "./envelope";
+import { userEchoBody } from "./userEchoBody";
 
 export interface ExactSendText {
   content: string;
@@ -58,16 +59,58 @@ export function projectMessageParts(
   });
 }
 
-const ledgerTexts = new WeakMap<readonly ChatSend[], { texts: ExactSendText[]; key: string }>();
+const ledgerTexts = new WeakMap<readonly ChatSend[], {
+  texts: ChatSend[];
+  key: string;
+  routedSends: Map<string, ChatSend>;
+  routedClaims: Map<string, ChatSend>;
+}>();
+
+function structuredRouteKey(session: string, id: string): string {
+  return JSON.stringify([session, id]);
+}
+
+const cachedRoutedParts = new WeakMap<NormalizedChatMessage, { send: ChatSend; row: NormalizedChatMessage }>();
 
 export function projectTranscriptParts(
   rows: readonly NormalizedChatMessage[], sends: readonly ChatSend[],
+  sourceSessionId?: string | null,
 ): NormalizedChatMessage[] {
   let ledger = ledgerTexts.get(sends);
   if (!ledger) {
     const texts = sends.filter((send) => "flowAtMs" in send && typeof send.flowAtMs === "number");
-    ledger = { texts, key: JSON.stringify(texts.map((send) => [send.correlationId, send.content])) };
+    const routedSends = new Map<string, ChatSend>();
+    const routedClaims = new Map<string, ChatSend>();
+    for (const send of texts) {
+      if (!send.segments?.some(segment => segment.type === "frame")) continue;
+      if (!send.matchedRow) routedSends.set(send.id, send);
+      const source = send.matchedRow?.source;
+      if (source?.record.kind === "structured") {
+        routedClaims.set(structuredRouteKey(source.source_session_id, source.record.item_id), send);
+      }
+    }
+    ledger = { texts, routedSends, routedClaims, key: JSON.stringify(texts.map((send) => [send.correlationId, send.content])) };
     ledgerTexts.set(sends, ledger);
   }
-  return projectMessageParts(rows, ledger.texts, ledger.key);
+  const projected = projectMessageParts(rows, ledger.texts, ledger.key);
+  const { routedSends, routedClaims } = ledger;
+  if (routedSends.size === 0 && routedClaims.size === 0) return projected;
+  return projected.map(row => {
+    if (row.type !== "user" || row.correlationId != null || row.sourceSessionId == null || row.inheritedFromSessionId != null) return row;
+    const session = row.sourceSessionId;
+    const send = routedClaims.get(structuredRouteKey(session, row.id))
+      ?? (row.runtimeSourceItemId == null ? undefined : routedClaims.get(structuredRouteKey(session, row.runtimeSourceItemId)))
+      ?? (session === sourceSessionId ? routedSends.get(row.id) : undefined);
+    if (!send || (send.matchedRow && !matchesMatchedRow(row, send.matchedRow))) return row;
+    const cached = cachedRoutedParts.get(row);
+    if (cached?.send === send) return cached.row;
+    const hostFrame = row.inboundKind != null && row.segments?.length === 1 && row.segments[0].type === "frame";
+    const plainEcho = row.inboundKind == null
+      && !row.segments?.some(segment => segment.type !== "text" && segment.type !== "paste")
+      && userEchoBody(row.content) === userEchoBody(send.content);
+    if (!hostFrame && !plainEcho) return row;
+    const routed = { ...row, correlationId: send.correlationId, segments: hostFrame ? row.segments : sendSegments(send) };
+    cachedRoutedParts.set(row, { send, row: routed });
+    return routed;
+  });
 }
