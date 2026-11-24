@@ -164,14 +164,15 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
               onChangePlan={paidSubscription && !desktopBilling.subscription?.pending_change && !desktopBilling.submitted
                 ? (priceId, tier, direction) => { if (model.kind === "signed_in") setPlanChange({ priceId, tier, direction, identity: model.identity.uid }); } : undefined}
               subscriptionInterval={desktopBilling.subscription?.billing_interval ?? null}
+              planChangeMode={desktopBilling.subscription?.plan_change_mode ?? null}
               subscribedPlan={subscriptionPlan ?? (refusedAsSubscribed ? "already_subscribed" : null)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
               canPurchase={!billing.pending && !purchase.busy && !(signedIn && (billing.planLoad === "loading" || !offersReady))}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />}
           </SettingsCardAnchor>
         </div>}
-        {purchases && planChange && model.kind === "signed_in" && planChange.identity === model.identity.uid && <PlanChangeDialog selection={planChange} currentTier={billing.plan?.plan ?? (signedIn ? "unavailable" : "free")}
-          periodEnd={desktopBilling.subscription?.period_end ?? null} pending={desktopBilling.changing} error={desktopBilling.error}
+        {purchases && planChange && paidSubscription && model.kind === "signed_in" && planChange.identity === model.identity.uid && <PlanChangeDialog selection={planChange} currentTier={paidSubscription.tier}
+          periodEnd={paidSubscription.period_end} planChangeMode={desktopBilling.subscription?.plan_change_mode ?? null} pending={desktopBilling.changing} error={desktopBilling.error}
           submitted={desktopBilling.submitted} onClose={() => setPlanChange(null)}
           onSubmit={() => { void desktopBilling.change(planChange.priceId).then(changed => { if (changed) setPlanChange(null); }); }} />}
       </div>

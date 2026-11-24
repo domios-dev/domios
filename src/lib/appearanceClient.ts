@@ -2,7 +2,7 @@ import { daemonTransportForPeer } from "./daemonBootstrap";
 import { TransportError } from "./transportClient";
 import { listen } from "./bridge";
 import { relayTarget } from "./webApi";
-import type { AppearanceLook, AppearanceProposal, ContrastCheck, CurrentAppearance } from "./appearance";
+import type { AppearanceLook, AppearanceProposal, ContrastCheck, CurrentAppearance, ThemeSwitchReceipt } from "./appearance";
 
 export const APPEARANCE_CHANGED = "codeterm:appearance-changed";
 export const OPEN_APPEARANCE = "codeterm:open-appearance";
@@ -46,10 +46,27 @@ export async function checkAppearanceContrast(target: AppearanceTarget, look: Ap
   return daemonTransportForPeer(target.peer).json("POST", `${path(target)}/validate`, look, { signal });
 }
 
+export async function previewAppearancePreset(target: AppearanceTarget, name: string, expected: AppearanceLook): Promise<AppearanceLook> {
+  return daemonTransportForPeer(target.peer).json("POST", `${path(target)}/preview-preset`, { name, expected });
+}
+
+export async function switchAppearanceTheme(
+  target: AppearanceTarget,
+  selection: { kind: "settings"; name: string } | { kind: "preset"; name: string; expected: AppearanceLook },
+): Promise<ThemeSwitchReceipt | null> {
+  const receipt = await daemonTransportForPeer(target.peer).json<ThemeSwitchReceipt | null>("POST", `${path(target)}/switch-theme`, selection);
+  if (receipt) publishAppearanceChange(target, receipt);
+  return receipt;
+}
+
 export async function changeAppearance(target: AppearanceTarget, id: string, action: "apply" | "undo" | "use-theme-wallpaper"): Promise<AppearanceProposal> {
   const receipt = await daemonTransportForPeer(target.peer).json<AppearanceProposal>("POST", `${path(target, id)}/${action}`);
-  window.dispatchEvent(new CustomEvent(APPEARANCE_CHANGED, { detail: { target, receipt } }));
+  publishAppearanceChange(target, receipt);
   return receipt;
+}
+
+function publishAppearanceChange(target: AppearanceTarget, receipt: AppearanceProposal) {
+  window.dispatchEvent(new CustomEvent(APPEARANCE_CHANGED, { detail: { target, receipt } }));
 }
 
 export function appearanceError(error: unknown): string {

@@ -1,5 +1,6 @@
 use codeterm_service_core::config::schema::{
-    AppearanceLook, ChatPattern, WallpaperFillMode, WallpaperFillPreset, WallpaperPalette,
+    AppearanceLook, ChatPattern, ThemeConfig, WallpaperFillMode, WallpaperFillPreset,
+    WallpaperPalette,
 };
 use serde::Serialize;
 
@@ -114,8 +115,7 @@ fn check(
     }
 }
 
-pub(super) fn measure(look: &AppearanceLook) -> Result<Vec<ContrastCheck>, String> {
-    let theme = &look.theme;
+pub(super) fn validate_palette(theme: &ThemeConfig) -> Result<(), String> {
     let palette = [
         &theme.background,
         &theme.foreground,
@@ -141,6 +141,16 @@ pub(super) fn measure(look: &AppearanceLook) -> Result<Vec<ContrastCheck>, Strin
     for value in palette {
         color(value)?;
     }
+    Ok(())
+}
+
+pub(super) fn theme_is_light(theme: &ThemeConfig) -> bool {
+    color(&theme.background).is_ok_and(is_light)
+}
+
+pub(super) fn measure(look: &AppearanceLook) -> Result<Vec<ContrastCheck>, String> {
+    let theme = &look.theme;
+    validate_palette(theme)?;
     let base = color(&theme.background)?;
     let ink = color(&theme.foreground)?;
     let accent = color(&theme.blue)?;

@@ -91,13 +91,15 @@ export function reconcileTurnDiffs(items: TimelineItem[], cwd?: string | null): 
 }
 
 /** A standalone structured edit that can sit in a run; streamed, batched and grouped events keep their own card. */
-function runKey(event: ToolEvent): string | undefined {
-  if (event.kind !== "edit" || event.phase !== "call" || !event.fileDiffs?.length) return undefined;
+function runKey(event: ToolEvent, liveTools: boolean): string | undefined {
+  if (event.kind !== "edit" || event.phase !== "call") return undefined;
   if (event.stream || event.commandBatch || event.agents || event.editRun) return undefined;
-  return event.message.sourceSessionId ?? "";
+  if (liveTools && event.message.toolStatus && !isTurnDiff(event)) return `live:${event.message.sourceSessionId ?? ""}`;
+  if (!event.fileDiffs?.length) return undefined;
+  return `recorded:${event.message.sourceSessionId ?? ""}`;
 }
 
-function runEvent(members: ToolEvent[]): ToolEvent {
+function runEvent(members: ToolEvent[], live: boolean): ToolEvent {
   const first = members[0];
   const status = members.some((member) => member.status === "pending") ? "pending"
     : members.some((member) => member.status === "error") ? "error"
@@ -108,6 +110,7 @@ function runEvent(members: ToolEvent[]): ToolEvent {
     ...head,
     id: `${first.id}:edits`,
     editRun: members,
+    ...(live ? { liveEditRun: true } : {}),
     status,
     result: undefined,
     error: members.some((member) => member.status === "error") ? true : undefined,
@@ -115,17 +118,20 @@ function runEvent(members: ToolEvent[]): ToolEvent {
 }
 
 /** Folds back-to-back file edits of one session into a single run, so a burst of edits reads as one tree. */
-export function groupEditRuns(items: TimelineItem[]): TimelineItem[] {
+export function groupEditRuns(items: TimelineItem[], liveTools = false): TimelineItem[] {
   const result: TimelineItem[] = [];
   let members: ToolEvent[] = [];
   let key: string | undefined;
   const flush = () => {
-    if (members.length) result.push({ kind: "tool", event: members.length > 1 ? runEvent(members) : members[0] });
+    if (members.length) {
+      const live = key?.startsWith("live:") === true;
+      result.push({ kind: "tool", event: live || members.length > 1 ? runEvent(members, live) : members[0] });
+    }
     members = [];
     key = undefined;
   };
   for (const item of items) {
-    const nextKey = item.kind === "tool" ? runKey(item.event) : undefined;
+    const nextKey = item.kind === "tool" ? runKey(item.event, liveTools) : undefined;
     if (nextKey === undefined || item.kind !== "tool") {
       flush();
       result.push(item);

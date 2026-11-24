@@ -1,13 +1,20 @@
-import { useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Network } from "lucide-react";
+import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
+import { ArrowRight, Check, ChevronDown, Network, Plus } from "lucide-react";
 import type { MeshPeersResponse } from "../../../gen/MeshPeersResponse";
 import type { PairedPeer } from "../../../gen/PairedPeer";
 import { listen } from "../../lib/bridge";
+import { effectiveWallpaper, wallpaperRenderStyle } from "../../lib/chatWallpaper";
+import type { MachineAppearance } from "../../lib/chatWallpaperClient";
+import { deriveColor } from "../../lib/colors";
 import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
-import { cleanMachineName, machineColor, machineLabel, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
+import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLabel, machineThemeName, machineTileColors, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
 import { rankPeersByLastActive } from "../../lib/peerRanking";
 import { tabActivity } from "../../lib/tabActivity";
+import { isLightColor } from "../../lib/themeCss";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
+import { useMachineViewerTheme, useWallpaperAsset } from "../../lib/useMachineAppearance";
+import { useMachineChromeAppearance } from "../../lib/useMachineChromeAppearance";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { localJson } from "../../lib/webApi";
 import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
@@ -20,8 +27,32 @@ import { MachineThisBadge } from "../shared/MachineRow";
 import { menuKeyAction } from "./menuKeyboard";
 import "./machineSwitcher.css";
 
-function machineTone(identity?: MachineIdentity) {
-  return identity?.color ? `var(--ct-machine-${machineColor(identity.color)})` : "var(--ct-muted-fg)";
+const neutralTone = "var(--ct-muted-fg)";
+
+function useMachineDoodle(appearance: MachineAppearance | undefined, peerId: string | undefined, online: boolean) {
+  const theme = appearance?.theme;
+  const wallpaper = appearance?.wallpaper;
+  const asset = useWallpaperAsset(peerId, online && wallpaper?.background.pattern === "svg" ? wallpaper.asset : undefined);
+  return useMemo(() => {
+    if (!theme) return;
+    const setting = effectiveWallpaper(theme, wallpaper ?? undefined);
+    const { pattern, opacity } = setting.background;
+    if (pattern === "none" || pattern === "dots" || pattern === "image" || opacity === 0 || (setting.asset && !asset)) return;
+    const mask = wallpaperRenderStyle(theme, setting, isLightColor(theme.background), asset?.url)["--ct-wallpaper-mask"];
+    if (mask !== "none") return { mask, custom: pattern === "svg" };
+  }, [theme, wallpaper, asset]);
+}
+
+function MachineDoodle({ doodle }: { doodle: ReturnType<typeof useMachineDoodle> }) {
+  if (!doodle) return null;
+  return <span aria-hidden="true" className="ct-machine-doodle" data-custom={doodle.custom || undefined}
+    style={{ "--ct-machine-doodle-mask": doodle.mask } as CSSProperties} />;
+}
+
+function MachineDot({ peerId, online }: { peerId?: string; online: boolean }) {
+  const appearance = useMachineChromeAppearance(peerId, online);
+  const accent = appearance ? desaturateMachineColor(appearance.theme.blue, online) : neutralTone;
+  return <i data-offline={!online || undefined} style={{ backgroundColor: accent }} />;
 }
 
 const offlineClock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -99,12 +130,21 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     };
   }, [refresh]);
 
-  const options = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
-
   const close = () => {
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
   };
+
+  function openMesh(meshTab: "inventory" | "network") {
+    const previousFocus = document.activeElement;
+    flushSync(() => {
+      setOpen(false);
+      window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "mesh", meshTab } }));
+    });
+    if (document.activeElement === previousFocus || document.activeElement === document.body) {
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -117,7 +157,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       close();
       return;
     }
-    const items = options();
+    const items = Array.from(event.currentTarget.querySelectorAll("button"));
     const focused = items.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "Enter" && focused !== -1) {
       event.preventDefault();
@@ -135,14 +175,22 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine";
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
   const local = { name: accountNames.local ?? localName, identity: identities.local_machine_identity };
-  const all = filter === "all";
-  const localSelected = filter === "local";
+  const singleMachine = peers.length === 0;
+  const all = !singleMachine && filter === "all";
+  const localSelected = filter === "local" || (singleMachine && !target);
   const label = all ? "All machines" : target
     ? selectedPeer ? peerName(selectedPeer) : cleanMachineName(target.name, target.id) ?? "Machine"
     : local.name;
   const identity = target ? identities.machine_identities?.[target.id] : local.identity;
+  const viewer = useMachineViewerTheme();
+  const selectedOnline = !target || selectedPeer?.online === true;
+  const selectedAppearance = useMachineChromeAppearance(target?.id, selectedOnline, !all);
+  const selectedDoodle = useMachineDoodle(selectedAppearance, target?.id, selectedOnline);
+  const selectedTone = !all && selectedAppearance ? machineGlyphColor(
+    desaturateMachineColor(selectedAppearance.theme.blue, selectedOnline), viewer.background, viewer.foreground, 0.15,
+  ) : undefined;
   const onlineCount = 1 + peers.filter(peer => peer.online).length;
-  const machineCount = `${peers.length + 1} ${peers.length ? "machines" : "machine"}`;
+  const machineCount = `${peers.length + 1} machines`;
 
   function select(selection: Parameters<typeof setSidebarMachineFilter>[0], option: HTMLButtonElement, animate = true) {
     const bounds = option.getBoundingClientRect();
@@ -163,6 +211,8 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
+        data-offline={!all && !selectedOnline || undefined}
+        style={{ "--ct-switcher-tone": selectedTone } as CSSProperties}
         onClick={() => open ? close() : setOpen(true)}
         onKeyDown={event => {
           if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -172,45 +222,66 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         }}
         className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[min(10rem,40vw)] sm:max-w-none" : ""}`}
       >
-        {all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} />}
-        <span className="min-w-0 truncate">{label}</span>
-        {localSelected && <MachineThisBadge className="hidden min-[400px]:inline-flex" />}
-        <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
+        {!all && <MachineDoodle doodle={selectedDoodle} />}
+        {all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} tone={selectedTone ?? neutralTone} />}
+        <span className="ct-machine-switcher__label min-w-0 truncate">{label}</span>
+        {localSelected && <MachineThisBadge className="ct-machine-switcher__this hidden min-[400px]:inline-flex" />}
+        <ChevronDown size={12} className="ct-machine-switcher__chevron shrink-0 opacity-60" aria-hidden="true" />
       </button>
       <AnchoredPopover open={open} anchor={triggerRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={() => setOpen(false)}>
-        <div id={menuId} ref={menuRef} data-testid="peer-picker-menu" role="listbox" aria-label="Machines"
+        <div ref={menuRef}
           onKeyDown={onOptionKeyDown} onBlur={event => {
             if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== triggerRef.current) setOpen(false);
           }}
           className="ct-menu ct-menu--opaque ct-machine-list"
         >
-          <button type="button" role="option" tabIndex={-1} data-testid="peer-picker-all" aria-selected={all}
-            aria-label={`All machines, ${machineCount}, ${onlineCount} online`}
-            onClick={event => select("all", event.currentTarget)} className="ct-machine-option ct-machine-option--all">
-            <span className="ct-machine-constellation" aria-hidden="true" data-single={peers.length === 0 || undefined}
-              style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peers.length + 1))}, minmax(0, 1fr))` }}>
-              {[{ id: "local", identity: local.identity, online: true }, ...peers.map(peer => ({
-                id: peer.instance_id, identity: identities.machine_identities?.[peer.instance_id], online: peer.online,
-              }))].map(machine => <i key={machine.id} data-offline={!machine.online || undefined} style={{ backgroundColor: machineTone(machine.identity) }} />)}
-            </span>
-            <span className="ct-machine-option__copy">
-              <span>All machines</span>
-              <span className="ct-machine-option__status">{machineCount} · {onlineCount} online</span>
-            </span>
-            {all && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}
-          </button>
-          <MachineOption {...local} local status="online" working={localWorking} online selected={localSelected}
-            onSelect={option => select("local", option)} />
-          {peers.map(peer => {
-            const name = peerName(peer);
-            const status = peerStatus(peer);
-            const working = browse?.target.id === peer.instance_id && browse.availability === "online"
-              ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
-              : 0;
-            return <MachineOption key={peer.instance_id} name={name} identity={identities.machine_identities?.[peer.instance_id]}
-              peerId={peer.instance_id} status={status} working={working} online={peer.online} selected={target?.id === peer.instance_id}
-              onSelect={option => select({ id: peer.instance_id, name }, option, status === "online")} />;
-          })}
+          <div id={menuId} data-testid="peer-picker-menu" role="listbox" aria-label="Machines">
+            {!singleMachine && <button type="button" role="option" tabIndex={-1} data-testid="peer-picker-all" aria-selected={all}
+              aria-label={`All machines, ${machineCount}, ${onlineCount} online`}
+              onClick={event => select("all", event.currentTarget)} className="ct-machine-option ct-machine-option--all">
+              <span className="ct-machine-constellation" aria-hidden="true"
+                style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peers.length + 1))}, minmax(0, 1fr))` }}>
+                <MachineDot online />
+                {peers.map(peer => <MachineDot key={peer.instance_id} peerId={peer.instance_id} online={peer.online} />)}
+              </span>
+              <span className="ct-machine-option__copy">
+                <span>All machines</span>
+                <span className="ct-machine-option__status">{machineCount} · {onlineCount} online</span>
+              </span>
+              {all && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}
+            </button>}
+            <MachineOption {...local} local status="online" working={localWorking} online selected={localSelected}
+              viewer={viewer}
+              onSelect={option => select("local", option)} />
+            {peers.map(peer => {
+              const name = peerName(peer);
+              const status = peerStatus(peer);
+              const working = browse?.target.id === peer.instance_id && browse.availability === "online"
+                ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
+                : 0;
+              return <MachineOption key={peer.instance_id} name={name} identity={identities.machine_identities?.[peer.instance_id]}
+                peerId={peer.instance_id} status={status} working={working} online={peer.online} selected={target?.id === peer.instance_id}
+                viewer={viewer}
+                onSelect={option => select({ id: peer.instance_id, name }, option, status === "online")} />;
+            })}
+          </div>
+          <div role="group" aria-label="Mesh actions" className="ct-machine-footer" data-invitation={singleMachine || undefined}>
+            {singleMachine && <>
+              <p className="ct-machine-footer__title">Work across your computers</p>
+              <p className="ct-machine-footer__description">Install Domios on another computer and pair it to see its agents here.</p>
+            </>}
+            <div className="ct-machine-footer__actions">
+              <button type="button" tabIndex={-1} className="ct-machine-footer__add" onClick={() => openMesh("network")}>
+                <span className="ct-machine-footer__plus" aria-hidden="true"><Plus size={14} /></span>
+                Add machine
+              </button>
+              <button type="button" tabIndex={-1} className="ct-machine-footer__mesh" onClick={() => openMesh("inventory")}>
+                {!singleMachine && <Network size={13} aria-hidden="true" />}
+                Open Mesh
+                <ArrowRight size={12} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </div>
       </AnchoredPopover>
     </div>
@@ -227,7 +298,7 @@ function observedWorkingCount(general: ObservedTab[], desk: ObservedTab[]) {
   return seen.size;
 }
 
-function MachineOption({ name, identity, peerId, status, working, local, online, selected, onSelect }: {
+function MachineOption({ name, identity, peerId, status, working, local, online, selected, viewer, onSelect }: {
   name: string;
   identity?: MachineIdentity;
   peerId?: string;
@@ -236,22 +307,31 @@ function MachineOption({ name, identity, peerId, status, working, local, online,
   local?: boolean;
   online: boolean;
   selected: boolean;
+  viewer: MachineAppearance["theme"];
   onSelect: (option: HTMLButtonElement) => void;
 }) {
   const busy = status === "online" && working > 0;
-  const state = busy ? `${working} working` : status;
+  const appearance = useMachineChromeAppearance(peerId, online);
+  const doodle = useMachineDoodle(appearance, peerId, online);
+  const colors = appearance ? machineTileColors(
+    desaturateMachineColor(appearance.theme.blue, online), deriveColor(viewer.background, 10), viewer.foreground, selected,
+  ) : { tone: neutralTone, glyph: neutralTone };
+  const state = [busy ? `${working} working` : status, appearance && machineThemeName(appearance.theme.name)].filter(Boolean).join(" · ");
   return <button type="button" role="option" tabIndex={-1} aria-selected={selected}
     aria-label={machineLabel(name, identity, local ? `this machine, ${state}` : state)}
     data-testid={local ? "peer-picker-self" : "peer-picker-item"} data-peer-id={peerId} data-peer-name={peerId ? name : undefined}
     data-peer-online={peerId ? String(online) : undefined} data-offline={!online || undefined}
-    className="ct-machine-option" style={{ "--ct-switcher-tone": online ? machineTone(identity) : "var(--ct-muted-fg)" } as CSSProperties}
+    className="ct-machine-option" style={{ "--ct-switcher-tone": colors.tone } as CSSProperties}
     onClick={event => onSelect(event.currentTarget)}>
-    <span className="ct-machine-option__tile"><MachineGlyph {...identity} size="mark-15" muted={!online || !identity?.color} /></span>
+    <span className="ct-machine-option__tile">
+      <MachineDoodle doodle={doodle} />
+      <MachineGlyph {...identity} size="mark-15" tone={colors.glyph} />
+    </span>
     <span className="ct-machine-option__copy">
       <span className="ct-machine-option__name"><span className="truncate">{name}</span>{local && <MachineThisBadge />}</span>
       <span className="ct-machine-option__status">
         {busy ? <ActivityDots size="small" /> : <span aria-hidden="true" className="ct-machine-option__dot" data-online={online && status === "online" || undefined} />}
-        {state}
+        <span className="truncate">{state}</span>
       </span>
     </span>
     {selected && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}

@@ -97,7 +97,6 @@
   box-shadow: inset 0 1px 0 color-mix(in srgb, white 28%, transparent),
     0 4px 14px color-mix(in srgb, var(--ct-accent) 30%, transparent);
 }
-.ct-appearance-changes__short { display: none; }
 .ct-appearance-lab small,
 .ct-appearance-colour code { color: var(--ct-muted-fg); }
 .ct-appearance-presets {
@@ -136,10 +135,39 @@
 .ct-appearance-colour input::-webkit-color-swatch-wrapper { padding: 0; }
 .ct-appearance-colour input::-webkit-color-swatch { border: 0; }
 .ct-appearance-colour input::-moz-color-swatch { border: 0; }
-.ct-appearance-colour output { font-size: .75rem; color: var(--ct-red); }
+.ct-appearance-colour output { font-size: .75rem; color: var(--ct-red); font-variant-numeric: tabular-nums; }
 .ct-appearance-colour output[data-pass="true"] { color: var(--ct-green); }
-.ct-appearance-contrast { display: grid; gap: 4px; color: var(--ct-red); font-size: .75rem; }
-.ct-appearance-contrast li { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+/* Reserved width keeps the row still while a drag toggles the inline Fix. */
+.ct-appearance-colour__status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 96px;
+}
+.ct-appearance-lab .ct-appearance-colour__status button,
+.ct-appearance-lab .ct-appearance-contrast button {
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: .75rem;
+}
+.ct-appearance-contrast {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 6px;
+  border-radius: calc(8px * var(--ct-roundness, 1));
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+  font-size: .75rem;
+}
+.ct-appearance-contrast ul { display: grid; gap: 2px; max-height: min(168px, 24dvh); overflow: auto; margin: 0; padding: 0; list-style: none; }
+/* On phones the open list must leave the colour rows visible above the footer. */
+@media (max-width: 480px) { .ct-appearance-contrast ul { max-height: min(108px, 14dvh); } }
+.ct-appearance-contrast li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 4px; }
+.ct-appearance-contrast li > span { min-width: 0; }
+.ct-appearance-contrast b { font-weight: 600; color: var(--ct-red); }
+.ct-appearance-contrast small { display: block; color: var(--ct-muted-fg); overflow-wrap: anywhere; }
+.ct-appearance-lab .ct-appearance-contrast__all { justify-self: end; }
 .ct-appearance-terminal summary { color: var(--ct-accent); cursor: pointer; }
 .ct-appearance-knob {
   display: grid;
@@ -298,8 +326,6 @@
 
 
 @media (max-width: 480px) {
-  .ct-appearance-changes__wide { display: none; }
-  .ct-appearance-changes__short { display: inline; }
   .ct-quick-wallpaper__choices .ct-quick-wallpaper__thumb { width: 62px; }
   .ct-quick-wallpaper__choices { gap: 6px; }
   .ct-quick-wallpaper__footer button { width: 100%; }

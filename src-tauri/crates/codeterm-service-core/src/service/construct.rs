@@ -16,9 +16,7 @@ pub fn build_service_context(
     mem: Arc<crate::mem::MemManager>,
     prompt_detector: crate::PromptDetectorState,
     bridge_outbound_tx: crate::bridge::manager::OutboundSender,
-    bridge_outbound_rx: tokio::sync::mpsc::UnboundedReceiver<
-        crate::bridge::manager::OutboundMessage,
-    >,
+    bridge_outbound_rx: crate::bridge::manager::OutboundReceiver,
     secret_registry: &Arc<crate::secrets::SecretRegistry>,
     transcribe_registry: &Arc<crate::transcribe::TranscribeRegistry>,
     converter_registry: &Arc<codeterm_plugin::converter::ConverterRegistry>,

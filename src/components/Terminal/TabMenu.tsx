@@ -21,7 +21,6 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
-  Unlink,
   UserCog,
   X,
   type LucideIcon,
@@ -55,7 +54,6 @@ const GLYPHS: Record<TabMenuGlyph, LucideIcon> = {
   liveTranscript: AudioLines,
   telegram: MessageSquare,
   telegramClose: MessageSquareX,
-  detach: Unlink,
   close: X,
 };
 

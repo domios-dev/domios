@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { createCapabilitiesTransport, type CapabilitiesClient } from "./transport/capabilities";
 import { sendNotificationAnswer, type AnswerResult } from "./notificationAnswerSend";
+import { TransportError } from "./transportClient";
+import { MAX_BELL_NOTIFICATIONS } from "./notificationAdmission";
 import { reducer } from "../store/multiplexer/reducer";
 import type { ExtendedState } from "../store/multiplexer/tree";
 import type { Notification } from "./types";
@@ -37,7 +39,7 @@ function daemon(refuse?: string) {
   const json = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
     posts.push([method, path, body]);
     await gate;
-    if (refuse) throw new Error(refuse);
+    if (refuse) throw new TransportError(409, path, refuse);
     const label = (body as { label: string }).label;
     if (standing === null) {
       standing = label;
@@ -82,6 +84,38 @@ async function run() {
   assert.match(refused.answer_error ?? "", /not offered/, "a refused answer surfaces as an error on the record");
   assert.equal(refused.answer_pending, false);
   assert.equal(refused.read, false, "a refused answer leaves the question unread");
+
+  let state = initial();
+  const pending = new Set<string>();
+  const update = (id: string, result: AnswerUpdate) => {
+    state = reducer(state, { type: "UPDATE_NOTIFICATION_ANSWER", id, update: result });
+  };
+  let requests = 0;
+  const claim = async () => {
+    requests++;
+    return { answered: "Grant", pending: true };
+  };
+  await sendNotificationAnswer(QUESTION_ID, "Grant", pending, state.notifications[0], claim, update);
+  assert.equal(state.notifications[0].answer_pending, false);
+  assert.equal(state.notifications[0].answer_unconfirmed, true);
+  await sendNotificationAnswer(QUESTION_ID, "Grant", pending, state.notifications[0], claim, update);
+  assert.equal(requests, 1);
+  update(QUESTION_ID, { answered: "Grant", delivered: true });
+  assert.equal(state.notifications[0].answer_unconfirmed, false);
+  assert.equal(state.notifications[0].answer?.delivered, true);
+
+  state = initial();
+  await sendNotificationAnswer(QUESTION_ID, "Grant", pending, state.notifications[0], async () => {
+    throw new TransportError(500, "/answer", "opaque interruption");
+  }, update);
+  assert.equal(state.notifications[0].answer_unconfirmed, true);
+  assert.equal(state.notifications[0].answer_pending, false);
+
+  state = initial();
+  const full = new Set(Array.from({ length: MAX_BELL_NOTIFICATIONS }, (_, i) => String(i)));
+  await sendNotificationAnswer(QUESTION_ID, "Grant", full, state.notifications[0], claim, update);
+  assert.equal(requests, 1);
+  assert.match(state.notifications[0].answer_error ?? "", /too many/i);
 
   console.log("notification answer delivery: passed");
 }

@@ -237,11 +237,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             if (!identity || identity.peerId !== peer) {
                 throw new Error("Remote tab owner mismatch");
             }
-            if (["/focus", "/select", "/agent/restart", "/close"].includes(s(a, "suffix"))) {
+            const suffix = s(a, "suffix");
+            if (["/focus", "/select", "/agent/restart", "/close"].includes(suffix.split("?")[0])) {
                 remotePtyIds.invalidate(ordinary);
             }
             const remoteTab = identity.remoteTabId;
-            const suffix = s(a, "suffix");
             const resolvePtyId = async () => {
                 const inspected = await clientFor(a).json<{
                     ok?: boolean;

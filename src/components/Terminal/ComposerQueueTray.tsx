@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { ListOrdered } from "lucide-react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { changeComposerSendQueue } from "./chatSendStatus";
 import type { QueuedSendAction, QueuedSendItem } from "./composerQueueModel";
@@ -7,10 +8,11 @@ function sendKey({ sendId, correlationId, version }: QueuedSendItem) {
   return { sendId, correlationId, version };
 }
 
-export function ComposerQueueTray({ tabId, items, editable }: {
+export function ComposerQueueTray({ tabId, items, editable, inline = false }: {
   tabId: string;
   items: readonly QueuedSendItem[];
   editable: boolean;
+  inline?: boolean;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -62,8 +64,21 @@ export function ComposerQueueTray({ tabId, items, editable }: {
   };
   const queueLabel = `Queued: ${items.length}`;
   const targetCurrent = target && items.some(item => item.sendId === target.sendId && item.version === target.version);
-  return <div className="ct-composer-lane mx-auto flex w-full flex-wrap items-center gap-x-2 text-xs text-[var(--ct-muted-fg)] empty:hidden">
-    {items.length > 0 && (editable ? <button type="button" ref={button} className="ct-bar-pill"
+  return <div className={inline
+    ? "inline-flex min-w-0 items-center gap-x-2 text-xs text-[var(--ct-muted-fg)] empty:hidden"
+    : "ct-composer-lane mx-auto flex w-full flex-wrap items-center gap-x-2 text-xs text-[var(--ct-muted-fg)] empty:hidden"}>
+    {items.length > 0 && inline && <span className="ct-ctx-bubble" data-tone="scheduled">
+      <button type="button" ref={button} className="ct-ctx-bubble__open" aria-label={queueLabel}
+        aria-haspopup={editable ? "dialog" : undefined} aria-expanded={editable ? open : undefined}
+        aria-controls={open ? dialogId : undefined} disabled={!editable}
+        onMouseDown={event => event.preventDefault()}
+        onClick={() => { if (open) close(); else setShow(true); }}>
+        <ListOrdered size={12} aria-hidden="true" />
+        <span className="ct-ctx-bubble__title">Queued</span>
+        <span className="ct-ctx-bubble__meta">{items.length}</span>
+      </button>
+    </span>}
+    {items.length > 0 && !inline && (editable ? <button type="button" ref={button} className="ct-bar-pill"
       aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? dialogId : undefined}
       onClick={() => { if (open) close(); else setShow(true); }}>{queueLabel}</button> : <span role="status">{queueLabel}</span>)}
     {error && <span role="alert">{error}</span>}

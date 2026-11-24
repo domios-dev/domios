@@ -158,7 +158,10 @@ where
 impl Coordinator {
     pub fn require_readable(&self) -> Result<()> {
         let state = self.0.state.lock();
-        if state.closed || state.off_pending || state.controls > 0 || state.error().is_some() {
+        if state.off_pending {
+            return Err(state.error().unwrap_or_else(off_cleanup_pending));
+        }
+        if state.closed || state.controls > 0 || state.error().is_some() {
             return Err(state.error().unwrap_or(Error::Revoked));
         }
         Ok(())
@@ -184,7 +187,7 @@ impl Coordinator {
     {
         let mut state = self.0.state.lock();
         if kind != Kind::StopLocal && state.off_pending {
-            return Err(state.error().unwrap_or(Error::Revoked));
+            return Err(state.error().unwrap_or_else(off_cleanup_pending));
         }
         if !kind.candidate() && !state.admits_control(&kind) {
             return Err(state.error().unwrap_or(Error::Transport));
@@ -255,6 +258,12 @@ impl Coordinator {
             }
             changed.await;
         }
+    }
+}
+
+fn off_cleanup_pending() -> Error {
+    Error::LocalFence {
+        phase: "off_cleanup",
     }
 }
 

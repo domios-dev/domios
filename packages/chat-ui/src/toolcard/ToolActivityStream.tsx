@@ -33,8 +33,10 @@ export function StatusGlyph({ status, event }: { status: ToolEvent["status"]; ev
     : status === "unresolved" ? "chat-tool-stream-no-result"
     : status === "interrupted" ? "chat-tool-stream-interrupted" : undefined;
   return <span role={event ? "img" : undefined} aria-label={event ? visual.label : undefined} className="flex shrink-0"><Glyph data-testid={testId} aria-hidden="true" size={12}
-    className={`shrink-0${status === "pending" ? " motion-safe:animate-spin" : ""}`}
-    style={{ color: visual.color }} /></span>;
+    className={`shrink-0${status === "pending" ? " motion-safe:animate-spin motion-reduce:hidden" : ""}`}
+    style={{ color: status === "pending" ? "var(--ct-muted-fg)" : visual.color }} />
+    {status === "pending" && <span aria-hidden="true" className="hidden motion-reduce:inline">…</span>}
+  </span>;
 }
 
 function actionLabel(member: ToolEvent): string {

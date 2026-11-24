@@ -2761,6 +2761,7 @@ dependencies = [
  "libc",
  "log",
  "parking_lot 0.12.5",
+ "plist",
  "regex",
  "serde",
  "serde_json",

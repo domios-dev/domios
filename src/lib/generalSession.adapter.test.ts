@@ -23,11 +23,11 @@ describe("fresh General HTTP transport", () => {
       if (command !== "spawn_general_agent_session") throw new Error("Unexpected command");
       return transport.spawn_general_agent_session(args ?? {}) as Promise<T>;
     };
-    expect(await spawnFreshGeneralSession("general", "configured-provider", "/instance/general", request,
+    expect(await spawnFreshGeneralSession("general", "configured-provider", request,
       { model: "chosen-model", reasoningEffort: "high", preset: "demo", accountId: "work" })).toEqual(result);
     expect(calls).toEqual([{
       method: "POST", path: "/api/agents/general/sessions",
-      body: { workspaceId: "general", providerId: "configured-provider", cwd: "/instance/general",
+      body: { workspaceId: "general", providerId: "configured-provider",
         role: "general_agent", intent: "fresh_general", model: "chosen-model", reasoningEffort: "high", preset: "demo", accountId: "work" },
     }]);
   });

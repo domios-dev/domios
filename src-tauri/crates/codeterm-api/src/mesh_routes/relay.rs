@@ -25,21 +25,21 @@ pub use sync::mesh_sync;
 #[cfg(test)]
 use sync::{sync_input_for_access, sync_output_for_access};
 
-pub(super) use origin::authenticate_signed_mesh_request;
+pub(super) use origin::{authenticate_signed_mesh_request, SignedMeshRequest};
 
 /// Verify relay sender: must be paired. Paired = trusted.
 pub(super) fn check_mesh_relay_auth(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<String, (StatusCode, String)> {
-    let (peer, origin, _) = origin::authenticate_signed_mesh_request(state, headers)?;
-    if !origin.owner_trusted() {
+    let caller = origin::authenticate_signed_mesh_request(state, headers)?;
+    if !caller.origin.owner_trusted() {
         return Err((
             StatusCode::FORBIDDEN,
             "An agent relay cannot use peer authority".into(),
         ));
     }
-    Ok(peer)
+    Ok(caller.peer_id)
 }
 
 /// Inject the authenticated originating-peer name into a relayed `/send` body
@@ -471,9 +471,11 @@ pub async fn mesh_relay(
     headers: HeaderMap,
     Json(cmd): Json<codeterm_service_core::mesh::types::RelayCommand>,
 ) -> Result<Json<codeterm_service_core::mesh::types::RelayResponse>, (StatusCode, String)> {
-    let (sender_id, origin, agent) =
+    let caller =
         crate::auth::off_runtime(&state, &headers, origin::authenticate_signed_mesh_request)
             .await?;
+    let sender_id = &caller.peer_id;
+    let origin = caller.origin;
 
     let Some(delivery_id) = cmd
         .delivery_id
@@ -481,21 +483,15 @@ pub async fn mesh_relay(
         .map(str::trim)
         .filter(|id| !id.is_empty() && is_tab_delivery(&cmd.method, &cmd.path))
     else {
-        return perform_relay(
-            &state,
-            &sender_id,
-            &cmd,
-            origin,
-            agent.as_ref(),
-            headers.get(header::AUTHORIZATION),
-        )
-        .await
-        .map(Json);
+        return perform_relay(&state, &caller, &cmd, headers.get(header::AUTHORIZATION))
+            .await
+            .map(Json);
     };
 
     // At-most-once (#240): one dispatch per (authenticated sender, delivery_id);
     // duplicates replay; a saturated in-flight window is rejected, never grown.
-    let agent_tab = agent
+    let agent_tab = caller
+        .agent
         .as_ref()
         .map(|agent| agent.tab_id.as_str())
         .unwrap_or_default();
@@ -530,23 +526,16 @@ pub async fn mesh_relay(
 
     // Cache the outcome so concurrent duplicates ack it; fold transport/validation
     // errors into ok:false rather than an axum error waiters could never observe.
-    let response = perform_relay(
-        &state,
-        &sender_id,
-        &cmd,
-        origin,
-        agent.as_ref(),
-        headers.get(header::AUTHORIZATION),
-    )
-    .await
-    .unwrap_or_else(
-        |(status, message)| codeterm_service_core::mesh::types::RelayResponse {
-            ok: false,
-            status: status.as_u16(),
-            data: None,
-            error: Some(message),
-        },
-    );
+    let response = perform_relay(&state, &caller, &cmd, headers.get(header::AUTHORIZATION))
+        .await
+        .unwrap_or_else(
+            |(status, message)| codeterm_service_core::mesh::types::RelayResponse {
+                ok: false,
+                status: status.as_u16(),
+                data: None,
+                error: Some(message),
+            },
+        );
     entry.complete(response.clone());
     if !outcome_holds_dedupe(&response) {
         super::send_dedupe::MeshDeliveryDedupe::global().forget(&key);
@@ -718,20 +707,36 @@ fn outcome_holds_dedupe(resp: &codeterm_service_core::mesh::types::RelayResponse
 
 async fn perform_relay(
     state: &AppState,
-    sender_id: &str,
+    caller: &SignedMeshRequest,
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
-    origin: crate::auth::AuthenticatedOrigin,
-    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
     authorization: Option<&HeaderValue>,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let (mut response, already_redacted) =
-        perform_relay_unredacted(state, sender_id, cmd, origin, agent, authorization).await?;
+        perform_relay_unredacted(state, caller, cmd, authorization).await?;
     if !already_redacted {
         if let Some(data) = response.data.as_mut() {
             crate::peer_redaction::redact_for_peer(data);
         }
     }
     Ok(response)
+}
+
+#[cfg(test)]
+async fn perform_test_relay(
+    state: &AppState,
+    sender_id: &str,
+    cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    origin: crate::auth::AuthenticatedOrigin,
+    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    authorization: Option<&HeaderValue>,
+) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
+    let caller = SignedMeshRequest {
+        peer_id: sender_id.to_owned(),
+        origin,
+        agent: agent.cloned(),
+        grant: crate::auth::peer_grant::PeerGrant::capture(&state.mesh.lock(), sender_id),
+    };
+    perform_relay(state, &caller, cmd, authorization).await
 }
 
 fn relay_prewrite_refusal(
@@ -761,12 +766,13 @@ fn grant_refusal() -> codeterm_service_core::mesh::types::RelayResponse {
 
 async fn perform_relay_unredacted(
     state: &AppState,
-    sender_id: &str,
+    caller: &SignedMeshRequest,
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
-    origin: crate::auth::AuthenticatedOrigin,
-    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
     authorization: Option<&HeaderValue>,
 ) -> Result<(codeterm_service_core::mesh::types::RelayResponse, bool), (StatusCode, String)> {
+    let sender_id = caller.peer_id.as_str();
+    let origin = caller.origin;
+    let agent = caller.agent.as_ref();
     // debug, not info — polling peers once put 285k of these in a single
     // rotated log generation, the largest contributor to a 250 MB log dir.
     log::debug!(
@@ -785,12 +791,15 @@ async fn perform_relay_unredacted(
 
     let mut admitted_grant = None;
     if sender_id != "local" {
-        let (grant, protocol_version) = {
+        let Some(grant) = caller.grant.as_ref() else {
+            return Ok((grant_refusal(), true));
+        };
+        let protocol_version = {
             let mesh = state.mesh.lock();
-            let Some(grant) = crate::auth::peer_grant::PeerGrant::capture(&mesh, sender_id) else {
+            if !grant.current(&mesh) {
                 return Ok((grant_refusal(), true));
-            };
-            (grant, mesh.paired_peers[sender_id].relay_protocol_version)
+            }
+            mesh.paired_peers[sender_id].relay_protocol_version
         };
         let access = grant.access();
         if !codeterm_service_core::mesh::types::is_supported_relay_protocol(protocol_version) {
@@ -823,6 +832,7 @@ async fn perform_relay_unredacted(
                 && matches!(
                     authorization,
                     PeerRelayAuthorization::WorkspaceClosePreview { .. }
+                        | PeerRelayAuthorization::OwnerTabClose { .. }
                 ))
         {
             return Err((
@@ -850,9 +860,15 @@ async fn perform_relay_unredacted(
                 workspace_id,
                 force,
             } => {
-                return close_workspace_from_mesh_peer(state, peer_id, workspace_id, force)
-                    .await
-                    .map(|response| (response, false));
+                return close_workspace_from_mesh_peer(
+                    state,
+                    peer_id,
+                    workspace_id,
+                    force,
+                    grant.clone(),
+                )
+                .await
+                .map(|response| (response, false));
             }
             PeerRelayAuthorization::WorkspaceClosePreview { workspace_id, .. } => {
                 let response = workspace_close_preview_from_mesh_peer(state, workspace_id).await?;
@@ -868,7 +884,23 @@ async fn perform_relay_unredacted(
             }
             PeerRelayAuthorization::TabClose { peer_id, tab_id } => {
                 return peer_authorization::close_tab_from_mesh_peer(
-                    state, peer_id, tab_id, &cmd.path, origin, agent,
+                    state,
+                    peer_id,
+                    tab_id,
+                    &cmd.path,
+                    origin,
+                    agent,
+                    grant.clone(),
+                )
+                .await
+                .map(|response| (response, false));
+            }
+            PeerRelayAuthorization::OwnerTabClose { tab_id } => {
+                return peer_authorization::close_tab_from_mesh_owner(
+                    state,
+                    tab_id,
+                    &cmd.path,
+                    grant.clone(),
                 )
                 .await
                 .map(|response| (response, false));

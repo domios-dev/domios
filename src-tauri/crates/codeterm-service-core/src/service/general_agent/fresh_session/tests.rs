@@ -48,11 +48,7 @@ fn fixture() -> (
     let request = FreshGeneralSessionRequest {
         workspace_id: Some(crate::service::general_agent::general_workspace_id(&mux).unwrap()),
         provider_id: Some(config.agent_provider.clone()),
-        cwd: Some(
-            crate::service::general_agent::general_dir()
-                .to_string_lossy()
-                .to_string(),
-        ),
+        _cwd: None,
         role: crate::service::general_agent::GENERAL_AGENT_KIND.into(),
         intent: "fresh_general".into(),
         model: None,
@@ -88,7 +84,8 @@ fn fresh_general_selection_preserves_main_aliases_binding_and_focus() {
     assert_ne!(fresh, main_id);
     let tab = mux.get_tab(&fresh).unwrap();
     assert!(crate::service::general_agent::is_general_agent(tab));
-    assert_eq!(tab.cwd.as_deref(), Some(request.cwd.as_str()));
+    let general_dir = super::super::general_dir();
+    assert_eq!(tab.cwd.as_deref(), general_dir.to_str());
     assert_eq!(tab.provisioned_cwd, tab.cwd);
     assert_eq!(tab.agent_session_id, None);
     assert_eq!(tab.pty_id, None);
@@ -129,12 +126,15 @@ fn sanctioned_general_session_survives_durable_snapshot_restore() {
     assert!(crate::service::general_agent::confine_general_agent_kind(&mut restored).is_empty());
     let tab = restored.get_tab(&fresh).unwrap();
     assert!(crate::service::general_agent::is_general_agent(tab));
-    assert_eq!(tab.provisioned_cwd.as_deref(), Some(request.cwd.as_str()));
+    assert_eq!(
+        tab.provisioned_cwd.as_deref(),
+        super::super::general_dir().to_str()
+    );
     assert_eq!(tab.cwd.as_deref(), Some("changed-working-directory"));
 }
 
 #[test]
-fn fresh_general_launch_accepts_provider_selection_but_rejects_project_and_cwd_overrides() {
+fn fresh_general_launch_requires_the_general_workspace_and_accepts_provider_selection() {
     let (mut mux, config, mut request) = fixture();
     let original = request.workspace_id.clone();
     request.workspace_id = mux.create_workspace("Project".into(), None).id;
@@ -143,9 +143,6 @@ fn fresh_general_launch_accepts_provider_selection_but_rejects_project_and_cwd_o
     request.provider_id = "foreign-provider".into();
     assert!(validate_request(&mux, &config, &request).is_ok());
     request.provider_id = String::new();
-    assert!(validate_request(&mux, &config, &request).is_err());
-    request.provider_id = config.agent_provider.clone();
-    request.cwd = "foreign-home".into();
     assert!(validate_request(&mux, &config, &request).is_err());
 }
 
@@ -180,34 +177,60 @@ fn fresh_general_request_deserializes_chosen_launch_settings() {
 }
 
 #[test]
-fn empty_general_selection_uses_the_receiving_machines_defaults() {
-    let (mux, mut config, _) = fixture();
+fn general_paths_and_relayed_requests_use_the_receiving_machines_home() {
+    let (mut mux, mut config, base) = fixture();
     config.agent_provider = "peer-default-provider".into();
     config.model = Some("peer-default-model".into());
     config.reasoning_effort = Some("peer-default-effort".into());
-    let request: FreshGeneralSessionRequest = serde_json::from_value(serde_json::json!({
-        "role": "general_agent", "intent": "fresh_general"
-    }))
-    .unwrap();
-
-    let resolved = request.resolve(&mux, &config).unwrap();
-
-    assert_eq!(
-        resolved.workspace_id,
-        crate::service::general_agent::general_workspace_id(&mux).unwrap()
-    );
-    assert_eq!(resolved.provider_id, "peer-default-provider");
-    assert_eq!(
-        resolved.cwd,
-        crate::service::general_agent::general_dir()
-            .to_string_lossy()
-            .to_string()
-    );
-    assert_eq!(resolved.model.as_deref(), Some("peer-default-model"));
-    assert_eq!(
-        resolved.reasoning_effort.as_deref(),
-        Some("peer-default-effort")
-    );
+    let home = super::super::general_dir().to_string_lossy().into_owned();
+    let relay_body = serde_json::json!({"role": "general_agent", "intent": "fresh_general"});
+    let local_bodies = [
+        (
+            "/Users/example/.domios",
+            "chosen-provider",
+            "chosen-provider",
+        ),
+        (
+            "/Users/example/.domios/general/",
+            "",
+            "peer-default-provider",
+        ),
+        ("/var/run/domios/general", " ", "peer-default-provider"),
+        (
+            "/private/var/run/domios/general",
+            "",
+            "peer-default-provider",
+        ),
+    ];
+    let requests = local_bodies.into_iter().map(|(path, provider, expected)| {
+        let mut body = relay_body.clone();
+        body["workspaceId"] = serde_json::json!(base.workspace_id);
+        body["cwd"] = serde_json::json!(path);
+        body["providerId"] = serde_json::json!(provider);
+        (body, expected)
+    });
+    for (body, expected) in requests.chain([(relay_body.clone(), "peer-default-provider")]) {
+        let request: FreshGeneralSessionRequest = serde_json::from_value(body).unwrap();
+        let resolved = request.resolve(&mux, &config).unwrap();
+        validate_request(&mux, &config, &resolved).unwrap();
+        assert_eq!(resolved.workspace_id, base.workspace_id);
+        assert_eq!(resolved.provider_id, expected);
+        assert_eq!(resolved.model.as_deref(), Some("peer-default-model"));
+        assert_eq!(
+            resolved.reasoning_effort.as_deref(),
+            Some("peer-default-effort")
+        );
+        let fresh = create_fresh_tab(
+            &mut mux,
+            &resolved.workspace_id,
+            false,
+            &SpawnAgentParams::default(),
+        )
+        .unwrap();
+        let tab = mux.get_tab(&fresh).unwrap();
+        assert_eq!(tab.cwd.as_deref(), Some(home.as_str()));
+        assert_eq!(tab.provisioned_cwd, tab.cwd);
+    }
 }
 
 #[test]
@@ -272,7 +295,6 @@ fn fresh_general_binds_the_requested_account_and_credential_home() {
     let request: FreshGeneralSessionRequest = serde_json::from_value(json!({
         "workspaceId": base.workspace_id,
         "providerId": provider,
-        "cwd": base.cwd,
         "role": "general_agent",
         "intent": "fresh_general",
         "accountId": "work"

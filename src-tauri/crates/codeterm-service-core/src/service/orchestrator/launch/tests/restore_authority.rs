@@ -131,12 +131,28 @@ fn overlapping_saved_managers_each_dispatch_and_authenticate_their_original_sess
 
 #[test]
 fn changed_restore_account_refuses_dispatch_and_leaves_an_explicit_retry() {
+    assert_restore_dispatch_refused(false);
+}
+
+#[test]
+fn definitive_restore_refusal_supersedes_a_provisional_launch_deadline() {
+    assert_restore_dispatch_refused(true);
+}
+
+fn assert_restore_dispatch_refused(deadline_elapsed: bool) {
     let (mut mux, tab_id) = MultiplexerState::new();
     save_manager(&mut mux, &tab_id, "restore-pty", "saved-session");
     let fixture = ServiceFixture::new(mux);
     let svc = &fixture.service;
     let (account, launch) = arm_restored_manager(svc, &tab_id, "restore-pty", "saved-session");
     let attempt = launch.attempt().unwrap();
+    if deadline_elapsed {
+        svc.record_launch_output_deadline(&attempt, "readiness deadline");
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.boot_stage, Some(BootStage::LaunchDeadlineElapsed));
+        assert!(tab.provisional_launch.is_some());
+    }
     svc.mux
         .write()
         .get_tab_mut(&tab_id)
@@ -162,6 +178,7 @@ fn changed_restore_account_refuses_dispatch_and_leaves_an_explicit_retry() {
     let tab = svc.mux.read().get_tab(&tab_id).unwrap().clone();
     assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
     assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason.as_str()));
+    assert!(tab.provisional_launch.is_none());
     assert!(!tab.agent_booting);
     assert!(!tab.launch_session_authenticated());
     assert_eq!(tab.agent_type.as_deref(), Some(PROVIDER));

@@ -166,7 +166,11 @@ fn restored(record: StoredNotification) -> Notification {
         surface_offer: None,
         sticky: record.sticky,
         push_failed: None,
-        placements: record.placements,
+        placements: record
+            .placements
+            .into_iter()
+            .take(crate::channel_placement::MAX_PLACEMENTS_PER_NOTIFICATION)
+            .collect(),
         condition: record.condition,
     }
 }

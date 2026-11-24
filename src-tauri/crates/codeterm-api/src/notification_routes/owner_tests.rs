@@ -214,7 +214,7 @@ async fn tab_cannot_repackage_a_listed_daemon_answer_as_a_bridge_button() {
         .notif
         .lock()
         .remember_channel_placement(&id, "telegram", "42:7");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = codeterm_service_core::bridge::manager::outbound_channel();
     *fixture.service.bridge_outbound.lock() = Some(tx);
     let router = Router::new()
         .route("/api/notifications", axum::routing::get(list_notifications))

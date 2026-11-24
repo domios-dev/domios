@@ -53,6 +53,18 @@ export interface AppearanceProposal {
   applied_at: number | null;
   can_undo: boolean;
   contrast: ContrastCheck[];
+  theme_label?: string;
+  wallpaper_switched?: boolean;
+}
+
+export interface ThemeSwitchReceipt extends AppearanceProposal {
+  theme_label: string;
+  wallpaper_switched: boolean;
+}
+
+export function trustedPreset(draft: AppearanceLook | undefined, preview: AppearanceLook | undefined): boolean {
+  return Boolean(draft && preview
+    && appearanceLookKey(draft) === appearanceLookKey(preview));
 }
 
 export const DEFAULT_APPEARANCE: AppearanceTuning = {

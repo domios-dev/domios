@@ -1,4 +1,4 @@
-use crate::multiplexer::types::Tab;
+use crate::multiplexer::types::{Tab, TabBacking};
 #[cfg(test)]
 use crate::plan::{Plan, PlanMode, PlanStatus, PlannerRef, TaskStatus};
 use codeterm_pty::multiplexer::restore_policy::RestoreDecision;
@@ -48,6 +48,12 @@ pub(super) fn decision(tab: &Tab, continuing: bool, shell: RestoreDecision) -> R
     }
     if tab.agent_type.is_none() || tab.protected {
         return shell;
+    }
+    if shell == RestoreDecision::Start
+        && matches!(tab.backing, TabBacking::Pty)
+        && tab.launch_session_authenticated()
+    {
+        return RestoreDecision::Start;
     }
     let busy = tab.agent_state.as_ref().is_some_and(|state| {
         matches!(

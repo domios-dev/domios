@@ -49,6 +49,7 @@ pub mod cartographer;
 pub mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod client_selection;
+pub mod close_authority;
 mod close_history;
 pub use close_history::close_inventory_error_data;
 mod command_port_impl;
@@ -496,11 +497,7 @@ pub struct PlanStartupLoaded(pub Arc<AtomicBool>);
 
 /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
 pub struct BridgeOutboundRx(
-    pub  Arc<
-        parking_lot::Mutex<
-            Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>,
-        >,
-    >,
+    pub Arc<parking_lot::Mutex<Option<crate::bridge::manager::OutboundReceiver>>>,
 );
 
 /// Instrumentation for the desktop `mux-state-changed` emit path. `requests` =

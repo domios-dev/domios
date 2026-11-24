@@ -1,5 +1,5 @@
 import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
-import { admitBellNotification, isRemoteNotification } from "../../lib/notificationAdmission";
+import { admitBellNotification, isRemoteNotification, pruneBellNotifications } from "../../lib/notificationAdmission";
 import { remoteNotificationRoute } from "../../lib/remoteNotifications";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
 import { isSurfaceTab } from "../../lib/surfaceTab";
@@ -43,6 +43,7 @@ export type Action =
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
+  | { type: "PRUNE_NOTIFICATIONS"; now: number }
   | { type: "REPLACE_REMOTE_NOTIFICATION_HISTORY"; peerId: string; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
@@ -647,6 +648,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const notifications = new Map(action.notifications.map((notification) => [notification.id, notification]));
       for (const notification of state.notifications) notifications.set(notification.id, notification);
       return { ...state, notificationsLoaded: true, notifications: [...notifications.values()].reduce<Notification[]>((records, notification) => admitBellNotification(records, notification, "agent_notification"), []) };
+    }
+
+    case "PRUNE_NOTIFICATIONS": {
+      const notifications = pruneBellNotifications(state.notifications, action.now);
+      return notifications === state.notifications ? state : { ...state, notifications };
     }
 
     case "REPLACE_REMOTE_NOTIFICATION_HISTORY": {

@@ -1,7 +1,7 @@
 // Run: npx tsx src/store/multiplexer/pendingClose.integration.test.tsx
 // Regression: failed/redundant closes must neither hide items nor resurrect them.
 
-export {};
+import { deepStrictEqual } from "node:assert";
 
 
 class FakeStorage {
@@ -245,6 +245,69 @@ test("failed closeTab restores the tab from authoritative state", async () => {
   assert(hasTab(h.state(), "tab-B"), "tab B must reappear from authoritative state after a failed close");
   await h.act(async () => h.root.unmount());
   h.clear();
+});
+
+test("shared close uses the owning daemon and retains the row when the relay refuses it", async () => {
+  const { remoteTransportCall } = await import("../../lib/remoteTabTransport");
+  const { createTabsTransport } = await import("../../lib/transport/tabs");
+  const tabId = "mesh:owner-machine/peer-shell";
+  const source = { id: "peer-shell", title: "Shell", workspace_id: "owning-workspace" } as import("../../lib/types").Tab;
+  let peerTabs = [source];
+  let receipt: Record<string, unknown> = { ok: false, status: 503, error: "Peer owner-machine is offline" };
+  const relays: unknown[] = [];
+  const { mesh_remote_tab_action } = createTabsTransport({
+    json: async <T,>(method: string, path: string, body?: unknown) => {
+      relays.push({ method, path, body });
+      return receipt as T;
+    },
+  });
+  const h = await renderHarness(async <T,>(cmd: string, args?: Record<string, unknown>) => {
+    if (cmd === "mux_get_state") return makeSnapshot([{ id: "viewer-workspace", tabs: [] }], 1) as T;
+    if (cmd === "list_notifications") return [] as T;
+    if (cmd === "mesh_peer_tabs_list") return { peer_id: "owner-machine", peer_name: "Owner", tabs: peerTabs } as T;
+    if (cmd === "mux_close_tab") {
+      const route = remoteTransportCall(cmd, args);
+      assert(route, "shared close uses a composite owner route");
+      return mesh_remote_tab_action({ ...route }) as Promise<T>;
+    }
+    return {} as T;
+  });
+  try {
+    await h.act(async () => h.actions().attachRemoteTab!("viewer-workspace", {
+      peer_id: "owner-machine", peer_name: "Owner", tabs: peerTabs,
+    }, source));
+    assert(hasTab(h.state(), tabId), "the shared row is visible before the close");
+
+    for (const refusal of [
+      receipt,
+      { ok: false, status: 403, error: "Peer not authorized (access_level=ReadOnly)" },
+    ]) {
+      receipt = refusal;
+      await h.act(async () => {
+        h.actions().closeTab("viewer-workspace", tabId);
+        await drain();
+      });
+      assert(hasTab(h.state(), tabId), "the refused shared tab stays visible");
+      assert(h.state().toasts.some(toast => toast.body?.includes(String(refusal.error))), "the close names the relay refusal");
+    }
+
+    const expectedRelay = {
+      method: "POST", path: "/api/mesh/relay-to",
+      body: { target_instance_id: "owner-machine", method: "POST", path: "/api/tabs/peer-shell/close", body: { as_owner: true } },
+    };
+    deepStrictEqual(relays, [expectedRelay, expectedRelay], "both attempts route only to the exact owner");
+    receipt = { ok: true, status: 200, data: { ok: true } };
+    peerTabs = [];
+    await h.act(async () => {
+      h.actions().closeTab("viewer-workspace", tabId);
+      await drain();
+    });
+    deepStrictEqual(relays, [expectedRelay, expectedRelay, expectedRelay], "successful close uses the same owner route");
+    assert(!hasTab(h.state(), tabId), "the owner's updated inventory removes the row");
+  } finally {
+    await h.act(async () => h.root.unmount());
+    h.clear();
+  }
 });
 
 test("an unfinished Worker prompts once and closes only after confirmation", async () => {

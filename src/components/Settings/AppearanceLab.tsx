@@ -1,10 +1,10 @@
-import { useContext, useDeferredValue, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Minus, Monitor, Sparkles, X } from "lucide-react";
-import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, appearanceLookKey, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
-import { APPEARANCE_CHANGED, appearanceError, changeAppearance, checkAppearanceContrast, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
+import { Monitor, Sparkles } from "lucide-react";
+import { usePhoneViewport } from "../../hooks/useSidebarViewport";
+import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, appearanceLookKey, applyContrastFix, paletteContrast, trustedPreset, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
+import { APPEARANCE_CHANGED, appearanceError, changeAppearance, previewAppearancePreset, proposeAppearance, readAppearance, readAppearanceProposal, switchAppearanceTheme, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
 import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { focusTab, generalAgentTab } from "../../lib/generalAgent";
-import { useBackDismissal } from "../../lib/backDismissal";
 import { setClientTabUiMode } from "../../lib/clientTabUiMode";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -15,8 +15,13 @@ import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "
 import { cleanMachineName } from "../../lib/machineIdentity";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 import { appearanceLabChanges, type AppearanceLabCategory, type AppearanceLabChange } from "./AppearanceLabChanges";
-import { AppearanceLabDock, LAB_CATEGORIES, type AppearanceLabPopover } from "./AppearanceLabDock";
-import type { AppearanceLabProjection } from "./AppearanceLabSession";
+import { AppearanceAppliedLabel, AppearanceLabActions, AppearanceLabCategories, LAB_CATEGORIES, contrastIssues } from "./AppearanceLabPanelControls";
+import { useAppearanceLabDismissal, type AppearanceLabProjection } from "./AppearanceLabSession";
+import type { AppearanceLabHostProps } from "./AppearanceLabHost";
+import { AppearancePaletteInput, useAppearancePalette } from "./AppearancePaletteInput";
+import { useAppearanceContrast } from "./useAppearanceContrast";
+import { usePresence, type PresenceState } from "../Canvas/usePresence";
+import { TabSidePanel } from "../Terminal/tabPanel/TabSidePanel";
 import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
 import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
 import { MultiplexerActionsContext, usePairedWorkspaceInventory } from "../../store/multiplexer/context";
@@ -28,19 +33,40 @@ import "./appearanceTry.css";
 const mainTab = (state: ExtendedState) => generalAgentTab(state)?.tabId;
 const mainWorkspace = (state: ExtendedState) => generalAgentTab(state)?.workspaceId;
 const LOCAL: AppearanceTarget = { machine: "local" };
-const APPLIED_TIME = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const SIDE_PANEL_MOTION = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
+
+export function AppearanceLabLayer({ config, session, onProject, onClose, onExited }: AppearanceLabHostProps & { onExited(): void }) {
+  const opener = useRef<HTMLElement | undefined>(undefined);
+  if (session) opener.current = session.opener;
+  const presence = usePresence(session ?? null, SIDE_PANEL_MOTION, panel => {
+    const active = document.activeElement;
+    if (opener.current?.isConnected && (!active || active === document.body || panel?.contains(active))) {
+      opener.current.focus({ preventScroll: true });
+    }
+    opener.current = undefined;
+  });
+  useEffect(() => {
+    if (!presence.item) onExited();
+  }, [presence.item, onExited]);
+  if (!presence.item || !presence.state) return null;
+  return <AppearanceLab key={presence.item.id} config={config} open={presence.item.proposal}
+    showWallpaperOwn={presence.item.showWallpaper} state={presence.state} panelRef={presence.ref}
+    onProject={onProject} onClose={onClose} />;
+}
 
 interface Props {
   config: AppConfig;
   open?: OpenAppearance;
   showWallpaperOwn?: boolean;
+  state: PresenceState;
+  panelRef: RefObject<HTMLElement | null>;
   onProject(projection?: AppearanceLabProjection): void;
   onClose(returnToOrigin: boolean): void;
 }
 
-export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClose }: Props) {
-  const cardId = useId();
-  const lab = useRef<HTMLElement>(null);
+function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProject, onClose }: Props) {
+  const controlsId = useId();
+  const changesTrigger = useRef<HTMLButtonElement>(null);
   const machineChoices = useMeshMachineChoices();
   const accountNames = useAccountMachineNames();
   const machineAppearance = useContext(MachineAppearanceContext);
@@ -49,18 +75,22 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const peerName = useMeshPeerName(target.peer);
   const [current, setCurrent] = useState<CurrentAppearance>();
   const [draft, setDraft] = useState<AppearanceLook>();
+  const { editing: paletteEditing, editColour, editDraft, commit: commitColour, reset: resetPalette } = useAppearancePalette(setDraft);
+  const [settledDraft, setSettledDraft] = useState(draft);
+  if (!paletteEditing && settledDraft !== draft) setSettledDraft(draft);
   const [openedProposal, setOpenedProposal] = useState<AppearanceProposal>();
+  const [presetPreview, setPresetPreview] = useState<AppearanceLook>();
   const wallpaperRevision = useRef(0);
-  const [card, setCard] = useState<AppearanceLabCategory | undefined>(showWallpaperOwn ? "wallpaper" : "presets");
-  const [collapsed, setCollapsed] = useState(false);
-  const [popover, setPopover] = useState<AppearanceLabPopover>();
+  const [category, setCategory] = useState<AppearanceLabCategory>(showWallpaperOwn ? "wallpaper" : "presets");
+  const phone = usePhoneViewport();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [changesExpanded, setChangesExpanded] = useState<boolean>();
   const [comparing, setComparing] = useState(false);
   const [justApplied, setJustApplied] = useState<AppearanceProposal>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [ask, setAsk] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [contrast, setContrast] = useState<{ look: AppearanceLook; checks: ContrastCheck[] }>();
   const tabId = useMuxSelector(mainTab);
   const workspaceId = useMuxSelector(mainWorkspace);
   const actions = useContext(MultiplexerActionsContext);
@@ -71,15 +101,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const remoteMain = remoteGeneral?.sessions.find(session => session.tab.protected);
   const generalTab = remote ? remoteMain?.viewerId : tabId;
   const appearanceOnline = !remote || machineChoices.peers?.some(peer => peer.instance_id === target.peer && peer.online);
-  const checking = useDeferredValue(draft);
-  useEffect(() => {
-    if (!checking || !appearanceOnline) return;
-    const controller = new AbortController();
-    void checkAppearanceContrast(target, checking, controller.signal).then(checks => {
-      if (!controller.signal.aborted) setContrast({ look: checking, checks });
-    }).catch(() => {});
-    return () => controller.abort();
-  }, [target, checking, appearanceOnline]);
+  const audit = useAppearanceContrast(target, draft, Boolean(appearanceOnline) && state !== "closing" && !paletteEditing);
 
   useEffect(() => {
     let active = true;
@@ -88,38 +110,44 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
       ? readAppearanceProposal(target, open.proposal) : undefined;
     Promise.all([readAppearance(target), receipt]).then(([next, stored]) => {
       if (!active) return;
+      resetPalette();
       setCurrent(next);
       setDraft(stored?.look ?? next.look);
       setOpenedProposal(stored);
+      setPresetPreview(undefined);
     }, (failure: unknown) => {
       if (active) setError(appearanceError(failure));
     });
     return () => { active = false; };
-  }, [target, open, appearanceOnline]);
+  }, [target, open, appearanceOnline, resetPalette]);
 
   useEffect(() => {
     const onChange = (event: Event) => {
       const detail = (event as CustomEvent<{ receipt: AppearanceProposal }>).detail;
       if (detail?.receipt.machine.id !== current?.machine.id) return;
+      resetPalette();
       wallpaperRevision.current++;
       setOpenedProposal(undefined);
+      setPresetPreview(undefined);
       const look = detail.receipt.state === "undone" ? detail.receipt.previous : detail.receipt.look;
       setCurrent(previous => previous && { ...previous, look, active: detail.receipt.can_undo ? detail.receipt : null });
       setDraft(look);
     };
     window.addEventListener(APPEARANCE_CHANGED, onChange);
     return () => window.removeEventListener(APPEARANCE_CHANGED, onChange);
-  }, [current?.machine.id]);
+  }, [current?.machine.id, resetPalette]);
 
   const changeMachine = (id: string) => {
+    resetPalette();
     wallpaperRevision.current++;
     onProject(undefined);
     setCurrent(undefined);
     setDraft(undefined);
     setOpenedProposal(undefined);
+    setPresetPreview(undefined);
     setJustApplied(undefined);
     setComparing(false);
-    if (popover === "changes") setPopover(undefined);
+    setChangesExpanded(undefined);
     setError("");
     setTarget(id === "local" ? LOCAL : { machine: id, peer: id });
   };
@@ -128,79 +156,79 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const machine = target.peer ? peerName ?? currentName ?? "Machine" : localName ?? "this machine";
   const unavailable = Boolean(target.peer && machineChoices.peers?.find(peer => peer.instance_id === target.peer)?.online === false);
   const tuning = draft?.tuning ?? DEFAULT_APPEARANCE;
-  const changes = current && draft ? appearanceLabChanges(current.look, draft, current.presets) : [];
+  const changes = useMemo(() => current && settledDraft ? appearanceLabChanges(current.look, settledDraft, current.presets) : [],
+    [current, settledDraft]);
   const dirty = changes.length > 0;
   const active = justApplied?.can_undo ? justApplied : undefined;
   const undoLabel = active && `Undo · back to ${active.previous.theme.name}`;
-  const appliedAt = active?.applied_at == null ? undefined : new Date(active.applied_at * 1000);
   const wallpaperVersion = wallpaperRevision.current;
-  const visibleCard = collapsed || justApplied ? undefined : card;
+  const closing = state === "closing";
   const projectingCommit = Boolean(justApplied && (target.peer ?? relayTarget()?.id) === machineAppearance?.peerId);
   const projectedLook = unavailable ? undefined : justApplied ? (projectingCommit ? justApplied.look : undefined) : comparing ? current?.look : draft;
   useLayoutEffect(() => {
-    onProject(projectedLook && { look: projectedLook, peer: target.peer, committed: projectingCommit });
-  }, [onProject, projectedLook, target.peer, projectingCommit]);
-  const focusCategory = (category: AppearanceLabCategory) =>
-    lab.current?.querySelector<HTMLButtonElement>(`[data-lab-category="${category}"]`)?.focus();
-  const dismissCard = (minimize: boolean) => {
-    if (card) focusCategory(card);
-    setCollapsed(minimize);
-    if (!minimize) setCard(undefined);
-  };
+    if (!closing) onProject(projectedLook && { look: projectedLook, peer: target.peer, committed: projectingCommit });
+  }, [onProject, projectedLook, target.peer, projectingCommit, closing]);
   const dismiss = () => {
-    if (busy) return;
-    if (visibleCard) dismissCard(false);
-    else onClose(!justApplied);
-  };
-  const dismissRef = useRef(dismiss);
-  dismissRef.current = dismiss;
-  const activePopover = justApplied || (popover === "changes" && !dirty) ? undefined : popover;
-  const popoverOpenRef = useRef(false);
-  popoverOpenRef.current = activePopover !== undefined;
-  useBackDismissal(true, dismiss);
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || popoverOpenRef.current) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      dismissRef.current();
-    };
-    window.addEventListener("keydown", escape, true);
-    return () => window.removeEventListener("keydown", escape, true);
-  }, []);
-  const selectCategory = (category: AppearanceLabCategory) => {
-    if (visibleCard === category) dismissCard(true);
-    else {
-      setCard(category);
-      setCollapsed(false);
-      setPopover(undefined);
+    if (!closing && !busy) {
+      resetPalette();
+      onClose(!justApplied);
     }
   };
-  const failures = contrast?.look === draft ? contrast?.checks.filter(check => check.ratio < check.floor) ?? [] : [];
-  const editTuning = (patch: Partial<AppearanceTuning>) => setDraft(value => {
+  const editing = !closing && !justApplied;
+  const showChanges = editing && dirty && (changesExpanded ?? !phone);
+  const activePopover = !editing ? undefined : menuOpen ? "menu" : showChanges && changesExpanded ? "changes" : undefined;
+  useAppearanceLabDismissal(!closing, activePopover, changesTrigger, () => setChangesExpanded(false), dismiss);
+  const toggleMenu = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) setComparing(false);
+  };
+  const selectCategory = (next: AppearanceLabCategory) => {
+    setCategory(next);
+    toggleMenu(false);
+  };
+  const { failures } = audit;
+  const isTrustedPreset = trustedPreset(draft, presetPreview) && !paletteEditing;
+  const issues = useMemo(() => dirty && !isTrustedPreset ? contrastIssues(failures) : [], [dirty, failures, isTrustedPreset]);
+  const ratioTheme = audit.theme ?? current?.look.theme;
+  const ratios = useMemo(() => new Map(PALETTE_CONTROLS.map(({ key }) =>
+    [key, ratioTheme && paletteContrast(ratioTheme, key)])), [ratioTheme]);
+  const canApply = dirty && !busy && !comparing && !unavailable &&
+    (isTrustedPreset || (audit.ready && failures.length === 0));
+  const fixContrast = (fix: NonNullable<ContrastCheck["fix"]>) => {
+    if (audit.ready) editDraft(value => value && applyContrastFix(value, fix));
+  };
+  const fixAllContrast = () => {
+    if (audit.ready) editDraft(value => issues.reduce((look, issue) => look && issue.fix ? applyContrastFix(look, issue.fix) : look, value));
+  };
+  const editTuning = (patch: Partial<AppearanceTuning>) => editDraft(value => {
     if (!value) return value;
     const next = { ...value.tuning ?? DEFAULT_APPEARANCE, ...patch };
     const baseline = current?.look.tuning ?? DEFAULT_APPEARANCE;
     const matchesCurrent = (Object.keys(next) as (keyof AppearanceTuning)[]).every(key => next[key] === baseline[key]);
     return { ...value, tuning: matchesCurrent ? current?.look.tuning ?? null : next };
   });
-  const editTheme = (key: keyof ThemeConfig, colour: string) => setDraft(value => value && { ...value, theme: { ...value.theme, [key]: colour } });
-
   const apply = async (button: HTMLButtonElement) => {
-    if (!draft || !current || !dirty || busy || failures.length > 0) return;
+    if (!draft || !current || !canApply) return;
     indicateAppearancePress(button);
     setBusy(true);
     setError("");
     try {
-      const next = openedProposal && openedProposal.state !== "applied"
-        && appearanceLookKey(draft) === appearanceLookKey(openedProposal.look)
-        && appearanceLookKey(current.look) === appearanceLookKey(openedProposal.previous)
-        ? openedProposal : await proposeAppearance(target, draft, current.look);
-      bindAppearancePress(button, next.id, next.look, target.peer ?? relayTarget()?.id);
-      const receipt = await changeAppearance(target, next.id, "apply");
-      if (receipt.can_undo) {
+      let receipt: AppearanceProposal | null;
+      if (isTrustedPreset) {
+        bindAppearancePress(button, null, draft, target.peer ?? relayTarget()?.id);
+        receipt = await switchAppearanceTheme(target, { kind: "preset", name: draft.theme.name, expected: current.look });
+        if (!receipt) clearAppearancePress(button);
+      } else {
+        const next = openedProposal && openedProposal.state !== "applied"
+          && appearanceLookKey(draft) === appearanceLookKey(openedProposal.look)
+          && appearanceLookKey(current.look) === appearanceLookKey(openedProposal.previous)
+          ? openedProposal : await proposeAppearance(target, draft, current.look);
+        bindAppearancePress(button, next.id, next.look, target.peer ?? relayTarget()?.id);
+        receipt = await changeAppearance(target, next.id, "apply");
+      }
+      if (receipt?.can_undo) {
+        if (panelRef.current?.contains(document.activeElement)) panelRef.current.focus();
         setJustApplied(receipt);
-        setPopover(undefined);
       }
     } catch (failure) {
       clearAppearancePress(button);
@@ -249,20 +277,44 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
     void sent.catch(() => {});
   };
 
-  const pickPreset = (theme: ThemeConfig) => setDraft(value => value && { ...value, theme });
+  const pickPreset = async (theme: ThemeConfig) => {
+    if (!current || busy) return;
+    const revision = ++wallpaperRevision.current;
+    setBusy(true);
+    setError("");
+    try {
+      const preview = await previewAppearancePreset(target, theme.name, current.look);
+      if (revision !== wallpaperRevision.current) return;
+      setPresetPreview(preview);
+      editDraft(value => {
+        if (!value) return value;
+        const wallpaperKey = (look: AppearanceLook) => appearanceLookKey({ ...current.look, wallpaper: look.wallpaper });
+        const existing = wallpaperKey(value);
+        const keepEdit = existing !== wallpaperKey(current.look) && (!presetPreview || existing !== wallpaperKey(presetPreview));
+        return { ...value, theme: preview.theme, wallpaper: keepEdit ? value.wallpaper : preview.wallpaper };
+      });
+    } catch (failure) {
+      if (revision === wallpaperRevision.current) setError(appearanceError(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
   const discardWallpaper = () => {
     if (!current) return;
     wallpaperRevision.current++;
-    setDraft(look => look && { ...look, wallpaper: current.look.wallpaper,
+    editDraft(look => look && { ...look, wallpaper: current.look.wallpaper,
       theme: { ...look.theme, chat_background: current.look.theme.chat_background } });
   };
   const revert = (change: AppearanceLabChange) => {
     if (change.category === "wallpaper") wallpaperRevision.current++;
-    setDraft(look => look && change.revert(look));
+    if (changes.length === 1) {
+      setChangesExpanded(undefined);
+      panelRef.current?.focus();
+    }
+    editDraft(look => look && change.revert(look));
   };
 
-  const selectedCategory = LAB_CATEGORIES.find(item => item.id === card);
-  const cardTitle = card === "shape" ? "Shape and depth" : selectedCategory?.label;
+  const controlsLabel = category === "shape" ? "Shape and depth" : LAB_CATEGORIES.find(item => item.id === category)?.label;
   const machineSelector = (
     <label className="ct-appearance-machine"><Monitor size={15} aria-hidden="true" />For:
       <select autoFocus aria-label="Appearance machine" value={target.peer ?? "local"} onChange={event => changeMachine(event.target.value)} disabled={busy}>
@@ -271,22 +323,17 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
       </select>
     </label>
   );
-  const previewTag = projectedLook && !justApplied && <p className="ct-appearance-try__tag" role="status">
-    {comparing ? "Comparing · current look" : "● Previewing · not applied"}<span> · Esc to exit</span>
+  const previewTag = projectedLook && !closing && !justApplied && <p className="ct-appearance-try__tag" role="status">
+    {comparing ? "Comparing" : "Previewing"}<span>{comparing ? " · current look" : " · not applied"} · Esc to exit</span>
   </p>;
-  const cardControls = (
-    <div id={cardId} className="ct-appearance-try__card" role="region" aria-label={cardTitle ?? "Appearance controls"} hidden={!visibleCard}>
-      <header>
-        <h2>{cardTitle}</h2>
-        <button type="button" aria-label="Collapse appearance card" onClick={() => dismissCard(true)}><Minus size={15} aria-hidden="true" /></button>
-        <button type="button" aria-label="Close appearance card" onClick={() => dismissCard(false)}><X size={15} aria-hidden="true" /></button>
-      </header>
-      {current && draft && !unavailable && visibleCard && <fieldset disabled={busy} className="ct-appearance-try__controls" aria-label="Appearance controls">
-        {visibleCard === "presets" && (
+  const controls = (
+    <div id={controlsId} className="ct-appearance-lab" role="region" aria-label={controlsLabel}>
+      {current && draft && !unavailable && <fieldset disabled={busy} className="ct-appearance-try__controls" aria-label="Appearance controls">
+        {category === "presets" && (
           <SettingsCard title="Presets" headerRight={<small>{current.presets.length} looks</small>}>
             <div className="ct-appearance-presets">
               {current.presets.map(theme => (
-                <button type="button" key={theme.name} onClick={() => pickPreset(theme)} aria-pressed={draft.theme.name === theme.name}
+                <button type="button" key={theme.name} onClick={() => void pickPreset(theme)} aria-pressed={draft.theme.name === theme.name}
                   data-appearance-field="theme" style={{ background: theme.background, color: theme.foreground }}>
                   <span aria-hidden="true">{[theme.foreground, theme.blue, theme.green, theme.yellow, theme.red].map((colour, index) => <i key={index} style={{ background: colour }} />)}</span>
                   {theme.name}
@@ -302,43 +349,48 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
             </form>}
           </SettingsCard>
         )}
-        {visibleCard === "palette" && (
+        {category === "palette" && (
           <SettingsCard title="Palette" headerRight={<small>Contrast against the background</small>}>
             {PALETTE_CONTROLS.map(({ key, label }) => {
-              const ratio = paletteContrast(draft.theme, key);
-              return <label key={key} className="ct-appearance-colour">
-                <input type="color" aria-label={label} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
-                <span>{label}</span><code>{draft.theme[key]}</code>
-                {ratio !== undefined && <output data-pass={ratio >= 4.5}>{ratio.toFixed(1)}:1 {ratio >= 4.5 ? "✓" : "✕"}</output>}
-              </label>;
+              const field = `theme.${key}`;
+              const failing = failures.filter(failure => failure.fix?.field === field);
+              const worst = failing.length ? failing.reduce((low, check) => check.ratio < low.ratio ? check : low) : undefined;
+              const ratio = worst?.ratio ?? ratios.get(key);
+              const pass = worst ? false : ratio !== undefined && ratio >= 4.5;
+              const fix = worst?.fix;
+              return <div key={key} className="ct-appearance-colour">
+                <AppearancePaletteInput id={`${controlsId}-${key}`} label={label} field={field} colour={draft.theme[key]}
+                  editing={paletteEditing} onEdit={colour => editColour(key, colour)} onCommit={commitColour} />
+                <label htmlFor={`${controlsId}-${key}`}>{label}</label><code>{draft.theme[key]}</code>
+                <span className="ct-appearance-colour__status">
+                  {ratio !== undefined && <output data-pass={pass}
+                    title={worst ? `${worst.pair} ${worst.ratio.toFixed(2)}:1, needs ${worst.floor}:1${failing.length > 1 ? ` · fails on ${failing.length} surfaces` : ""}` : undefined}>
+                    {ratio.toFixed(1)}:1{pass ? " ✓" : ""}</output>}
+                  {fix && <button type="button" aria-label={`Fix ${label}`} disabled={!audit.ready} onClick={() => fixContrast(fix)}>Fix</button>}
+                </span>
+              </div>;
             })}
             <details className="ct-appearance-terminal">
               <summary>Terminal colours · {TERMINAL_COLOURS.length}</summary>
               {TERMINAL_COLOURS.map(key => <label className="ct-appearance-colour" key={key}>
-                <input type="color" aria-label={key.replaceAll("_", " ")} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
+                <AppearancePaletteInput label={key.replaceAll("_", " ")} field={`theme.${key}`} colour={draft.theme[key]}
+                  editing={paletteEditing} onEdit={colour => editColour(key, colour)} onCommit={commitColour} />
                 <span>{key.replaceAll("_", " ")}</span><code>{draft.theme[key]}</code>
               </label>)}
             </details>
-            {failures.length > 0 && <ul className="ct-appearance-contrast" aria-label="Contrast problems">
-              {failures.map(failure => <li key={failure.pair}>
-                <span>{failure.pair} {failure.ratio.toFixed(2)}:1, needs {failure.floor}:1</span>
-                {failure.fix && <button type="button" onClick={() => setDraft(value => value && failure.fix ? applyContrastFix(value, failure.fix) : value)}
-                  aria-label={`Fix ${failure.pair}`}>Fix</button>}
-              </li>)}
-            </ul>}
           </SettingsCard>
         )}
-        {visibleCard === "wallpaper" && (
+        {category === "wallpaper" && (
           <ChatWallpaperPicker key={wallpaperVersion} config={config} showOwnInitially={showWallpaperOwn && wallpaperVersion === 0} stage={{
             theme: draft.theme, wallpaper: draft.wallpaper, peerId: target.peer, ready: !busy,
             discard: discardWallpaper,
-            ask: generalTab ? () => { setAsk(true); setCard("presets"); } : undefined,
+            ask: generalTab ? () => { setAsk(true); selectCategory("presets"); } : undefined,
             update: wallpaper => {
-              if (wallpaperVersion === wallpaperRevision.current) setDraft(value => value && { ...value, wallpaper });
+              if (wallpaperVersion === wallpaperRevision.current) editDraft(value => value && { ...value, wallpaper });
             },
           }} />
         )}
-        {visibleCard === "shape" && (
+        {category === "shape" && (
           <SettingsCard title="Shape and depth">
             <label className="ct-appearance-knob">Corner roundness
               <span><input type="range" data-appearance-field="appearance.roundness" min={0} max={1} step={0.05} value={tuning.roundness} onChange={event => editTuning({ roundness: event.target.valueAsNumber })} />
@@ -355,7 +407,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
             </label>
           </SettingsCard>
         )}
-        {visibleCard === "text" && (
+        {category === "text" && (
           <SettingsCard title="Text">
             <div className="ct-appearance-knob">Interface text
               <div className="ct-appearance-size" role="group" aria-label="Interface text">
@@ -371,23 +423,30 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
     </div>
   );
   return (
-    <section ref={lab} className="ct-appearance-lab ct-appearance-try" aria-label="Appearance Lab"
-      data-card-open={visibleCard ? "" : undefined} data-applied={justApplied ? "" : undefined}>
-      {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}
-      {error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">{error}</p>}
-      {!draft && !unavailable && !error && <p className="ct-appearance-try__notice" role="status">Reading appearance…</p>}
-      {collapsed && card && selectedCategory && !justApplied && <button type="button" className="ct-appearance-try__pill"
-        onClick={() => selectCategory(card)}><selectedCategory.icon size={15} aria-hidden="true" />
-        {selectedCategory.label} · {changes.filter(change => change.category === card).length} changes</button>}
-      <AppearanceLabDock cardId={cardId} card={cardControls} previewTag={previewTag}
-        category={visibleCard} changes={changes} popover={activePopover} busy={busy}
-        canApply={dirty && !busy && !comparing && !unavailable && failures.length === 0}
-        comparing={comparing} applyLabel={remote ? `Apply to ${machine}` : "Apply"}
-        appliedStatus={justApplied && <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
-        undoLabel={dirty || unavailable ? undefined : undoLabel} machineSelector={machineSelector}
-        onCategory={selectCategory} onPopoverChange={setPopover} onCompare={setComparing}
-        onRevert={revert} onDiscard={() => onClose(true)} onApply={button => void apply(button)} onUndo={() => void undo()}
-        onBack={() => onClose(true)} onDismissApplied={() => onClose(false)} />
-    </section>
+    <div className="plan-side-panel-layer ct-appearance-try">
+      <TabSidePanel panelRef={panelRef} state={state} label="Appearance Lab" onClose={dismiss}
+        data-appearance-panel="" title={<h2 className="plan-side-panel__title">Appearance Lab</h2>} actions={previewTag}
+        toolbar={!justApplied && <AppearanceLabCategories controlsId={controlsId} category={category} changes={changes} busy={busy}
+          comparing={comparing} menuOpen={activePopover === "menu"} machineSelector={machineSelector}
+          onCategory={selectCategory} onMenuChange={toggleMenu}
+          onCompare={setComparing} onBack={dismiss} />}
+        footer={<AppearanceLabActions changes={changes} changesTrigger={changesTrigger} listOpen={showChanges}
+          focusChanges={changesExpanded === true} busy={busy}
+          canApply={canApply}
+          applyLabel={remote ? `Apply to ${machine}` : "Apply"}
+          appliedStatus={justApplied && <AppearanceAppliedLabel receipt={justApplied} />}
+          undoLabel={dirty || unavailable ? undefined : undoLabel}
+          contrast={issues} canFixContrast={audit.ready} onFixContrast={fixContrast} onFixAllContrast={fixAllContrast}
+          onToggleList={() => { toggleMenu(false); setChangesExpanded(!showChanges); }}
+          onRevert={revert} onDiscard={dismiss} onApply={button => void apply(button)} onUndo={() => void undo()} />}>
+        {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}
+        {error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">{error}</p>}
+        {dirty && !isTrustedPreset && audit.error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">
+          {audit.error} <button type="button" onClick={audit.retry}>Retry contrast check</button>
+        </p>}
+        {!draft && !unavailable && !error && <p className="ct-appearance-try__notice" role="status">Reading appearance…</p>}
+        {!justApplied && controls}
+      </TabSidePanel>
+    </div>
   );
 }

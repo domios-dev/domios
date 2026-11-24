@@ -70,7 +70,7 @@ export function wallpaperDefaultScale(pattern: ChatPattern): number {
   return pattern === "dots" || pattern === "grid" || pattern === "icon" ? 20 : 360;
 }
 
-export function effectiveWallpaper(theme: ThemeConfig, setting?: ChatWallpaper): ChatWallpaper {
+export function effectiveWallpaper(theme: Pick<ThemeConfig, "chat_background">, setting?: ChatWallpaper): ChatWallpaper {
   return setting ?? { background: theme.chat_background ?? { pattern: "none" } };
 }
 
@@ -88,8 +88,10 @@ export function wallpaperThumbnailIntensity(light: boolean): number {
   return light ? 1.6 : 1;
 }
 
+type WallpaperTheme = Pick<ThemeConfig, "chat_background" | "foreground">;
+
 export function wallpaperRenderStyle(
-  theme: ThemeConfig,
+  theme: WallpaperTheme,
   setting: ChatWallpaper | undefined,
   light: boolean,
   assetUrl?: string,
@@ -139,7 +141,7 @@ export function wallpaperRenderStyle(
   };
 }
 
-function gradientFill(theme: ThemeConfig, background: ChatBackground, light: boolean, strength?: number): string {
+function gradientFill(theme: WallpaperTheme, background: ChatBackground, light: boolean, strength?: number): string {
   if (strength !== undefined && background.gradient) {
     const gradient = background.gradient;
     const stops = gradient.stops.map(color => blendFillStop(color, strength)).join(", ");

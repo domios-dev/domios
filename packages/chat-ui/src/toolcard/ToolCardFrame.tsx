@@ -27,6 +27,7 @@ interface ToolCardFrameProps {
   onToggle: () => void;
   children: ReactNode;
   primaryContent?: ReactNode;
+  liveOutput?: ReactNode;
   title?: ReactNode;
   subtitle?: ReactNode;
   summary?: ReactNode;
@@ -84,7 +85,7 @@ function shortLocationLabel(path: string, line?: number): string {
   return line !== undefined ? `${base}:${line}` : base;
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, disclosureToggleLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, liveOutput, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, disclosureToggleLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const compact = useCompactToolRow();
   const [technicalOpen, setTechnicalOpen] = useState(false);
@@ -100,9 +101,10 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     && (event.kind === "read" || event.kind === "search" || event.kind === "generic" || event.kind === "fetch");
   const inlineRow = inlineCommand || quietOperation;
   const iconColor = quietOperation ? "var(--ct-muted-fg)" : visual.color;
-  const statusColor = event.status === "success" ? "var(--ct-muted-fg)" : outcome.color;
+  const statusColor = event.status === "success" || event.status === "pending" ? "var(--ct-muted-fg)" : outcome.color;
   const statusIcon = <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
-    <StatusGlyph aria-hidden="true" size={14} className={event.status === "pending" ? "motion-safe:animate-spin" : undefined} />
+    <StatusGlyph aria-hidden="true" size={event.status === "pending" ? 12 : 14} className={event.status === "pending" ? "motion-safe:animate-spin motion-reduce:hidden" : undefined} />
+    {event.status === "pending" && <span aria-hidden="true" className="hidden motion-reduce:inline">…</span>}
   </span>;
   const quiet = !error && !open && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
@@ -208,6 +210,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         {canExpand && <CardChevron expanded={open} label={cardDisclosureLabel} onToggle={onToggle} />}
       </div>
       {primaryContent && <div className="px-3 pb-2">{primaryContent}</div>}
+      {!fullscreen && liveOutput}
       <BoundedMessageContent collapsedHeight={communication ? "160px" : "600px"}
         id={detailsId}
         role="region"

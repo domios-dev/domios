@@ -146,9 +146,11 @@ it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the
   setAgentDescriptors([{ id: "codex", agent_runtime: { backgroundProcesses: true } }] as ProviderDescriptor[]);
   const view = harness([terminalMessage], vi.fn(), undefined, [process]);
   document.body.append(view.host);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   try {
     await act(async () => { view.render(); });
     await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
     const linked = view.host.querySelector('[role="group"][aria-label="Linked to this tab"]');
     const bubble = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process · build.mjs"]');
     expect(linked).not.toBeNull();
@@ -189,7 +191,31 @@ it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the
     }
   } finally {
     await act(async () => view.root.unmount());
+    vi.useRealTimers();
     view.host.remove();
+  }
+});
+
+it("omits a short-lived terminal chip and reveals one that remains in the roster", async () => {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  setAgentDescriptors([{ id: "codex", agent_runtime: { backgroundProcesses: true } }] as ProviderDescriptor[]);
+  const process = { threadId: "root", processId: "burst", itemId: "terminal", command: "echo fixture", cwd: "C:/work", osPid: null };
+  const view = harness([], vi.fn(), undefined, [process]);
+  const chip = () => view.host.querySelector('button[aria-label^="Background process"]');
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    await act(async () => view.render());
+    await act(async () => { await vi.advanceTimersByTimeAsync(749); });
+    expect(chip()).toBeNull();
+    await act(async () => view.setProcesses([]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+    expect(chip()).toBeNull();
+    await act(async () => view.setProcesses([{ ...process, processId: "persistent" }]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+    expect(chip()).not.toBeNull();
+  } finally {
+    await act(async () => view.root.unmount());
+    vi.useRealTimers();
   }
 });
 
@@ -247,8 +273,10 @@ it("keeps mixed background work distinct from provider sub-agents", async () => 
   setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness", supports_subagent_visibility: true, agent_runtime: { backgroundProcesses: true } }] as ProviderDescriptor[]);
   const inspect = vi.fn();
   const view = harness([command, child], inspect, undefined, [process]);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   try {
     await act(async () => { view.render(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
     const bubble = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process · mixed.mjs"]');
     expect(bubble).not.toBeNull();
     expect(bubble!.title).toContain("Background process · mixed.mjs");
@@ -261,6 +289,7 @@ it("keeps mixed background work distinct from provider sub-agents", async () => 
     expect(inspect).toHaveBeenCalledExactlyOnceWith("mixed-child");
   } finally {
     await act(async () => view.root.unmount());
+    vi.useRealTimers();
   }
 });
 

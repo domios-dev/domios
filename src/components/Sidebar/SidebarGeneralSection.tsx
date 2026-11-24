@@ -94,9 +94,9 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
             index={index}
             isActive={isActiveVisual && !data.workspaceCanvasActive && data.activeTabIds[workspaceId] === session.viewerId}
             onClick={() => activateTab(session.viewerId)}
-            onClose={() => undefined}
+            onClose={() => closeTab(session.viewerId)}
             onRename={attached ? title => renameTab(session.viewerId, title) : undefined}
-            canClose={false}
+            canClose={!session.tab.protected}
             readOnly={!attached}
             workspaceId={workspaceId}
             hasAgent={Boolean(session.tab.agent_type)}

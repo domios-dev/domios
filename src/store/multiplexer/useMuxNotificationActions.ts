@@ -1,7 +1,7 @@
 import { useMemo, useRef, type Dispatch, type RefObject } from "react";
 import { invoke } from "../../lib/bridge";
 import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
-import { isRemoteNotification } from "../../lib/notificationAdmission";
+import { isRemoteNotification, MAX_BELL_NOTIFICATIONS } from "../../lib/notificationAdmission";
 import { answerRemoteNotification, deleteRemoteNotification, readRemoteNotification, remoteNotificationRoute } from "../../lib/remoteNotifications";
 import type { Notification } from "../../lib/types";
 import type { Action } from "./reducer";
@@ -31,7 +31,7 @@ export function createMuxNotificationActions({ notifications, roster, dispatch, 
     if (!row || !origin) return;
     const route = routeFor(origin.peerId);
     const pendingKey = `${action.type}:${action.id}`;
-    if (!route || pendingChanges.has(pendingKey)) return;
+    if (!route || pendingChanges.has(pendingKey) || pendingChanges.size >= 2 * MAX_BELL_NOTIFICATIONS) return;
     const send = action.type === "MARK_READ" ? readRemoteNotification : deleteRemoteNotification;
     pendingChanges.add(pendingKey);
     return send(row).then(() => {

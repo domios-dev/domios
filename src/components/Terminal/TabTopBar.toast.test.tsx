@@ -26,7 +26,56 @@ vi.mock("./TabModeSwitch", () => ({ TabModeSwitch: () => null }));
 vi.mock("../Extensions/PluginBubbles", () => ({ PluginBubbles: () => null }));
 
 import { TabTopBar, type HeaderTabMenu } from "./TabTopBar";
+import { TabHeaderOverflow } from "./TabHeaderOverflow";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("opens a single set of overflow controls in a dialog and dismisses it from inside or outside", async () => {
+  const callbacks: ResizeObserverCallback[] = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: ResizeObserverCallback) { callbacks.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  const host = document.createElement("div");
+  host.className = "ct-tab-top-bar";
+  document.body.append(host);
+  const root = createRoot(host);
+  const action = vi.fn();
+  try {
+    await act(async () => root.render(<TabHeaderOverflow isActive>
+      <button type="button">Usage</button>
+      <button type="button" onClick={action}>Details</button>
+    </TabHeaderOverflow>));
+    const [usage, details] = host.querySelectorAll<HTMLButtonElement>("button");
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 39));
+    vi.spyOn(usage.parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(190, 6, 110, 27));
+    vi.spyOn(usage, "getBoundingClientRect").mockReturnValue(new DOMRect(190, 6, 70, 27));
+    vi.spyOn(details, "getBoundingClientRect").mockReturnValue(new DOMRect(190, 39, 70, 27));
+    await act(async () => callbacks[0]([], {} as ResizeObserver));
+
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Show all 1 hidden details"]')!;
+    await act(async () => trigger.click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Tab details"]')!;
+    expect(dialog.contains(details)).toBe(true);
+    expect(document.activeElement).toBe(dialog);
+    await act(async () => details.click());
+    expect(action).toHaveBeenCalledOnce();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(dialog.isConnected).toBe(false);
+    expect(host.contains(details)).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+
+    await act(async () => trigger.click());
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => host.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('[role="dialog"][aria-label="Tab details"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
 
 function Harness({ chat = true, locked = false, chatCapable = false, usageTabId }: { chat?: boolean; locked?: boolean; chatCapable?: boolean; usageTabId?: string }) {
   const [toasts, setToasts] = useState<Notification[]>([]);
