@@ -10,7 +10,11 @@ fn pending_global_stop_fences_racing_startup_until_retirement() {
     service.queue_neighbor_stop_local();
     service.set_neighbor_friend_receiver_for_test("friend", Some(true), 1);
     assert!(!service.neighbor_friend_receiving_here("friend"));
-    *service.extensions.get_or_init(Pending::default).0.lock() = None;
+    *service
+        .extensions
+        .get_or_init(Pending::default)
+        .generation
+        .lock() = None;
     assert!(service.neighbor_friend_receiving_here("friend"));
 }
 
@@ -54,7 +58,11 @@ async fn off_cleanup_drains_projection_then_closes_before_successor_even_when_wa
                 closing.send(()).unwrap();
                 close_held.await.unwrap();
                 log.lock().push("OFF close");
-                *owner.extensions.get_or_init(Pending::default).0.lock() = None;
+                *owner
+                    .extensions
+                    .get_or_init(Pending::default)
+                    .generation
+                    .lock() = None;
                 Ok(())
             })
             .await
@@ -137,21 +145,39 @@ async fn signed_out_off_cleanup_drains_before_the_first_empty_neighbor_list() {
         .0
         .set(account.clone())
         .is_ok());
-    let generation = service.neighbor_history_generation();
+    service.select_neighbor_projection_owned("previous-account", 1);
+    let signed_out_generation = service.neighbor_history_generation();
     service.queue_neighbor_stop_local();
-    service.wait_neighbor_stop_local(generation).await.unwrap();
-    assert!(service.neighbor_stop_local_pending(generation));
+    service
+        .wait_neighbor_stop_local(signed_out_generation)
+        .await
+        .unwrap();
+    assert!(service.neighbor_stop_local_pending(signed_out_generation));
     assert_eq!(
         service.neighbor_reconciliation().require_readable(),
-        Err(Error::Revoked)
+        Err(Error::LocalFence {
+            phase: "off_cleanup"
+        })
     );
 
     account.refresh().await.unwrap();
+    service.neighbor_identity_changed();
+    let generation = service.neighbor_history_generation();
+    assert_ne!(generation, signed_out_generation);
+    assert!(!service.neighbor_stop_local_pending(signed_out_generation));
+    assert!(service
+        .drain_neighbor_stop_local(signed_out_generation)
+        .await
+        .is_err());
+    assert!(service.neighbor_stop_local_pending(generation));
     let session = account.session().await.unwrap();
     let uid = &session.identity.uid;
     let login = session.login_generation;
     service.drain_neighbor_stop_local(generation).await.unwrap();
     assert!(!service.neighbor_stop_local_pending(generation));
+    assert_eq!(service.neighbor_reconciliation().require_readable(), Ok(()));
+    assert!(service.neighbor_projection_read_epoch(uid, login).is_ok());
+    service.refresh_neighbor_list().await.unwrap();
     service
         .select_neighbor_projection(uid, login)
         .await
