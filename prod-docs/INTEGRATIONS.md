@@ -191,7 +191,7 @@ A secret-backend plugin keeps its persisted session and any remembered credentia
 
 Full secret-store reference, including CLI, storage internals, error mapping, and plugin authoring: `domios docs SECRETS`.
 
-Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
+Settings UI: Settings → Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, and sign-out. Save values and explicitly lock the store through `domios mem secret`.
 
 ## Blueprint nodes
 
@@ -211,4 +211,4 @@ This node fragment consumes a preceding `read` node's page text. Use the authori
   routes: {done: "@next", failed: "@stop"}
 ```
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

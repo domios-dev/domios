@@ -408,6 +408,7 @@ export function SecretsTab({
         <div className="space-y-1">
           <div className={sectionLabelClass}>Backend</div>
           <select
+            aria-label="Backend"
             data-testid="settings-secrets-backend-select"
             value={backend}
             onChange={(e) => void setBackend(e.target.value as SecretsBackend)}
@@ -419,7 +420,7 @@ export function SecretsTab({
           </select>
           <div className="text-[10px] text-[var(--ct-muted-fg)]">
             {backend === "local"
-              ? "Persisted in the OS keychain (macOS Keychain / libsecret / Windows Credential Manager). Offline, no external service."
+              ? "Stored in the local .secrets file with owner-only access. Plaintext, not encrypted. Offline, no external service."
               : backend === "bitwarden"
                 ? "Vault accessed via the bw CLI. Supports vault.bitwarden.com and self-hosted Vaultwarden."
                 : "In-memory only. Data is wiped on daemon restart — for tests and local dev."}

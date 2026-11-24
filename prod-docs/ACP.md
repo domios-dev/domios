@@ -17,7 +17,7 @@ explicit profile; a model id does not select an agent executable.
 | `local` | An owner-confirmed installed ACP executable and argument array. Configure it through the Spawn picker as described below. The placeholder `local-acp-command` is not an installed agent. |
 
 DeepSeek requires the secret `domios:provider:acp:deepseek-api-key` before runtime
-launch. Store the owner's key through Settings → Secrets, or feed it on stdin to:
+launch. Choose the backend in Settings → Secrets, then feed the owner's key on stdin to:
 
 ```bash
 domios mem secret save --name domios:provider:acp:deepseek-api-key
@@ -126,8 +126,8 @@ All environment options refuse `CODETERM*` names and duplicate variables.
 `--secret-env` requires a named stored secret at launch. `--auth-env` maps an
 optional secret to an agent-declared key-taking authentication method; its final
 colon separates the method from the secret name. References must use the
-`domios:provider:acp:` namespace. Store values through Settings → Secrets or the
-stdin-only secret command before launching; never put secret values in arguments.
+`domios:provider:acp:` namespace. Choose the backend in Settings → Secrets and store
+values through the stdin-only secret command before launching; never put secret values in arguments.
 
 Adding a profile resolves its installed executable and saves the same kind of
 owner-confirmed command receipt as the local Spawn form. Profiles persist outside
@@ -396,4 +396,4 @@ an agent cannot change its own or another tab's mode this way.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
