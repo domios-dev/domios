@@ -143,6 +143,10 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
                 </strong>
               </span>
             </div>
+          ) : state.phase === "submit_unconfirmed" ? (
+            <div role="status" className="border-t px-3 py-2 text-[11px]" style={edge}>
+              Answer delivery unconfirmed.
+            </div>
           ) : state.phase === "undeliverable" ? (
             <div
               data-testid="chat-ask-undeliverable"

@@ -7,6 +7,8 @@ import type { PairedRoster } from "./useMeshPeerProjection";
 import { reducer, type Action } from "./reducer";
 import type { ExtendedState } from "./tree";
 import { createMuxNotificationActions } from "./useMuxNotificationActions";
+import { projectRemoteNotification } from "../../lib/remoteNotifications";
+import { MAX_BELL_NOTIFICATIONS } from "../../lib/notificationAdmission";
 
 afterEach(() => {
   __setInvokeForTest(null);
@@ -48,6 +50,30 @@ function flushMicrotasks(): Promise<void> {
 }
 
 describe("remote notification source", () => {
+  it("bounds concurrent remote reads and deletes and releases capacity on a receipt", async () => {
+    const paired = roster([peer("install-a", "key-a")]);
+    const rows = Array.from({ length: 2 * MAX_BELL_NOTIFICATIONS + 1 }, (_, index) =>
+      projectRemoteNotification("install-a", "Peer", notification("Opaque", String(index))));
+    const completions: Array<() => void> = [];
+    __setInvokeForTest(<T,>() => new Promise<T>(resolve => completions.push(() => resolve({} as T))));
+    const actions = createMuxNotificationActions({
+      notifications: () => rows,
+      roster: () => paired,
+      dispatch: () => {},
+      captureRoute: () => ({ isCurrent: () => true, confirm: () => {} }),
+    });
+    const pending = rows.slice(0, -1).map(row => actions.markRead(row.id));
+    const extra = rows.at(-1)!;
+    expect(actions.deleteNotification(extra.id)).toBeUndefined();
+    expect(completions).toHaveLength(2 * MAX_BELL_NOTIFICATIONS);
+    completions[0]();
+    await pending[0];
+    const next = actions.deleteNotification(extra.id);
+    expect(completions).toHaveLength(2 * MAX_BELL_NOTIFICATIONS + 1);
+    completions.forEach(complete => complete());
+    await Promise.all([...pending, next]);
+  });
+
   it("orders exact action receipts after peer history and leaves denied rows untouched", async () => {
     const a = peer("install-a", "key-a");
     const b = peer("install-b", "key-b");

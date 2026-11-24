@@ -496,11 +496,7 @@ pub struct PlanStartupLoaded(pub Arc<AtomicBool>);
 
 /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
 pub struct BridgeOutboundRx(
-    pub  Arc<
-        parking_lot::Mutex<
-            Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>,
-        >,
-    >,
+    pub Arc<parking_lot::Mutex<Option<crate::bridge::manager::OutboundReceiver>>>,
 );
 
 /// Instrumentation for the desktop `mux-state-changed` emit path. `requests` =

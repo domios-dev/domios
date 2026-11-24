@@ -30,6 +30,7 @@ pub enum AnswerDeliveryPlan {
     Owed(AnswerDelivery),
     /// The standing answer already reached the tab; a retry sends nothing.
     AlreadyDelivered,
+    Unconfirmed,
     /// No answer stands, or no tab is recorded to carry one to.
     Nothing,
 }

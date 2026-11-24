@@ -13,6 +13,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useNotificationRetention } from "./useNotificationRetention";
+import { notificationAnswerResult, type AnswerResult } from "../../lib/notificationAnswerSend";
 import { invoke, listen, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
 import { useEntitlementRefresh } from "./useEntitlementRefresh";
 import { recordSurfaceActivity, SURFACE_ACTIVITY_EVENT } from "../../lib/surfaceActivity";
@@ -98,6 +100,7 @@ export function webBootHasSyncCache(): boolean {
 
 export function MultiplexerProvider({ children, pairedCacheAccount }: { children: ReactNode; pairedCacheAccount?: string | false | null }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
+  useNotificationRetention(state.notifications, dispatch);
   useContextCompactionObserver(state.tabs, state.tabStatuses, state.generation > HYDRATED_GENERATION);
   const upsertToast = useCallback(
     (toast: Omit<Notification, "timestamp" | "read">) => {
@@ -449,18 +452,11 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       dispatch({ type: "UPDATE_NOTIFICATION_SUMMARY", ...event.payload });
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    listen<{ id: string; answered: string; delivered?: boolean; deliveryError?: string; refusal?: { reason: string; detail?: string } }>(
-      "notification-answered",
-      (event) => {
-        if (!event.payload?.id) return;
-        dispatch({
-          type: "UPDATE_NOTIFICATION_ANSWER",
-          id: event.payload.id,
-          update: { answered: event.payload.answered, delivered: event.payload.delivered === true,
-            error: event.payload.deliveryError ?? event.payload.refusal?.detail ?? event.payload.refusal?.reason },
-        });
-      },
-    ).then((unlisten) => unlisteners.push(unlisten));
+    listen<AnswerResult & { id: string; answered: string }>("notification-answered", ({ payload }) => {
+      if (payload?.id && payload.answered) {
+        dispatch({ type: "UPDATE_NOTIFICATION_ANSWER", id: payload.id, update: notificationAnswerResult(payload) });
+      }
+    }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<{ id: string }>("notification-resolved", (event) => {
       if (!event.payload?.id) return;
