@@ -40,7 +40,22 @@ The proposal carries its previous look and contrast measurements. The owner and 
 
 Return one sentence naming the look and a standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` with the exact values from the proposal response. The card reads its colours, wallpaper, state, and actions from the stored proposal. Use Apply for the reviewed look, Undo for its previous look, or Open in Lab to compare both.
 
-The owner REST API uses `GET /api/appearance/{machine}` for the current look and presets, `POST /api/appearance/{machine}` with `{ "toml": "...", "rationale": "..." }` to propose, and `GET /api/appearance/{machine}/{id}` to show. POST a look to `/api/appearance/{machine}/validate` to measure it without saving. POST to `/api/appearance/{machine}/{id}/apply` or `/undo` to change the machine. The card's owner action `POST /api/appearance/{machine}/{id}/use-theme-wallpaper` applies the proposal with its theme wallpaper exposed and keeps its previous look for Undo.
+### REST API
+
+The addressed daemon accepts `local`, its installation ID, or its exact name as `machine`. The local owner, an owner relaying through a Full-access peer, and the authenticated local General session can use the proposal routes. The table marks routes with their own authorization rules.
+
+| Method | Path | Body | Response or effect |
+|--------|------|------|--------------------|
+| GET | `/api/appearance/{machine}` | — | Returns `{machine, look, revision, presets, active}`. The active receipt is present when its change can be undone. |
+| POST | `/api/appearance/{machine}` | `{rationale, look?, toml?, expected?}` | Stores a proposal and returns its receipt. Supply exactly one of a JSON look or TOML. `expected` optionally pins the previous look. |
+| POST | `/api/appearance/{machine}/validate` | `{theme, wallpaper?, tuning?}` | Measures contrast and returns the readings without saving. |
+| POST | `/api/appearance/{machine}/tweak` | `{revision, toml}` | Authenticated Main on this daemon only. Applies the supported controls and returns its receipt. |
+| GET | `/api/appearance/{machine}/{id}` | — | Returns the stored proposal receipt. |
+| POST | `/api/appearance/{machine}/{id}/apply` | — | Applies the proposal when its previous look still matches and returns the receipt. |
+| POST | `/api/appearance/{machine}/{id}/undo` | — | Restores the previous look when the applied proposal still owns it and returns the receipt. |
+| POST | `/api/appearance/{machine}/{id}/use-theme-wallpaper` | — | Owner only. Applies the proposal with its theme wallpaper exposed and returns an undoable receipt. |
+
+A receipt contains `machine`, the proposal fields, `contrast` and `can_undo`. A missing machine or proposal returns 404. A stale look or an inapplicable transition returns 409. Invalid proposal input returns 400 and an applied look below a contrast floor returns 422. Tweak refusals include `appearance_main_required` (403), `appearance_changed` (409) and `appearance_proposal_required` (400).
 
 ## Wallpaper requests in ordinary chat
 
@@ -114,4 +129,4 @@ For Forest Night, pair green-black `#0f1a16` with warm ink `#d5e2d8` and a coole
 
 A technical look can start with roundness 0–0.35, border brightness 0.6–1, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

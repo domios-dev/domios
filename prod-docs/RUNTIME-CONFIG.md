@@ -35,7 +35,7 @@ A custom theme is a TOML file with `name` plus 20 color fields: `background`, `f
 
 Open Settings › General › Appearance Lab for the complete wallpaper editor. General also offers quick wallpaper picks for the current machine. The machine's saved wallpaper takes precedence over the active theme's optional `[chat_background]` table. With neither set, chat shows the plain theme background. The terminal, composer and sidebar keep their own surfaces. High-contrast and print modes show a solid transcript background. See `domios docs APPEARANCE` for complete look proposals and background strength.
 
-The owner can run `domios wallpaper clear` to restore the theme wallpaper and `domios wallpaper set --from-pad tile.svg` to apply a static SVG. Use `--from-pad -` to read SVG from stdin. For an ordinary chat request or an owner-only write refusal, read `domios docs APPEARANCE`, create the wallpaper proposal, and return its native `<ds-appearance>` card in the same chat for the owner to apply. For a wallpaper draft with a one-time request ID, the destination General session can run:
+The owner can run `domios wallpaper clear` to restore the theme wallpaper and `domios wallpaper set --from-pad tile.svg` to apply a static SVG. Use `--from-pad -` to read SVG from stdin. For an ordinary chat request or an owner-only write refusal, follow the Appearance Lab proposal procedure and return the native `<ds-appearance>` card in the same chat for the owner to apply. For a wallpaper draft with a one-time request ID, the destination General session can run:
 
 ```sh
 domios wallpaper set --request REQUEST_ID --from-pad tile.svg
@@ -282,4 +282,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `domios sessions` commands and `/api/sessions/*` find and resume them; `domios docs API-STATE` has the contract.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->
