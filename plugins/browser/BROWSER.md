@@ -45,7 +45,7 @@ Rules:
 
 ## When the page needs the user
 
-Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Agents never answer page dialogs (`alert`, `confirm`, `prompt`, `beforeunload`). When a dialog is open or opens mid-verb, the verb fails promptly with `dialog: <type> — <message>`, `status` shows `needs human: dialog` with the dialog line, and `close` / profile switches refuse; ask the user to resolve it via *Take control*, then re-snapshot.
+Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Agents never answer page dialogs (`alert`, `confirm`, `prompt`, `beforeunload`). When a dialog is open or opens during page setup or a verb, the verb fails promptly with `dialog: <type>` (plus message), `status` shows `needs human: dialog` with that line, and `close` / profile switches refuse; ask the user to resolve it via *Take control*, then re-snapshot.
 
 ## User annotations
 

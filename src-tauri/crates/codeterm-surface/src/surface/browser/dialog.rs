@@ -134,8 +134,16 @@ impl DialogState {
 }
 
 impl BrowserRuntime {
+    /// Races agent page preparation against opening JS dialogs without leaking `launch_gate` or
+    /// committing `domains_ready` on cancellation.
+    pub(super) async fn ensure_page_for_agent(&self) -> Result<PageChannel, String> {
+        self.race_with_dialog(self.ensure_page()).await
+    }
+
     /// Races any page verb against an opening JS dialog so blocked verbs fail fast and visibly
     /// instead of hanging until `WAIT_DEADLINE` (15s) or `COMMAND_DEADLINE` (30s).
+    /// Dialog openings take precedence on simultaneous readiness and authoritative dialog state is
+    /// re-checked on the result branch before returning.
     pub(super) async fn race_with_dialog<T>(
         &self,
         fut: impl Future<Output = Result<T, String>>,
@@ -148,14 +156,23 @@ impl BrowserRuntime {
         tokio::pin!(fut);
         loop {
             tokio::select! {
-                result = &mut fut => return result,
+                biased;
                 changed = dialogs.changed() => {
                     if changed.is_err() {
-                        return fut.await;
+                        let result = fut.await;
+                        self.shared.check_page_verb()?;
+                        return result;
                     }
                     if let Some(active) = dialogs.borrow_and_update().dialog.clone() {
                         return Err(active.blocking_error());
                     }
+                }
+                result = &mut fut => {
+                    self.shared.check_page_verb()?;
+                    if let Some(active) = dialogs.borrow_and_update().dialog.clone() {
+                        return Err(active.blocking_error());
+                    }
+                    return result;
                 }
             }
         }

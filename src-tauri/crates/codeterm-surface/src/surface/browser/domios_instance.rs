@@ -82,7 +82,7 @@ impl BrowserRuntime {
         }
         self.open_session(&session).await?;
         verify_dev_identity(&health(&origin).await?, &target.name, target.port)?;
-        let page = self.ensure_page().await?;
+        let page = self.ensure_page_for_agent().await?;
         self.connect_token(&page, &origin, &token).await
     }
 }

@@ -98,7 +98,7 @@ impl BrowserRuntime {
                 .remember_profile(if args.ephemeral { "" } else { &opened.profile });
         }
         self.refresh_profiles().await;
-        let page = self.ensure_page().await?;
+        let page = self.ensure_page_for_agent().await?;
         self.goto(&page, &args.ui_url()).await?;
         Ok("opened origin-bound session; snapshot to inspect readiness".into())
     }
@@ -112,7 +112,7 @@ impl BrowserRuntime {
         if *self.profile_request.lock() != options.profile {
             return Err("profile_mismatch: reopen the requested session".into());
         }
-        let page = self.ensure_page().await?;
+        let page = self.ensure_page_for_agent().await?;
         self.connect_token(&page, &options.origin, token).await
     }
 

@@ -180,7 +180,7 @@ impl BrowserRuntime {
             "help" | "close" | "annotate" => Err(format!("{verb} is answered by the surface host")),
             _ => {
                 self.shared.check_page_verb()?;
-                let page = self.ensure_page().await?;
+                let page = self.ensure_page_for_agent().await?;
                 self.shared.check_page_verb()?;
                 self.race_with_dialog(self.page_verb(ctx, &page, verb, args))
                     .await
@@ -228,11 +228,11 @@ impl BrowserRuntime {
                 if url.is_some() {
                     self.resume_url.lock().take();
                 }
-                self.ensure_page().await?;
+                self.ensure_page_for_agent().await?;
             }
         }
         if let Some(url) = url {
-            let page = self.ensure_page().await?;
+            let page = self.ensure_page_for_agent().await?;
             self.goto(&page, &url).await?;
         }
         Ok(self.status_text())

@@ -422,6 +422,19 @@ impl PageShared {
         self.session.lock().dialog.check_page_verb()
     }
 
+    #[cfg(test)]
+    pub(super) fn inject_dialog_for_test(&self, session_id: &str, dialog: ActiveDialog) {
+        self.apply(session_id, PageUpdate::DialogOpened(dialog));
+    }
+
+    pub(super) fn is_bound_page(&self, page: &PageChannel) -> bool {
+        self.session
+            .lock()
+            .bound_page
+            .as_ref()
+            .is_some_and(|bound| bound.same_page(page))
+    }
+
     /// True until Runtime/overlay/Network setup has completed and been committed for `page`.
     pub(super) fn needs_domains_setup(&self, page: &PageChannel) -> bool {
         let session = self.session.lock();
