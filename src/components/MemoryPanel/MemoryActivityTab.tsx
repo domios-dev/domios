@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { memo, useState } from "react";
+import { Fragment, memo, useState } from "react";
 import { ChevronRight, Moon, Network, Plus, RefreshCw } from "lucide-react";
 import type { ApiConfig, AppConfig, GraphWorkerInfo } from "../../lib/types";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
@@ -22,6 +22,8 @@ import {
   type MemoryAgentKind,
 } from "./workerActivityModel";
 import { MemoryActivityServices } from "./MemoryActivityServices";
+import { Button } from "../shared/Button";
+import { UI_BUTTON } from "../shared/design";
 
 interface Props {
   api: ApiConfig;
@@ -30,8 +32,7 @@ interface Props {
   onNavigateToItem: (id: string) => void;
 }
 
-export const activityButton =
-  "inline-flex items-center justify-center gap-2 rounded px-3 py-1.5 text-xs border border-[var(--ct-border)] bg-transparent text-[var(--ct-fg)] cursor-pointer hover:bg-[var(--ct-surface)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]";
+const activityButton = `${UI_BUTTON.ghost} ct-btn-sm ct-liquid-interactive gap-2`;
 const muted = "text-xs text-[var(--ct-muted-fg)]";
 const agents = [
   {
@@ -74,13 +75,79 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
     }
   }
 
+  const historyPanel = selected && (
+    <section
+      id="memory-agent-details"
+      aria-label={`${selected} details`}
+      className="space-y-2 px-3 pb-3 pt-2.5"
+    >
+      <h3 className="sr-only">
+        {agents.find((agent) => agent.kind === selected)?.title || "Other workers"} history
+      </h3>
+      {selected === "dreaming" && dreamCron?.last_run && (
+        <p className={muted}>
+          Last scheduled <strong className="font-[550] text-[var(--ct-fg)]">{dreamCron.last_run.status} ·{" "}
+          {new Date(dreamCron.last_run.started_at).toLocaleString()}</strong>
+        </p>
+      )}
+      {selected === "dreaming" && (
+        <div className={muted}>
+          {activity.crons.loading
+            ? "Loading schedule…"
+            : activity.crons.error
+              ? "Schedule unavailable"
+              : dreamCron?.enabled
+                ? <>Next <strong className="font-[550] text-[var(--ct-fg)]">{dreamCron.next_run ? new Date(dreamCron.next_run).toLocaleString() : "not yet determined"}</strong></>
+                : "No automatic run scheduled"}
+          {activity.crons.error && (
+            <details>
+              <summary>Schedule error</summary>
+              <InlineErrorNotice error={activity.crons.error} operation="loading schedules" />
+            </details>
+          )}
+        </div>
+      )}
+      {loading && (
+        <p role="status" className={muted}>
+          Loading worker history…
+        </p>
+      )}
+      {!loading && history.length === 0 && (
+        <p className={muted}>
+          {error
+            ? "History could not be loaded."
+            : "No recorded runs. Future runs will appear here."}
+        </p>
+      )}
+      {history.map((worker) => (
+        <WorkerHistory
+          key={worker.worker_id}
+          worker={worker}
+          label={taskLabel(worker)}
+          onOpen={() => setLogWorker(worker)}
+          onKill={() => void stopWorker(worker.worker_id)}
+          onNavigateToItem={onNavigateToItem}
+        />
+      ))}
+      {actionError && (
+        <details open className="text-xs text-[var(--ct-red)]">
+          <summary>Could not stop worker</summary>
+          <InlineErrorNotice error={actionError} operation="stopping the worker" />
+        </details>
+      )}
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => setSelected(null)}>Close details</Button>
+      </div>
+    </section>
+  );
+
   return (
     <div
       className="absolute inset-0 flex flex-col text-[var(--ct-fg)]"
       data-testid="memory-activity-tab"
     >
-      <div className="flex items-center gap-2 border-b border-[var(--ct-border)] px-4 py-3">
-        <div role="tablist" aria-label="Memory activity" className="flex gap-1">
+      <div className="flex shrink-0 items-center gap-2 px-4 py-3 sm:px-6">
+        <div role="tablist" aria-label="Memory activity" className="flex h-7 items-center gap-0.5 rounded-[9px] border border-[var(--ct-border-subtle)] bg-[var(--ct-fg)]/6 p-0.5">
           {(["workers", "services"] as const).map((value) => (
             <button
               key={value}
@@ -89,55 +156,56 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
               id={`activity-${value}`}
               aria-selected={tab === value}
               aria-controls={`activity-${value}-panel`}
-              className={`${activityButton} ${tab === value ? "bg-[var(--ct-surface)] font-semibold" : "border-transparent"}`}
+              className="h-full cursor-pointer rounded-md !border !border-transparent px-2.5 text-xs font-semibold text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] aria-selected:!border-[var(--ct-accent)]/40 aria-selected:bg-[var(--ct-accent)]/16 aria-selected:text-[var(--ct-fg)]"
               onClick={() => setTab(value)}
             >
               {value === "workers" ? "Workers" : "Services"}
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className={`${activityButton} ml-auto`}
+        <Button
+          variant="icon"
+          size="sm"
+          className="ml-auto"
           aria-label="Refresh activity"
           onClick={() => {
             void refresh();
             setRevision((value) => value + 1);
           }}
         >
-          <RefreshCw size={13} />
-        </button>
+          <RefreshCw size={14} aria-hidden="true" />
+        </Button>
         {tab === "workers" && (
-          <button type="button" className={activityButton} onClick={() => setSpawnOpen(true)}>
-            <Plus size={13} />
-            New worker
-          </button>
+          <Button size="sm" className="gap-1.5 max-sm:!w-8 max-sm:!px-0" aria-label="New worker" onClick={() => setSpawnOpen(true)}>
+            <Plus size={14} aria-hidden="true" />
+            <span className="max-sm:hidden">New worker</span>
+          </Button>
         )}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
-        <div className="max-w-4xl mx-auto space-y-5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-2 sm:px-6">
+        <div className="mx-auto max-w-[800px]">
           {tab === "workers" ? (
             <section
               role="tabpanel"
               id="activity-workers-panel"
               aria-labelledby="activity-workers"
-              className="space-y-5"
+              className="space-y-3.5"
             >
               <div>
-                <h2 className="text-sm font-semibold mb-1">Memory agents</h2>
-                <p className={muted}>
+                <h2 className="mb-1 text-[13.5px] font-semibold">Memory agents</h2>
+                <p className="text-[12.5px] text-[var(--ct-muted-fg)]">
                   Configured here, working in the background. Open an agent to see its runs.
                 </p>
               </div>
               {error && (
-                <details className="text-xs text-red-400">
+                <details className="text-xs text-[var(--ct-red)]">
                   <summary className="cursor-pointer">
                     Worker status unavailable. Refresh to try again.
                   </summary>
                   <InlineErrorNotice error={error} operation="loading worker status" />
                 </details>
               )}
-              <div className="rounded-lg border border-[var(--ct-border)] overflow-hidden divide-y divide-[var(--ct-border)]">
+              <div className="ct-card ct-card--static divide-y divide-[var(--ct-border-subtle)] overflow-hidden">
                 {agents.map(({ kind, title, description, Icon }) => {
                   const current = agentActivity(
                     workers.filter((worker) => workerAgentKind(worker) === kind),
@@ -175,43 +243,53 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                               : current.latest
                                 ? `Last run ${workerOutcome(current.latest).toLowerCase()}`
                                 : "Idle";
+                  const statusStyle = current.live.length
+                    ? "text-[var(--ct-accent)]"
+                    : failed || current.parked.length
+                      ? "bg-[var(--ct-red)]/12 text-[var(--ct-red)]"
+                      : state === "Last run completed"
+                        ? "text-[var(--ct-green)]"
+                        : "text-[var(--ct-muted-fg)]";
                   return (
-                    <button
-                      key={kind}
-                      type="button"
-                      aria-expanded={selected === kind}
-                      aria-controls="memory-agent-details"
-                      className="w-full text-left bg-transparent px-4 py-4 flex gap-3 items-start cursor-pointer hover:bg-[var(--ct-surface)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
-                      onClick={() => setSelected(selected === kind ? null : kind)}
-                    >
-                      <Icon size={18} className="mt-0.5 shrink-0 text-[var(--ct-muted-fg)]" />
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-sm font-medium">{title}</span>
-                        <span className={`${muted} block mt-1`}>{description}</span>
-                        <span className={`${muted} block mt-2`}>
-                          {config
-                            ? `${provider?.display_name || providerId || "Harness not configured"} / ${modelLabel}`
-                            : "Configuration unavailable"}
-                        </span>
-                        {current.live[0] && (
-                          <span className="block text-xs mt-2 truncate">
-                            {current.live[0].progress_text || taskLabel(current.live[0])}
-                          </span>
-                        )}
-                      </span>
-                      <span
-                        className={`text-xs shrink-0 ${failed || current.parked.length ? "text-red-400" : "text-[var(--ct-muted-fg)]"}`}
+                    <Fragment key={kind}>
+                      <button
+                        type="button"
+                        aria-expanded={selected === kind}
+                        aria-controls="memory-agent-details"
+                        className="group grid w-full cursor-pointer grid-cols-[32px_minmax(0,1fr)_14px] items-start gap-x-3.5 gap-y-2.5 px-3.5 py-3.5 text-left hover:bg-[var(--ct-bg-hover)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)] aria-expanded:bg-[var(--ct-bg-hover)] sm:grid-cols-[32px_minmax(0,1fr)_auto_14px] sm:items-center"
+                        onClick={() => setSelected(selected === kind ? null : kind)}
                       >
-                        {state}
-                      </span>
-                      <ChevronRight size={14} className="shrink-0 mt-0.5" />
-                    </button>
+                        <span className="ct-card__icon !size-8 self-start"><Icon size={16} aria-hidden="true" /></span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[13.5px] font-semibold">{title}</span>
+                          <span className="block text-[12.5px] text-[var(--ct-muted-fg)]">{description}</span>
+                          <span className={`${muted} mt-1 block break-words`}>
+                            {config
+                              ? `${provider?.display_name || providerId || "Harness not configured"} · ${modelLabel}`
+                              : "Configuration unavailable"}
+                          </span>
+                          {current.live[0] && (
+                            <span className="block text-xs mt-2 truncate">
+                              {current.live[0].progress_text || taskLabel(current.live[0])}
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={`col-start-2 row-start-2 inline-flex w-fit items-center gap-1.5 rounded-full px-2 py-0.5 text-xs sm:col-start-3 sm:row-start-1 ${statusStyle}`}
+                        >
+                          <span className={`size-1.5 shrink-0 rounded-full bg-current ${current.live.length ? "motion-safe:animate-pulse" : ""}`} aria-hidden="true" />
+                          {state}
+                        </span>
+                        <ChevronRight size={14} className="col-start-3 row-start-1 mt-1 shrink-0 text-[var(--ct-muted-fg)] group-aria-expanded:rotate-90 sm:col-start-4" aria-hidden="true" />
+                      </button>
+                      {selected === kind && historyPanel}
+                    </Fragment>
                   );
                 })}
                 {workers.some((worker) => workerAgentKind(worker) === "custom") && (
                   <button
                     type="button"
-                    className="w-full bg-transparent text-left p-4 text-sm cursor-pointer hover:bg-[var(--ct-surface)]"
+                    className="group w-full cursor-pointer p-3.5 text-left text-[13.5px] font-semibold hover:bg-[var(--ct-bg-hover)] aria-expanded:bg-[var(--ct-bg-hover)]"
                     aria-expanded={selected === "custom"}
                     onClick={() => setSelected(selected === "custom" ? null : "custom")}
                   >
@@ -234,82 +312,11 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                         ? " / failures in history"
                         : ""}
                     </span>
-                    <ChevronRight size={14} className="inline ml-2" />
+                    <ChevronRight size={14} className="ml-2 inline group-aria-expanded:rotate-90" aria-hidden="true" />
                   </button>
                 )}
+                {selected === "custom" && historyPanel}
               </div>
-              {selected && (
-                <section
-                  id="memory-agent-details"
-                  aria-label={`${selected} details`}
-                  className="border border-[var(--ct-border)] rounded-lg p-4 space-y-4"
-                >
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-sm font-semibold">
-                      {agents.find((agent) => agent.kind === selected)?.title || "Other workers"}{" "}
-                      history
-                    </h3>
-                    <button
-                      type="button"
-                      className={activityButton}
-                      onClick={() => setSelected(null)}
-                    >
-                      Close details
-                    </button>
-                  </div>
-                  {selected === "dreaming" && dreamCron?.last_run && (
-                    <p className={muted}>
-                      Latest scheduled attempt: {dreamCron.last_run.status} /{" "}
-                      {new Date(dreamCron.last_run.started_at).toLocaleString()}
-                    </p>
-                  )}
-                  {selected === "dreaming" && (
-                    <div className={muted}>
-                      {activity.crons.loading
-                        ? "Loading schedule…"
-                        : activity.crons.error
-                          ? "Schedule unavailable"
-                          : dreamCron?.enabled
-                            ? `Next scheduled run: ${dreamCron.next_run ? new Date(dreamCron.next_run).toLocaleString() : "not yet determined"}`
-                            : "No automatic run scheduled"}
-                      {activity.crons.error && (
-                        <details>
-                          <summary>Schedule error</summary>
-                          <InlineErrorNotice error={activity.crons.error} operation="loading schedules" />
-                        </details>
-                      )}
-                    </div>
-                  )}
-                  {loading && (
-                    <p role="status" className={muted}>
-                      Loading worker history…
-                    </p>
-                  )}
-                  {!loading && history.length === 0 && (
-                    <p className={muted}>
-                      {error
-                        ? "History could not be loaded."
-                        : "No recorded runs. Future runs will appear here."}
-                    </p>
-                  )}
-                  {history.map((worker) => (
-                    <WorkerHistory
-                      key={worker.worker_id}
-                      worker={worker}
-                      label={taskLabel(worker)}
-                      onOpen={() => setLogWorker(worker)}
-                      onKill={() => void stopWorker(worker.worker_id)}
-                      onNavigateToItem={onNavigateToItem}
-                    />
-                  ))}
-                  {actionError && (
-                    <details open className="text-xs text-red-400">
-                      <summary>Could not stop worker</summary>
-                      <InlineErrorNotice error={actionError} operation="stopping the worker" />
-                    </details>
-                  )}
-                </section>
-              )}
             </section>
           ) : (
             <MemoryActivityServices
@@ -363,25 +370,41 @@ export function WorkerHistory({
   onNavigateToItem: (id: string) => void;
 }) {
   const reason = workerFailureReason(worker);
+  const outcome = workerOutcome(worker);
+  const duration = workerTimeLabels(worker, Date.now()).duration;
+  const outcomeTone = workerNeedsAttention(worker)
+    ? "text-[var(--ct-red)]"
+    : outcome === "Completed"
+      ? "text-[var(--ct-green)]"
+      : !isTerminalWorkerStatus(worker.status)
+        ? "text-[var(--ct-accent)]"
+        : "text-[var(--ct-muted-fg)]";
   return (
-    <details className="border-t border-[var(--ct-border)] pt-3 text-xs">
-      <summary className="cursor-pointer">
-        <span className="font-medium">{label}</span>
-        <span className="ml-3 text-[var(--ct-muted-fg)]">
-          {workerOutcome(worker)} · {new Date(worker.spawned_at).toLocaleString()}
+    <details className="group/run rounded-lg border-t border-[var(--ct-border-subtle)] text-xs">
+      <summary className="grid cursor-pointer list-none grid-cols-[auto_minmax(0,1fr)_14px] items-center gap-x-2.5 gap-y-1 rounded-lg px-2.5 py-2 hover:bg-[var(--ct-bg-hover)] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto_14px] [&::-webkit-details-marker]:hidden">
+        <span className="col-start-2 row-start-1 truncate text-right text-[var(--ct-muted-fg)] tabular-nums sm:col-start-1 sm:text-left">
+          {new Date(worker.spawned_at).toLocaleString()}
         </span>
+        <span className="col-span-2 row-start-2 min-w-0 truncate text-[var(--ct-muted-fg)] sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:text-[var(--ct-fg)]">
+          {label}<span className="sm:hidden"> · {duration}</span>
+        </span>
+        <span className={`col-start-1 row-start-1 inline-flex items-center gap-1.5 sm:col-start-3 ${outcomeTone}`}>
+          <span className="size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
+          {outcome}
+        </span>
+        <span className="hidden text-[var(--ct-muted-fg)] sm:col-start-4 sm:row-start-1 sm:block">{duration}</span>
+        <ChevronRight size={14} className="col-start-3 row-start-1 text-[var(--ct-muted-fg)] group-open/run:rotate-90 sm:col-start-5" aria-hidden="true" />
       </summary>
-      <div className="pt-3 space-y-3">
+      <div className="space-y-3 px-2.5 pb-2.5 pt-1">
         <p className={muted}>
-          {[worker.agent_provider, worker.model].filter(Boolean).join(" / ") || "Executor unknown"}{" "}
-          · {workerTimeLabels(worker, Date.now()).duration}
+          {[worker.agent_provider, worker.model].filter(Boolean).join(" · ") || "Executor unknown"}
         </p>
         {worker.progress_text && <p>{worker.progress_text}</p>}
-        {reason && <p className="text-red-400 whitespace-pre-wrap break-words">{reason}</p>}
+        {reason && <p className="whitespace-pre-wrap break-words text-[var(--ct-red)]">{reason}</p>}
         {worker.finalization &&
           worker.finalization.state !== "succeeded" &&
           "reason" in worker.finalization && (
-            <p className="text-red-400">{worker.finalization.reason}</p>
+            <p className="text-[var(--ct-red)]">{worker.finalization.reason}</p>
           )}
         {worker.report && worker.report !== reason && (
           <p className="whitespace-pre-wrap break-words">{worker.report}</p>

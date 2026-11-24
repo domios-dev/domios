@@ -16,7 +16,8 @@ import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
-import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
+import { UI_PANEL, UI_TEXT } from "../shared/design";
+import { Chip } from "../shared/Chip";
 import { Loader } from "../shared/Loader";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
 
@@ -37,6 +38,30 @@ export interface MemoryInitialState {
 }
 
 const TABS: MemoryTab[] = ["dreams", "inspect", "activity", "settings"];
+const INSPECT_VIEWS = [{ value: "list", label: "List", Icon: List }, { value: "graph", label: "Graph", Icon: Network }] as const;
+
+function InspectViewToggle({ view, onToggle }: { view: "list" | "graph"; onToggle: () => void }) {
+  return (
+    <div className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-[9px] border border-[var(--ct-border-subtle)] bg-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] p-0.5" role="group" aria-label="Inspect view">
+      {INSPECT_VIEWS.map(({ value, label, Icon }) => (
+        <button
+          key={value}
+          type="button"
+          aria-label={label}
+          aria-pressed={value === view}
+          disabled={value === view}
+          data-testid={value !== view ? "memory-inspect-view-toggle" : undefined}
+          data-memory-inspect-view={value !== view ? view : undefined}
+          onClick={onToggle}
+          className="inline-flex h-full items-center gap-1.5 rounded-md !border !border-transparent px-2 text-xs font-semibold text-[var(--ct-muted-fg)] enabled:cursor-pointer enabled:hover:text-[var(--ct-fg)] aria-pressed:!border-[var(--ct-accent)]/40 aria-pressed:bg-[var(--ct-accent)]/16 aria-pressed:text-[var(--ct-fg)]"
+        >
+          <Icon size={14} aria-hidden="true" />
+          <span className="max-sm:hidden">{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface Props {
   api: ApiConfig;
@@ -141,6 +166,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
     (snapshot.status === "unavailable" ? "Memory snapshot is unavailable." : null);
   const showSnapshotEmpty =
     snapshot.status === "ready" && snapshot.index != null && snapshot.index.byId.size === 0;
+  const graphViewToggle = <InspectViewToggle view="graph" onToggle={() => setInspectView("list")} />;
 
   return (
     <div
@@ -149,14 +175,13 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
       data-memory-active-tab={activeTab}
     >
       {memoryListControlsVisible(detailOpen) && <>
-        {/* Header with tabs */}
         <div
-          className={`${UI_PANEL.toolbar} ct-section-toolbar gap-0 px-4 sm:!px-5 py-0 text-[var(--ct-fg)] whitespace-nowrap`}
-          style={touchUi ? { height: "auto", minHeight: "3.25rem" } : undefined}
+          className="flex shrink-0 flex-col border-b border-[var(--ct-border-subtle)] px-4 text-[var(--ct-fg)] sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6"
         >
-          <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
-            <strong>Memory</strong>
-            <span className="text-[11px] opacity-70 max-sm:hidden" data-testid="memory-stats-summary">
+          <div className="flex min-h-[52px] min-w-0 items-center gap-2.5 whitespace-nowrap sm:min-h-14 sm:gap-3">
+            <Network size={17} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
+            <strong className={`${UI_PANEL.toolbarTitle} shrink-0 !text-[15px] !font-[650]`}>Memory</strong>
+            <span className="ct-meta truncate !text-[12.5px] text-[var(--ct-muted-fg)] tabular-nums" data-testid="memory-stats-summary">
               {/* Use fresh memStats (refreshes on mem-activity) — the cached graph
                   snapshot is keyed by layout_version and goes stale after edge edits. */}
               {memStats
@@ -166,19 +191,20 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
               {memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)} edges
             </span>
             {memStats && memStats.total_vectors < memStats.total_items && (
-              <span className="text-[11px] text-[var(--ct-yellow)] flex items-center gap-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--ct-yellow)] animate-pulse" />
+              <Chip className="!h-[22px] !gap-1.5 !border-[var(--ct-border-subtle)] !text-[11px] !text-[var(--ct-yellow)]">
+                <span className="size-1.5 shrink-0 rounded-full bg-[var(--ct-yellow)] motion-safe:animate-pulse" />
                 indexing {memStats.total_vectors}/{memStats.total_items}
-              </span>
+              </Chip>
             )}
             {memStats && memStats.total_vectors >= memStats.total_items && memStats.total_vectors > 0 && (
-              <span className="text-[11px] text-[var(--ct-green)] opacity-60 max-sm:hidden">
+              <Chip className="!h-[22px] !gap-1.5 !border-[var(--ct-border-subtle)] !text-[11px] !text-[var(--ct-muted-fg)] max-sm:!hidden">
+                <span className="size-1.5 shrink-0 rounded-full bg-[var(--ct-green)]" />
                 {memStats.total_vectors} vectors
-              </span>
+              </Chip>
             )}
           </div>
 
-          <div className="ct-section-toolbar__tabs border-l border-[var(--ct-border)] pl-3">
+          <div className="flex min-h-10 min-w-0 items-end sm:self-stretch">
             <LiquidTabRail
               value={activeTab}
               options={TABS}
@@ -192,7 +218,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
 
       </>}
       {/* Tab content */}
-      <div className="relative flex-1 min-h-0">
+      <div className="@container/memory relative flex-1 min-h-0">
         {activeTab === "dreams" && <MemoryDreamsTab api={api} />}
         {activeTab === "inspect" && inspectView === "list" && (
           <MemoryListTab
@@ -202,6 +228,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
             onSelectItem={setSelectedId}
             onDetailOpenChange={setDetailOpen}
             onViewInGraph={handleViewInGraph}
+            viewToggle={<InspectViewToggle view="list" onToggle={() => setInspectView("graph")} />}
             updateNode={updateNode}
             removeNode={removeNode}
           />
@@ -235,7 +262,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
               epoch={snapshot.epoch}
               pulses={pulses}
               onRefresh={() => void snapshot.refresh()}
-              toolbarView={memoryListControlsVisible(detailOpen) ? <button type="button" data-testid="memory-inspect-view-toggle" data-memory-inspect-view="graph" onClick={() => setInspectView("list")} className="ct-bar-pill"><List size={12} aria-hidden="true" />List</button> : undefined}
+              toolbarView={memoryListControlsVisible(detailOpen) ? graphViewToggle : undefined}
               registerFit={registerFit}
               registerRecenter={registerRecenter}
               selectedIdOverride={selectedId}
@@ -243,22 +270,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
             />
           </div>
         )}
-        {activeTab === "inspect" && inspectView === "graph" && (!snapshot.index || showSnapshotEmpty) && memoryListControlsVisible(detailOpen) && <CanvasToolbar label="Memory graph controls" onRefresh={() => void snapshot.refresh()} refreshTestId="memory-graph-refresh" view={<button type="button" data-testid="memory-inspect-view-toggle" data-memory-inspect-view="graph" className="ct-bar-pill" onClick={() => setInspectView("list")}><List size={12} aria-hidden="true" />List</button>} />}
-        {activeTab === "inspect" && inspectView === "list" && memoryListControlsVisible(detailOpen) && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5">
-            <button
-              type="button"
-              data-testid="memory-inspect-view-toggle"
-              data-memory-inspect-view={inspectView}
-              onClick={() => setInspectView("graph")}
-              className={`${UI_BUTTON.floating} ${UI_BUTTON.lg} gap-1.5`}
-            >
-              <Network size={12} aria-hidden="true" />
-              Graph
-            </button>
-
-          </div>
-        )}
+        {activeTab === "inspect" && inspectView === "graph" && (!snapshot.index || showSnapshotEmpty) && memoryListControlsVisible(detailOpen) && <CanvasToolbar label="Memory graph controls" onRefresh={() => void snapshot.refresh()} refreshTestId="memory-graph-refresh" view={graphViewToggle} />}
         {activeTab === "activity" && (
           <MemoryActivityTab
             api={api}
@@ -268,7 +280,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
           />
         )}
         {activeTab === "settings" && config && onConfigUpdate && (
-          <div className="absolute inset-0 overflow-y-auto p-6">
+          <div className="absolute inset-0 overflow-y-auto px-4 py-4 sm:p-6">
             <MemorySettingsTab
               config={config}
               onOpenAgentsSettings={onOpenAgentsSettings}
