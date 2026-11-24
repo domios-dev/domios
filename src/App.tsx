@@ -817,7 +817,7 @@ function AppInner() {
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <ChatBlockHostProvider value={appChatBlockHost}>
-    <MachineAppearanceContext.Provider value={machineAppearance}>
+    <MachineAppearanceContext.Provider value={{ ...machineAppearance, viewerTheme: stableTheme }}>
     <ChatWallpaperContext.Provider value={wallpaperStyle}>
     <PluginConsentDialog />
     <div

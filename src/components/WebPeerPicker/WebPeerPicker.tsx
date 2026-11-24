@@ -10,9 +10,9 @@ import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLo
 import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLabel, machineTileColors, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
 import { rankPeersByLastActive } from "../../lib/peerRanking";
 import { tabActivity } from "../../lib/tabActivity";
-import { DEFAULT_THEME, isLightColor } from "../../lib/themeCss";
+import { isLightColor } from "../../lib/themeCss";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { MachineAppearanceContext, useWallpaperAsset } from "../../lib/useMachineAppearance";
+import { useMachineViewerTheme, useWallpaperAsset } from "../../lib/useMachineAppearance";
 import { useMachineChromeAppearance } from "../../lib/useMachineChromeAppearance";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { localJson } from "../../lib/webApi";
@@ -169,7 +169,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     ? selectedPeer ? peerName(selectedPeer) : cleanMachineName(target.name, target.id) ?? "Machine"
     : local.name;
   const identity = target ? identities.machine_identities?.[target.id] : local.identity;
-  const viewer = useContext(MachineAppearanceContext)?.appearance.theme ?? DEFAULT_THEME;
+  const viewer = useMachineViewerTheme();
   const selectedOnline = !target || selectedPeer?.online === true;
   const selectedAppearance = useMachineChromeAppearance(target?.id, selectedOnline, !all);
   const selectedDoodle = useMachineDoodle(selectedAppearance, target?.id, selectedOnline);

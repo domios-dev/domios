@@ -1,12 +1,11 @@
-import { useContext, type CSSProperties, type ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { deriveColor } from "../../lib/colors";
 import { cleanMachineName, desaturateMachineColor, machineColor, machineGlyphColor, machineLabel, UNKNOWN_MACHINE, type MachineIdentity } from "../../lib/machineIdentity";
 import { REMOTE_CHAT_COPY, remoteMachineName } from "../../lib/remoteChatState";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { asleepDuration } from "../../lib/tabSleep";
 import type { TabActivity } from "../../lib/tabActivity";
-import { DEFAULT_THEME } from "../../lib/themeCss";
-import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
+import { useMachineViewerTheme } from "../../lib/useMachineAppearance";
 import { useMachineChromeAppearance } from "../../lib/useMachineChromeAppearance";
 import { useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
 import type { Tab } from "../../lib/types";
@@ -56,7 +55,7 @@ type RemotePresentation = NonNullable<ReturnType<typeof useRemoteTabPresentation
 export function RemoteTabMachineGlyph({ machine }: { machine: RemotePresentation }) {
   const online = machine.connection === "online";
   const appearance = useMachineChromeAppearance(machine.peerId, online);
-  const viewer = useContext(MachineAppearanceContext)?.appearance.theme ?? DEFAULT_THEME;
+  const viewer = useMachineViewerTheme();
   const tone = appearance ? machineGlyphColor(
     desaturateMachineColor(appearance.theme.blue, online), deriveColor(viewer.background, 8), viewer.foreground,
   ) : "var(--ct-muted-fg)";
