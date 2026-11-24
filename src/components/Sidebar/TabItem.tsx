@@ -331,7 +331,7 @@ function TabItemInner({
     <TerminalIcon />
   );
   const roleShield = restoreFailure.showIdentityBadges
-    ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
+    ? roleShieldLabel(tab)
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const remote = useRemoteTabPresentation(tab, tabState, observedMachine);

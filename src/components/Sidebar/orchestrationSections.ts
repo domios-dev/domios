@@ -1,5 +1,6 @@
 import type { Tab } from "../../lib/types";
 import {
+  GENERAL_AGENT_KIND,
   ORCHESTRATOR_KIND,
   RELEASE_MANAGER_KIND,
   REVIEWER_KIND,
@@ -58,6 +59,7 @@ export function roleShieldLabel(
   if (!tab?.role) return null;
   const kind = roleKind(tab);
   if (kind === null) return null;
+  if (kind === GENERAL_AGENT_KIND) return "General Agent";
   const registered = tab.role_label?.trim();
   if (registered) return roleDisplayLabel(kind, registered);
   if (!builtinRoleLabel(kind)) return roleDisplayLabel(kind);
