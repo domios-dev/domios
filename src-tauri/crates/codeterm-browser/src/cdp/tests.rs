@@ -369,7 +369,7 @@ async fn browser_cdp_input_batch_sends_every_phase_before_any_reply() {
     assert_eq!(sent.await.unwrap().unwrap().len(), 2);
 }
 
-fn batch_connection() -> (SocketConnection, mpsc::Receiver<OutgoingBatch>) {
+fn batch_connection() -> (SocketConnection, mpsc::Receiver<Vec<Message>>) {
     let (outgoing, receiver) = mpsc::channel(1);
     let (closed, _) = watch::channel(None);
     let connection = SocketConnection(Arc::new(Inner {
@@ -377,7 +377,6 @@ fn batch_connection() -> (SocketConnection, mpsc::Receiver<OutgoingBatch>) {
         next_id: AtomicU64::new(1),
         next_subscriber: AtomicU64::new(1),
         state: Mutex::new(State::default()),
-        wire_dialogs: WireDialogOrder::new(),
         outgoing,
         closed,
     }));
@@ -414,11 +413,7 @@ async fn browser_cdp_batch_on_closed_socket_returns_close_reason() {
 #[tokio::test]
 async fn browser_cdp_batch_writer_loss_keeps_close_reason_for_every_pending_phase() {
     let (connection, receiver) = batch_connection();
-    connection
-        .0
-        .outgoing
-        .try_send(OutgoingBatch::plain(vec![]))
-        .unwrap();
+    connection.0.outgoing.try_send(vec![]).unwrap();
     let batch = connection.send_batch_to(Some("page"), click_phases(), COMMAND_DEADLINE);
     tokio::pin!(batch);
     assert!(futures_util::poll!(&mut batch).is_pending());
@@ -430,215 +425,6 @@ async fn browser_cdp_batch_writer_loss_keeps_close_reason_for_every_pending_phas
         Err(CdpError::Closed("chrome closed the CDP socket".into()))
     );
     assert!(connection.0.state.lock().pending.is_empty());
-}
-
-#[tokio::test]
-async fn browser_cdp_nav_held_before_writer_dispatch_refuses_owner_beforeunload() {
-    let (connection, mut receiver) = batch_connection();
-    let mut wire_dialogs = connection.0.wire_dialogs.subscribe("ST1");
-    let token = connection.0.wire_dialogs.allocate_token();
-    let gate: DispatchGate = Arc::new(|| true);
-    let nav = connection.send_causal_nav_to(
-        "ST1",
-        "Page.navigate",
-        json!({ "url": "https://next.test/" }),
-        COMMAND_DEADLINE,
-        token,
-        gate,
-    );
-    tokio::pin!(nav);
-    assert!(futures_util::poll!(&mut nav).is_pending());
-    let queued_nav = receiver.try_recv().unwrap();
-
-    // Owner beforeunload arrives on the wire BEFORE write_loop actually writes Page.navigate.
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogOpening".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "type": "beforeunload", "message": "Owner draft" }),
-        }))
-        .await;
-    let WireDialogEvent::Opening(opening) = wire_dialogs.try_recv().unwrap() else {
-        panic!("expected wire opening event");
-    };
-    assert_eq!(
-        opening.owner_token, None,
-        "owner beforeunload arriving before writer dispatch must not get the agent token"
-    );
-
-    // When write_loop reaches the queued Page.navigate, prepare_write must reject it unsent.
-    let err = connection.0.prepare_write(&queued_nav).unwrap_err();
-    connection.0.cancel_pending(&queued_nav.ids, err);
-    assert!(matches!(nav.await, Err(CdpError::Cancelled(_))));
-    assert!(
-        !connection
-            .0
-            .wire_dialogs
-            .can_accept("ST1", opening.generation, token),
-        "owner dialog must never be accepted by agent token"
-    );
-}
-
-#[tokio::test]
-async fn browser_cdp_dialog_accept_for_a_refuses_replacement_beforeunload_b_before_first_poll() {
-    let (connection, mut receiver) = batch_connection();
-    let mut wire_dialogs = connection.0.wire_dialogs.subscribe("ST1");
-    let token = connection.0.wire_dialogs.allocate_token();
-
-    // Writer writes the agent's Page.navigate, arming `token` on the transport.
-    let nav_gate: DispatchGate = Arc::new(|| true);
-    let nav = connection.send_causal_nav_to(
-        "ST1",
-        "Page.navigate",
-        json!({ "url": "https://next.test/" }),
-        COMMAND_DEADLINE,
-        token,
-        nav_gate,
-    );
-    tokio::pin!(nav);
-    assert!(futures_util::poll!(&mut nav).is_pending());
-    let queued_nav = receiver.try_recv().unwrap();
-    assert!(connection.0.prepare_write(&queued_nav).is_ok());
-
-    // Dialog A (beforeunload) opens, then closes, then replacement dialog B (ALSO beforeunload)
-    // opens — all while the consumer is held behind and before A's accept is polled even once.
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogOpening".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "type": "beforeunload", "message": "Dialog A" }),
-        }))
-        .await;
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogClosed".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "result": false }),
-        }))
-        .await;
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogOpening".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "type": "beforeunload", "message": "Dialog B" }),
-        }))
-        .await;
-
-    // Consumer finally wakes up, reads A (generation 1, owner Some(token)), and issues accept for A.
-    let WireDialogEvent::Opening(opening_a) = wire_dialogs.try_recv().unwrap() else {
-        panic!("expected opening A");
-    };
-    assert_eq!(opening_a.generation, 1);
-    assert_eq!(opening_a.owner_token, Some(token));
-    assert_eq!(wire_dialogs.try_recv().unwrap(), WireDialogEvent::Closed);
-    let WireDialogEvent::Opening(opening_b) = wire_dialogs.try_recv().unwrap() else {
-        panic!("expected opening B");
-    };
-    assert_eq!(opening_b.generation, 2);
-    assert_eq!(
-        opening_b.owner_token, None,
-        "replacement beforeunload B must not inherit A's consumed navigation token"
-    );
-
-    let accept_gate: DispatchGate = Arc::new(|| true);
-    let res = connection
-        .send_dialog_accept(
-            "ST1",
-            opening_a.generation,
-            token,
-            COMMAND_DEADLINE,
-            accept_gate,
-        )
-        .await;
-    assert!(
-        matches!(res, Err(CdpError::Cancelled(_))),
-        "accept issued for generation 1 must fail before touching outgoing when B (gen 2) is open"
-    );
-    assert!(
-        receiver.try_recv().is_err(),
-        "zero frames must be enqueued for replacement beforeunload B"
-    );
-}
-
-#[tokio::test]
-async fn browser_cdp_guarded_dialog_accept_drops_unsent_when_revoked_while_queue_blocked() {
-    let (connection, mut receiver) = batch_connection();
-    let token = connection.0.wire_dialogs.allocate_token();
-    assert!(connection.0.wire_dialogs.arm_for_navigation("ST1", token));
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogOpening".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "type": "beforeunload", "message": "Leave?" }),
-        }))
-        .await;
-    connection
-        .0
-        .outgoing
-        .try_send(OutgoingBatch::plain(vec![]))
-        .unwrap();
-    let authorized = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let gate_flag = authorized.clone();
-    let gate: DispatchGate = Arc::new(move || gate_flag.load(Ordering::SeqCst));
-    let accept = connection.send_dialog_accept("ST1", 1, token, COMMAND_DEADLINE, gate);
-    tokio::pin!(accept);
-    assert!(futures_util::poll!(&mut accept).is_pending());
-
-    // Revoke authority before the blocked outgoing queue frees a slot.
-    authorized.store(false, Ordering::SeqCst);
-    let _blocker = receiver.try_recv().unwrap();
-    assert!(matches!(accept.await, Err(CdpError::Cancelled(_))));
-    assert!(
-        receiver.try_recv().is_err(),
-        "revoked accept must never be enqueued onto the outgoing CDP writer"
-    );
-    assert!(connection.0.state.lock().pending.is_empty());
-}
-
-#[tokio::test]
-async fn browser_cdp_queued_accept_invalidated_by_replacement_beforeunload_b_in_write_loop() {
-    let (connection, mut receiver) = batch_connection();
-    let token = connection.0.wire_dialogs.allocate_token();
-    assert!(connection.0.wire_dialogs.arm_for_navigation("ST1", token));
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogOpening".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "type": "beforeunload", "message": "Leave A?" }),
-        }))
-        .await;
-    let gate: DispatchGate = Arc::new(|| true);
-    let accept = connection.send_dialog_accept("ST1", 1, token, COMMAND_DEADLINE, gate);
-    tokio::pin!(accept);
-    assert!(futures_util::poll!(&mut accept).is_pending());
-    let queued = receiver.try_recv().unwrap();
-
-    // Dialog A closes and a SECOND beforeunload B opens before write_loop flushes the queued accept.
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogClosed".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "result": false }),
-        }))
-        .await;
-    connection
-        .0
-        .route(Incoming::Event(CdpEvent {
-            method: "Page.javascriptDialogOpening".into(),
-            session_id: Some("ST1".into()),
-            params: json!({ "type": "beforeunload", "message": "Leave B?" }),
-        }))
-        .await;
-    let err = connection.0.prepare_write(&queued).unwrap_err();
-    connection.0.cancel_pending(&queued.ids, err);
-    assert!(matches!(accept.await, Err(CdpError::Cancelled(_))));
 }
 
 #[tokio::test]

@@ -10,120 +10,44 @@ fn dialog(kind: &str, message: &str) -> ActiveDialog {
     }))
 }
 
-fn wire_opening(
-    generation: u64,
-    kind: &str,
-    message: &str,
-    owner_token: Option<u64>,
-) -> codeterm_browser::WireDialogOpening {
-    codeterm_browser::WireDialogOpening {
-        generation,
-        dialog_type: kind.into(),
-        message: message.into(),
-        owner_token,
-    }
-}
-
 #[test]
-fn beforeunload_during_agent_navigation_is_tracked_and_surfaces_if_cancelled() {
-    let mut state = DialogState::default();
-    let token = 1;
-    state.register_agent_navigation(token).unwrap();
-    let tracked = state.on_wire_dialog_opening(&wire_opening(
-        1,
-        "beforeunload",
-        "Unsaved draft",
-        Some(token),
-    ));
-    assert_eq!(tracked.generation, 1);
-    assert_eq!(tracked.owned_by_nav, Some(token));
-    assert!(!state.is_blocking_for_human());
-    assert!(state.can_accept_beforeunload(token, tracked.generation));
-
-    // Cancellation before dialog close leaves an actionable blocking state.
-    assert!(state.end_agent_navigation(token));
-    assert!(state.is_blocking_for_human());
-    assert!(!state.can_accept_beforeunload(token, tracked.generation));
-    assert_eq!(
-        state.active_blocking().map(ActiveDialog::status_line),
-        Some("dialog: beforeunload — Unsaved draft".into())
-    );
-    assert!(state.register_agent_navigation(2).is_err());
-    assert!(state.check_page_verb().is_err());
-
-    state.on_dialog_closed();
-    assert!(!state.is_blocking_for_human());
-    assert_eq!(
-        navigation_outcome("navigation loaded: https://example.test/next".into(), true),
-        "navigation loaded: https://example.test/next (beforeunload dialog accepted)"
-    );
-    assert_eq!(
-        navigation_outcome("navigation loaded: https://example.test/next".into(), false),
-        "navigation loaded: https://example.test/next"
-    );
-}
-
-#[test]
-fn superseded_beforeunload_generation_cannot_authorize_answering_replacement_dialog() {
-    let mut state = DialogState::default();
-    let token = 1;
-    state.register_agent_navigation(token).unwrap();
-    let first = state.on_wire_dialog_opening(&wire_opening(1, "beforeunload", "", Some(token)));
-    assert!(state.can_accept_beforeunload(token, first.generation));
-
-    state.on_dialog_closed();
-    assert!(!state.can_accept_beforeunload(token, first.generation));
-
-    let second = state.on_wire_dialog_opening(&wire_opening(2, "prompt", "Confirm PIN", None));
-    assert_eq!(second.generation, first.generation + 1);
-    assert_eq!(second.owned_by_nav, None);
-    assert!(!state.can_accept_beforeunload(token, first.generation));
-    assert!(!state.can_accept_beforeunload(token, second.generation));
-    assert!(state.is_blocking_for_human());
-
-    // Acking the stale generation never clears the newer prompt.
-    state.ack_beforeunload_closed(first.generation);
-    assert_eq!(state.active_blocking(), Some(&second.dialog));
-}
-
-#[test]
-fn page_raised_alert_confirm_and_prompt_always_block_even_during_navigation() {
-    for kind in ["alert", "confirm", "prompt"] {
+fn all_dialogs_including_beforeunload_block_and_format_status_and_error() {
+    for kind in ["alert", "confirm", "prompt", "beforeunload"] {
         let mut state = DialogState::default();
-        let token = 1;
-        state.register_agent_navigation(token).unwrap();
-        let opened = dialog(kind, "Are you sure?");
-        let tracked =
-            state.on_wire_dialog_opening(&wire_opening(1, kind, "Are you sure?", Some(token)));
-        assert_eq!(tracked.owned_by_nav, None);
-        assert!(state.is_blocking_for_human());
-        assert!(!state.can_accept_beforeunload(token, tracked.generation));
-        assert_eq!(state.active_blocking(), Some(&opened));
-        state.end_agent_navigation(token);
+        let opened = dialog(kind, "Unsaved changes");
+        state.on_dialog_opening(opened.clone());
+        assert!(state.is_blocking());
+        assert_eq!(state.active(), Some(&opened));
+        assert_eq!(
+            opened.status_line(),
+            format!("dialog: {kind} — Unsaved changes")
+        );
 
-        assert_eq!(state.register_agent_navigation(2), Err(opened));
         let error = state.check_page_verb().unwrap_err();
-        assert!(error.contains(kind), "{error}");
+        assert!(
+            error.contains(&format!("dialog: {kind} — Unsaved changes")),
+            "{error}"
+        );
+        assert!(error.contains("needs human: dialog"), "{error}");
         assert!(error.contains("Take control"), "{error}");
 
         state.on_dialog_closed();
-        assert!(!state.is_blocking_for_human());
+        assert!(!state.is_blocking());
         assert!(state.check_page_verb().is_ok());
     }
 }
 
 #[test]
-fn pre_existing_beforeunload_blocks_all_agent_verbs_including_navigation() {
+fn committed_navigation_clears_beforeunload_but_not_alert() {
     let mut state = DialogState::default();
-    let opened = dialog("beforeunload", "Owner draft");
-    let tracked =
-        state.on_wire_dialog_opening(&wire_opening(1, "beforeunload", "Owner draft", None));
-    assert_eq!(tracked.owned_by_nav, None);
-    assert!(state.is_blocking_for_human());
-    let err = state.check_page_verb().unwrap_err();
-    assert!(err.contains("beforeunload"), "{err}");
-    assert!(err.contains("Take control"), "{err}");
-    assert_eq!(state.register_agent_navigation(1), Err(opened));
+    state.on_dialog_opening(dialog("beforeunload", "Leave?"));
+    state.on_navigated();
+    assert!(!state.is_blocking());
+
+    let alert = dialog("alert", "Still here");
+    state.on_dialog_opening(alert.clone());
+    state.on_navigated();
+    assert_eq!(state.active(), Some(&alert));
 }
 
 #[test]
@@ -138,28 +62,20 @@ fn dialog_params_normalize_whitespace_and_bound_long_messages() {
 
     let empty = dialog("beforeunload", "");
     assert_eq!(empty.status_line(), "dialog: beforeunload");
-    assert!(is_no_dialog_cdp_error(
-        "CDP error -32000: No dialog is showing"
-    ));
-    assert!(!is_no_dialog_cdp_error("CDP connection closed"));
+    assert!(empty.blocking_error().contains("dialog: beforeunload"));
 }
 
 #[derive(Clone, Copy)]
-enum NavDialogBehavior {
+enum DialogBehavior {
     BeforeUnload,
     Alert,
-    BeforeUnloadThenPrompt,
-    BeforeUnloadThenBeforeUnload,
-    StallBeforeUnloadAck,
+    DialogDuringHistoryFetch,
     StallFirstNetworkEnable,
-    HoldObserveForOwnerBeforeUnload,
-    HoldNavBeforeWriterDispatch,
-    BlockOutgoingQueueOnAccept,
     Clean,
 }
 
-struct NavFakeConnection {
-    behavior: NavDialogBehavior,
+struct DialogFakeConnection {
+    behavior: DialogBehavior,
     closed: tokio::sync::watch::Sender<Option<String>>,
     subscribers: parking_lot::Mutex<
         Vec<(
@@ -167,38 +83,20 @@ struct NavFakeConnection {
             tokio::sync::mpsc::Sender<std::sync::Arc<codeterm_browser::cdp_wire::CdpEvent>>,
         )>,
     >,
-    wire_dialogs: codeterm_browser::WireDialogOrder,
     requests: parking_lot::Mutex<Vec<(Option<String>, String, serde_json::Value)>>,
-    beforeunload_accepted: tokio::sync::watch::Sender<bool>,
-    dialog_reply_started: tokio::sync::watch::Sender<bool>,
     network_enable_started: tokio::sync::watch::Sender<bool>,
     network_enable_calls: std::sync::atomic::AtomicUsize,
-    observe_held: tokio::sync::watch::Sender<bool>,
-    release_observe: tokio::sync::watch::Sender<bool>,
-    nav_held: tokio::sync::watch::Sender<bool>,
-    release_nav: tokio::sync::watch::Sender<bool>,
-    accept_queued: tokio::sync::watch::Sender<bool>,
-    release_outgoing: tokio::sync::watch::Sender<bool>,
 }
 
-impl NavFakeConnection {
-    fn new(behavior: NavDialogBehavior) -> std::sync::Arc<Self> {
+impl DialogFakeConnection {
+    fn new(behavior: DialogBehavior) -> std::sync::Arc<Self> {
         std::sync::Arc::new(Self {
             behavior,
             closed: tokio::sync::watch::channel(None).0,
             subscribers: parking_lot::Mutex::new(Vec::new()),
-            wire_dialogs: codeterm_browser::WireDialogOrder::new(),
             requests: parking_lot::Mutex::new(Vec::new()),
-            beforeunload_accepted: tokio::sync::watch::channel(false).0,
-            dialog_reply_started: tokio::sync::watch::channel(false).0,
             network_enable_started: tokio::sync::watch::channel(false).0,
             network_enable_calls: std::sync::atomic::AtomicUsize::new(0),
-            observe_held: tokio::sync::watch::channel(false).0,
-            release_observe: tokio::sync::watch::channel(false).0,
-            nav_held: tokio::sync::watch::channel(false).0,
-            release_nav: tokio::sync::watch::channel(false).0,
-            accept_queued: tokio::sync::watch::channel(false).0,
-            release_outgoing: tokio::sync::watch::channel(false).0,
         })
     }
 
@@ -208,7 +106,6 @@ impl NavFakeConnection {
             session_id: session.map(str::to_string),
             params,
         });
-        self.wire_dialogs.on_incoming_event(&event);
         self.subscribers.lock().retain(|(filter, sender)| {
             if filter.matches(&event) {
                 let _ = sender.try_send(event.clone());
@@ -227,16 +124,15 @@ impl NavFakeConnection {
 }
 
 #[async_trait::async_trait]
-impl codeterm_browser::cdp::CdpConnection for NavFakeConnection {
+impl codeterm_browser::cdp::CdpConnection for DialogFakeConnection {
     fn endpoint(&self) -> &str {
-        "ws://127.0.0.1:1/devtools/browser/nav-dialog"
+        "ws://127.0.0.1:1/devtools/browser/dialog"
     }
     fn closed(&self) -> tokio::sync::watch::Receiver<Option<String>> {
         self.closed.subscribe()
     }
     fn close(&self, reason: &str) {
         self.closed.send_replace(Some(reason.into()));
-        self.wire_dialogs.close_all();
         self.subscribers.lock().clear();
     }
     fn subscribe(
@@ -247,167 +143,46 @@ impl codeterm_browser::cdp::CdpConnection for NavFakeConnection {
         self.subscribers.lock().push((filter, sender));
         codeterm_browser::EventStream::from_receiver(receiver)
     }
-    fn allocate_dialog_token(&self) -> u64 {
-        self.wire_dialogs.allocate_token()
-    }
-    fn subscribe_wire_dialogs(
-        &self,
-        session_id: &str,
-    ) -> tokio::sync::mpsc::Receiver<codeterm_browser::WireDialogEvent> {
-        self.wire_dialogs.subscribe(session_id)
-    }
-    fn active_wire_dialog(&self, session_id: &str) -> Option<codeterm_browser::WireDialogOpening> {
-        self.wire_dialogs.active_dialog(session_id)
-    }
-    fn disarm_dialog_owner(&self, session_id: &str, token: Option<u64>) {
-        self.wire_dialogs.disarm(session_id, token);
-    }
-    async fn send_causal_nav_to(
-        &self,
-        session_id: &str,
-        method: &str,
-        params: serde_json::Value,
-        deadline: std::time::Duration,
-        token: u64,
-        can_dispatch: codeterm_browser::DispatchGate,
-    ) -> Result<serde_json::Value, codeterm_browser::CdpError> {
-        if matches!(
-            self.behavior,
-            NavDialogBehavior::HoldNavBeforeWriterDispatch
-        ) {
-            self.nav_held.send_replace(true);
-            let mut release = self.release_nav.subscribe();
-            let _ = tokio::time::timeout(deadline, release.wait_for(|open| *open)).await;
-        }
-        if !can_dispatch() || !self.wire_dialogs.arm_for_navigation(session_id, token) {
-            return Err(codeterm_browser::CdpError::Cancelled(
-                "navigation dispatch authorization revoked or dialog open".into(),
-            ));
-        }
-        self.send_to(Some(session_id), method, params, deadline)
-            .await
-    }
-    async fn send_dialog_accept(
-        &self,
-        session_id: &str,
-        expected_generation: u64,
-        expected_owner_token: u64,
-        deadline: std::time::Duration,
-        can_dispatch: codeterm_browser::DispatchGate,
-    ) -> Result<serde_json::Value, codeterm_browser::CdpError> {
-        if matches!(self.behavior, NavDialogBehavior::BlockOutgoingQueueOnAccept) {
-            self.accept_queued.send_replace(true);
-            let mut release = self.release_outgoing.subscribe();
-            let _ = tokio::time::timeout(deadline, release.wait_for(|open| *open)).await;
-        }
-        if !can_dispatch()
-            || !self
-                .wire_dialogs
-                .can_accept(session_id, expected_generation, expected_owner_token)
-        {
-            return Err(codeterm_browser::CdpError::Cancelled(
-                "dialog accept superseded or revoked".into(),
-            ));
-        }
-        self.send_to(
-            Some(session_id),
-            "Page.handleJavaScriptDialog",
-            json!({ "accept": true }),
-            deadline,
-        )
-        .await
-    }
     async fn send_to(
         &self,
         session: Option<&str>,
         method: &str,
         params: serde_json::Value,
-        deadline: std::time::Duration,
+        _deadline: std::time::Duration,
     ) -> Result<serde_json::Value, codeterm_browser::CdpError> {
         self.requests
             .lock()
             .push((session.map(str::to_string), method.into(), params.clone()));
         match method {
             "Target.attachToTarget" => Ok(json!({ "sessionId": "ST1" })),
-            "Page.getFrameTree" => {
-                if matches!(
-                    self.behavior,
-                    NavDialogBehavior::HoldObserveForOwnerBeforeUnload
-                ) {
-                    self.observe_held.send_replace(true);
-                    let mut release = self.release_observe.subscribe();
-                    tokio::time::timeout(deadline, release.wait_for(|open| *open))
-                        .await
-                        .map_err(|_| {
-                            codeterm_browser::CdpError::Deadline("Page.getFrameTree".into())
-                        })?
-                        .map_err(|_| {
-                            codeterm_browser::CdpError::Closed("observe gate closed".into())
-                        })?;
+            "Page.getFrameTree" => Ok(json!({
+                "frameTree": { "frame": { "id": "T1", "loaderId": "L1" } }
+            })),
+            "Page.getNavigationHistory" => {
+                if matches!(self.behavior, DialogBehavior::DialogDuringHistoryFetch) {
+                    self.emit(
+                        "Page.javascriptDialogOpening",
+                        Some("ST1"),
+                        json!({ "type": "confirm", "message": "Discard form?", "url": "https://dirty.test/" }),
+                    );
+                    std::future::pending::<()>().await;
                 }
-                Ok(json!({
-                    "frameTree": { "frame": { "id": "T1", "loaderId": "L1" } }
-                }))
+                Ok(json!({ "currentIndex": 0, "entries": [{ "id": 1, "url": "https://a.test/" }] }))
             }
             "Network.enable" => {
                 let call = self
                     .network_enable_calls
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if matches!(self.behavior, NavDialogBehavior::StallFirstNetworkEnable) && call == 0
-                {
+                if matches!(self.behavior, DialogBehavior::StallFirstNetworkEnable) && call == 0 {
                     self.network_enable_started.send_replace(true);
                     std::future::pending::<()>().await;
-                }
-                Ok(json!({}))
-            }
-            "Page.handleJavaScriptDialog" => {
-                if matches!(self.behavior, NavDialogBehavior::StallBeforeUnloadAck) {
-                    self.dialog_reply_started.send_replace(true);
-                    std::future::pending::<()>().await;
-                }
-                let accept = params["accept"].as_bool().unwrap_or(false);
-                self.emit(
-                    "Page.javascriptDialogClosed",
-                    Some("ST1"),
-                    json!({ "result": accept, "userInput": "" }),
-                );
-                if accept {
-                    self.beforeunload_accepted.send_replace(true);
                 }
                 Ok(json!({}))
             }
             "Page.navigate" => {
                 let url = params["url"].as_str().unwrap_or("https://next.test/");
                 match self.behavior {
-                    NavDialogBehavior::BeforeUnload
-                    | NavDialogBehavior::BlockOutgoingQueueOnAccept => {
-                        let mut accepted = self.beforeunload_accepted.subscribe();
-                        self.emit(
-                            "Page.javascriptDialogOpening",
-                            Some("ST1"),
-                            json!({ "type": "beforeunload", "message": "Draft", "url": "https://dirty.test/" }),
-                        );
-                        tokio::time::timeout(deadline, accepted.wait_for(|done| *done))
-                            .await
-                            .map_err(|_| {
-                                codeterm_browser::CdpError::Deadline("Page.navigate".into())
-                            })?
-                            .map_err(|_| {
-                                codeterm_browser::CdpError::Closed("dialog channel closed".into())
-                            })?;
-                        self.emit(
-                            "Page.frameNavigated",
-                            Some("ST1"),
-                            json!({ "frame": { "id": "T1", "loaderId": "L2", "url": url } }),
-                        );
-                        self.emit(
-                            "Page.lifecycleEvent",
-                            Some("ST1"),
-                            json!({ "frameId": "T1", "loaderId": "L2", "name": "load" }),
-                        );
-                        Ok(json!({ "frameId": "T1", "loaderId": "L2" }))
-                    }
-                    NavDialogBehavior::StallBeforeUnloadAck => {
+                    DialogBehavior::BeforeUnload => {
                         self.emit(
                             "Page.javascriptDialogOpening",
                             Some("ST1"),
@@ -416,43 +191,7 @@ impl codeterm_browser::cdp::CdpConnection for NavFakeConnection {
                         std::future::pending::<()>().await;
                         unreachable!()
                     }
-                    NavDialogBehavior::BeforeUnloadThenPrompt => {
-                        self.emit(
-                            "Page.javascriptDialogOpening",
-                            Some("ST1"),
-                            json!({ "type": "beforeunload", "message": "Leave?", "url": "https://dirty.test/" }),
-                        );
-                        self.emit(
-                            "Page.javascriptDialogClosed",
-                            Some("ST1"),
-                            json!({ "result": false, "userInput": "" }),
-                        );
-                        self.emit(
-                            "Page.javascriptDialogOpening",
-                            Some("ST1"),
-                            json!({ "type": "prompt", "message": "Enter code", "url": url }),
-                        );
-                        Ok(json!({ "frameId": "T1", "loaderId": "L2" }))
-                    }
-                    NavDialogBehavior::BeforeUnloadThenBeforeUnload => {
-                        self.emit(
-                            "Page.javascriptDialogOpening",
-                            Some("ST1"),
-                            json!({ "type": "beforeunload", "message": "Dialog A", "url": "https://dirty.test/" }),
-                        );
-                        self.emit(
-                            "Page.javascriptDialogClosed",
-                            Some("ST1"),
-                            json!({ "result": false, "userInput": "" }),
-                        );
-                        self.emit(
-                            "Page.javascriptDialogOpening",
-                            Some("ST1"),
-                            json!({ "type": "beforeunload", "message": "Dialog B", "url": url }),
-                        );
-                        Ok(json!({ "frameId": "T1", "loaderId": "L2" }))
-                    }
-                    NavDialogBehavior::Alert => {
+                    DialogBehavior::Alert => {
                         self.emit(
                             "Page.javascriptDialogOpening",
                             Some("ST1"),
@@ -460,10 +199,9 @@ impl codeterm_browser::cdp::CdpConnection for NavFakeConnection {
                         );
                         Ok(json!({ "frameId": "T1", "loaderId": "L2" }))
                     }
-                    NavDialogBehavior::Clean
-                    | NavDialogBehavior::StallFirstNetworkEnable
-                    | NavDialogBehavior::HoldObserveForOwnerBeforeUnload
-                    | NavDialogBehavior::HoldNavBeforeWriterDispatch => {
+                    DialogBehavior::Clean
+                    | DialogBehavior::StallFirstNetworkEnable
+                    | DialogBehavior::DialogDuringHistoryFetch => {
                         self.emit(
                             "Page.frameNavigated",
                             Some("ST1"),
@@ -484,12 +222,12 @@ impl codeterm_browser::cdp::CdpConnection for NavFakeConnection {
 }
 
 async fn runtime_with_fake_page(
-    behavior: NavDialogBehavior,
+    behavior: DialogBehavior,
 ) -> (
     tempfile::TempDir,
     super::super::BrowserRuntime,
     codeterm_browser::PageChannel,
-    std::sync::Arc<NavFakeConnection>,
+    std::sync::Arc<DialogFakeConnection>,
 ) {
     let root = tempfile::tempdir().unwrap();
     let runtime = super::super::BrowserRuntime::new(
@@ -499,7 +237,7 @@ async fn runtime_with_fake_page(
         std::sync::Arc::new(tokio::sync::OnceCell::new()),
         crate::surface::runtime::SurfaceResume::default(),
     );
-    let conn = NavFakeConnection::new(behavior);
+    let conn = DialogFakeConnection::new(behavior);
     let client = codeterm_browser::CdpClient::from_connection(conn.clone());
     let page = client.attach_page("T1").await.unwrap();
     runtime.shared.bind(&page);
@@ -507,70 +245,88 @@ async fn runtime_with_fake_page(
 }
 
 #[tokio::test]
-async fn agent_goto_resolves_its_own_beforeunload_and_reports_outcome() {
-    let (_root, runtime, page, conn) =
-        runtime_with_fake_page(NavDialogBehavior::BeforeUnload).await;
-    let outcome = runtime
-        .navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/done"),
+async fn agent_goto_fails_fast_on_beforeunload_and_alert_without_answering() {
+    for (behavior, expected_line) in [
+        (
+            DialogBehavior::BeforeUnload,
+            "dialog: beforeunload — Unsaved draft",
+        ),
+        (DialogBehavior::Alert, "dialog: alert — Stop now"),
+    ] {
+        let (_root, runtime, page, conn) = runtime_with_fake_page(behavior).await;
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            runtime.navigate(
+                &page,
+                super::super::input::NavAction::Goto,
+                Some("https://next.test/target"),
+            ),
         )
         .await
-        .unwrap();
-    assert_eq!(
-        outcome,
-        "navigation loaded: https://next.test/done (beforeunload dialog accepted)"
-    );
-    assert_eq!(runtime.shared.state().needs_human, "none");
-    let dialog_calls: Vec<_> = conn
-        .requests
-        .lock()
-        .iter()
-        .filter(|(_, method, _)| method == "Page.handleJavaScriptDialog")
-        .cloned()
-        .collect();
-    assert_eq!(dialog_calls.len(), 1);
-    assert_eq!(dialog_calls[0].2["accept"], true);
+        .expect("dialog must fail navigation promptly, never waiting for the 15s deadline")
+        .unwrap_err();
+        assert!(error.contains(expected_line), "{error}");
+        assert!(error.contains("Take control"), "{error}");
+        assert_eq!(runtime.shared.state().needs_human, "dialog");
+        assert!(runtime.status_text().contains(expected_line));
+        assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+
+        let nav_before = conn.count("Page.navigate");
+        let follow_up = runtime
+            .navigate(
+                &page,
+                super::super::input::NavAction::Goto,
+                Some("https://next.test/other"),
+            )
+            .await
+            .unwrap_err();
+        assert!(follow_up.contains(expected_line), "{follow_up}");
+        assert_eq!(conn.count("Page.navigate"), nav_before);
+        assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+    }
 }
 
 #[tokio::test]
-async fn agent_goto_never_dismisses_alert_and_blocks_promptly() {
-    let (_root, runtime, page, conn) = runtime_with_fake_page(NavDialogBehavior::Alert).await;
+async fn page_verb_fails_fast_when_dialog_opens_mid_action() {
+    let (_root, runtime, page, conn) =
+        runtime_with_fake_page(DialogBehavior::DialogDuringHistoryFetch).await;
     let error = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        runtime.navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/alert"),
-        ),
+        runtime.navigate(&page, super::super::input::NavAction::Back, None),
     )
     .await
-    .expect("alert dialog must surface promptly, not wait for completion deadline")
+    .expect("mid-verb dialog must fail promptly")
     .unwrap_err();
-    assert!(error.contains("alert"), "{error}");
-    assert!(error.contains("Stop now"), "{error}");
-    assert!(error.contains("Take control"), "{error}");
-    assert_eq!(runtime.shared.state().needs_human, "dialog");
-    assert!(runtime.status_text().contains("dialog: alert — Stop now"));
+    assert!(error.contains("dialog: confirm — Discard form?"), "{error}");
     assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+    assert_eq!(runtime.shared.state().needs_human, "dialog");
+    assert!(runtime
+        .status_text()
+        .contains("dialog: confirm — Discard form?"));
 
-    let nav_before = conn.count("Page.navigate");
-    let follow_up = runtime
-        .navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/other"),
-        )
+    // Arbitrary stalled page verb raced through `race_with_dialog` also fails fast.
+    let (_root2, runtime2, _page2, conn2) = runtime_with_fake_page(DialogBehavior::Clean).await;
+    let verb = runtime2.race_with_dialog(std::future::pending::<Result<String, String>>());
+    tokio::pin!(verb);
+    conn2.emit(
+        "Page.javascriptDialogOpening",
+        Some("ST1"),
+        json!({ "type": "prompt", "message": "Enter PIN", "url": "https://a.test/" }),
+    );
+    let err = tokio::time::timeout(std::time::Duration::from_secs(2), verb)
         .await
+        .expect("mid-verb prompt must abort stalled page verb promptly")
         .unwrap_err();
-    assert!(follow_up.contains("blocked:"), "{follow_up}");
-    assert_eq!(conn.count("Page.navigate"), nav_before);
+    assert!(err.contains("dialog: prompt — Enter PIN"), "{err}");
+    assert_eq!(conn2.count("Page.handleJavaScriptDialog"), 0);
 }
 
 #[tokio::test]
-async fn agent_goto_refuses_pre_existing_beforeunload_without_answering_it() {
-    let (_root, runtime, page, conn) = runtime_with_fake_page(NavDialogBehavior::Clean).await;
+async fn agent_close_and_open_profile_refuse_pre_existing_dialog_without_unbind_or_close() {
+    use crate::surface::model::SurfaceError;
+    use crate::surface::runtime::SurfaceRuntime;
+
+    let (_root, runtime, _page, conn) = runtime_with_fake_page(DialogBehavior::Clean).await;
     let mut dialogs = runtime.shared.subscribe_dialogs();
     conn.emit(
         "Page.javascriptDialogOpening",
@@ -579,102 +335,86 @@ async fn agent_goto_refuses_pre_existing_beforeunload_without_answering_it() {
     );
     tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        dialogs.wait_for(|snapshot| snapshot.tracked.is_some()),
+        dialogs.wait_for(|snapshot| snapshot.dialog.is_some()),
     )
     .await
     .unwrap()
     .unwrap();
+
+    // Agent close must refuse before unbinding or tearing down the target.
+    let close_err = runtime.agent_close().await.unwrap_err();
+    match close_err {
+        SurfaceError::Blocked(detail) => {
+            assert!(
+                detail.contains("dialog: beforeunload — Owner draft"),
+                "{detail}"
+            );
+        }
+        other => panic!("expected SurfaceError::Blocked, got {other:?}"),
+    }
+
+    // Agent open --profile and open <url> must also refuse without unbind/host teardown.
+    let profile_err = runtime
+        .open_verb(&["--profile".into(), "Work".into()])
+        .await
+        .unwrap_err();
+    assert!(
+        profile_err.contains("dialog: beforeunload — Owner draft"),
+        "{profile_err}"
+    );
+    let url_err = runtime
+        .open_verb(&["https://other.test/".into()])
+        .await
+        .unwrap_err();
+    assert!(
+        url_err.contains("dialog: beforeunload — Owner draft"),
+        "{url_err}"
+    );
+
+    assert_eq!(conn.count("Target.closeTarget"), 0);
+    assert_eq!(conn.count("Browser.close"), 0);
+    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+    assert_eq!(conn.count("Page.navigate"), 0);
     assert_eq!(runtime.shared.state().needs_human, "dialog");
     assert!(runtime
         .status_text()
         .contains("dialog: beforeunload — Owner draft"));
 
-    let error = runtime
-        .navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/refused"),
-        )
-        .await
-        .unwrap_err();
-    assert!(error.contains("blocked:"), "{error}");
-    assert!(error.contains("beforeunload"), "{error}");
-    assert!(error.contains("Owner draft"), "{error}");
-    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
-    assert_eq!(conn.count("Page.navigate"), 0);
-}
-
-#[tokio::test]
-async fn agent_goto_never_answers_replacement_prompt_after_closed_beforeunload() {
-    let (_root, runtime, page, conn) =
-        runtime_with_fake_page(NavDialogBehavior::BeforeUnloadThenPrompt).await;
-    let error = tokio::time::timeout(
+    // Listener must still be bound: closing the dialog on the page clears needs_human.
+    conn.emit(
+        "Page.javascriptDialogClosed",
+        Some("ST1"),
+        json!({ "result": false, "userInput": "" }),
+    );
+    tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        runtime.navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/prompt"),
-        ),
+        dialogs.wait_for(|snapshot| snapshot.dialog.is_none()),
     )
     .await
-    .expect("replacement prompt must surface promptly")
-    .unwrap_err();
-    assert!(error.contains("prompt"), "{error}");
-    assert!(error.contains("Enter code"), "{error}");
-    assert_eq!(
-        conn.count("Page.handleJavaScriptDialog"),
-        0,
-        "stale beforeunload must never answer replacement prompt"
-    );
-    assert_eq!(runtime.shared.state().needs_human, "dialog");
-    assert!(runtime
-        .status_text()
-        .contains("dialog: prompt — Enter code"));
-}
+    .unwrap()
+    .unwrap();
+    assert_eq!(runtime.shared.state().needs_human, "none");
 
-#[tokio::test]
-async fn cancelling_navigation_before_beforeunload_ack_leaves_actionable_blocking_dialog() {
-    let (_root, runtime, page, conn) =
-        runtime_with_fake_page(NavDialogBehavior::StallBeforeUnloadAck).await;
-    let mut reply_started = conn.dialog_reply_started.subscribe();
-    {
-        let nav = runtime.navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/cancel"),
-        );
-        tokio::pin!(nav);
-        tokio::select! {
-            _ = &mut nav => panic!("navigation should be stalled on handleJavaScriptDialog"),
-            ready = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                reply_started.wait_for(|started| *started),
-            ) => {
-                ready.expect("handleJavaScriptDialog should be sent").unwrap();
-            }
-        }
-    }
-    // Dropping `nav` before the ack must immediately expose the still-open modal.
-    assert_eq!(runtime.shared.state().needs_human, "dialog");
-    assert!(runtime
-        .status_text()
-        .contains("dialog: beforeunload — Unsaved draft"));
-    let follow_up = runtime
-        .navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/after-cancel"),
-        )
-        .await
-        .unwrap_err();
-    assert!(follow_up.contains("blocked:"), "{follow_up}");
-    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 1);
+    // Owner close authority stays separate and succeeds even with a dialog open.
+    conn.emit(
+        "Page.javascriptDialogOpening",
+        Some("ST1"),
+        json!({ "type": "alert", "message": "Owner closing", "url": "https://owner.test/" }),
+    );
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        dialogs.wait_for(|snapshot| snapshot.dialog.is_some()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    runtime.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn cancelling_domain_setup_before_network_enable_allows_clean_reentry() {
     let (_root, runtime, page, conn) =
-        runtime_with_fake_page(NavDialogBehavior::StallFirstNetworkEnable).await;
+        runtime_with_fake_page(DialogBehavior::StallFirstNetworkEnable).await;
     let mut started = conn.network_enable_started.subscribe();
     {
         let setup = runtime.ensure_page_domains(&page);
@@ -701,296 +441,4 @@ async fn cancelling_domain_setup_before_network_enable_allows_clean_reentry() {
     runtime.ensure_page_domains(&page).await.unwrap();
     assert_eq!(conn.count("Runtime.enable"), runtime_enables);
     assert_eq!(conn.count("Network.enable"), network_enables);
-}
-
-#[tokio::test]
-async fn agent_close_and_open_profile_refuse_pre_existing_dialog_without_unbind_or_close() {
-    use crate::surface::model::SurfaceError;
-    use crate::surface::runtime::SurfaceRuntime;
-
-    let (_root, runtime, _page, conn) = runtime_with_fake_page(NavDialogBehavior::Clean).await;
-    let mut dialogs = runtime.shared.subscribe_dialogs();
-    conn.emit(
-        "Page.javascriptDialogOpening",
-        Some("ST1"),
-        json!({ "type": "beforeunload", "message": "Owner draft", "url": "https://owner.test/" }),
-    );
-    tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        dialogs.wait_for(|snapshot| snapshot.tracked.is_some()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
-    // Agent close must refuse before unbinding or tearing down the target.
-    let close_err = runtime.agent_close().await.unwrap_err();
-    match close_err {
-        SurfaceError::Blocked(detail) => {
-            assert!(detail.contains("beforeunload"), "{detail}");
-            assert!(detail.contains("Owner draft"), "{detail}");
-        }
-        other => panic!("expected SurfaceError::Blocked, got {other:?}"),
-    }
-
-    // Agent open --profile and open <url> must also refuse without unbind/host teardown.
-    let profile_err = runtime
-        .open_verb(&["--profile".into(), "Work".into()])
-        .await
-        .unwrap_err();
-    assert!(profile_err.contains("beforeunload"), "{profile_err}");
-    let url_err = runtime
-        .open_verb(&["https://other.test/".into()])
-        .await
-        .unwrap_err();
-    assert!(url_err.contains("beforeunload"), "{url_err}");
-
-    assert_eq!(conn.count("Target.closeTarget"), 0);
-    assert_eq!(conn.count("Browser.close"), 0);
-    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
-    assert_eq!(conn.count("Page.navigate"), 0);
-    assert_eq!(runtime.shared.state().needs_human, "dialog");
-    assert!(runtime
-        .status_text()
-        .contains("dialog: beforeunload — Owner draft"));
-
-    // Listener must still be bound: closing the dialog on the page clears needs_human.
-    conn.emit(
-        "Page.javascriptDialogClosed",
-        Some("ST1"),
-        json!({ "result": false, "userInput": "" }),
-    );
-    tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        dialogs.wait_for(|snapshot| snapshot.tracked.is_none()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(runtime.shared.state().needs_human, "none");
-
-    // Owner close authority stays separate and succeeds even with a dialog open.
-    conn.emit(
-        "Page.javascriptDialogOpening",
-        Some("ST1"),
-        json!({ "type": "alert", "message": "Owner closing", "url": "https://owner.test/" }),
-    );
-    tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        dialogs.wait_for(|snapshot| snapshot.tracked.is_some()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    runtime.close().await.unwrap();
-}
-
-#[tokio::test]
-async fn queued_owner_beforeunload_during_observe_is_never_accepted() {
-    let (_root, runtime, page, conn) =
-        runtime_with_fake_page(NavDialogBehavior::HoldObserveForOwnerBeforeUnload).await;
-    let mut observe_held = conn.observe_held.subscribe();
-    let mut dialogs = runtime.shared.subscribe_dialogs();
-    let nav = runtime.navigate(
-        &page,
-        super::super::input::NavAction::Goto,
-        Some("https://next.test/after-observe"),
-    );
-    tokio::pin!(nav);
-
-    // Hold ActionCompletion::observe (Page.getFrameTree) while an owner beforeunload arrives.
-    tokio::select! {
-        result = &mut nav => panic!("navigation ended before observe gate: {result:?}"),
-        held = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            observe_held.wait_for(|hit| *hit),
-        ) => {
-            held.expect("Page.getFrameTree must be reached").unwrap();
-        }
-    }
-    conn.emit(
-        "Page.javascriptDialogOpening",
-        Some("ST1"),
-        json!({ "type": "beforeunload", "message": "Owner unsaved", "url": "https://owner.test/" }),
-    );
-    conn.release_observe.send_replace(true);
-
-    let err = tokio::time::timeout(std::time::Duration::from_secs(2), nav)
-        .await
-        .expect("owner beforeunload during observe must fail promptly")
-        .unwrap_err();
-    assert!(err.contains("beforeunload"), "{err}");
-    assert!(err.contains("Owner unsaved"), "{err}");
-    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
-    assert_eq!(conn.count("Page.navigate"), 0);
-    tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        dialogs.wait_for(|s| s.tracked.is_some()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(runtime.shared.state().needs_human, "dialog");
-}
-
-#[tokio::test]
-async fn blocked_outgoing_queue_accept_is_cancelled_on_replacement_or_revocation() {
-    // Case A: dialog replaced by prompt while accept is blocked in the outgoing queue.
-    {
-        let (_root, runtime, page, conn) =
-            runtime_with_fake_page(NavDialogBehavior::BlockOutgoingQueueOnAccept).await;
-        let mut accept_queued = conn.accept_queued.subscribe();
-        let mut dialogs = runtime.shared.subscribe_dialogs();
-        let nav = runtime.navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/replaced"),
-        );
-        tokio::pin!(nav);
-        tokio::select! {
-            result = &mut nav => panic!("navigation ended before outgoing queue block: {result:?}"),
-            queued = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                accept_queued.wait_for(|hit| *hit),
-            ) => {
-                queued.expect("handleJavaScriptDialog must enter outgoing queue").unwrap();
-            }
-        }
-        conn.emit(
-            "Page.javascriptDialogClosed",
-            Some("ST1"),
-            json!({ "result": false, "userInput": "" }),
-        );
-        conn.emit(
-            "Page.javascriptDialogOpening",
-            Some("ST1"),
-            json!({ "type": "prompt", "message": "Enter PIN", "url": "https://next.test/replaced" }),
-        );
-        tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            dialogs.wait_for(|s| {
-                s.tracked
-                    .as_ref()
-                    .is_some_and(|t| t.dialog.kind == DialogKind::Prompt)
-            }),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        conn.release_outgoing.send_replace(true);
-        let err = tokio::time::timeout(std::time::Duration::from_secs(2), nav)
-            .await
-            .expect("replacement prompt must surface promptly")
-            .unwrap_err();
-        assert!(err.contains("prompt"), "{err}");
-        assert!(err.contains("Enter PIN"), "{err}");
-        assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
-    }
-
-    // Case B: navigation authority revoked while accept is blocked in the outgoing queue.
-    {
-        let (_root, runtime, page, conn) =
-            runtime_with_fake_page(NavDialogBehavior::BlockOutgoingQueueOnAccept).await;
-        let mut accept_queued = conn.accept_queued.subscribe();
-        let nav = runtime.navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/revoked"),
-        );
-        tokio::pin!(nav);
-        tokio::select! {
-            result = &mut nav => panic!("navigation ended before outgoing queue block: {result:?}"),
-            queued = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                accept_queued.wait_for(|hit| *hit),
-            ) => {
-                queued.expect("handleJavaScriptDialog must enter outgoing queue").unwrap();
-            }
-        }
-        runtime.shared.invalidate_action();
-        conn.release_outgoing.send_replace(true);
-        let err = tokio::time::timeout(std::time::Duration::from_secs(2), nav)
-            .await
-            .expect("revoked navigation must fail promptly")
-            .unwrap_err();
-        assert!(err.contains("beforeunload"), "{err}");
-        assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
-        assert_eq!(runtime.shared.state().needs_human, "dialog");
-    }
-}
-
-#[tokio::test]
-async fn nav_held_before_writer_dispatch_with_injected_owner_dialog_never_accepts() {
-    let (_root, runtime, page, conn) =
-        runtime_with_fake_page(NavDialogBehavior::HoldNavBeforeWriterDispatch).await;
-    let mut nav_held = conn.nav_held.subscribe();
-    let mut dialogs = runtime.shared.subscribe_dialogs();
-    let nav = runtime.navigate(
-        &page,
-        super::super::input::NavAction::Goto,
-        Some("https://next.test/held-writer"),
-    );
-    tokio::pin!(nav);
-
-    tokio::select! {
-        result = &mut nav => panic!("navigation ended before writer dispatch gate: {result:?}"),
-        held = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            nav_held.wait_for(|hit| *hit),
-        ) => {
-            held.expect("causal Page.navigate must reach writer gate").unwrap();
-        }
-    }
-    // Inject an owner beforeunload on the wire BEFORE the writer writes Page.navigate.
-    conn.emit(
-        "Page.javascriptDialogOpening",
-        Some("ST1"),
-        json!({ "type": "beforeunload", "message": "Owner leaving", "url": "https://owner.test/" }),
-    );
-    conn.release_nav.send_replace(true);
-
-    let err = tokio::time::timeout(std::time::Duration::from_secs(2), nav)
-        .await
-        .expect("injected owner beforeunload must abort navigation promptly")
-        .unwrap_err();
-    assert!(err.contains("beforeunload"), "{err}");
-    assert!(err.contains("Owner leaving"), "{err}");
-    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
-    assert_eq!(conn.count("Page.navigate"), 0);
-    tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        dialogs.wait_for(|s| s.tracked.is_some()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(runtime.shared.state().needs_human, "dialog");
-}
-
-#[tokio::test]
-async fn replacement_beforeunload_b_while_consumer_behind_never_accepts_b() {
-    let (_root, runtime, page, conn) =
-        runtime_with_fake_page(NavDialogBehavior::BeforeUnloadThenBeforeUnload).await;
-    let err = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        runtime.navigate(
-            &page,
-            super::super::input::NavAction::Goto,
-            Some("https://next.test/second-beforeunload"),
-        ),
-    )
-    .await
-    .expect("replacement beforeunload B must surface promptly")
-    .unwrap_err();
-    assert!(err.contains("beforeunload"), "{err}");
-    assert!(err.contains("Dialog B"), "{err}");
-    assert_eq!(
-        conn.count("Page.handleJavaScriptDialog"),
-        0,
-        "stale accept for beforeunload A must never accept replacement beforeunload B"
-    );
-    assert_eq!(runtime.shared.state().needs_human, "dialog");
-    assert!(runtime
-        .status_text()
-        .contains("dialog: beforeunload — Dialog B"));
 }

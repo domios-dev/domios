@@ -1,7 +1,3 @@
-mod dialog_order;
-
-pub use dialog_order::{WireDialogEvent, WireDialogOpening, WireDialogOrder};
-
 use super::cdp_wire::{
     decode_document_incoming, decode_incoming, discard_value, encode_request, response_id,
     CdpEvent, EventFilter, Incoming, ProtocolError, SessionFilter,
@@ -43,7 +39,6 @@ pub enum CdpError {
     Protocol(ProtocolError),
     Deadline(String),
     Malformed(String),
-    Cancelled(String),
 }
 
 impl std::fmt::Display for CdpError {
@@ -53,59 +48,15 @@ impl std::fmt::Display for CdpError {
             Self::Protocol(error) => write!(f, "CDP error {}: {}", error.code, error.message),
             Self::Deadline(method) => write!(f, "CDP {method} got no reply before its deadline"),
             Self::Malformed(detail) => write!(f, "unexpected CDP reply: {detail}"),
-            Self::Cancelled(reason) => write!(f, "CDP dispatch cancelled: {reason}"),
         }
     }
 }
-
-/// Checked immediately before enqueuing and immediately before writing a guarded command to CDP.
-pub type DispatchGate = Arc<dyn Fn() -> bool + Send + Sync>;
 
 type Reply = Result<Value, CdpError>;
 
 struct PendingReply {
     sender: oneshot::Sender<Reply>,
     document: bool,
-}
-
-enum OutgoingPolicy {
-    Plain {
-        disarm_session: Option<String>,
-    },
-    CausalNav {
-        session_id: String,
-        token: u64,
-        gate: DispatchGate,
-    },
-    CausalClose {
-        target_session_id: Option<String>,
-        token: u64,
-        gate: DispatchGate,
-    },
-    DialogAccept {
-        session_id: String,
-        expected_generation: u64,
-        expected_owner_token: u64,
-        gate: DispatchGate,
-    },
-}
-
-struct OutgoingBatch {
-    messages: Vec<Message>,
-    ids: Vec<u64>,
-    policy: OutgoingPolicy,
-}
-
-impl OutgoingBatch {
-    fn plain(messages: Vec<Message>) -> Self {
-        Self {
-            messages,
-            ids: Vec::new(),
-            policy: OutgoingPolicy::Plain {
-                disarm_session: None,
-            },
-        }
-    }
 }
 
 struct Subscriber {
@@ -127,8 +78,7 @@ struct Inner {
     next_id: AtomicU64,
     next_subscriber: AtomicU64,
     state: Mutex<State>,
-    wire_dialogs: WireDialogOrder,
-    outgoing: mpsc::Sender<OutgoingBatch>,
+    outgoing: mpsc::Sender<Vec<Message>>,
     closed: watch::Sender<Option<String>>,
 }
 
@@ -163,110 +113,8 @@ impl Inner {
             }
             Incoming::Event(event) => {
                 let event = Arc::new(event);
-                self.wire_dialogs.on_incoming_event(&event);
-                self.fan_out(event);
+                self.fan_out(event.clone());
             }
-        }
-    }
-
-    fn can_enqueue(&self, policy: &OutgoingPolicy) -> Result<(), &'static str> {
-        match policy {
-            OutgoingPolicy::Plain { .. } => Ok(()),
-            OutgoingPolicy::CausalNav {
-                session_id, gate, ..
-            } => {
-                if !gate() {
-                    return Err("navigation dispatch authorization revoked");
-                }
-                if self.wire_dialogs.has_active_dialog(session_id) {
-                    return Err("dialog already open on wire");
-                }
-                Ok(())
-            }
-            OutgoingPolicy::CausalClose { .. } => Ok(()),
-            OutgoingPolicy::DialogAccept {
-                session_id,
-                expected_generation,
-                expected_owner_token,
-                gate,
-            } => {
-                if !gate()
-                    || !self.wire_dialogs.can_accept(
-                        session_id,
-                        *expected_generation,
-                        *expected_owner_token,
-                    )
-                {
-                    return Err("dialog accept superseded or revoked");
-                }
-                Ok(())
-            }
-        }
-    }
-
-    /// Runs inside `write_loop` immediately before writing frames to the socket: validates
-    /// authority/generation and arms causal navigation/close ownership at the exact wire boundary.
-    fn prepare_write(&self, batch: &OutgoingBatch) -> Result<Option<(String, u64)>, &'static str> {
-        match &batch.policy {
-            OutgoingPolicy::Plain { disarm_session } => {
-                if let Some(sid) = disarm_session {
-                    self.wire_dialogs.disarm(sid, None);
-                }
-                Ok(None)
-            }
-            OutgoingPolicy::CausalNav {
-                session_id,
-                token,
-                gate,
-            } => {
-                if !gate() || !self.wire_dialogs.arm_for_navigation(session_id, *token) {
-                    return Err("navigation dispatch authorization revoked or dialog open");
-                }
-                Ok(Some((session_id.clone(), *token)))
-            }
-            OutgoingPolicy::CausalClose {
-                target_session_id,
-                token,
-                gate,
-            } => {
-                if let Some(sid) = target_session_id {
-                    if gate() {
-                        self.wire_dialogs.arm_for_close(sid, *token);
-                    }
-                }
-                Ok(None)
-            }
-            OutgoingPolicy::DialogAccept {
-                session_id,
-                expected_generation,
-                expected_owner_token,
-                gate,
-            } => {
-                if !gate()
-                    || !self.wire_dialogs.can_accept(
-                        session_id,
-                        *expected_generation,
-                        *expected_owner_token,
-                    )
-                {
-                    return Err("dialog accept superseded or revoked");
-                }
-                Ok(None)
-            }
-        }
-    }
-
-    fn cancel_pending(&self, ids: &[u64], reason: &str) {
-        let replies: Vec<PendingReply> = {
-            let mut state = self.state.lock();
-            ids.iter()
-                .filter_map(|id| state.pending.remove(id))
-                .collect()
-        };
-        for reply in replies {
-            let _ = reply
-                .sender
-                .send(Err(CdpError::Cancelled(reason.to_string())));
         }
     }
 
@@ -305,7 +153,6 @@ impl Inner {
             state.subscribers.clear();
             std::mem::take(&mut state.pending)
         };
-        self.wire_dialogs.close_all();
         for (_, reply) in pending {
             let _ = reply.sender.send(Err(CdpError::Closed(reason.to_string())));
         }
@@ -338,7 +185,6 @@ impl SocketConnection {
             next_id: AtomicU64::new(1),
             next_subscriber: AtomicU64::new(1),
             state: Mutex::new(State::default()),
-            wire_dialogs: WireDialogOrder::new(),
             outgoing,
             closed,
         });
@@ -370,91 +216,9 @@ impl SocketConnection {
         params: Value,
         deadline: Duration,
     ) -> Reply {
-        let disarm_session = session_id
-            .filter(|_| dialog_order::disarms_navigation_on_write(method))
-            .map(str::to_string);
-        self.send_batch_with_policy(
-            session_id,
-            vec![(method.to_string(), params)],
-            deadline,
-            OutgoingPolicy::Plain { disarm_session },
-        )
-        .await
-        .map(|mut replies| replies.remove(0))
-    }
-
-    pub async fn send_causal_nav_to(
-        &self,
-        session_id: &str,
-        method: &str,
-        params: Value,
-        deadline: Duration,
-        token: u64,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.send_batch_with_policy(
-            Some(session_id),
-            vec![(method.to_string(), params)],
-            deadline,
-            OutgoingPolicy::CausalNav {
-                session_id: session_id.to_string(),
-                token,
-                gate: can_dispatch,
-            },
-        )
-        .await
-        .map(|mut replies| replies.remove(0))
-    }
-
-    pub async fn send_causal_close_target(
-        &self,
-        target_id: &str,
-        target_session_id: Option<&str>,
-        token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.send_batch_with_policy(
-            None,
-            vec![(
-                "Target.closeTarget".into(),
-                json!({ "targetId": target_id }),
-            )],
-            deadline,
-            OutgoingPolicy::CausalClose {
-                target_session_id: target_session_id.map(str::to_string),
-                token,
-                gate: can_dispatch,
-            },
-        )
-        .await
-        .map(|mut replies| replies.remove(0))
-    }
-
-    pub async fn send_dialog_accept(
-        &self,
-        session_id: &str,
-        expected_generation: u64,
-        expected_owner_token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.send_batch_with_policy(
-            Some(session_id),
-            vec![(
-                "Page.handleJavaScriptDialog".into(),
-                json!({ "accept": true }),
-            )],
-            deadline,
-            OutgoingPolicy::DialogAccept {
-                session_id: session_id.to_string(),
-                expected_generation,
-                expected_owner_token,
-                gate: can_dispatch,
-            },
-        )
-        .await
-        .map(|mut replies| replies.remove(0))
+        self.send_batch_to(session_id, vec![(method.to_string(), params)], deadline)
+            .await
+            .map(|mut replies| replies.remove(0))
     }
 
     async fn send_batch_to(
@@ -463,32 +227,6 @@ impl SocketConnection {
         commands: Vec<(String, Value)>,
         deadline: Duration,
     ) -> Result<Vec<Value>, CdpError> {
-        let disarm_session = session_id
-            .filter(|_| {
-                commands
-                    .iter()
-                    .any(|(method, _)| dialog_order::disarms_navigation_on_write(method))
-            })
-            .map(str::to_string);
-        self.send_batch_with_policy(
-            session_id,
-            commands,
-            deadline,
-            OutgoingPolicy::Plain { disarm_session },
-        )
-        .await
-    }
-
-    async fn send_batch_with_policy(
-        &self,
-        session_id: Option<&str>,
-        commands: Vec<(String, Value)>,
-        deadline: Duration,
-        policy: OutgoingPolicy,
-    ) -> Result<Vec<Value>, CdpError> {
-        if let Err(reason) = self.0.can_enqueue(&policy) {
-            return Err(CdpError::Cancelled(reason.into()));
-        }
         let until = Instant::now() + deadline;
         let mut ids = Vec::with_capacity(commands.len());
         let mut responses = Vec::with_capacity(commands.len());
@@ -515,17 +253,12 @@ impl SocketConnection {
                 )));
             }
         }
-        let batch = OutgoingBatch {
-            messages,
-            ids: ids.clone(),
-            policy,
-        };
         let _pending = PendingRequests {
             client: Arc::downgrade(&self.0),
             ids,
         };
         async {
-            let permit = tokio::time::timeout_at(until, self.0.outgoing.reserve())
+            tokio::time::timeout_at(until, self.0.outgoing.send(messages))
                 .await
                 .map_err(|_| CdpError::Deadline("input batch queue".into()))?
                 .map_err(|_| {
@@ -534,10 +267,6 @@ impl SocketConnection {
                             .unwrap_or_else(|| "writer stopped".into()),
                     )
                 })?;
-            if let Err(reason) = self.0.can_enqueue(&batch.policy) {
-                return Err(CdpError::Cancelled(reason.into()));
-            }
-            permit.send(batch);
             futures_util::future::try_join_all(responses.into_iter().map(
                 |(method, response)| async move {
                     tokio::time::timeout_at(until, response)
@@ -584,17 +313,6 @@ pub trait CdpConnection: Send + Sync {
     fn closed(&self) -> watch::Receiver<Option<String>>;
     fn close(&self, reason: &str);
     fn subscribe(&self, filter: EventFilter) -> EventStream;
-    fn allocate_dialog_token(&self) -> u64 {
-        0
-    }
-    fn subscribe_wire_dialogs(&self, _session_id: &str) -> mpsc::Receiver<WireDialogEvent> {
-        let (_tx, rx) = mpsc::channel(1);
-        rx
-    }
-    fn active_wire_dialog(&self, _session_id: &str) -> Option<WireDialogOpening> {
-        None
-    }
-    fn disarm_dialog_owner(&self, _session_id: &str, _token: Option<u64>) {}
     async fn send_to(
         &self,
         session_id: Option<&str>,
@@ -602,60 +320,6 @@ pub trait CdpConnection: Send + Sync {
         params: Value,
         deadline: Duration,
     ) -> Reply;
-    async fn send_causal_nav_to(
-        &self,
-        session_id: &str,
-        method: &str,
-        params: Value,
-        deadline: Duration,
-        _token: u64,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        if !can_dispatch() {
-            return Err(CdpError::Cancelled(
-                "navigation dispatch authorization revoked".into(),
-            ));
-        }
-        self.send_to(Some(session_id), method, params, deadline)
-            .await
-    }
-    async fn send_causal_close_target(
-        &self,
-        target_id: &str,
-        _target_session_id: Option<&str>,
-        _token: u64,
-        deadline: Duration,
-        _can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.send_to(
-            None,
-            "Target.closeTarget",
-            json!({ "targetId": target_id }),
-            deadline,
-        )
-        .await
-    }
-    async fn send_dialog_accept(
-        &self,
-        session_id: &str,
-        _expected_generation: u64,
-        _expected_owner_token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        if !can_dispatch() {
-            return Err(CdpError::Cancelled(
-                "dialog accept superseded or revoked".into(),
-            ));
-        }
-        self.send_to(
-            Some(session_id),
-            "Page.handleJavaScriptDialog",
-            json!({ "accept": true }),
-            deadline,
-        )
-        .await
-    }
     async fn send_batch_to(
         &self,
         session_id: Option<&str>,
@@ -685,18 +349,6 @@ impl CdpConnection for SocketConnection {
     fn subscribe(&self, filter: EventFilter) -> EventStream {
         self.subscribe(filter)
     }
-    fn allocate_dialog_token(&self) -> u64 {
-        self.0.wire_dialogs.allocate_token()
-    }
-    fn subscribe_wire_dialogs(&self, session_id: &str) -> mpsc::Receiver<WireDialogEvent> {
-        self.0.wire_dialogs.subscribe(session_id)
-    }
-    fn active_wire_dialog(&self, session_id: &str) -> Option<WireDialogOpening> {
-        self.0.wire_dialogs.active_dialog(session_id)
-    }
-    fn disarm_dialog_owner(&self, session_id: &str, token: Option<u64>) {
-        self.0.wire_dialogs.disarm(session_id, token);
-    }
     async fn send_to(
         &self,
         session_id: Option<&str>,
@@ -705,62 +357,6 @@ impl CdpConnection for SocketConnection {
         deadline: Duration,
     ) -> Reply {
         self.send_to(session_id, method, params, deadline).await
-    }
-    async fn send_causal_nav_to(
-        &self,
-        session_id: &str,
-        method: &str,
-        params: Value,
-        deadline: Duration,
-        token: u64,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        SocketConnection::send_causal_nav_to(
-            self,
-            session_id,
-            method,
-            params,
-            deadline,
-            token,
-            can_dispatch,
-        )
-        .await
-    }
-    async fn send_causal_close_target(
-        &self,
-        target_id: &str,
-        target_session_id: Option<&str>,
-        token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        SocketConnection::send_causal_close_target(
-            self,
-            target_id,
-            target_session_id,
-            token,
-            deadline,
-            can_dispatch,
-        )
-        .await
-    }
-    async fn send_dialog_accept(
-        &self,
-        session_id: &str,
-        expected_generation: u64,
-        expected_owner_token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        SocketConnection::send_dialog_accept(
-            self,
-            session_id,
-            expected_generation,
-            expected_owner_token,
-            deadline,
-            can_dispatch,
-        )
-        .await
     }
     async fn send_batch_to(
         &self,
@@ -803,18 +399,6 @@ impl CdpClient {
     pub fn subscribe(&self, filter: EventFilter) -> EventStream {
         self.0.subscribe(filter)
     }
-    pub fn allocate_dialog_token(&self) -> u64 {
-        self.0.allocate_dialog_token()
-    }
-    pub fn subscribe_wire_dialogs(&self, session_id: &str) -> mpsc::Receiver<WireDialogEvent> {
-        self.0.subscribe_wire_dialogs(session_id)
-    }
-    pub fn active_wire_dialog(&self, session_id: &str) -> Option<WireDialogOpening> {
-        self.0.active_wire_dialog(session_id)
-    }
-    pub fn disarm_dialog_owner(&self, session_id: &str, token: Option<u64>) {
-        self.0.disarm_dialog_owner(session_id, token);
-    }
     pub async fn send(&self, method: &str, params: Value) -> Reply {
         self.send_to(None, method, params, COMMAND_DEADLINE).await
     }
@@ -826,49 +410,6 @@ impl CdpClient {
         deadline: Duration,
     ) -> Reply {
         self.0.send_to(session_id, method, params, deadline).await
-    }
-    pub async fn send_causal_nav_to(
-        &self,
-        session_id: &str,
-        method: &str,
-        params: Value,
-        deadline: Duration,
-        token: u64,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.0
-            .send_causal_nav_to(session_id, method, params, deadline, token, can_dispatch)
-            .await
-    }
-    pub async fn send_causal_close_target(
-        &self,
-        target_id: &str,
-        target_session_id: Option<&str>,
-        token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.0
-            .send_causal_close_target(target_id, target_session_id, token, deadline, can_dispatch)
-            .await
-    }
-    pub async fn send_dialog_accept(
-        &self,
-        session_id: &str,
-        expected_generation: u64,
-        expected_owner_token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.0
-            .send_dialog_accept(
-                session_id,
-                expected_generation,
-                expected_owner_token,
-                deadline,
-                can_dispatch,
-            )
-            .await
     }
     /// Flattened session: page commands share this socket and carry `sessionId`.
     pub async fn attach_page(&self, target_id: &str) -> Result<PageChannel, CdpError> {
@@ -892,33 +433,22 @@ impl CdpClient {
 
 async fn write_loop(
     mut writer: futures_util::stream::SplitSink<Socket, Message>,
-    mut messages: mpsc::Receiver<OutgoingBatch>,
+    mut messages: mpsc::Receiver<Vec<Message>>,
     inner: Weak<Inner>,
 ) {
     let Some(mut closed) = inner.upgrade().map(|inner| inner.closed.subscribe()) else {
         return;
     };
     loop {
-        let batch = tokio::select! {
+        let message = tokio::select! {
             _ = closed.wait_for(Option::is_some) => break,
-            batch = messages.recv() => match batch {
-                Some(batch) => batch,
+            message = messages.recv() => match message {
+                Some(message) => message,
                 None => break,
             },
         };
-        let armed_rollback = if let Some(owner) = inner.upgrade() {
-            match owner.prepare_write(&batch) {
-                Ok(rollback) => rollback,
-                Err(reason) => {
-                    owner.cancel_pending(&batch.ids, reason);
-                    continue;
-                }
-            }
-        } else {
-            break;
-        };
         let written = async {
-            for part in batch.messages {
+            for part in message {
                 writer.feed(part).await?;
             }
             writer.flush().await
@@ -926,11 +456,8 @@ async fn write_loop(
         .await;
         if let Err(error) = written {
             log::warn!("[browser-cdp] write error (domios -> chrome): {error}");
-            if let Some(owner) = inner.upgrade() {
-                if let Some((sid, token)) = armed_rollback {
-                    owner.wire_dialogs.disarm(&sid, Some(token));
-                }
-                owner.close(&format!("CDP write error (domios -> chrome): {error}"));
+            if let Some(inner) = inner.upgrade() {
+                inner.close(&format!("CDP write error (domios -> chrome): {error}"));
             }
             break;
         }
@@ -985,9 +512,7 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
                 }
             }
             Some(Ok(Message::Ping(payload))) => {
-                let _ = owner
-                    .outgoing
-                    .try_send(OutgoingBatch::plain(vec![Message::Pong(payload)]));
+                let _ = owner.outgoing.try_send(vec![Message::Pong(payload)]);
             }
             Some(Ok(Message::Close(frame))) => {
                 break Some(format!("chrome closed the CDP socket ({frame:?})"));
@@ -1109,59 +634,6 @@ impl PageChannel {
     ) -> Reply {
         self.client
             .send_to(Some(&self.session_id), method, params, deadline)
-            .await
-    }
-
-    pub fn allocate_dialog_token(&self) -> u64 {
-        self.client.allocate_dialog_token()
-    }
-
-    pub fn subscribe_wire_dialogs(&self) -> mpsc::Receiver<WireDialogEvent> {
-        self.client.subscribe_wire_dialogs(&self.session_id)
-    }
-
-    pub fn active_wire_dialog(&self) -> Option<WireDialogOpening> {
-        self.client.active_wire_dialog(&self.session_id)
-    }
-
-    pub fn disarm_dialog_owner(&self, token: Option<u64>) {
-        self.client.disarm_dialog_owner(&self.session_id, token);
-    }
-
-    pub async fn send_causal_nav(
-        &self,
-        method: &str,
-        params: Value,
-        token: u64,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.client
-            .send_causal_nav_to(
-                &self.session_id,
-                method,
-                params,
-                COMMAND_DEADLINE,
-                token,
-                can_dispatch,
-            )
-            .await
-    }
-
-    pub async fn send_dialog_accept(
-        &self,
-        expected_generation: u64,
-        expected_owner_token: u64,
-        deadline: Duration,
-        can_dispatch: DispatchGate,
-    ) -> Reply {
-        self.client
-            .send_dialog_accept(
-                &self.session_id,
-                expected_generation,
-                expected_owner_token,
-                deadline,
-                can_dispatch,
-            )
             .await
     }
 

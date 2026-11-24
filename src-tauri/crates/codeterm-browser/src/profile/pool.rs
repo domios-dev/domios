@@ -96,7 +96,6 @@ pub struct ProfileLease {
     slot: Option<Arc<Slot>>,
     pub(crate) browser: Arc<SharedBrowser>,
     pub(crate) target_id: Option<String>,
-    pub(crate) session_id: Option<String>,
 }
 
 pub async fn delete_named_profile(layout: &super::ProfileLayout, name: &str) -> Result<(), String> {
@@ -158,7 +157,6 @@ impl ProfileLease {
                     slot: Some(slot.clone()),
                     browser,
                     target_id: None,
-                    session_id: None,
                 })
             }
             .await;
@@ -203,7 +201,6 @@ impl ProfileLease {
         let id = self.id;
         let browser = self.browser.clone();
         let target_id = self.target_id.take();
-        let session_id = self.session_id.take();
         Some(executor.spawn(async move {
             let mut model = slot.lock().await;
             let same_browser = model
@@ -216,13 +213,18 @@ impl ProfileLease {
             }
             if same_browser {
                 if let Some(target_id) = target_id {
-                    close_target_accepting_beforeunload(
-                        &browser.client,
-                        &target_id,
-                        session_id.as_deref(),
-                        deadline,
-                    )
-                    .await;
+                    if let Err(error) = browser
+                        .client
+                        .send_to(
+                            None,
+                            "Target.closeTarget",
+                            json!({ "targetId": target_id }),
+                            deadline,
+                        )
+                        .await
+                    {
+                        log::debug!("[browser] close profile target {target_id}: {error}");
+                    }
                 }
             }
             match model.release(id) {
@@ -230,131 +232,6 @@ impl ProfileLease {
                 None => None,
             }
         }))
-    }
-}
-
-struct CloseAuthGuard<'a> {
-    client: &'a CdpClient,
-    session_id: Option<&'a str>,
-    token: u64,
-    authorized: Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl Drop for CloseAuthGuard<'_> {
-    fn drop(&mut self) {
-        self.authorized
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-        if let Some(sid) = self.session_id {
-            self.client.disarm_dialog_owner(sid, Some(self.token));
-        }
-    }
-}
-
-/// Closes a page target while accepting only a `beforeunload` dialog causally raised by closing it.
-/// Dialog generations and causal ownership are stamped by the transport's ordered reader/writer.
-async fn close_target_accepting_beforeunload(
-    client: &CdpClient,
-    target_id: &str,
-    session_id: Option<&str>,
-    deadline: Duration,
-) {
-    let close_token = client.allocate_dialog_token();
-    let authorized = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let _auth_guard = CloseAuthGuard {
-        client,
-        session_id,
-        token: close_token,
-        authorized: authorized.clone(),
-    };
-    let mut dialogs = session_id.map(|sid| client.subscribe_wire_dialogs(sid));
-    let close_gate_flag = authorized.clone();
-    let close_gate: crate::DispatchGate =
-        Arc::new(move || close_gate_flag.load(std::sync::atomic::Ordering::SeqCst));
-    let close =
-        client.send_causal_close_target(target_id, session_id, close_token, deadline, close_gate);
-    tokio::pin!(close);
-    let mut handled_gen: Option<u64> = None;
-    let mut pending_accept: Option<(
-        u64,
-        std::pin::Pin<
-            Box<dyn Future<Output = Result<serde_json::Value, crate::CdpError>> + Send + '_>,
-        >,
-    )> = None;
-    let result = loop {
-        tokio::select! {
-            result = &mut close => break result,
-            accept_result = async {
-                match pending_accept.as_mut() {
-                    Some((_, fut)) => fut.await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                pending_accept = None;
-                if let Err(error) = accept_result {
-                    log::debug!("[browser] close beforeunload reply {target_id}: {error}");
-                }
-            }
-            event = async {
-                match dialogs.as_mut() {
-                    Some(stream) => stream.recv().await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                let Some(first) = event else {
-                    dialogs = None;
-                    continue;
-                };
-                let mut latest = match first {
-                    crate::WireDialogEvent::Opening(opening) => Some(opening),
-                    crate::WireDialogEvent::Closed => None,
-                };
-                if let Some(stream) = dialogs.as_mut() {
-                    while let Ok(queued) = stream.try_recv() {
-                        latest = match queued {
-                            crate::WireDialogEvent::Opening(opening) => Some(opening),
-                            crate::WireDialogEvent::Closed => None,
-                        };
-                    }
-                }
-                if let Some((active_gen, _)) = &pending_accept {
-                    let still_matching = latest.as_ref().is_some_and(|opening| {
-                        opening.generation == *active_gen
-                            && opening.owner_token == Some(close_token)
-                            && opening.dialog_type.eq_ignore_ascii_case("beforeunload")
-                    });
-                    if !still_matching {
-                        pending_accept = None;
-                    }
-                }
-                if let Some(opening) = latest {
-                    if opening.owner_token == Some(close_token)
-                        && opening.dialog_type.eq_ignore_ascii_case("beforeunload")
-                        && handled_gen != Some(opening.generation)
-                    {
-                        handled_gen = Some(opening.generation);
-                        if let Some(sid) = session_id {
-                            let flag = authorized.clone();
-                            let gate: crate::DispatchGate = Arc::new(move || {
-                                flag.load(std::sync::atomic::Ordering::SeqCst)
-                            });
-                            pending_accept = Some((
-                                opening.generation,
-                                Box::pin(client.send_dialog_accept(
-                                    sid,
-                                    opening.generation,
-                                    close_token,
-                                    deadline,
-                                    gate,
-                                )),
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    };
-    if let Err(error) = result {
-        log::debug!("[browser] close profile target {target_id}: {error}");
     }
 }
 

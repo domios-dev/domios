@@ -63,7 +63,6 @@ use codeterm_browser::{BrowserHost, BrowserHostConfig, BrowserStatus, OpenOption
 
 pub const BROWSER_RUNTIME: &str = "browser";
 pub(super) const WAIT_DEADLINE: Duration = Duration::from_secs(15);
-pub(super) const DIALOG_DEADLINE: Duration = Duration::from_secs(5);
 const PENDING_GRABS: usize = 16;
 const CLEAN_PROFILE: &str = "clean";
 

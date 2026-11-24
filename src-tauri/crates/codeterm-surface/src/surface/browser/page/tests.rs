@@ -143,170 +143,56 @@ fn browser_page_navigation_drops_refs_and_dialogs_flag_needs_human() {
 }
 
 #[test]
-fn browser_page_agent_navigation_tracks_beforeunload_and_surfaces_on_cancel_or_alert() {
-    use codeterm_browser::WireDialogOpening;
-
-    let shared = PageShared::new("Orla");
-    shared.session.lock().bound_session = Some("s".into());
-    shared.register_agent_navigation("s", 1).unwrap();
-    shared.apply_wire_dialog(
-        "s",
-        WireDialogEvent::Opening(WireDialogOpening {
-            generation: 1,
-            dialog_type: "beforeunload".into(),
-            message: "Draft".into(),
-            owner_token: Some(1),
-        }),
-    );
-    assert_eq!(shared.state().needs_human, NEEDS_NONE);
-    assert!(shared.can_accept_beforeunload("s", 1, 1));
-
-    // Ending/cancelling navigation before the dialog closes immediately surfaces it as blocking.
-    shared.end_agent_navigation("s", 1);
-    assert_eq!(shared.state().needs_human, "dialog");
-    assert!(!shared.can_accept_beforeunload("s", 1, 1));
-    assert_eq!(
-        shared.active_dialog().map(|d| d.status_line()),
-        Some("dialog: beforeunload — Draft".into())
-    );
-    assert!(shared.check_page_verb().is_err());
-
-    shared.apply_wire_dialog("s", WireDialogEvent::Closed);
-    assert_eq!(shared.state().needs_human, NEEDS_NONE);
-
-    // Authority revocation also revokes beforeunload auto-accept immediately.
-    shared.register_agent_navigation("s", 2).unwrap();
-    shared.apply_wire_dialog(
-        "s",
-        WireDialogEvent::Opening(WireDialogOpening {
-            generation: 2,
-            dialog_type: "beforeunload".into(),
-            message: String::new(),
-            owner_token: Some(2),
-        }),
-    );
-    assert!(shared.can_accept_beforeunload("s", 2, 2));
-    shared.invalidate_action();
-    assert!(!shared.can_accept_beforeunload("s", 2, 2));
-    assert_eq!(shared.state().needs_human, "dialog");
-    shared.apply_wire_dialog("s", WireDialogEvent::Closed);
-    assert_eq!(shared.state().needs_human, NEEDS_NONE);
-
-    // An alert during agent navigation always blocks immediately.
-    shared.register_agent_navigation("s", 3).unwrap();
-    shared.apply_wire_dialog(
-        "s",
-        WireDialogEvent::Opening(WireDialogOpening {
-            generation: 3,
-            dialog_type: "alert".into(),
-            message: "Hold on".into(),
-            owner_token: None,
-        }),
-    );
-    assert_eq!(shared.state().needs_human, "dialog");
-    assert!(!shared.can_accept_beforeunload("s", 3, 3));
-    assert!(shared.check_page_verb().is_err());
-    shared.end_agent_navigation("s", 3);
-    shared.apply_wire_dialog("s", WireDialogEvent::Closed);
-    assert_eq!(shared.state().needs_human, NEEDS_NONE);
-}
-
-#[test]
-fn stale_dialog_snapshot_cannot_overwrite_newer_prompt_on_ack_or_cancel_race() {
-    use codeterm_browser::WireDialogOpening;
-
+fn stale_dialog_snapshot_cannot_overwrite_newer_dialog() {
     let shared = PageShared::new("Orla");
     shared.session.lock().bound_session = Some("s".into());
 
-    // Interleaving 1: ack_beforeunload_closed produces a lower-seq None snapshot while a newer
-    // replacement prompt opens and publishes first.
-    shared.register_agent_navigation("s", 1).unwrap();
-    shared.apply_wire_dialog(
+    // Interleaving 1: a dialog close produces a lower-seq None snapshot while a newer prompt opens
+    // and publishes first.
+    shared.apply(
         "s",
-        WireDialogEvent::Opening(WireDialogOpening {
-            generation: 1,
-            dialog_type: "beforeunload".into(),
-            message: "Draft".into(),
-            owner_token: Some(1),
-        }),
+        PageUpdate::DialogOpened(ActiveDialog::from_cdp_params(&json!({
+            "type": "beforeunload",
+            "message": "Draft",
+        }))),
     );
-    let stale_ack = {
+    let stale_close = {
         let mut session = shared.session.lock();
-        session.dialog.ack_beforeunload_closed(1);
+        session.dialog.on_dialog_closed();
         next_dialog_snapshot(&mut session)
     };
-    assert_eq!(stale_ack.tracked, None);
-    assert!(!stale_ack.blocking);
+    assert_eq!(stale_close.dialog, None);
 
     let prompt = ActiveDialog::from_cdp_params(&json!({
         "type": "prompt",
         "message": "Enter PIN",
     }));
-    shared.apply_wire_dialog(
-        "s",
-        WireDialogEvent::Opening(WireDialogOpening {
-            generation: 2,
-            dialog_type: "prompt".into(),
-            message: "Enter PIN".into(),
-            owner_token: None,
-        }),
-    );
+    shared.apply("s", PageUpdate::DialogOpened(prompt.clone()));
     assert_eq!(shared.state().needs_human, "dialog");
     assert_eq!(
-        shared
-            .subscribe_dialogs()
-            .borrow()
-            .tracked
-            .as_ref()
-            .map(|t| &t.dialog),
-        Some(&prompt)
+        shared.subscribe_dialogs().borrow().dialog,
+        Some(prompt.clone())
     );
 
-    // Delayed publication of the stale ack must not overwrite the newer prompt or needs_human.
-    shared.publish_dialog_snapshot(stale_ack);
+    // Delayed publication of the stale None snapshot must not overwrite the newer prompt.
+    shared.publish_dialog_snapshot(stale_close);
     assert_eq!(shared.state().needs_human, "dialog");
-    assert_eq!(
-        shared
-            .subscribe_dialogs()
-            .borrow()
-            .tracked
-            .as_ref()
-            .map(|t| &t.dialog),
-        Some(&prompt)
-    );
+    assert_eq!(shared.subscribe_dialogs().borrow().dialog, Some(prompt));
 
-    // Interleaving 2: end_agent_navigation produces a lower-seq None snapshot while a newer alert
-    // opens and publishes first.
-    shared.apply_wire_dialog("s", WireDialogEvent::Closed);
-    let stale_cancel = {
+    // Interleaving 2: an older unbind/reset snapshot cannot overwrite a newly opened alert.
+    let stale_reset = {
         let mut session = shared.session.lock();
-        assert!(session.dialog.end_agent_navigation(1));
+        session.dialog.on_dialog_closed();
         next_dialog_snapshot(&mut session)
     };
     let alert = ActiveDialog::from_cdp_params(&json!({
         "type": "alert",
         "message": "Stop",
     }));
-    shared.apply_wire_dialog(
-        "s",
-        WireDialogEvent::Opening(WireDialogOpening {
-            generation: 3,
-            dialog_type: "alert".into(),
-            message: "Stop".into(),
-            owner_token: None,
-        }),
-    );
-    shared.publish_dialog_snapshot(stale_cancel);
+    shared.apply("s", PageUpdate::DialogOpened(alert.clone()));
+    shared.publish_dialog_snapshot(stale_reset);
     assert_eq!(shared.state().needs_human, "dialog");
-    assert_eq!(
-        shared
-            .subscribe_dialogs()
-            .borrow()
-            .tracked
-            .as_ref()
-            .map(|t| &t.dialog),
-        Some(&alert)
-    );
+    assert_eq!(shared.subscribe_dialogs().borrow().dialog, Some(alert));
 }
 
 #[test]

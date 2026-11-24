@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{broadcast, watch};
 
-use super::dialog::{ActiveDialog, DialogState, TrackedDialog};
+use super::dialog::{ActiveDialog, DialogState};
 use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
 use super::resume::{resumable_profile, resumable_url};
 use crate::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
 use codeterm_browser::cdp_wire::CdpEvent;
 use codeterm_browser::snapshot::{resolve_target, ResolvedTarget, Snapshot};
-use codeterm_browser::{EventStream, PageChannel, WireDialogEvent};
+use codeterm_browser::{EventStream, PageChannel};
 
 const ATTACHED_PROFILE: &str = "attached";
 pub(super) const CURSOR_BINDING: &str = "__domiosCursor";
@@ -23,6 +23,8 @@ pub(super) const PAGE_EVENTS: &[&str] = &[
     "Page.frameNavigated",
     "Page.navigatedWithinDocument",
     "Target.targetInfoChanged",
+    "Page.javascriptDialogOpening",
+    "Page.javascriptDialogClosed",
 ];
 
 pub(super) fn sanitize_cursor(raw: &str) -> &'static str {
@@ -122,8 +124,7 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DialogSnapshot {
     pub seq: u64,
-    pub tracked: Option<TrackedDialog>,
-    pub blocking: bool,
+    pub dialog: Option<ActiveDialog>,
 }
 
 #[derive(Default)]
@@ -146,8 +147,7 @@ fn next_dialog_snapshot(session: &mut PageSession) -> DialogSnapshot {
     session.dialog_seq += 1;
     DialogSnapshot {
         seq: session.dialog_seq,
-        tracked: session.dialog.current_tracked(),
-        blocking: session.dialog.is_blocking_for_human(),
+        dialog: session.dialog.active().cloned(),
     }
 }
 
@@ -230,28 +230,13 @@ impl PageShared {
             true
         });
         self.update(|state| {
-            let blocking = self.dialogs.borrow().blocking;
+            let blocking = self.dialogs.borrow().dialog.is_some();
             state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
         });
     }
 
     pub(super) fn invalidate_action(&self) {
-        let (bound_page, snapshot) = {
-            let mut session = self.session.lock();
-            session.action = None;
-            let bound_page = session.bound_page.clone();
-            let snapshot = session
-                .dialog
-                .revoke_agent_navigation()
-                .then(|| next_dialog_snapshot(&mut session));
-            (bound_page, snapshot)
-        };
-        if let Some(page) = bound_page {
-            page.disarm_dialog_owner(None);
-        }
-        if let Some(snapshot) = snapshot {
-            self.publish_dialog_snapshot(snapshot);
-        }
+        self.session.lock().action = None;
     }
     pub(super) fn new(owner: &str) -> Arc<Self> {
         Self::new_with_profile(owner, None)
@@ -365,7 +350,7 @@ impl PageShared {
 
     /// Binds the listener to `page` once per CDP session; a relaunch brings a new session.
     pub(super) fn bind(self: &Arc<Self>, page: &PageChannel) {
-        let (events, wire_dialogs, snapshot) = {
+        let (events, snapshot) = {
             let mut session = self.session.lock();
             if session
                 .bound_page
@@ -385,20 +370,15 @@ impl PageShared {
                 ..Default::default()
             };
             let snapshot = next_dialog_snapshot(&mut session);
-            (
-                page.subscribe(PAGE_EVENTS),
-                page.subscribe_wire_dialogs(),
-                snapshot,
-            )
+            (page.subscribe(PAGE_EVENTS), snapshot)
         };
         self.publish_dialog_snapshot(snapshot);
         self.update(|state| {
             state.target_id = page.target_id().to_string();
         });
-        let listener = tokio::spawn(listen_with_dialogs(
+        let listener = tokio::spawn(listen(
             self.clone(),
             events,
-            Some(wire_dialogs),
             page.session_id().to_string(),
             page.target_id().to_string(),
         ))
@@ -431,7 +411,7 @@ impl PageShared {
     }
 
     pub(super) fn active_dialog(&self) -> Option<ActiveDialog> {
-        self.session.lock().dialog.active_blocking().cloned()
+        self.session.lock().dialog.active().cloned()
     }
 
     pub(super) fn subscribe_dialogs(&self) -> watch::Receiver<DialogSnapshot> {
@@ -440,87 +420,6 @@ impl PageShared {
 
     pub(super) fn check_page_verb(&self) -> Result<(), String> {
         self.session.lock().dialog.check_page_verb()
-    }
-
-    pub(super) fn register_agent_navigation(
-        &self,
-        session_id: &str,
-        nav_token: u64,
-    ) -> Result<(), String> {
-        let mut session = self.session.lock();
-        if session.bound_session.as_deref() != Some(session_id) {
-            return Err("stale: browser session changed".into());
-        }
-        session
-            .dialog
-            .register_agent_navigation(nav_token)
-            .map_err(|active| active.blocking_error())
-    }
-
-    pub(super) fn is_agent_navigation_authorized(&self, session_id: &str, nav_token: u64) -> bool {
-        let session = self.session.lock();
-        session.bound_session.as_deref() == Some(session_id)
-            && session.dialog.is_agent_navigation_authorized(nav_token)
-    }
-
-    pub(super) fn apply_wire_dialog(&self, session_id: &str, event: WireDialogEvent) {
-        let snapshot = {
-            let mut session = self.session.lock();
-            if session.bound_session.as_deref() != Some(session_id) {
-                return;
-            }
-            match event {
-                WireDialogEvent::Opening(opening) => {
-                    let _ = session.dialog.on_wire_dialog_opening(&opening);
-                }
-                WireDialogEvent::Closed => {
-                    session.dialog.on_dialog_closed();
-                }
-            }
-            next_dialog_snapshot(&mut session)
-        };
-        self.publish_dialog_snapshot(snapshot);
-    }
-
-    pub(super) fn end_agent_navigation(&self, session_id: &str, nav_token: u64) {
-        let snapshot = {
-            let mut session = self.session.lock();
-            if session.bound_session.as_deref() != Some(session_id) {
-                return;
-            }
-            session
-                .dialog
-                .end_agent_navigation(nav_token)
-                .then(|| next_dialog_snapshot(&mut session))
-        };
-        if let Some(snapshot) = snapshot {
-            self.publish_dialog_snapshot(snapshot);
-        }
-    }
-
-    pub(super) fn can_accept_beforeunload(
-        &self,
-        session_id: &str,
-        nav_token: u64,
-        generation: u64,
-    ) -> bool {
-        let session = self.session.lock();
-        session.bound_session.as_deref() == Some(session_id)
-            && session
-                .dialog
-                .can_accept_beforeunload(nav_token, generation)
-    }
-
-    pub(super) fn ack_beforeunload_closed(&self, session_id: &str, generation: u64) {
-        let snapshot = {
-            let mut session = self.session.lock();
-            if session.bound_session.as_deref() != Some(session_id) {
-                return;
-            }
-            session.dialog.ack_beforeunload_closed(generation);
-            next_dialog_snapshot(&mut session)
-        };
-        self.publish_dialog_snapshot(snapshot);
     }
 
     /// True until Runtime/overlay/Network setup has completed and been committed for `page`.
@@ -558,13 +457,13 @@ impl PageShared {
                     session.capture = None;
                     if matches!(update, PageUpdate::Navigated { .. }) {
                         session.cursor_visible = false;
-                        let before = session.dialog.current_tracked();
+                        let before = session.dialog.active().cloned();
                         session.dialog.on_navigated();
-                        dialog_changed = session.dialog.current_tracked() != before;
+                        dialog_changed = session.dialog.active() != before.as_ref();
                     }
                 }
                 PageUpdate::DialogOpened(opened) => {
-                    let _ = session.dialog.on_unowned_dialog_opening(opened.clone());
+                    session.dialog.on_dialog_opening(opened.clone());
                     dialog_changed = true;
                 }
                 PageUpdate::DialogClosed => {
@@ -593,7 +492,7 @@ impl PageShared {
                 }
                 PageUpdate::DialogOpened(_) | PageUpdate::DialogClosed => {}
             }
-            let blocking = self.dialogs.borrow().blocking;
+            let blocking = self.dialogs.borrow().dialog.is_some();
             state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
         });
     }
@@ -679,52 +578,16 @@ fn process_event(shared: &PageShared, session_id: &str, target_id: &str, event: 
     }
 }
 
-#[cfg(test)]
 async fn listen(
     shared: Arc<PageShared>,
-    events: EventStream,
-    session_id: String,
-    target_id: String,
-) {
-    listen_with_dialogs(shared, events, None, session_id, target_id).await;
-}
-
-async fn listen_with_dialogs(
-    shared: Arc<PageShared>,
     mut events: EventStream,
-    mut wire_dialogs: Option<mpsc::Receiver<WireDialogEvent>>,
     session_id: String,
     target_id: String,
 ) {
-    loop {
-        tokio::select! {
-            biased;
-            dialog = async {
-                match wire_dialogs.as_mut() {
-                    Some(rx) => rx.recv().await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                let Some(first) = dialog else {
-                    wire_dialogs = None;
-                    continue;
-                };
-                shared.apply_wire_dialog(&session_id, first);
-                if let Some(rx) = wire_dialogs.as_mut() {
-                    while let Ok(queued) = rx.try_recv() {
-                        shared.apply_wire_dialog(&session_id, queued);
-                    }
-                }
-            }
-            event = events.recv() => {
-                let Some(event) = event else {
-                    break;
-                };
-                process_event(&shared, &session_id, &target_id, &event);
-                while let Ok(queued) = events.try_recv() {
-                    process_event(&shared, &session_id, &target_id, &queued);
-                }
-            }
+    while let Some(event) = events.recv().await {
+        process_event(&shared, &session_id, &target_id, &event);
+        while let Ok(queued) = events.try_recv() {
+            process_event(&shared, &session_id, &target_id, &queued);
         }
     }
     let still_bound = shared.session.lock().bound_session.as_deref() == Some(session_id.as_str());

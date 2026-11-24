@@ -182,7 +182,8 @@ impl BrowserRuntime {
                 self.shared.check_page_verb()?;
                 let page = self.ensure_page().await?;
                 self.shared.check_page_verb()?;
-                self.page_verb(ctx, &page, verb, args).await
+                self.race_with_dialog(self.page_verb(ctx, &page, verb, args))
+                    .await
             }
         }
     }

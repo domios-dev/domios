@@ -45,7 +45,7 @@ Rules:
 
 ## When the page needs the user
 
-Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Blocking JS dialogs print `dialog: <type>` in `status` and fail page verbs promptly. Never dismiss `alert`/`confirm`/`prompt` or any pre-existing dialog; name the blocker for *Take control*, then re-snapshot. Agent `goto`/`reload`/`back`/`forward` accept a `beforeunload` prompt they raise and report `(beforeunload dialog accepted)`; `close` also accepts a `beforeunload` prompt raised by closing the tab.
+Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Agents never answer page dialogs (`alert`, `confirm`, `prompt`, `beforeunload`). When a dialog is open or opens mid-verb, the verb fails promptly with `dialog: <type> — <message>`, `status` shows `needs human: dialog` with the dialog line, and `close` / profile switches refuse; ask the user to resolve it via *Take control*, then re-snapshot.
 
 ## User annotations
 
@@ -148,4 +148,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

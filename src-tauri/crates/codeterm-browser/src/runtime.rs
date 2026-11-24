@@ -169,7 +169,6 @@ pub(crate) async fn from_lease(
     let browser = lease.browser.clone();
     let (page, window_id) = prepare(&browser.client, Some(viewport)).await?;
     lease.target_id = Some(page.target_id().to_string());
-    lease.session_id = Some(page.session_id().to_string());
     let screencast = ScreencastDriver::spawn(page.clone(), frames);
     Ok(Runtime {
         mode: BrowserMode::Launched {
