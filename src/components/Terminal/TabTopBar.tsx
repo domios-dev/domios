@@ -8,10 +8,10 @@ import { ChangesButton } from "./ChangesPanel";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { TabHeaderTitle } from "./TabHeaderTitle";
+import { TabHeaderOverflow } from "./TabHeaderOverflow";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { BalanceBubble, QuotaBubble, UnavailableLimitsBubble } from "../Usage/ProfileLimitsBubble";
 import type { TabUsageSource } from "./usageTracking";
@@ -262,10 +262,6 @@ export function TabTopBar({
       .catch((error) => reportFailure(error, "updating this tab"));
   };
 
-  // Bubbles that do not fit one row stay clipped behind a toggle instead of wrapping the bar onto a second line.
-  const bubblesRef = useRef<HTMLDivElement>(null);
-  const [hiddenBubbles, setHiddenBubbles] = useState(0);
-  const [bubblesOpen, setBubblesOpen] = useState(false);
   const usageLabel = shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined;
   const usageContext = shellTab && "context" in shellTab ? shellTab.context : undefined;
   const tabProvider = shellTab?.agent_type ?? (shellTab?.backing?.kind === "chat_backend" ? shellTab.backing.plugin_id : null);
@@ -289,30 +285,6 @@ export function TabTopBar({
     modelId: shellTab?.agent_session_model ?? usageModelId,
     modelGroups: usageModelGroups,
   };
-  useLayoutEffect(() => {
-    const row = bubblesRef.current;
-    if (!row) return;
-    // Bubbles mount and resize on their own (plugins load late), so both child changes and child sizes re-measure.
-    const sizes = new ResizeObserver(() => check());
-    const check = () => {
-      const top = row.getBoundingClientRect().top;
-      setHiddenBubbles(Array.from(row.children).filter((child) => {
-        if (!(child instanceof HTMLElement) || child.dataset.bubblesToggle) return false;
-        const box = child.getBoundingClientRect();
-        return box.width > 0 && box.top - top >= TAB_BAR_CONTROL_H;
-      }).length);
-    };
-    const watch = () => {
-      sizes.disconnect();
-      sizes.observe(row);
-      for (const child of Array.from(row.children)) sizes.observe(child);
-      check();
-    };
-    const mutations = new MutationObserver(watch);
-    mutations.observe(row, { childList: true, subtree: true, characterData: true });
-    watch();
-    return () => { sizes.disconnect(); mutations.disconnect(); };
-  }, []);
 
   return (
     <div
@@ -337,27 +309,7 @@ export function TabTopBar({
         <TabLockMark tab={menuTab} />
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
-      <div
-        ref={bubblesRef}
-        className="ct-tab-top-bar__bubbles flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
-        style={bubblesOpen
-          ? { background: "var(--ct-bg)", rowGap: 8, paddingBottom: 8, marginBottom: -8, boxShadow: "0 12px 12px -6px var(--ct-bg)", position: "relative", zIndex: 3 }
-          : { maxHeight: TAB_BAR_CONTROL_H }}
-      >
-        {(hiddenBubbles > 0 || bubblesOpen) && (
-          <button
-            type="button"
-            data-bubbles-toggle="true"
-            className="ct-bar-pill inline-flex shrink-0 items-center justify-center gap-0.5 px-2 text-xs"
-            style={{ height: TAB_BAR_CONTROL_H }}
-            aria-expanded={bubblesOpen}
-            aria-label={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
-            title={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
-            onClick={() => setBubblesOpen((open) => !open)}
-          >
-            {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}
-          </button>
-        )}
+      <TabHeaderOverflow isActive={isActive}>
         {Boolean(parseCompositeTabId(tabId)) && <RemoteViewerPill tabId={tabId} tab={shellTab} />}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
@@ -404,7 +356,7 @@ export function TabTopBar({
         </div>
         <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
-      </div>
+      </TabHeaderOverflow>
         {entries.length > 0 && (
           <TabActionsMenu
             tab={menuTab ?? undefined}

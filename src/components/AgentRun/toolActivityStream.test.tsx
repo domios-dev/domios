@@ -80,7 +80,8 @@ function streams(scope: ParentNode): HTMLElement[] {
 
 function actionLabels(stream: HTMLElement): string[] {
   return [...stream.querySelectorAll('[data-testid="chat-tool-stream-member"]')]
-    .map((member) => (member.querySelector('[data-testid="chat-tool-stream-action"]') ?? member).textContent?.trim() ?? "");
+    .map((member) => member.querySelector('[data-testid="chat-tool-stream-action"]')
+      ?.getAttribute("aria-label")?.replace(/^Show /, "") ?? member.textContent?.trim() ?? "");
 }
 
 function streamEvent(messages: NormalizedChatMessage[], index = 0): ToolEvent {

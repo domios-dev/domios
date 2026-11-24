@@ -893,7 +893,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       if (spawnInFlight.current.has(guardKey)) return null;
       spawnInFlight.current.add(guardKey);
       try {
-        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke,
+        const result = await spawnFreshGeneralSession(workspaceId, agentId, guardedInvoke,
           machineId !== undefined ? {} : { model, reasoningEffort, preset, accountId }, machineId);
         if (machineId !== undefined) return await attachPeerSpawn(machineId, result.tab_id, beforeRemoteTabSelect);
         applyBackendState(result.snapshot);
