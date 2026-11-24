@@ -1,5 +1,6 @@
 import { useContext, useDeferredValue, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Monitor, Sparkles } from "lucide-react";
+import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, appearanceLookKey, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
 import { APPEARANCE_CHANGED, appearanceError, changeAppearance, checkAppearanceContrast, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
 import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
@@ -76,7 +77,9 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const [openedProposal, setOpenedProposal] = useState<AppearanceProposal>();
   const wallpaperRevision = useRef(0);
   const [category, setCategory] = useState<AppearanceLabCategory>(showWallpaperOwn ? "wallpaper" : "presets");
-  const [popover, setPopover] = useState<"changes" | "menu">();
+  const phone = usePhoneViewport();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [changesExpanded, setChangesExpanded] = useState<boolean>();
   const [comparing, setComparing] = useState(false);
   const [justApplied, setJustApplied] = useState<AppearanceProposal>();
   const [busy, setBusy] = useState(false);
@@ -142,7 +145,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     setOpenedProposal(undefined);
     setJustApplied(undefined);
     setComparing(false);
-    if (popover === "changes") setPopover(undefined);
+    setChangesExpanded(undefined);
     setError("");
     setTarget(id === "local" ? LOCAL : { machine: id, peer: id });
   };
@@ -166,11 +169,17 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const dismiss = () => {
     if (!closing && !busy) onClose(!justApplied);
   };
-  const activePopover = closing || justApplied || (popover === "changes" && !dirty) ? undefined : popover;
-  useAppearanceLabDismissal(!closing, activePopover, changesTrigger, () => setPopover(undefined), dismiss);
+  const editing = !closing && !justApplied;
+  const showChanges = editing && dirty && (changesExpanded ?? !phone);
+  const activePopover = !editing ? undefined : menuOpen ? "menu" : showChanges && changesExpanded ? "changes" : undefined;
+  useAppearanceLabDismissal(!closing, activePopover, changesTrigger, () => setChangesExpanded(false), dismiss);
+  const toggleMenu = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) setComparing(false);
+  };
   const selectCategory = (next: AppearanceLabCategory) => {
     setCategory(next);
-    setPopover(undefined);
+    toggleMenu(false);
   };
   const failures = contrast?.look === draft ? contrast?.checks.filter(check => check.ratio < check.floor) ?? [] : [];
   const editTuning = (patch: Partial<AppearanceTuning>) => setDraft(value => {
@@ -197,7 +206,6 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
       if (receipt.can_undo) {
         if (panelRef.current?.contains(document.activeElement)) panelRef.current.focus();
         setJustApplied(receipt);
-        setPopover(undefined);
       }
     } catch (failure) {
       clearAppearancePress(button);
@@ -256,7 +264,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const revert = (change: AppearanceLabChange) => {
     if (change.category === "wallpaper") wallpaperRevision.current++;
     if (changes.length === 1) {
-      setPopover(undefined);
+      setChangesExpanded(undefined);
       panelRef.current?.focus();
     }
     setDraft(look => look && change.revert(look));
@@ -272,7 +280,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     </label>
   );
   const previewTag = projectedLook && !closing && !justApplied && <p className="ct-appearance-try__tag" role="status">
-    {comparing ? "Comparing · current look" : "● Previewing · not applied"}<span> · Esc to exit</span>
+    {comparing ? "Comparing" : "Previewing"}<span>{comparing ? " · current look" : " · not applied"} · Esc to exit</span>
   </p>;
   const controls = (
     <div id={controlsId} className="ct-appearance-lab" role="region" aria-label={controlsLabel}>
@@ -299,6 +307,13 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
         )}
         {category === "palette" && (
           <SettingsCard title="Palette" headerRight={<small>Contrast against the background</small>}>
+            {failures.length > 0 && <ul className="ct-appearance-contrast" aria-label="Contrast problems">
+              {failures.map(failure => <li key={failure.pair}>
+                <span>{failure.pair} {failure.ratio.toFixed(2)}:1, needs {failure.floor}:1</span>
+                {failure.fix && <button type="button" onClick={() => setDraft(value => value && failure.fix ? applyContrastFix(value, failure.fix) : value)}
+                  aria-label={`Fix ${failure.pair}`}>Fix</button>}
+              </li>)}
+            </ul>}
             {PALETTE_CONTROLS.map(({ key, label }) => {
               const ratio = paletteContrast(draft.theme, key);
               return <label key={key} className="ct-appearance-colour">
@@ -314,13 +329,6 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
                 <span>{key.replaceAll("_", " ")}</span><code>{draft.theme[key]}</code>
               </label>)}
             </details>
-            {failures.length > 0 && <ul className="ct-appearance-contrast" aria-label="Contrast problems">
-              {failures.map(failure => <li key={failure.pair}>
-                <span>{failure.pair} {failure.ratio.toFixed(2)}:1, needs {failure.floor}:1</span>
-                {failure.fix && <button type="button" onClick={() => setDraft(value => value && failure.fix ? applyContrastFix(value, failure.fix) : value)}
-                  aria-label={`Fix ${failure.pair}`}>Fix</button>}
-              </li>)}
-            </ul>}
           </SettingsCard>
         )}
         {category === "wallpaper" && (
@@ -366,28 +374,28 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     </div>
   );
   return (
-    <>
-      {previewTag}
-      <div className="plan-side-panel-layer ct-appearance-try">
-        <TabSidePanel panelRef={panelRef} state={state} label="Appearance Lab" onClose={dismiss}
-          data-appearance-panel="" title={<h2 className="plan-side-panel__title">Appearance Lab</h2>}
-          toolbar={!justApplied && <AppearanceLabCategories controlsId={controlsId} category={category} changes={changes} busy={busy}
-            comparing={comparing} menuOpen={activePopover === "menu"} machineSelector={machineSelector}
-            onCategory={selectCategory} onMenuChange={open => setPopover(open ? "menu" : undefined)}
-            onCompare={setComparing} onBack={dismiss} />}
-          footer={<AppearanceLabActions changes={changes} changesTrigger={changesTrigger} listOpen={activePopover === "changes"} busy={busy}
-            canApply={dirty && !busy && !comparing && !unavailable && failures.length === 0}
-            applyLabel={remote ? `Apply to ${machine}` : "Apply"}
-            appliedStatus={justApplied && <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
-            undoLabel={dirty || unavailable ? undefined : undoLabel}
-            onToggleList={() => setPopover(activePopover === "changes" ? undefined : "changes")}
-            onRevert={revert} onDiscard={dismiss} onApply={button => void apply(button)} onUndo={() => void undo()} />}>
-          {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}
-          {error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">{error}</p>}
-          {!draft && !unavailable && !error && <p className="ct-appearance-try__notice" role="status">Reading appearance…</p>}
-          {!justApplied && controls}
-        </TabSidePanel>
-      </div>
-    </>
+    <div className="plan-side-panel-layer ct-appearance-try">
+      <TabSidePanel panelRef={panelRef} state={state} label="Appearance Lab" onClose={dismiss}
+        data-appearance-panel="" title={<h2 className="plan-side-panel__title">Appearance Lab</h2>} actions={previewTag}
+        toolbar={!justApplied && <AppearanceLabCategories controlsId={controlsId} category={category} changes={changes} busy={busy}
+          comparing={comparing} menuOpen={activePopover === "menu"} machineSelector={machineSelector}
+          onCategory={selectCategory} onMenuChange={toggleMenu}
+          onCompare={setComparing} onBack={dismiss} />}
+        footer={<AppearanceLabActions changes={changes} changesTrigger={changesTrigger} listOpen={showChanges}
+          focusChanges={changesExpanded === true} busy={busy}
+          canApply={dirty && !busy && !comparing && !unavailable && failures.length === 0}
+          applyLabel={remote ? `Apply to ${machine}` : "Apply"}
+          appliedStatus={justApplied && <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
+          undoLabel={dirty || unavailable ? undefined : undoLabel}
+          contrastFailureCount={dirty ? failures.length : 0}
+          onReviewContrast={() => selectCategory("palette")}
+          onToggleList={() => { toggleMenu(false); setChangesExpanded(!showChanges); }}
+          onRevert={revert} onDiscard={dismiss} onApply={button => void apply(button)} onUndo={() => void undo()} />}>
+        {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}
+        {error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">{error}</p>}
+        {!draft && !unavailable && !error && <p className="ct-appearance-try__notice" role="status">Reading appearance…</p>}
+        {!justApplied && controls}
+      </TabSidePanel>
+    </div>
   );
 }

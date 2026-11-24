@@ -16,13 +16,15 @@ import { AppearanceLabUndo } from "./AppearanceLabUndo";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const api = vi.hoisted(() => ({ readAppearance: vi.fn(), proposeAppearance: vi.fn(), changeAppearance: vi.fn(), readAppearanceProposal: vi.fn() }));
+const api = vi.hoisted(() => ({
+  readAppearance: vi.fn(), proposeAppearance: vi.fn(), changeAppearance: vi.fn(), readAppearanceProposal: vi.fn(),
+  checkAppearanceContrast: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("../../lib/appearanceClient", () => ({
   ...api,
   APPEARANCE_CHANGED: "test-appearance-change",
   OPEN_APPEARANCE: "test-open-appearance",
   appearanceError: String,
-  checkAppearanceContrast: vi.fn(async () => []),
   listenAppearanceCommit: vi.fn(async () => () => {}),
 }));
 vi.mock("../../store/multiplexer/hooks", () => ({ useMuxSelector: () => undefined }));
@@ -196,6 +198,9 @@ it("counts staged changes and discards wallpaper without losing other controls",
     await act(async () => wallpaper("Botanical").click());
     expect(lab.status()).toBe("3 changes");
     expect(lab.button("Apply")?.disabled).toBe(false);
+    expect(lab.region().querySelector('[aria-label="Staged changes"]')).not.toBeNull();
+    await click(lab.button("3 changes")!);
+    expect(lab.region().querySelector('[aria-label="Staged changes"]')).toBeNull();
     await click(lab.button("3 changes")!);
     const staged = lab.region().querySelector('[aria-label="Staged changes"]')!;
     expect(staged.textContent).toContain("Roundness 1.00 → 0.40");
@@ -219,6 +224,36 @@ it("counts staged changes and discards wallpaper without losing other controls",
     expect(lab.close).toHaveBeenCalledWith(true);
     expect(lab.host.querySelector('[role="toolbar"]')).toBeNull();
   } finally {
+    await lab.cleanup();
+  }
+});
+
+it("explains blocked Apply and opens the existing wallpaper contrast fix", async () => {
+  const look: AppearanceLook = {
+    theme: DEFAULT_THEME, wallpaper: { background: { pattern: "dots" }, fill_strength: 0.78 }, tuning: null,
+  };
+  const preset = { ...DEFAULT_THEME, name: "Light fixture" };
+  api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME, preset], active: null });
+  api.checkAppearanceContrast.mockImplementation(async (_target, draft: AppearanceLook) =>
+    draft.theme.name === preset.name && draft.wallpaper?.fill_strength === 0.78 ? [{
+      name: "wallpaper", pair: "Text on wallpaper", ratio: 1.62, floor: 4.5,
+      fix: { field: "chat_wallpaper.fill_strength", value: 0.25 },
+    }] : []);
+  const lab = mountLab();
+  try {
+    await lab.render();
+    await click([...lab.panel()!.querySelectorAll("button")].find(button => button.textContent === preset.name)!);
+    expect(lab.projection()?.look.wallpaper).toEqual(look.wallpaper);
+    expect(lab.button("Apply")?.disabled).toBe(true);
+    const review = lab.button("Review 1 contrast issue")!;
+    expect(lab.button("Apply")?.getAttribute("aria-describedby")).toBe(review.id);
+    await click(review);
+    await click(lab.panel()!.querySelector<HTMLButtonElement>('button[aria-label="Fix Text on wallpaper"]')!);
+    expect(lab.projection()?.look.wallpaper?.fill_strength).toBe(0.25);
+    expect(lab.status()).toBe("2 changes");
+    expect(lab.button("Apply")?.disabled).toBe(false);
+  } finally {
+    api.checkAppearanceContrast.mockReset().mockResolvedValue([]);
     await lab.cleanup();
   }
 });
