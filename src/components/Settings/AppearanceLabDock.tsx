@@ -30,11 +30,12 @@ interface Props {
   onApply(button: HTMLButtonElement): void;
   onUndo(): void;
   onBack(): void;
+  onDismissApplied(): void;
 }
 
 export function AppearanceLabDock({
   cardId, category, changes, listOpen, busy, canApply, comparing, applyLabel, appliedStatus, undoLabel, machineSelector,
-  onCategory, onToggleList, onCompare, onRevert, onDiscard, onApply, onUndo, onBack,
+  onCategory, onToggleList, onCompare, onRevert, onDiscard, onApply, onUndo, onBack, onDismissApplied,
 }: Props) {
   const count = changes.length === 1 ? "1 change" : `${changes.length} changes`;
   const dragStart = useRef<number | undefined>(undefined);
@@ -68,6 +69,9 @@ export function AppearanceLabDock({
         onClick={event => onApply(event.currentTarget)}><Check size={15} aria-hidden="true" /><span>{applyLabel}</span></button>}
       {undoLabel && <button type="button" className="ct-appearance-changes__undo" aria-label={undoLabel} disabled={busy} onClick={onUndo}>
         <Undo2 size={15} aria-hidden="true" /><span className="ct-appearance-changes__wide">{undoLabel}</span><span className="ct-appearance-changes__short">Undo</span>
+      </button>}
+      {appliedStatus && <button type="button" aria-label="Dismiss applied appearance" disabled={busy} onClick={onDismissApplied}>
+        <X size={15} aria-hidden="true" />
       </button>}
     </div>
     <button className="ct-appearance-try__compare" type="button" aria-label="Compare" title="Hold to compare with the applied look"

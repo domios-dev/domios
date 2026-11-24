@@ -140,11 +140,6 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   useLayoutEffect(() => {
     onProject(projectedLook && { look: projectedLook, peer: target.peer, committed: projectingCommit });
   }, [onProject, projectedLook, target.peer, projectingCommit]);
-  useEffect(() => {
-    if (!justApplied) return;
-    const timeout = window.setTimeout(() => onClose(false), 8_000);
-    return () => window.clearTimeout(timeout);
-  }, [justApplied, onClose]);
   const focusCategory = (category: AppearanceLabCategory) =>
     lab.current?.querySelector<HTMLButtonElement>(`[data-lab-category="${category}"]`)?.focus();
   const dismissCard = (minimize: boolean) => {
@@ -155,7 +150,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const dismiss = () => {
     if (busy) return;
     if (visibleCard) dismissCard(false);
-    else onClose(true);
+    else onClose(!justApplied);
   };
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
@@ -386,7 +381,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
         undoLabel={dirty || unavailable ? undefined : undoLabel} machineSelector={machineSelector}
         onCategory={selectCategory} onToggleList={() => setListOpen(value => !value)} onCompare={setComparing}
         onRevert={revert} onDiscard={() => onClose(true)} onApply={button => void apply(button)} onUndo={() => void undo()}
-        onBack={() => onClose(true)} />
+        onBack={() => onClose(true)} onDismissApplied={() => onClose(false)} />
     </section>
   );
 }
