@@ -136,3 +136,29 @@ pub(super) async fn memory_author(
 
 #[cfg(test)]
 mod tests;
+
+pub(super) async fn with_worker_write<R: Send + 'static>(
+    state: &AppState,
+    headers: &HeaderMap,
+    action: impl FnOnce(&codeterm_service_core::service::ServiceContext) -> Result<R, String>
+        + Send
+        + 'static,
+) -> Result<R, (axum::http::StatusCode, String)> {
+    let caller = crate::auth::tab_caller(state, headers)?;
+    let svc = state.svc.clone();
+    tokio::task::spawn_blocking(move || {
+        codeterm_service_core::mem_host::with_worker_write(
+            &svc,
+            caller.as_ref().map(|caller| caller.tab_id.as_str()),
+            || action(&svc),
+        )
+    })
+    .await
+    .map_err(|error| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            error.to_string(),
+        )
+    })?
+    .map_err(|error| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, error))
+}

@@ -74,7 +74,7 @@ pub fn insert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
 /// Temporal upsert: if there's already an open (valid_to IS NULL) relation
 /// with the same (from, rel, to), close it at `now` and insert the new one.
 /// Preserves historical trail for time-travel queries.
-pub fn upsert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
+pub fn upsert_relation(conn: &Connection, r: &Relation) -> Result<bool, String> {
     let now = chrono::Utc::now().to_rfc3339();
 
     conn.execute(
@@ -86,7 +86,8 @@ pub fn upsert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
     )
     .map_err(|e| format!("close open relation: {}", e))?;
 
-    insert_relation(conn, r)
+    insert_relation(conn, r)?;
+    Ok(conn.changes() > 0)
 }
 
 /// Invalidate an open relation — set valid_to to `ended` (or now).

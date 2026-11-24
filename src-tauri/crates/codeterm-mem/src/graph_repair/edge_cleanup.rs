@@ -31,10 +31,10 @@ fn invalidate_relation_ids(
     let invalidated = tx
         .execute(
             &format!(
-                "UPDATE relations SET valid_to = ?1 WHERE id IN ({}) AND valid_to IS NULL",
+                "UPDATE relations SET valid_to = ?1, reason = ?2 || ':' || COALESCE(reason, '') WHERE id IN ({}) AND valid_to IS NULL",
                 id_list
             ),
-            params![now],
+            params![now, op],
         )
         .map_err(|e| e.to_string())? as u64;
     let details = serde_json::json!({ "op": op, "rowids": ids }).to_string();

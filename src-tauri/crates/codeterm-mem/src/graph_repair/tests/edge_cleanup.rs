@@ -113,6 +113,13 @@ fn prune_dream_hub_edges_drops_backlinks_keeps_anchor() {
 
     let rep = prune_dream_hub_edges(&conn, false, "dreamer").unwrap();
     assert_eq!(rep.deleted, 2, "both hub backlinks invalidated");
+    codeterm_mem_store::maintenance::worker_dreaming_normalize(&conn).unwrap();
+    assert_eq!(
+        prune_dream_hub_edges(&conn, false, "dreamer")
+            .unwrap()
+            .deleted,
+        0
+    );
     assert!(
         active_rel_types(&conn, "daily_dream_x", "project_aurora").is_empty(),
         "no dream backlinks left to the hub"
@@ -122,4 +129,37 @@ fn prune_dream_hub_edges_drops_backlinks_keeps_anchor() {
         vec!["belongs_to".to_string()],
         "the dreams-anchor link survives"
     );
+}
+
+#[test]
+fn nightly_normalize_does_not_revive_deliberate_cleanup() {
+    let conn = fresh_conn();
+    for id in ["topic_a", "topic_b"] {
+        crate::graph::insert_entity(
+            &conn,
+            &crate::Entity {
+                id: id.into(),
+                entity_type: "Topic".into(),
+                scope: "global".into(),
+                properties: serde_json::json!({}),
+            },
+        )
+        .unwrap();
+    }
+    insert_relation(
+        &conn,
+        &rel("topic_a", "about", "topic_b", "2026-01-01T00:00:00Z"),
+    )
+    .unwrap();
+    insert_relation(
+        &conn,
+        &rel("topic_a", "belongs_to", "topic_b", "2026-01-02T00:00:00Z"),
+    )
+    .unwrap();
+    let first = collapse_synonym_edges(&conn, false, "dreamer").unwrap();
+    assert_eq!(first.deleted, 1);
+    codeterm_mem_store::maintenance::worker_dreaming_normalize(&conn).unwrap();
+    let second = collapse_synonym_edges(&conn, false, "dreamer").unwrap();
+    assert_eq!(second.deleted, 0);
+    assert!(second.orphan_ids.is_empty());
 }

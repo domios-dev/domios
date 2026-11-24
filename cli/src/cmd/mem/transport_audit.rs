@@ -72,13 +72,13 @@ fn classify_graph(action: &MemGraphAction) -> MemTransport {
         MemGraphAction::Route { .. }
         | MemGraphAction::PurgeInvalidated { .. }
         | MemGraphAction::ReviveBroken { .. }
-        | MemGraphAction::IntroduceTopic { .. }
         | MemGraphAction::Hubs { .. }
         | MemGraphAction::Islands { .. }
         | MemGraphAction::Orphans { .. }
         | MemGraphAction::Get { .. } => LocalOnly,
 
-        MemGraphAction::Create { .. }
+        MemGraphAction::IntroduceTopic { .. }
+        | MemGraphAction::Create { .. }
         | MemGraphAction::Relate { .. }
         | MemGraphAction::Related { .. }
         | MemGraphAction::Invalidate { .. }

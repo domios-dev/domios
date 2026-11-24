@@ -61,9 +61,14 @@ where
 {
     let previous = WRITE_WORKER
         .with(|slot| std::mem::replace(&mut *slot.borrow_mut(), worker_id.map(str::to_string)));
-    let out = f();
-    WRITE_WORKER.with(|slot| *slot.borrow_mut() = previous);
-    out
+    struct RestoreWorker(Option<String>);
+    impl Drop for RestoreWorker {
+        fn drop(&mut self) {
+            WRITE_WORKER.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = RestoreWorker(previous);
+    f()
 }
 
 /// Read the worker id the current commit is attributed to, if any.

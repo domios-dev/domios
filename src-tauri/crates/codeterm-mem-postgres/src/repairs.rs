@@ -345,8 +345,8 @@ pub(crate) fn edge_cleanup(
     } else {
         let count = tx
             .execute(
-                "UPDATE relations SET valid_to=$2 WHERE id=ANY($1) AND valid_to IS NULL",
-                &[&ids, &items::now()],
+                "UPDATE relations SET valid_to=$2,reason=$3 || ':' || coalesce(reason,'') WHERE id=ANY($1) AND valid_to IS NULL",
+                &[&ids, &items::now(), &if dream { "prune_dream_hub_edges" } else { "collapse_synonym_edges" }],
             )
             .map_err(db_error)?;
         graph::audit_in(

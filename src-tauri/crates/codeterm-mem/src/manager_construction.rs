@@ -155,6 +155,7 @@ impl MemManager {
             heavy_ops_permits,
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
+            run_registry: Default::default(),
         });
         if background {
             manager

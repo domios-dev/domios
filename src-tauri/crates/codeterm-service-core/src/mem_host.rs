@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod dreaming_cron_tests;
+#[cfg(test)]
+mod run_attribution_tests;
 pub(crate) mod worker_spawn_spec;
 
 use std::collections::HashMap;
@@ -224,6 +226,7 @@ fn spawn_worker(
         };
         info.extraction_retry = Some(retry);
     }
+    svc.mem.attach_worker_registry(&svc.workers);
     svc.workers.register(info.clone());
     AppMemEventSink { ui: svc.ui.clone() }.emit_graph_worker_spawned(&info);
 
@@ -634,8 +637,7 @@ pub fn spawn_rem_worker(
     } else {
         DREAMING_TELEGRAM_STEP_DISABLED
     };
-    let prompt =
-        codeterm_mem::prompt_text::DREAMING_REM.replace("{telegram_notify_step}", telegram_step);
+    let prompt = codeterm_mem::dreaming::render_rem_prompt(chrono::Utc::now(), telegram_step);
     match spawn_headless(
         svc,
         format!("{DREAMING_INTENT_PREFIX}rem"),
@@ -690,4 +692,24 @@ pub fn cancel_worker(
         serde_json::to_value(&info).unwrap_or_default(),
     );
     Some(info)
+}
+
+pub fn with_worker_write<R>(
+    svc: &ServiceContext,
+    caller_tab: Option<&str>,
+    action: impl FnOnce() -> R,
+) -> R {
+    let worker_id = caller_tab.and_then(|tab_id| {
+        let worker_id = svc
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.worker_id.clone())?;
+        svc.workers
+            .get(&worker_id)
+            .filter(|worker| worker.tab_id == tab_id && !worker.status.is_terminal())
+            .map(|worker| worker.worker_id)
+    });
+    svc.mem.attach_worker_registry(&svc.workers);
+    codeterm_mem::store::with_write_worker(worker_id.as_deref(), action)
 }

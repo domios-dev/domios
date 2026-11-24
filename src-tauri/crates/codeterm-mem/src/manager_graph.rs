@@ -5,6 +5,7 @@ use super::graph_repair::{
     RelationColumn,
 };
 use super::{graph, Entity, MemManager, Relation};
+use crate::workers::{CreatedEdge, NodeAction};
 
 impl MemManager {
     pub fn graph_create_entity(&self, e: &Entity) -> Result<(), String> {
@@ -14,9 +15,43 @@ impl MemManager {
         Ok(())
     }
 
+    pub fn graph_introduce_topic(
+        &self,
+        options: codeterm_mem_store::graph::IntroduceTopicOptions,
+    ) -> Result<codeterm_mem_store::graph::IntroduceTopicReport, String> {
+        self.guard_commit()?;
+        let topic_id = options.topic_id.clone();
+        let report = self
+            .store
+            .graph_introduce_topic(&Self::write_context(), options)?;
+        let edges = report
+            .created_relations
+            .iter()
+            .map(|(from, to, relation)| CreatedEdge {
+                from: from.clone(),
+                to: to.clone(),
+                relation: relation.clone(),
+            })
+            .collect::<Vec<_>>();
+        self.record_run_mutation(&[], &edges);
+        self.enqueue_entity_embedding(&topic_id);
+        Ok(report)
+    }
+
     pub fn graph_relate(&self, r: &Relation) -> Result<(), String> {
         self.guard_commit()?;
-        self.store.graph_relate(&Self::write_context(), r)
+        let inserted = self.store.graph_relate(&Self::write_context(), r)?;
+        if inserted {
+            self.record_run_mutation(
+                &[],
+                &[CreatedEdge {
+                    from: r.from_id.clone(),
+                    to: r.to_id.clone(),
+                    relation: r.relation_type.clone(),
+                }],
+            );
+        }
+        Ok(())
     }
 
     pub fn graph_related(
@@ -82,7 +117,15 @@ impl MemManager {
 
     pub fn graph_alias(&self, alias_id: &str, canonical_id: &str) -> Result<(), String> {
         self.store
-            .graph_alias(&Self::write_context(), alias_id, canonical_id)
+            .graph_alias(&Self::write_context(), alias_id, canonical_id)?;
+        self.record_run_mutation(
+            &[
+                (alias_id.into(), NodeAction::Merged),
+                (canonical_id.into(), NodeAction::Merged),
+            ],
+            &[],
+        );
+        Ok(())
     }
 
     pub fn graph_resolve(&self, id: &str) -> Result<String, String> {
