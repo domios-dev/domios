@@ -119,7 +119,7 @@ impl ProfileLayout {
 pub mod instance;
 pub mod lease_model;
 mod management;
-pub use management::validate_named_profile;
+pub use management::{match_profile_name, validate_named_profile};
 mod pool;
 pub use pool::delete_named_profile;
 pub use pool::ProfileLease;

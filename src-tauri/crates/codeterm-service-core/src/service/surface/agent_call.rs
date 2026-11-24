@@ -342,7 +342,7 @@ impl ServiceContext {
                     let (runtime, _) = self
                         .surface_runtime(&tab_id)
                         .map_err(|error| error.message())?;
-                    block_on_runtime(async move { runtime.close().await })
+                    block_on_runtime(async move { runtime.agent_close().await })
                         .map_err(|error| error.message())?;
                 }
                 self.close_surface(Some(caller_tab.as_str()), &tab_id)
