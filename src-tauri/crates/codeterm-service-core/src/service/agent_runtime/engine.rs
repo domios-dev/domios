@@ -731,6 +731,7 @@ pub async fn ensure_locked(
                         .ok_or_else(|| RuntimeFailure::SpawnFailed {
                             reason: "Runtime cwd missing".into(),
                         })?;
+                    resume::prepare_startup_credential(&owner, &context);
                     let mut env =
                         super::environment::compose(&owner, &target, &provider_id, &nonce)
                             .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
