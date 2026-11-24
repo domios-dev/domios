@@ -136,7 +136,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
         </details>
       )}
       <div className="flex justify-end">
-        <Button size="sm" onClick={() => setSelected(null)}>Close details</Button>
+        <Button size="sm" className="!h-[30px] !min-h-0 !text-[12.5px] !text-[var(--ct-muted-fg)]" onClick={() => setSelected(null)}>Close details</Button>
       </div>
     </section>
   );
@@ -176,7 +176,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
           <RefreshCw size={14} aria-hidden="true" />
         </Button>
         {tab === "workers" && (
-          <Button size="sm" className="gap-1.5 max-sm:!w-8 max-sm:!px-0" aria-label="New worker" onClick={() => setSpawnOpen(true)}>
+          <Button size="sm" className="!h-[30px] !min-h-0 gap-1.5 !text-[12.5px] !font-semibold max-sm:!w-8 max-sm:!px-0" aria-label="New worker" onClick={() => setSpawnOpen(true)}>
             <Plus size={14} aria-hidden="true" />
             <span className="max-sm:hidden">New worker</span>
           </Button>
@@ -372,27 +372,30 @@ export function WorkerHistory({
   const reason = workerFailureReason(worker);
   const outcome = workerOutcome(worker);
   const duration = workerTimeLabels(worker, Date.now()).duration;
-  const outcomeTone = workerNeedsAttention(worker)
+  const outcomeTone = outcome === "Failed" || outcome === "Diary failed"
     ? "text-[var(--ct-red)]"
-    : outcome === "Completed"
-      ? "text-[var(--ct-green)]"
-      : !isTerminalWorkerStatus(worker.status)
-        ? "text-[var(--ct-accent)]"
-        : "text-[var(--ct-muted-fg)]";
+    : workerNeedsAttention(worker)
+      ? "text-[var(--ct-yellow)]"
+      : outcome === "Completed"
+        ? "text-[var(--ct-green)]"
+        : !isTerminalWorkerStatus(worker.status)
+          ? "text-[var(--ct-accent)]"
+          : "text-[var(--ct-muted-fg)]";
   return (
     <details className="group/run rounded-lg border-t border-[var(--ct-border-subtle)] text-xs">
       <summary className="grid cursor-pointer list-none grid-cols-[auto_minmax(0,1fr)_14px] items-center gap-x-2.5 gap-y-1 rounded-lg px-2.5 py-2 hover:bg-[var(--ct-bg-hover)] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto_14px] [&::-webkit-details-marker]:hidden">
         <span className="col-start-2 row-start-1 truncate text-right text-[var(--ct-muted-fg)] tabular-nums sm:col-start-1 sm:text-left">
           {new Date(worker.spawned_at).toLocaleString()}
         </span>
-        <span className="col-span-2 row-start-2 min-w-0 truncate text-[var(--ct-muted-fg)] sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:text-[var(--ct-fg)]">
-          {label}<span className="sm:hidden"> · {duration}</span>
+        <span className="col-span-2 row-start-2 flex min-w-0 items-baseline gap-1.5 text-[var(--ct-muted-fg)] sm:contents">
+          <span className="shrink-0 whitespace-nowrap tabular-nums sm:col-start-4 sm:row-start-1">{duration}</span>
+          <span className="sm:hidden" aria-hidden="true">·</span>
+          <span className="min-w-0 truncate sm:col-start-2 sm:row-start-1 sm:text-[var(--ct-fg)]">{label}</span>
         </span>
         <span className={`col-start-1 row-start-1 inline-flex items-center gap-1.5 sm:col-start-3 ${outcomeTone}`}>
           <span className="size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
           {outcome}
         </span>
-        <span className="hidden text-[var(--ct-muted-fg)] sm:col-start-4 sm:row-start-1 sm:block">{duration}</span>
         <ChevronRight size={14} className="col-start-3 row-start-1 text-[var(--ct-muted-fg)] group-open/run:rotate-90 sm:col-start-5" aria-hidden="true" />
       </summary>
       <div className="space-y-3 px-2.5 pb-2.5 pt-1">

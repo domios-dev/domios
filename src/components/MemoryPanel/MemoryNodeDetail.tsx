@@ -1,7 +1,7 @@
 import { ChevronLeft, Copy, Trash2, X } from "lucide-react";
 import Markdown from "react-markdown";
-import { MemoryImportance, MemoryKindChip, MemoryProvenance } from "./MemoryProvenance";
-import { memorySheet } from "./MemoryItemEditor";
+import { MemoryDetailMetadata, MemoryImportance, MemoryKindChip } from "./MemoryProvenance";
+import { memorySheet, useCopyMemoryId } from "./MemoryItemEditor";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { BusyState } from "../shared/BusyState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -81,7 +81,7 @@ export function MemoryNodeDetail({
   const [edit, setEdit] = useState<EditState>(() => buildEditState(node));
   const [tagInput, setTagInput] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copyId, copyLabel } = useCopyMemoryId(node.id);
   const [loadingBody, setLoadingBody] = useState(false);
   const [bodyText, setBodyText] = useState<string | null>(node.body ?? null);
   const onUpdateRef = useRef(onUpdate);
@@ -175,13 +175,6 @@ export function MemoryNodeDetail({
     }
   }, [api.host, api.port, api.token, node.id, node.title, onDelete]);
 
-  const handleCopyId = useCallback(() => {
-    navigator.clipboard.writeText(node.id).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1000);
-    });
-  }, [node.id]);
-
   const addTag = useCallback(() => {
     const t = tagInput.trim();
     if (!t || edit.tags.includes(t)) return;
@@ -216,7 +209,7 @@ export function MemoryNodeDetail({
           onClick={() => setTucked(false)}
           aria-label="Show details"
           title="Show details"
-          className="absolute top-3 right-0 z-10 px-1.5 py-2 rounded-l bg-[var(--ct-surface)] border border-r-0 border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer text-xs leading-none"
+          className="absolute top-3 right-0 z-10 px-1.5 py-2 rounded-l bg-[var(--ct-surface)] border border-r-0 border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer text-xs leading-none @max-[720px]/memory:z-30"
         >
           ‹
         </button>
@@ -225,7 +218,7 @@ export function MemoryNodeDetail({
         data-testid="memory-node-detail"
         data-memory-id={node.id}
         data-memory-kind={node.kind}
-        className={`${memorySheet.frame} motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out`}
+        className={`${memorySheet.frame} @max-[720px]/memory:z-30 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out`}
         style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
         onMouseDown={(e) => e.stopPropagation()}
         onWheel={(e) => e.stopPropagation()}
@@ -249,7 +242,7 @@ export function MemoryNodeDetail({
           <MemoryKindChip kind={node.kind} />
           {!editing && (
             <div className="ml-auto flex items-center gap-2">
-              <Button variant="icon" size="sm" onClick={handleCopyId} aria-label={copied ? "Copied!" : "Copy ID"} title={copied ? "Copied!" : "Copy ID"} data-testid="memory-node-copy-id">
+              <Button variant="icon" size="sm" onClick={copyId} aria-label={copyLabel} title={copyLabel} data-testid="memory-node-copy-id">
                 <Copy size={15} aria-hidden="true" />
               </Button>
               <Button size="sm" className="!border !border-[var(--ct-border-subtle)]" onClick={() => setEditing(true)} data-testid="memory-node-edit">
@@ -259,13 +252,9 @@ export function MemoryNodeDetail({
           )}
         </div>
 
-        <div className={`${memorySheet.body} text-[13px]`}>
+        <div className={`${memorySheet.body} space-y-4 text-[13px]`}>
           {!editing && <h2 className="break-words text-lg font-[650]">{node.title}</h2>}
-          <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-[var(--ct-muted-fg)] tabular-nums">
-            <MemoryProvenance author={node.author} createdAt={node.created_at} />
-            {node.updated_at && <span title={new Date(node.updated_at).toLocaleString()}>Updated: {new Date(node.updated_at).toLocaleDateString()}</span>}
-            {node.created_at && <span title={new Date(node.created_at).toLocaleString()}>Created: {new Date(node.created_at).toLocaleDateString()}</span>}
-          </div>
+          <MemoryDetailMetadata author={node.author} updatedAt={node.updated_at} createdAt={node.created_at} />
           {editing && (
             <label className="block">
               <span className={memorySheet.label}>Title</span>
@@ -301,6 +290,7 @@ export function MemoryNodeDetail({
                   rows={10}
                   data-testid="memory-node-body-input"
                   className={memorySheet.textarea}
+                  style={{ minHeight: 240 }}
                   value={edit.body}
                   onChange={(e) => setEdit((s) => ({ ...s, body: e.target.value }))}
                 />
@@ -333,19 +323,22 @@ export function MemoryNodeDetail({
               </div>
             )}
             <div className={mutedTextClass}>
-              <MemoryImportance value={editing ? edit.importance : (node.importance ?? 0)} />
-              {editing && (
-                <input
-                  type="range"
-                  data-testid="memory-node-importance-input"
-                  min={0}
-                  max={5}
-                  step={0.1}
-                  value={edit.importance}
-                  onChange={(e) => setEdit((s) => ({ ...s, importance: Number(e.target.value) }))}
-                  className="w-full"
-                />
-              )}
+              {editing ? (
+                <label className="block">
+                  <span className={memorySheet.label}>Importance</span>
+                  <input
+                    type="range"
+                    data-testid="memory-node-importance-input"
+                    min={0}
+                    max={5}
+                    step={0.1}
+                    value={edit.importance}
+                    onChange={(e) => setEdit((s) => ({ ...s, importance: Number(e.target.value) }))}
+                    className="w-full"
+                  />
+                  <span>{edit.importance} of 5</span>
+                </label>
+              ) : <MemoryImportance value={node.importance ?? 0} />}
             </div>
           </div>
 
@@ -469,7 +462,7 @@ export function MemoryNodeDetail({
                 onClick={handleDelete}
                 size="sm"
                 data-testid="memory-node-delete"
-                className="!text-[var(--ct-red)]"
+                className="gap-1.5 !text-[var(--ct-red)]"
               >
                 <Trash2 size={14} aria-hidden="true" /> Delete
               </Button>
