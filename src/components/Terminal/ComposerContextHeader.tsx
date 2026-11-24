@@ -24,6 +24,7 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
 import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
 import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
+import { useBackgroundProcessChipVisibility } from "./useBackgroundProcessChipVisibility";
 import { composerBackgroundWorkBubble, isRunningWork, SUBAGENT_NAME } from "./composerBackgroundWorkModel";
 import { backgroundProcessLabel } from "../../lib/tabActivity";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
@@ -163,7 +164,11 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   });
   const descriptor = useAgentDescriptor(providerId);
   const backgroundWork = useComposerBackgroundWorkStatus();
-  const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
+  const reportedBackground = composerBackgroundWorkBubble(backgroundWork.items);
+  const deferBackground = descriptor?.agent_runtime?.backgroundProcesses === true
+    && reportedBackground?.items.filter(isRunningWork).every(item => item.kind === "terminal") === true;
+  const backgroundVisible = useBackgroundProcessChipVisibility(tabId, deferBackground);
+  const backgroundBubble = backgroundVisible ? reportedBackground : null;
   const backgroundItems = backgroundBubble?.items ?? [];
   const liveItems = backgroundItems.filter(isRunningWork);
   const onlySubagents = liveItems.length > 0 && liveItems.every(item => item.kind === "agent");
