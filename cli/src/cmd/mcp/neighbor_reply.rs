@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 use std::{ffi::OsStr, io};
 
 const RUNTIME_ROUTE: &str = "/api/account/neighbors/runtime";
+const MISSING_RECEIPT: &str =
+    "Neighbor reply receipt unavailable. Check the receipt before replaying.";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,37 +45,73 @@ impl Launch<'_> {
             "body":body.to_string()})
     }
 
-    fn send(&self, reply: Reply) -> Result<String, &'static str> {
+    fn send(&self, reply: Reply) -> Result<String, String> {
         let mut client = SocketClient::connect_bound_socket(&self.socket, &self.token)
             .map_err(|_| "Neighbor reply socket unavailable before submission")?;
         let result = client
             .call_detailed("api.request", Some(self.params(reply)))
             .map_err(|error| match error {
-                SocketCallError::Rpc(_) => "Neighbor reply refused by the daemon",
+                SocketCallError::Rpc(error) => {
+                    let code = error
+                        .data
+                        .as_ref()
+                        .and_then(|data| daemon_error_code(&data["reason"], &self.token));
+                    refused(json!({"rpc_code":error.code,"code":code.unwrap_or("rpc_refused")}))
+                }
                 SocketCallError::Transport(_) => {
-                    "Neighbor reply outcome unavailable. Check the receipt before replaying."
+                    "Neighbor reply outcome unavailable. Check the receipt before replaying.".into()
                 }
             })?;
-        if !result["status"]
+        let status = result["status"]
             .as_u64()
-            .is_some_and(|status| (200..300).contains(&status))
-        {
-            return Err("Neighbor reply refused by the daemon");
-        }
-        let receipt = result["body"]
+            .filter(|status| (100..600).contains(status))
+            .ok_or(MISSING_RECEIPT)?;
+        let body = result["body"]
             .as_str()
-            .and_then(|body| serde_json::from_str::<Value>(body).ok())
-            .ok_or("Neighbor reply receipt unavailable. Check the receipt before replaying.")?;
+            .and_then(|body| serde_json::from_str::<Value>(body).ok());
+        if !(200..300).contains(&status) {
+            let code = body.as_ref().and_then(|body| {
+                [&body["code"], &body["error"]["code"], &body["reason"]]
+                    .into_iter()
+                    .find_map(|value| daemon_error_code(value, &self.token))
+            });
+            let fallback = if status == 401 {
+                "http_unauthorized"
+            } else {
+                "http_refused"
+            };
+            return Err(refused(
+                json!({"http_status":status,"code":code.unwrap_or(fallback)}),
+            ));
+        }
+        let receipt = body.ok_or(MISSING_RECEIPT)?;
         if receipt["submission"] == "unconfirmed" {
             return Ok(format!(
                 "Neighbor reply submission is unconfirmed. Do not replay it. {receipt}"
             ));
         }
         if !receipt["message_id"].is_string() {
-            return Err("Neighbor reply receipt unavailable. Check the receipt before replaying.");
+            return Err(MISSING_RECEIPT.into());
         }
         Ok(receipt.to_string())
     }
+}
+
+fn daemon_error_code<'a>(value: &'a Value, token: &str) -> Option<&'a str> {
+    value.as_str().filter(|code| {
+        code.len() <= 64
+            && code.contains('_')
+            && code
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+            && (token.is_empty() || !code.contains(token))
+    })
+}
+
+fn refused(detail: Value) -> String {
+    #[cfg(debug_assertions)]
+    eprintln!("[neighbor-reply] refused {detail}");
+    detail.to_string()
 }
 
 fn is_hex_id(id: &str, len: usize) -> bool {
@@ -96,7 +134,7 @@ fn protocol(
     input: impl io::BufRead,
     output: &mut impl io::Write,
     token: &str,
-    mut send: impl FnMut(Reply) -> Result<String, &'static str>,
+    mut send: impl FnMut(Reply) -> Result<String, String>,
 ) -> io::Result<()> {
     protocol_with_tools(
         input,

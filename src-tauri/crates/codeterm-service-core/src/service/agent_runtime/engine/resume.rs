@@ -41,6 +41,29 @@ fn unused(config: &Value, thread: &str) -> bool {
     config["unusedThreadId"].as_str() == Some(thread)
 }
 
+pub(super) fn prepare_startup_credential(svc: &ServiceContext, context: &RuntimeContext) {
+    let Some(thread) = context.thread_id.as_deref() else {
+        return;
+    };
+    let mux = svc.mux.read();
+    if mux.get_tab(&context.tab_id).is_some_and(|tab| {
+        tab.session_binding_nonce.as_deref() == Some(&context.binding_nonce)
+            && tab.agent_session_id.as_deref() == Some(thread)
+            && tab
+                .agent_runtime_config
+                .as_ref()
+                .is_some_and(|config| unused(config, thread))
+    }) {
+        svc.start_unused_runtime_thread_credential(
+            crate::service::tab_credentials::TabCaller {
+                tab_id: context.tab_id.clone(),
+                binding_nonce: context.binding_nonce.clone(),
+            },
+            thread,
+        );
+    }
+}
+
 pub(super) async fn before_turn(
     svc: &ServiceContext,
     session: &Session,
@@ -136,6 +159,7 @@ pub(crate) async fn load(
         {
             return result;
         }
+        svc.settle_unused_runtime_thread_credential(tab, None);
         tab.agent_session_id = None;
         tab.agent_session_name = None;
         tab.restored_from_snapshot = false;

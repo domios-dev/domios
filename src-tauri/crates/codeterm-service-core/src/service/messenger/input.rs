@@ -88,7 +88,12 @@ impl FramedDelivery {
 
     pub(crate) fn set_neighbor_direct_reply(&mut self, executable: &str) {
         if let Some((friendship, message)) = self.neighbor_reply_ids() {
-            let hint = super::neighbor::direct_reply_hint(executable, &friendship, &message);
+            let hint = super::neighbor::direct_reply_hint(
+                executable,
+                &friendship,
+                &message,
+                super::neighbor::NEIGHBOR_NAMED_FILE_GUIDANCE,
+            );
             self.suffix = format!(" <tip>{hint}</tip>");
         }
     }

@@ -118,3 +118,78 @@ fn neighbor_reply_channel_sends_once_to_the_pinned_local_endpoint_with_own_bindi
         json!({"operation":"send","friendship_id":friendship,"in_reply_to":question,"kind":"answer","body":"opaque answer"})
     );
 }
+
+#[test]
+fn neighbor_reply_channel_exposes_typed_refusals_without_daemon_details() {
+    let name = format!(
+        "domios-neighbor-refusals-{}.sock",
+        uuid::Uuid::new_v4().simple()
+    );
+    let listener = ListenerOptions::new()
+        .name(name.as_str().to_ns_name::<GenericNamespaced>().unwrap())
+        .create_sync()
+        .unwrap();
+    let server = std::thread::spawn(move || {
+        let responses = [
+            json!({"error":{"code":-32003,"message":"opaque daemon detail","data":{"reason":"invalid_token"}}}),
+            json!({"result":{"status":400,"body":json!({"code":"reply_target_unknown","message":"opaque daemon detail"}).to_string()}}),
+            json!({"result":{"status":403,"body":json!({"error":{"code":"opaque_credential","message":"opaque daemon detail"}}).to_string()}}),
+        ];
+        for mut response in responses {
+            let mut stream = BufReader::new(listener.accept().unwrap());
+            let mut line = String::new();
+            stream.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            response["jsonrpc"] = "2.0".into();
+            response["id"] = request["id"].clone();
+            writeln!(stream.get_mut(), "{response}").unwrap();
+            stream.get_mut().flush().unwrap();
+        }
+    });
+    let friendship = "a".repeat(64);
+    let launch = Launch {
+        tab: "own-tab",
+        nonce: "own-nonce",
+        friendship: &friendship,
+        socket: codeterm_paths::namespaced_socket_display_path(&name),
+        token: "opaque_credential".into(),
+    };
+    let input = (1..=3)
+        .map(|id| {
+            format!(
+                "{}\n",
+                call(
+                    id,
+                    NEIGHBOR_REPLY_MCP_TOOL,
+                    json!({"kind":"answer","in_reply_to":"b".repeat(32),"body":"opaque answer"})
+                )
+            )
+        })
+        .collect::<String>();
+    let mut output = Vec::new();
+    protocol(input.as_bytes(), &mut output, &launch.token, |reply| {
+        launch.send(reply)
+    })
+    .unwrap();
+    server.join().unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(!output.contains("opaque daemon detail"));
+    assert!(!output.contains(&launch.token));
+    let refusals: Vec<Value> = output
+        .lines()
+        .map(|line| {
+            let response: Value = serde_json::from_str(line).unwrap();
+            assert_eq!(response["result"]["isError"], true);
+            serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(
+        refusals,
+        [
+            json!({"rpc_code":-32003,"code":"invalid_token"}),
+            json!({"http_status":400,"code":"reply_target_unknown"}),
+            json!({"http_status":403,"code":"http_refused"}),
+        ]
+    );
+}
