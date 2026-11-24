@@ -279,11 +279,12 @@ for (const operation of [
     assert.equal((resumed.plan.action.call.params as {config:Record<string,unknown>}).config["windows.sandbox"],"mxc");
   }
 }
-for (const [cwd, pad, command] of [
-  ["C:/friend", "C:/own-pad", "C:/host/current CLI.exe"],
-  ["/friend", "/own-pad", "/private/tmp/host/current CLI"],
+for (const [mode, cwd, pad, command] of [
+  ["read-only-with-writable-roots", "C:/opaque-read-root", "C:/opaque-pad", "C:/host/current CLI.exe"],
+  ["read-only-with-writable-roots", "/opaque-read-root", "/opaque-pad", "/private/tmp/host/current CLI"],
+  ["workspace-write", "/opaque-folder-root", "/opaque-pad", "/private/tmp/host/current CLI"],
 ]) {
-  const settings: RuntimeSettings = {mode:"read-only-with-writable-roots",networkAccess:false,additionalDirectories:[pad]};
+  const settings: RuntimeSettings = {mode,networkAccess:false,additionalDirectories:[pad]};
   const server = {name:"domios_neighbor_reply",command,args:["mcp","serve","--tab",context.tabId,"--binding-nonce",context.bindingNonce],
     env:{CODETERM_SOCKET_PATH:"opaque instance",CODETERM_NEIGHBOR_REPLY_FRIENDSHIP_ID:"a".repeat(64)}};
   const ctx = {...context,cwd,settings,hostMcp:server};
@@ -294,14 +295,15 @@ for (const [cwd, pad, command] of [
     const plan = planned(ctx,operation);
     if (plan.action.kind !== "request") throw new Error("Missing MCP-bound thread request");
     assert.equal(plan.action.call.method,operation.kind === "openThread" ? "thread/start" : "thread/resume");
-    const params = plan.action.call.params as {config:Record<string,unknown>;runtimeWorkspaceRoots:string[];developerInstructions:string;approvalPolicy:string};
+    const params = plan.action.call.params as {config:Record<string,unknown>;runtimeWorkspaceRoots?:string[];developerInstructions:string;approvalPolicy:string};
     assert.deepEqual(params.config["mcp_servers.domios_neighbor_reply"],{
       command,args:server.args,env:server.env,env_vars:["CODETERM_API_TOKEN"],required:true,
       enabled_tools:["reply"],tools:{reply:{approval_mode:"approve"}},
     });
     assert.equal(params.config["sandbox_workspace_write.network_access"],false);
     assert.equal(params.approvalPolicy,"never");
-    assert.deepEqual(params.runtimeWorkspaceRoots,[pad]);
+    assert.deepEqual(params.runtimeWorkspaceRoots,mode === "read-only-with-writable-roots" ? [pad] : undefined);
+    assert.deepEqual(params.config["sandbox_workspace_write.writable_roots"],[pad]);
     assert.ok(params.developerInstructions.startsWith("opaque guidance\n\n"));
     assert.ok(params.developerInstructions.includes(JSON.stringify(cwd)));
     assert.equal(params.config.projects,undefined);

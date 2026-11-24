@@ -15,7 +15,7 @@ export function codexNeighborReplyMcpConfig(ctx: RuntimeContext): Record<string,
 
 export function codexNeighborReadInstructions(ctx: RuntimeContext, instructions?: string): string | undefined {
   if (ctx.hostMcp?.name !== neighborReplyMcp) return instructions;
-  const readGuidance = `For an in-scope file, try a native file read or a read-only shell command before reporting it unavailable. Resolve relative file paths from the read-only working directory ${JSON.stringify(ctx.cwd)}. The writable AgentPad is only for pad files.`;
+  const readGuidance = `For an in-scope file, try a native file read or a read-only shell command before reporting it unavailable. Resolve relative file paths from the working directory ${JSON.stringify(ctx.cwd)}. The writable AgentPad is only for pad files.`;
   return instructions ? `${instructions}\n\n${readGuidance}` : readGuidance;
 }
 
