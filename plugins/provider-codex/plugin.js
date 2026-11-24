@@ -2915,8 +2915,17 @@ function codexNeighborReplyMcpConfig(ctx) {
     args: [...server2.args],
     env: { ...server2.env ?? {} },
     env_vars: ["CODETERM_API_TOKEN"],
-    required: true
+    required: true,
+    enabled_tools: ["reply"],
+    tools: { reply: { approval_mode: "approve" } }
   } };
+}
+function codexNeighborReadInstructions(ctx, instructions) {
+  if (ctx.hostMcp?.name !== neighborReplyMcp) return instructions;
+  const readGuidance = `For an in-scope file, try a native file read or a read-only shell command before reporting it unavailable. Resolve relative file paths from the read-only working directory ${JSON.stringify(ctx.cwd)}. The writable AgentPad is only for pad files.`;
+  return instructions ? `${instructions}
+
+${readGuidance}` : readGuidance;
 }
 function codexRestrictedCliConfig(ctx) {
   const policy = ctx.restrictedCli;
@@ -3824,7 +3833,7 @@ function request(method, params, state = { stage: method }) {
   return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
 }
 function settingsParams(ctx, settings, instructions, windowsSandbox) {
-  instructions = codexRestrictedCliInstructions(ctx, instructions);
+  instructions = codexNeighborReadInstructions(ctx, codexRestrictedCliInstructions(ctx, instructions));
   const policies = codexRuntimePolicy(settings);
   const sandbox = object2(policies.sandboxPolicy).type;
   return {

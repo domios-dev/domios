@@ -21,7 +21,7 @@ import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsSplitWindowsRoots, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexManagedMxcRefusal, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions, codexNeighborReplyMcpConfig } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsSplitWindowsRoots, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexManagedMxcRefusal, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions, codexNeighborReplyMcpConfig, codexNeighborReadInstructions } from "./runtimeSettings";
 import { modelServiceTiers, serviceTierSelection, tierAvailable } from "./runtimeServiceTiers";
 export { runtimeReduce } from "./runtimeReduce";
 
@@ -33,7 +33,7 @@ function request(method: string, params: unknown, state: unknown = {stage:method
   return {action:{kind:"request",call:{method,params:json(params),...(target ? {target} : {})}},state:json(state)};
 }
 function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string, windowsSandbox?: "mxc"): Record<string,unknown> {
-  instructions = codexRestrictedCliInstructions(ctx,instructions);
+  instructions = codexNeighborReadInstructions(ctx,codexRestrictedCliInstructions(ctx,instructions));
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
   return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:{...codexThreadConfig(settings,ctx.hostOwned),...codexRestrictedCliConfig(ctx),...codexNeighborReplyMcpConfig(ctx),...(windowsSandbox ? {"windows.sandbox":windowsSandbox} : {})},
