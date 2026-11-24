@@ -1,15 +1,14 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 import { readMachineAppearance, type MachineAppearance } from "./chatWallpaperClient";
-import { daemonTransportForPeer } from "./daemonBootstrap";
 import { DEFAULT_THEME } from "./themeCss";
-import type { AppConfig } from "./types";
+import { MachineAppearanceContext } from "./useMachineAppearance";
 
 type Palette = Pick<MachineAppearance["theme"], "name" | "blue" | "background" | "foreground">;
 type Entry = {
   appearance?: MachineAppearance;
   listeners: Set<() => void>;
   online: number;
-  stop?: () => void;
+  request?: AbortController;
 };
 
 const entries = new Map<string | undefined, Entry>();
@@ -18,6 +17,11 @@ const CACHE_LIMIT = 20;
 const hex = /^#[0-9a-f]{6}$/i;
 let palettes: Map<string, Palette> | undefined;
 
+function isPalette(theme: Palette | undefined): theme is Palette {
+  return typeof theme?.name === "string"
+    && [theme.blue, theme.background, theme.foreground].every(color => typeof color === "string" && hex.test(color));
+}
+
 function cachedPalettes() {
   if (palettes) return palettes;
   palettes = new Map();
@@ -25,8 +29,7 @@ function cachedPalettes() {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw || raw.length > 8192) return palettes;
     for (const [id, palette] of JSON.parse(raw).slice(0, CACHE_LIMIT) as [string, Palette][]) {
-      if (typeof id === "string" && typeof palette?.name === "string"
-          && [palette.blue, palette.background, palette.foreground].every(color => hex.test(color))) {
+      if (typeof id === "string" && isPalette(palette)) {
         palettes.set(id, palette);
       }
     }
@@ -61,43 +64,54 @@ function entryFor(peerId: string | undefined) {
   return entry;
 }
 
-function observeAppearance(peerId: string | undefined, entry: Entry) {
+function publishAppearance(peerId: string | undefined, entry: Entry, appearance: MachineAppearance) {
+  if (!isPalette(appearance?.theme)) return;
+  if (entry.appearance?.theme === appearance.theme && entry.appearance.wallpaper === appearance.wallpaper) return;
+  entry.appearance = appearance;
+  if (peerId) rememberPalette(peerId, appearance.theme);
+  entry.listeners.forEach(listener => listener());
+}
+
+function readAppearance(peerId: string | undefined, entry: Entry) {
+  if (entry.request) return;
   const controller = new AbortController();
-  let changed = false;
-  let unsubscribe: (() => void) | undefined;
-  const publish = (appearance: MachineAppearance) => {
-    if (controller.signal.aborted) return;
-    entry.appearance = appearance;
-    if (peerId) rememberPalette(peerId, appearance.theme);
-    entry.listeners.forEach(listener => listener());
-  };
+  entry.request = controller;
   void Promise.resolve().then(async () => {
     if (controller.signal.aborted) return;
-    unsubscribe = daemonTransportForPeer(peerId).subscribe("/api/events/stream", (name, data) => {
-      if (name !== "config-changed" || !data || typeof data !== "object" || !("theme" in data) || !data.theme) return;
-      const config = data as AppConfig;
-      changed = true;
-      publish({ theme: config.theme, wallpaper: config.chat_wallpaper ?? null });
-    }, { signal: controller.signal, onEnd: () => undefined });
     const appearance = await readMachineAppearance(peerId, controller.signal);
-    if (!changed) publish(appearance);
-  }).catch(() => undefined);
-  return () => { controller.abort(); unsubscribe?.(); };
+    if (!controller.signal.aborted) publishAppearance(peerId, entry, appearance);
+  }).catch(() => undefined).finally(() => {
+    if (entry.request === controller) entry.request = undefined;
+  });
 }
 
 export function useMachineChromeAppearance(peerId: string | undefined, online: boolean, enabled = true) {
+  const selected = useContext(MachineAppearanceContext);
+  const projected = enabled && online && selected?.ready && selected.peerId === peerId
+    && isPalette(selected.appearance.theme) ? selected.appearance : undefined;
+  const theme = projected?.theme;
+  const wallpaper = projected?.wallpaper;
+  const needsRead = online && !projected;
+  useEffect(() => {
+    if (theme) publishAppearance(peerId, entryFor(peerId), { theme, wallpaper: wallpaper ?? null });
+  }, [peerId, theme, wallpaper]);
+
   const subscribe = useCallback((listener: () => void) => {
     if (!enabled) return () => undefined;
     const entry = entryFor(peerId);
     entry.listeners.add(listener);
-    if (online && entry.online++ === 0) entry.stop = observeAppearance(peerId, entry);
+    if (needsRead) {
+      entry.online++;
+      readAppearance(peerId, entry);
+    }
     return () => {
       entry.listeners.delete(listener);
-      if (online && --entry.online === 0) {
-        entry.stop?.();
-        entry.stop = undefined;
+      if (needsRead && --entry.online === 0) {
+        entry.request?.abort();
+        entry.request = undefined;
       }
     };
-  }, [enabled, online, peerId]);
-  return useSyncExternalStore(subscribe, () => enabled ? entryFor(peerId).appearance : undefined, () => undefined);
+  }, [enabled, needsRead, peerId]);
+  const cached = useSyncExternalStore(subscribe, () => enabled ? entryFor(peerId).appearance : undefined, () => undefined);
+  return projected ?? cached;
 }
