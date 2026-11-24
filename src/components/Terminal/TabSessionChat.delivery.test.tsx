@@ -20,6 +20,8 @@ import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { reconcileTrackedChatMessages, sendTrackedChatMessage } from "./chatSendStatus";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { ComposerSendQueue } from "./composerQueueModel";
+import { CHAT_TOOL_SHOW_DELAY_MS } from "./chatTranscriptActivity";
+import { withChatToolClock } from "./chatTranscriptActivity.testSupport";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -159,12 +161,13 @@ function muxActions(): MultiplexerActionsContextType {
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
 async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string,
-  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean; pty?: boolean; queue?: ComposerSendQueue } = {}): Promise<{
+  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean; pty?: boolean; queue?: ComposerSendQueue; authority?: Pick<Tab, "managed" | "neighbor_authority"> } = {}): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
   calls: string[];
   setWorking: (working: boolean) => void;
+  setManaged: (managed: Tab["managed"]) => void;
 }> {
   setAgentDescriptors([{ id: "lmstudio", agent_runtime: { goals: { actions: ["read"] } } }] as unknown as ProviderDescriptor[]);
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
@@ -205,6 +208,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   document.body.appendChild(host);
   const root = createRoot(host);
   let state = tabState(tabId, runtimeState, seed.working);
+  if (seed.authority) state.tabs[tabId] = { ...state.tabs[tabId], ...seed.authority };
   if (seed.pty) state.tabs[tabId] = { ...state.tabs[tabId], backing: { kind: "pty" } };
   if (seed.general) {
     state.tabs.general = { ...state.tabs[tabId], id: "general", protected: true };
@@ -233,6 +237,10 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
         tabStatuses: { ...state.tabStatuses, [tabId]: working ? "Working" : "Idle" } };
       store.notify();
     },
+    setManaged: managed => {
+      state = { ...state, tabs: { ...state.tabs, [tabId]: { ...state.tabs[tabId], managed } } };
+      store.notify();
+    },
     dispatch: (event, payload) => {
       for (const handler of listeners.get(event) ?? []) handler({ payload });
     },
@@ -249,18 +257,24 @@ test("composer feedback follows the durable queue and the written receipt until 
     queue: { items: [{ sendId: held.send_id, correlationId: held.correlationId!, version: 0, preview: "message" }],
       claimed: [], edits: [] } satisfies ComposerSendQueue as ComposerSendQueue,
   };
-  const { host, root, dispatch } = await renderChat(tabId, { state: "loaded", epoch: 3, last_turn_duration_ms: 12000 },
+  const { host, root, dispatch, setManaged } = await renderChat(tabId, { state: "loaded", epoch: 3, last_turn_duration_ms: 12000 },
     undefined, undefined, seed);
   try {
     await act(async () => { await reconcileTrackedChatMessages(tabId); });
     const status = host.querySelector(".ct-composer-status")!;
-    assert(status.textContent?.includes("Queued: 1"), "the durable queue supplies the count");
+    const queueChip = () => host.querySelector<HTMLButtonElement>('button[aria-label="Queued: 1"]');
+    assert(queueChip()?.getAttribute("aria-haspopup") === "dialog", "the durable queue supplies the edit control");
     assert(!status.textContent?.includes("Last turn"), "held input suppresses stale timing");
+    await act(async () => setManaged({ manager_tab_id: "manager", manager_name: "Manager", manager_closed: false }));
+    assert(!host.querySelector('[data-testid="chat-composer"]'), "management hides the composer");
+    assert(queueChip()?.disabled, "management preserves the held count and disables editing");
+    await act(async () => setManaged(undefined));
+    assert(host.querySelectorAll('button[aria-label="Queued: 1"]').length === 1, "the restored composer shows one queue control");
     seed.queue = { ...seed.queue, items: [], claimed: [held.send_id] };
     await act(async () => dispatch("chat-send-queue-changed", { tab_id: tabId }));
     assert(!status.textContent?.includes("Sending…"), "composer does not render a Sending row above the input");
     assert(!status.textContent?.includes("Last turn"), "claimed input suppresses stale timing");
-    assert(!status.textContent?.includes("Queued: 1"), "a claim removes the edit controls");
+    assert(!queueChip(), "a claim removes the edit controls");
     seed.queue = { ...seed.queue, claimed: [] };
     seed.statuses = [{ ...held, state: "written", pending_reason: undefined }];
     await act(async () => dispatch("chat-send-status", seed.statuses[0]));
@@ -277,6 +291,47 @@ test("composer feedback follows the durable queue and the written receipt until 
   }
 });
 
+const activeManager = { manager_tab_id: "manager", manager_name: "Manager", manager_closed: false };
+const conciergeAuthority = { uid: "neighbor", friendship_id: "friendship", root_tab_id: null };
+
+for (const [kind, authority, editable] of [
+  ["ordinary", {}, true],
+  ["managed", { managed: activeManager }, false],
+  ["released", { managed: { ...activeManager, manager_closed: true } }, true],
+  ["concierge", { neighbor_authority: conciergeAuthority }, false],
+] as const) {
+  test(`queue count and edit authority on ${kind} tabs`, async () => {
+    __setChatSendRepositoryForTest(new MemoryChatSendRepository());
+    const tabId = `queue-authority-${kind}`;
+    const { host, root } = await renderChat(tabId, { state: "loaded", epoch: 3 }, undefined, undefined, {
+      authority,
+      queue: { items: [{ sendId: "held", correlationId: "token", version: 0, preview: "message" }], claimed: [], edits: [] },
+    });
+    try {
+      await act(async () => { await reconcileTrackedChatMessages(tabId); });
+      const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Queued: 1"]');
+      assert(trigger, "the queue count stays visible");
+      if (editable) {
+        assert(!trigger.disabled && trigger.getAttribute("aria-haspopup") === "dialog", "the count opens the queue editor");
+      } else {
+        assert(trigger.disabled && !trigger.hasAttribute("aria-haspopup"), "the count has no edit action");
+      }
+      await act(async () => trigger.click());
+      const dialog = document.querySelector('[role="dialog"][aria-label="Queued messages"]');
+      if (editable) {
+        assert(dialog, "the queue editor opens");
+        assert(dialog.querySelector('button[aria-label="Append to queued message 1"]'), "Append is available");
+        assert(dialog.querySelector('button[aria-label="Cancel queued message 1"]'), "Cancel is available");
+      } else {
+        assert(!dialog, "the queue editor is unavailable");
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      __setChatSendRepositoryForTest(null);
+    }
+  });
+}
 
 for (const narrow of [false, true]) {
   test(`session goal is reachable in the composer (narrow: ${narrow})`, async () => {
@@ -655,7 +710,7 @@ test("a written prompt the agent refused while busy says so without offering Ret
 });
 
 for (const pty of [true, false]) {
-  test(`an own ${pty ? "queued" : "steered"} send keeps one row through delivery release and transcript handoff`, async () => {
+  test(`an own ${pty ? "queued" : "steered"} send keeps one row through delivery release and transcript handoff`, () => withChatToolClock(async (timers) => {
     const tabId = `turn-end-${pty}`;
     const at = Date.now();
     const record = (offset: number) => ({ kind: "jsonl" as const, incarnation: "own-file", record_start: offset, record_row: 0 });
@@ -681,6 +736,7 @@ for (const pty of [true, false]) {
     });
     try {
       await act(async () => addChatSend(tabId, { id: "turn-send", correlationId: "turn-send", content: "opaque-send", sentAtMs: at }));
+      if (!pty) await act(async () => timers.tick(CHAT_TOOL_SHOW_DELAY_MS));
       const bubble = host.querySelector('[data-message-id="turn-send"]');
       const toolRow = host.querySelector('[data-chat-window-row="turn-tool"]');
       assert(bubble && toolRow, "send and running tool render");
@@ -732,7 +788,7 @@ for (const pty of [true, false]) {
       assert(handoffPositions.every(index => index === handoffPositions[0]), "delivery and echo keep the same transcript slot without flicker");
       assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "settled delivery keeps the original DOM node");
     } finally { await act(async () => root.unmount()); host.remove(); }
-  });
+  }));
 }
 
 const degradedRuntime: AgentRuntimeState = { state: "degraded", epoch: 2, failureCode: "provider_refused",

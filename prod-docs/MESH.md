@@ -66,7 +66,9 @@ Access is enforced on direct signed requests and relayed requests. Secret routes
 
 AgentIsolated ownership is stamped from the authenticated signed peer identity when an agent is spawned. Caller-supplied ownership fields cannot claim another peer's tabs. Every tab-scoped route checks the stored owner before dispatch.
 
-Remote tab close requires stored creator ownership at every access level: a signed agent must match both peer and controller tab; an authenticated paired machine must match the peer. Plan-dispatched Workers record their origin Orchestrator as controller. Released ownership and foreign creators are refused; coordinator and busy-Worker close guards remain in force.
+Closing a shared tab from another machine requires the owner's authenticated session and Full access on the owning machine. The owning daemon applies the same close rules and confirmations as its local UI. If the close is refused or the machine is offline, the tab stays visible and the UI shows the error.
+
+Remote creator close commands require stored creator ownership. A signed agent must match both peer and controller tab. An authenticated paired machine must match the peer. Plan-dispatched Workers record their origin Orchestrator as controller. Released ownership and foreign creators are refused. Coordinator and busy-Worker close guards remain in force.
 
 Remote ownership remains until the local owner releases it. Closing the controller tab or Team on the remote machine does not currently send a reliable release signal. On the machine hosting the tab, run:
 
@@ -169,4 +171,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 80 -->
+<!-- revision: 81 -->

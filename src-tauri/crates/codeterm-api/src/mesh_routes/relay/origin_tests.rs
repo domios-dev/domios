@@ -331,7 +331,7 @@ async fn agent_relay_cannot_spend_peer_workspace_or_rpc_authority() {
         body: json!({"force":true}),
         delivery_id: None,
     };
-    let refusal = perform_relay(
+    let refusal = perform_test_relay(
         &first,
         "second",
         &cmd,
@@ -547,7 +547,7 @@ async fn signed_peer_and_loopback_inventory_use_the_same_restricted_grant() {
         body: Value::Null,
         delivery_id: None,
     };
-    let refused = perform_relay(
+    let refused = perform_test_relay(
         &target,
         "inventory-origin",
         &trigger,
@@ -687,11 +687,11 @@ fn single_pass_signed_mesh_auth_enforces_origin_agent_binding_and_replay() {
     pair(&target, &source);
 
     let owner_token = origin::sign(&source, AuthenticatedOrigin::Owner, None).unwrap();
-    let (peer_id, parsed_origin, agent) =
-        origin::authenticate_signed_mesh_request(&target, &headers(&owner_token)).unwrap();
-    assert_eq!(peer_id, "source");
-    assert_eq!(parsed_origin, AuthenticatedOrigin::Owner);
-    assert!(agent.is_none());
+    let caller = origin::authenticate_signed_mesh_request(&target, &headers(&owner_token)).unwrap();
+    assert_eq!(caller.peer_id, "source");
+    assert_eq!(caller.origin, AuthenticatedOrigin::Owner);
+    assert!(caller.agent.is_none());
+    assert!(caller.grant.unwrap().current(&target.mesh.lock()));
     let replay = origin::authenticate_signed_mesh_request(&target, &headers(&owner_token));
     assert_eq!(replay.unwrap_err().0, StatusCode::UNAUTHORIZED);
 
@@ -701,11 +701,10 @@ fn single_pass_signed_mesh_auth_enforces_origin_agent_binding_and_replay() {
         can_spawn: false,
     };
     let agent_token = origin::sign(&source, AuthenticatedOrigin::Agent, Some(&claimed)).unwrap();
-    let (peer_id, parsed_origin, agent) =
-        origin::authenticate_signed_mesh_request(&target, &headers(&agent_token)).unwrap();
-    assert_eq!(peer_id, "source");
-    assert_eq!(parsed_origin, AuthenticatedOrigin::Agent);
-    assert_eq!(agent, Some(claimed));
+    let caller = origin::authenticate_signed_mesh_request(&target, &headers(&agent_token)).unwrap();
+    assert_eq!(caller.peer_id, "source");
+    assert_eq!(caller.origin, AuthenticatedOrigin::Agent);
+    assert_eq!(caller.agent, Some(claimed));
 
     let spoofed = codeterm_service_core::mesh::crown::AuthenticatedAgent {
         instance_id: "other".into(),
@@ -721,9 +720,109 @@ fn single_pass_signed_mesh_auth_enforces_origin_agent_binding_and_replay() {
     );
 
     let local_token = origin::sign(&target, AuthenticatedOrigin::Owner, None).unwrap();
-    let (local_id, local_origin, local_agent) =
-        origin::authenticate_signed_mesh_request(&target, &headers(&local_token)).unwrap();
-    assert_eq!(local_id, "local");
-    assert_eq!(local_origin, AuthenticatedOrigin::Owner);
-    assert!(local_agent.is_none());
+    let local = origin::authenticate_signed_mesh_request(&target, &headers(&local_token)).unwrap();
+    assert_eq!(local.peer_id, "local");
+    assert_eq!(local.origin, AuthenticatedOrigin::Owner);
+    assert!(local.agent.is_none());
+    assert!(local.grant.is_none());
+}
+
+#[test]
+fn owner_tab_close_revalidates_verified_grant_in_blocking_worker() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap()
+        .block_on(async {
+            let (mut mux, initial) = MultiplexerState::new();
+            let workspace = mux.find_workspace_for_tab(&initial).unwrap();
+            let tab = mux.create_tab(&workspace).unwrap();
+            let fixture = ServiceFixture::new(mux);
+            let source = state(&fixture, "source");
+            let target = state(&fixture, "target");
+            pair(&target, &source);
+            let token = origin::sign(&source, AuthenticatedOrigin::Owner, None).unwrap();
+            let caller =
+                origin::authenticate_signed_mesh_request(&target, &headers(&token)).unwrap();
+            let cmd = RelayCommand {
+                method: "POST".into(),
+                path: format!("/api/tabs/{tab}/close"),
+                body: json!({"as_owner": true}),
+                delivery_id: None,
+            };
+            let (entered, blocked) = tokio::sync::oneshot::channel();
+            let (release, wait) = std::sync::mpsc::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                entered.send(()).unwrap();
+                let _ = wait.recv();
+            });
+            blocked.await.unwrap();
+
+            let mut close = std::pin::pin!(perform_relay(&target, &caller, &cmd, None));
+            assert!(
+                std::future::poll_fn(|cx| {
+                    std::task::Poll::Ready(
+                        std::future::Future::poll(close.as_mut(), cx).is_pending(),
+                    )
+                })
+                .await
+            );
+            assert!(target
+                .mesh
+                .lock()
+                .set_peer_access("source", AccessLevel::ReadOnly));
+            release.send(()).unwrap();
+            blocker.await.unwrap();
+
+            let refused = close.await.unwrap();
+            assert_eq!(refused.status, StatusCode::FORBIDDEN.as_u16());
+            assert!(refused
+                .error
+                .unwrap()
+                .contains("Peer authorization changed"));
+            assert!(target.svc.mux.read().get_tab(&tab).is_some());
+
+            assert!(target
+                .mesh
+                .lock()
+                .set_peer_access("source", AccessLevel::Full));
+            let stale = perform_relay(&target, &caller, &cmd, None).await.unwrap();
+            assert_eq!(stale.status, StatusCode::FORBIDDEN.as_u16());
+            assert!(target.svc.mux.read().get_tab(&tab).is_some());
+        });
+}
+
+#[tokio::test]
+async fn workspace_close_refuses_a_stale_grant_before_cascade_admission() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.create_workspace("SharedCloseFixture".into(), None).id;
+    let tab = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let source = state(&fixture, "source");
+    let target = state(&fixture, "target");
+    pair(&target, &source);
+    let token = origin::sign(&source, AuthenticatedOrigin::Owner, None).unwrap();
+    let caller = origin::authenticate_signed_mesh_request(&target, &headers(&token)).unwrap();
+    assert!(target
+        .mesh
+        .lock()
+        .set_peer_access("source", AccessLevel::ReadOnly));
+    assert!(target
+        .mesh
+        .lock()
+        .set_peer_access("source", AccessLevel::Full));
+
+    let refused =
+        close_workspace_from_mesh_peer(&target, "source", &workspace, true, caller.grant.unwrap())
+            .await
+            .unwrap();
+    assert_eq!(refused.status, StatusCode::FORBIDDEN.as_u16());
+    assert!(refused
+        .error
+        .unwrap()
+        .contains("Peer authorization changed"));
+    let mux = target.svc.mux.read();
+    assert!(mux.get_workspace(&workspace).is_some());
+    assert!(mux.get_tab(&tab).is_some());
 }

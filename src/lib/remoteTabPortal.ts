@@ -25,8 +25,6 @@ interface AttachmentCache {
   hydration?: Promise<Record<string, Tab>>;
   pendingUpserts: Record<string, Tab>;
   pendingDeletes: Set<string>;
-  dismissed: Set<string>;
-  pendingVisibility: Map<string, boolean>;
 }
 
 const attachmentCaches = new Map<string, AttachmentCache>();
@@ -38,14 +36,14 @@ function cacheScope(): string | null {
 function cacheFor(scope: string): AttachmentCache {
   let cache = attachmentCaches.get(scope);
   if (!cache) {
-    cache = { tabs: {}, hydrated: false, pendingUpserts: {}, pendingDeletes: new Set(), dismissed: new Set(), pendingVisibility: new Map() };
+    cache = { tabs: {}, hydrated: false, pendingUpserts: {}, pendingDeletes: new Set() };
     attachmentCaches.set(scope, cache);
   }
   return cache;
 }
 
 function validAttachments(records: FrontendCacheRecord[], schemaVersion: unknown): Record<string, Tab> | null {
-  if (schemaVersion !== CACHE_SCHEMA || records.some((record) => record.kind !== "attachment" && record.kind !== "dismissed")) return null;
+  if (schemaVersion !== CACHE_SCHEMA) return null;
   const tabs: Record<string, Tab> = {};
   for (const record of records) {
     if (record.kind !== "attachment") continue;
@@ -61,9 +59,7 @@ function attachmentRecords(tabs: Record<string, Tab>): FrontendCacheRecord[] {
 }
 
 async function persistAttachments(scope: string, cache: AttachmentCache): Promise<void> {
-  const records = [...attachmentRecords(cache.tabs),
-    ...[...cache.dismissed].map(id => ({ kind: "dismissed", id, value: null }))];
-  await frontendCacheRepository.write(scope, records, { schemaVersion: CACHE_SCHEMA });
+  await frontendCacheRepository.write(scope, attachmentRecords(cache.tabs), { schemaVersion: CACHE_SCHEMA });
 }
 
 async function hydrateScope(scope: string): Promise<Record<string, Tab>> {
@@ -79,18 +75,10 @@ async function hydrateScope(scope: string): Promise<Record<string, Tab>> {
       cache.tabs = {};
     } else {
       cache.tabs = { ...stored, ...cache.tabs };
-      for (const record of snapshot?.records ?? []) {
-        if (record.kind === "dismissed" && record.id.startsWith("mesh:")) cache.dismissed.add(record.id);
-      }
     }
     for (const id of cache.pendingDeletes) delete cache.tabs[id];
     Object.assign(cache.tabs, cache.pendingUpserts);
-    for (const [id, dismissed] of cache.pendingVisibility) {
-      if (dismissed) cache.dismissed.add(id);
-      else cache.dismissed.delete(id);
-    }
-    const changedBeforeHydration = cache.pendingDeletes.size > 0 || Object.keys(cache.pendingUpserts).length > 0 || cache.pendingVisibility.size > 0;
-    cache.pendingVisibility.clear();
+    const changedBeforeHydration = cache.pendingDeletes.size > 0 || Object.keys(cache.pendingUpserts).length > 0;
     cache.pendingDeletes.clear();
     cache.pendingUpserts = {};
     cache.hydrated = true;
@@ -146,36 +134,6 @@ export function saveAttachedRemoteTabs(tabs: Record<string, Tab>): void {
     return;
   }
   void persistAttachments(scope, cache).catch(() => undefined);
-}
-
-export function isRemoteTabDismissed(tabId: string): boolean {
-  if (!tabId.startsWith("mesh:")) return false;
-  const scope = cacheScope();
-  return scope ? cacheFor(scope).dismissed.has(tabId) : false;
-}
-
-export function visibleRemoteTabs(tabs: Record<string, Tab>): Record<string, Tab> {
-  const scope = cacheScope();
-  const dismissed = scope && cacheFor(scope).dismissed;
-  if (!dismissed || dismissed.size === 0) return tabs;
-  return Object.fromEntries(Object.entries(tabs).filter(([id]) => !dismissed.has(id)));
-}
-
-export function setRemoteTabsDismissed(ids: readonly string[], dismissed: boolean): void {
-  const scope = cacheScope();
-  if (!scope) return;
-  const cache = cacheFor(scope);
-  let changed = false;
-  for (const id of ids) {
-    if (cache.hydrated && cache.dismissed.has(id) === dismissed) continue;
-    changed = true;
-    if (dismissed) cache.dismissed.add(id);
-    else cache.dismissed.delete(id);
-    if (!cache.hydrated) cache.pendingVisibility.set(id, dismissed);
-  }
-  if (!changed) return;
-  if (cache.hydrated) void persistAttachments(scope, cache).catch(() => {});
-  else void hydrateScope(scope);
 }
 
 export function projectAttachedRemoteTab(

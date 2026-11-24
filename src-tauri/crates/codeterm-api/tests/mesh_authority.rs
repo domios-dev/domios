@@ -338,6 +338,207 @@ async fn relayed_agent_cannot_change_mesh_administration_state() {
 }
 
 #[tokio::test]
+async fn registered_tab_close_routes_refuse_unscoped_peer_access() {
+    initialize();
+    let (mux, source_tab) = MultiplexerState::new();
+    let source_fixture = ServiceFixture::new(mux);
+    let source = state(&source_fixture, "source", 0);
+    let (mut mux, initial) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&initial).unwrap();
+    let tab = mux.create_tab(&workspace).unwrap();
+    let target_fixture = ServiceFixture::new(mux);
+    let target = state(&target_fixture, "target", 0);
+    pair(&target, &source);
+    let app = routes::create_router_with_frontend(target.clone(), None);
+    let paths = [
+        format!("/api/workspaces/{workspace}/tabs/{tab}/close"),
+        format!("/api/tabs/{tab}/close"),
+    ];
+    for access in [
+        AccessLevel::Full,
+        AccessLevel::Custom(vec![codeterm_mesh::types::Permission::Admin]),
+    ] {
+        assert!(target.mesh.lock().set_peer_access("source", access));
+        for path in &paths {
+            for agent in [false, true] {
+                let token = || {
+                    if agent {
+                        return signed_agent(&source, "source", &source_tab);
+                    }
+                    crown::sign_request_with_origin(
+                        source
+                            .mesh
+                            .lock()
+                            .ident
+                            .identity
+                            .private_key
+                            .as_deref()
+                            .unwrap(),
+                        "source",
+                        AuthenticatedOrigin::Owner,
+                    )
+                    .unwrap()
+                };
+                let (direct, _) = request(app.clone(), &token(), "POST", path, Value::Null).await;
+                assert_eq!(direct, StatusCode::FORBIDDEN, "{path} agent={agent}");
+                let (relay, data) = request(
+                    app.clone(),
+                    &token(),
+                    "POST",
+                    "/api/mesh/relay",
+                    json!({"method":"POST","path":path,"body":null}),
+                )
+                .await;
+                assert_eq!(relay, StatusCode::OK, "{path} agent={agent}: {data}");
+                assert_eq!(data["status"], 403, "{path} agent={agent}: {data}");
+                assert!(target.svc.mux.read().get_tab(&tab).is_some());
+            }
+        }
+    }
+    let local_agent = target
+        .svc
+        .frontend_pty_env(Some(&initial))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let (agent, _) = request(app.clone(), &local_agent, "POST", &paths[0], Value::Null).await;
+    assert_eq!(agent, StatusCode::FORBIDDEN);
+    assert!(target.svc.mux.read().get_tab(&tab).is_some());
+
+    let (mismatch, _) = request(
+        app.clone(),
+        "owner-secret",
+        "POST",
+        &format!("/api/workspaces/wrong-workspace/tabs/{tab}/close"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(mismatch, StatusCode::NOT_FOUND);
+    assert!(target.svc.mux.read().get_tab(&tab).is_some());
+    let (local, result) = request(app, "owner-secret", "POST", &paths[0], Value::Null).await;
+    assert_eq!(local, StatusCode::OK, "{result}");
+    assert!(target.svc.mux.read().get_tab(&tab).is_none());
+}
+
+#[tokio::test]
+async fn mesh_team_rpc_and_surface_close_require_a_local_caller() {
+    initialize();
+    install_rpc();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let source = state(&fixture, "source", 0);
+    let target = state(&fixture, "target", 0);
+    pair(&target, &source);
+    let app = routes::create_router_with_frontend(target.clone(), None);
+    let signed = |origin| {
+        crown::sign_request_with_origin(
+            source
+                .mesh
+                .lock()
+                .ident
+                .identity
+                .private_key
+                .as_deref()
+                .unwrap(),
+            "source",
+            origin,
+        )
+        .unwrap()
+    };
+    for access in [
+        AccessLevel::Custom(vec![codeterm_mesh::types::Permission::Admin]),
+        AccessLevel::Full,
+    ] {
+        assert!(target.mesh.lock().set_peer_access("source", access));
+        for origin in [AuthenticatedOrigin::Owner, AuthenticatedOrigin::Mesh] {
+            let rpc = json!({
+                "method":"team.close", "request_id":"team-close-denied", "protocol_version":1,
+                "params":{"team_id":"team-fixture","confirm":"team-fixture","force":true}
+            });
+            let (status, direct) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/mesh/rpc",
+                rpc.clone(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(direct["error"]["code"], -32003, "{direct}");
+            let (status, relayed) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/mesh/relay",
+                json!({"method":"POST","path":"/api/mesh/rpc","body":rpc}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(relayed["data"]["error"]["code"], -32003, "{relayed}");
+
+            let surface = json!({"tab_id":"surface-fixture"});
+            let (status, _) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/surfaces/close",
+                surface.clone(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            let (status, relayed) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/mesh/relay",
+                json!({"method":"POST","path":"/api/surfaces/close","body":surface}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(relayed["status"], 403, "{relayed}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn workspace_rest_close_refuses_signed_peer_owner() {
+    initialize();
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.create_workspace("Disposable".into(), None).id;
+    let tab = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let source = state(&fixture, "source", 0);
+    let target = state(&fixture, "target", 0);
+    pair(&target, &source);
+    assert!(target.mesh.lock().set_peer_access(
+        "source",
+        AccessLevel::Custom(vec![codeterm_mesh::types::Permission::ManageWorkspaces,])
+    ));
+    let token = crown::sign_request_with_origin(
+        source
+            .mesh
+            .lock()
+            .ident
+            .identity
+            .private_key
+            .as_deref()
+            .unwrap(),
+        "source",
+        AuthenticatedOrigin::Owner,
+    )
+    .unwrap();
+    let (status, _) = request(
+        routes::create_router_with_frontend(target.clone(), None),
+        &token,
+        "POST",
+        &format!("/api/workspaces/{workspace}/close"),
+        json!({"force":true,"confirm":workspace}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(target.svc.mux.read().get_tab(&tab).is_some());
+}
+
+#[tokio::test]
 async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer_access() {
     initialize();
     install_rpc();
@@ -705,6 +906,46 @@ async fn owner_and_agent_mesh_workflows_reach_the_same_registered_target_routes(
                 allowed
             );
         }
+    }
+
+    let shared_tab = {
+        let mut mux = target.svc.mux.write();
+        let workspace = mux.find_workspace_for_tab(&recipient).unwrap();
+        mux.create_tab(&workspace).unwrap()
+    };
+    for (token, access, expected) in [
+        (agent.as_str(), AccessLevel::Full, 403),
+        ("owner-secret", AccessLevel::ReadOnly, 403),
+        (
+            "owner-secret",
+            AccessLevel::Custom(vec![codeterm_mesh::types::Permission::Admin]),
+            403,
+        ),
+        ("owner-secret", AccessLevel::Full, 200),
+    ] {
+        assert!(target.mesh.lock().set_peer_access("source", access));
+        let (status, answer) = request(
+            app.clone(),
+            token,
+            "POST",
+            "/api/mesh/relay-to",
+            json!({
+                "target_instance_id":"target", "method":"POST",
+                "path":format!("/api/tabs/{shared_tab}/close"),
+                "body":{"as_owner":true}
+            }),
+        )
+        .await;
+        let received = if status == StatusCode::OK {
+            answer["status"].as_u64().unwrap()
+        } else {
+            u64::from(status.as_u16())
+        };
+        assert_eq!(received, expected, "{status}: {answer}");
+        assert_eq!(
+            target.svc.mux.read().get_tab(&shared_tab).is_none(),
+            expected == 200
+        );
     }
     stop.send(()).unwrap();
     server.await.unwrap();

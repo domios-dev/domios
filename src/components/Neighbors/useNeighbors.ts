@@ -12,6 +12,7 @@ interface LoadedNeighbors {
 export function useNeighbors(identity: string | null, client: NeighborClient = neighborClient) {
   const [loaded, setLoaded] = useState<LoadedNeighbors>({ identity, list: null, error: null });
   const [pending, setPending] = useState(false);
+  const [refreshingIdentity, setRefreshingIdentity] = useState<string | null>(null);
   const busy = useRef(false);
   const currentIdentity = useRef(identity);
   currentIdentity.current = identity;
@@ -36,12 +37,16 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
   }, [identity, client]);
 
   async function refresh() {
+    if (!identity) return;
     const shared = neighborReads(client, identity);
     if (!shared) return;
+    setRefreshingIdentity(identity);
     try { await shared.list.read(() => client.list(undefined, true), true); }
     catch (failure: unknown) {
       if (currentIdentity.current === identity) setLoaded(previous => ({ ...previous,
         error: failure instanceof Error ? failure.message : "Neighbors unavailable" }));
+    } finally {
+      setRefreshingIdentity(current => current === identity ? null : current);
     }
   }
 
@@ -67,5 +72,6 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
 
   const list = loaded.identity === identity ? loaded.list : null;
   return { list, referral: list?.referral_trial ?? null,
-    error: loaded.identity === identity ? loaded.error : null, pending, apply, refresh };
+    error: loaded.identity === identity ? loaded.error : null, pending,
+    refreshing: identity !== null && identity === refreshingIdentity, apply, refresh };
 }

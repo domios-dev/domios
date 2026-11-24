@@ -21,6 +21,7 @@ use crate::{
 
 mod contrast;
 mod presets;
+mod theme_switch;
 mod tweak;
 use contrast::{measure, ContrastCheck};
 
@@ -39,6 +40,14 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/appearance/{machine}", get(read).post(propose))
         .route("/api/appearance/{machine}/validate", post(diagnose))
         .route("/api/appearance/{machine}/tweak", post(tweak::apply))
+        .route(
+            "/api/appearance/{machine}/switch-theme",
+            post(theme_switch::apply),
+        )
+        .route(
+            "/api/appearance/{machine}/preview-preset",
+            post(theme_switch::preview),
+        )
         .route("/api/appearance/{machine}/{id}", get(show))
         .route("/api/appearance/{machine}/{id}/apply", post(apply))
         .route("/api/appearance/{machine}/{id}/undo", post(undo))
@@ -115,15 +124,24 @@ fn receipt(
     config: &codeterm_service_core::config::schema::AppConfig,
 ) -> Result<Receipt, Refusal> {
     let contrast = measure(&proposal.look).map_err(bad_request)?;
+    Ok(receipt_with_checks(machine, proposal, config, contrast))
+}
+
+fn receipt_with_checks(
+    machine: Machine,
+    proposal: AppearanceProposal,
+    config: &AppConfig,
+    contrast: Vec<ContrastCheck>,
+) -> Receipt {
     let can_undo = proposal.state == AppearanceState::Applied
         && config.appearance_active.as_deref() == Some(proposal.id.as_str())
         && proposal.look == AppearanceLook::from_config(config);
-    Ok(Receipt {
+    Receipt {
         machine,
         proposal,
         contrast,
         can_undo,
-    })
+    }
 }
 
 async fn read(
@@ -274,7 +292,27 @@ fn apply_proposal(
     config: &mut AppConfig,
     proposal: &mut AppearanceProposal,
 ) -> Result<(), Refusal> {
-    validate(&proposal.look)?;
+    apply_look(config, proposal, ContrastPolicy::Enforce)
+}
+
+#[derive(Clone, Copy)]
+enum ContrastPolicy {
+    Enforce,
+    NamedTheme,
+}
+
+fn apply_look(
+    config: &mut AppConfig,
+    proposal: &mut AppearanceProposal,
+    policy: ContrastPolicy,
+) -> Result<(), Refusal> {
+    validate_structure(&proposal.look)?;
+    match policy {
+        ContrastPolicy::Enforce => enforce_contrast(&proposal.look)?,
+        ContrastPolicy::NamedTheme => {
+            contrast::validate_palette(&proposal.look.theme).map_err(bad_request)?;
+        }
+    }
     proposal.look.write_to(config);
     config.appearance_active = Some(proposal.id.clone());
     proposal.applied_at = Some(unix_seconds());
@@ -451,6 +489,11 @@ pub(crate) fn emit_change(
 }
 
 pub(crate) fn validate(look: &AppearanceLook) -> Result<(), Refusal> {
+    validate_structure(look)?;
+    enforce_contrast(look)
+}
+
+fn validate_structure(look: &AppearanceLook) -> Result<(), Refusal> {
     let name = look.theme.name.trim();
     if name.is_empty()
         || name.len() > 100
@@ -465,7 +508,10 @@ pub(crate) fn validate(look: &AppearanceLook) -> Result<(), Refusal> {
     look.tuning
         .unwrap_or_default()
         .validate()
-        .map_err(bad_request)?;
+        .map_err(bad_request)
+}
+
+fn enforce_contrast(look: &AppearanceLook) -> Result<(), Refusal> {
     let checks = measure(look).map_err(bad_request)?;
     let failures: Vec<_> = checks
         .iter()

@@ -11,6 +11,9 @@ import type { MeshDataResult, PeerStatus } from "./useMeshData";
 import { ServiceDrawer } from "./ServiceDrawer";
 import { accountCanvas } from "./accountCanvas";
 import type { CanvasAccount } from "./MeshCanvas";
+import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { AccountMeshClientProvider } from "./accountMeshClient";
+import { FakeAccountMeshClient, snapshot } from "./accountMachines.testdata";
 
 const inventory: MeshDataResult = {
   thisMachine: { name: "Local", ip: "127.0.0.1" },
@@ -64,6 +67,38 @@ vi.mock("@codeterm/canvas-camera", async (original) => ({
   formatLayerTransform: () => "",
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, transformRef: { current: { x: 0, y: 0, scale: 1 } }, setTransform: () => {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
+
+it("opens machine management on request and returns to Mesh inventory on the next request", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  const actions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
+  const client = new FakeAccountMeshClient(snapshot());
+  const navigate = (tab: "network" | "inventory") => act(async () => {
+    root.render(
+      <MultiplexerActionsContext.Provider value={actions}>
+        <AccountMeshClientProvider value={client}>
+          <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} tabRequest={{ tab }} />
+        </AccountMeshClientProvider>
+      </MultiplexerActionsContext.Provider>,
+    );
+  });
+  try {
+    await navigate("network");
+    expect(host.querySelector('section[aria-label="My machines"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Mesh UI"]')).toBeNull();
+    expect(client.enrollCalls).toBe(0);
+    expect(client.listCalls).toBe(0);
+    await navigate("inventory");
+    expect(host.querySelector('section[aria-label="My machines"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Mesh UI"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 it("wires the toolbar Refresh to the account registry as well as inventory", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

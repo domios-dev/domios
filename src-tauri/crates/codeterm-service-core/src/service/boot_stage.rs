@@ -469,6 +469,7 @@ impl ServiceContext {
                         | BootStage::ReaderReady
                         | BootStage::ShellReady
                         | BootStage::AgentLaunching
+                        | BootStage::LaunchDeadlineElapsed
                 )
             ) || tab.launch_session_authenticated()
                 || !owns_tab(tab)

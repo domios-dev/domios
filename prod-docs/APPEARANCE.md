@@ -66,12 +66,16 @@ The addressed daemon accepts `local`, its installation ID, or its exact name as 
 | POST | `/api/appearance/{machine}` | `{rationale, look?, toml?, expected?}` | Stores a proposal and returns its receipt. Supply exactly one of a JSON look or TOML. `expected` optionally pins the previous look. |
 | POST | `/api/appearance/{machine}/validate` | `{theme, wallpaper?, tuning?}` | Measures contrast and returns the readings without saving. |
 | POST | `/api/appearance/{machine}/tweak` | `{revision, toml}` | Authenticated Main on this daemon only. Applies the supported controls and returns its receipt. |
+| POST | `/api/appearance/{machine}/preview-preset` | `{name, expected}` | Owner only. Returns the built-in palette preset as an `AppearanceLook` without saving. `expected` is the current look. |
+| POST | `/api/appearance/{machine}/switch-theme` | `{kind: "settings", name}` or `{kind: "preset", name, expected}` | Owner only. Applies the named Settings theme or built-in preset and returns an undoable receipt with `theme_label` and `wallpaper_switched`. Returns JSON `null` when the look is already current. |
 | GET | `/api/appearance/{machine}/{id}` | — | Returns the stored proposal receipt. |
 | POST | `/api/appearance/{machine}/{id}/apply` | — | Owner only. Applies the proposal when its previous look still matches and returns the receipt. |
 | POST | `/api/appearance/{machine}/{id}/undo` | — | Owner for reviewed proposals. Authenticated local General can also undo a tweak. Restores the previous look when the applied record still owns it. |
 | POST | `/api/appearance/{machine}/{id}/use-theme-wallpaper` | — | Owner only. Applies the proposal with its theme wallpaper exposed and returns an undoable receipt. |
 
 A receipt contains `machine`, the proposal fields, `contrast` and `can_undo`. A missing machine or proposal returns 404. A stale look or an inapplicable transition returns 409. Invalid proposal input returns 400 and an applied look below a contrast floor returns 422. Tweak refusals include `appearance_main_required` (403), `appearance_changed` (409) and `appearance_proposal_required` (400).
+
+These two owner routes allow a local owner or an owner relaying through a Full-access peer. An unknown theme or preset returns 404, an invalid Settings theme ID returns 400, and an `expected` look that no longer matches returns 409.
 
 ## Wallpaper requests in ordinary chat
 

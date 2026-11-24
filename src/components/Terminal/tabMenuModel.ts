@@ -48,7 +48,6 @@ export const TAB_MENU_LABELS = {
   liveTranscript: "Live Transcript",
   closeSession: "Close session",
   closeTab: "Close Tab",
-  detach: "Detach from this machine",
 } as const;
 
 /** Close on a remote tab names the machine it closes on; a local close keeps its plain label. */
@@ -78,8 +77,6 @@ export type TabMenuAction =
   | { type: "openLiveTranscript" }
   | { type: "openTelegram" }
   | { type: "closeTelegram" }
-  | { type: "removeMachineTabs" }
-  | { type: "detach" }
   | { type: "close" };
 
 export type TabMenuGlyph =
@@ -95,7 +92,6 @@ export type TabMenuGlyph =
   | "liveTranscript"
   | "telegram"
   | "telegramClose"
-  | "detach"
   | "close";
 
 type AccountMenuIcon = { kind: "account"; account: ProviderAccountRow; other: boolean };
@@ -390,7 +386,7 @@ function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): T
 
 export function unavailableTabMenu(entries: readonly TabMenuEntry[], reason: string): TabMenuEntry[] {
   return entries.map(entry => {
-    if (entry.kind === "header" || entry.kind === "separator") return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
     return {
       kind: "item", id: entry.id, testId: entry.testId, label: entry.label, icon: entry.icon,
       unavailable: true, hint: reason, action: null,
@@ -452,9 +448,6 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   if (input.canOpenLiveTranscript && !tab.remote_peer_id && !tab.ownership && !tab.neighbor_authority && !tab.locked) {
     entries.push({ kind: "item", id: "live-transcript", testId: "tab-menu-live-transcript", label: TAB_MENU_LABELS.liveTranscript, icon: "liveTranscript", action: { type: "openLiveTranscript" } });
   }
-  if (tab.remote_peer_id) {
-    entries.push({ kind: "item", id: "detach", testId: "tab-menu-detach", label: TAB_MENU_LABELS.detach, icon: "detach", action: { type: "detach" } });
-  }
   if (input.canClose && !tab.protected) {
     entries.push({
       kind: "item",
@@ -469,7 +462,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   const lock = input.lock ?? lockedView("agent.tabs", tab);
   if (!lock.locked) return entries;
   return entries.map((entry): TabMenuEntry => {
-    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close" || entry.id === "detach") return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
     if (entry.kind === "submenu") {
       return { ...entry, disabled: true, title: lock.label, entries: entry.entries.map(child =>
         child.kind === "separator" ? child : { ...child, disabled: true, title: lock.label }) };

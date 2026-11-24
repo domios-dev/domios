@@ -24,12 +24,13 @@ interface WorkspaceBrowseSectionProps {
   touchMode: boolean;
   onSelectViewer: (viewerId: string) => void;
   onRenameViewer: (tab: Tab, title: string) => void;
+  onCloseViewer: (tabId: string, title: string, ownerWorkspaceId?: string) => void;
   onOpenCanvas?: () => void;
 }
 
 export function WorkspaceBrowseSection({
   workspace: { workspace, peerId, teams, tabs, planTitles },
-  selectedViewerId, attachedTabs, touchMode, onSelectViewer, onRenameViewer, onOpenCanvas,
+  selectedViewerId, attachedTabs, touchMode, onSelectViewer, onRenameViewer, onCloseViewer, onOpenCanvas,
 }: WorkspaceBrowseSectionProps) {
   const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
   const machines = new Map(generals.map(machine => [machine.peerId, machine]));
@@ -56,9 +57,10 @@ export function WorkspaceBrowseSection({
     const displayTab = attached ? { ...tab, remote_peer_id: attached.remote_peer_id, remote_tab_id: attached.remote_tab_id,
       remote_peer_name: attached.remote_peer_name } : tab;
     return <TabItem key={tab.id} tab={displayTab} index={index}
-      isActive={selected === tab.id} onClick={() => onSelectViewer(tab.id)} onClose={() => undefined}
+      isActive={selected === tab.id} onClick={() => onSelectViewer(tab.id)}
+      onClose={() => onCloseViewer(tab.id, tab.title, session.peerId ? undefined : workspace.id)}
       onRename={attached ? title => onRenameViewer(attached, title) : undefined}
-      canClose={false} readOnly={!attached} workspaceId={workspace.id} hasAgent={Boolean(tab.agent_type)}
+      canClose={!tab.protected} readOnly={!attached} workspaceId={workspace.id} hasAgent={Boolean(tab.agent_type)}
       ownerTitle={surfaceOwnerTitle(tab, rowsById)} variant={attachment ? "attachment" : undefined}
       insetPx={attachment ? attachmentInset(ownerRowInset(context, touchMode)) : undefined}
       status={session.status ?? null} touchMode={touchMode}

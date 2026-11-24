@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Terminal/TabSessionChat.watcher.test.tsx
 
+import { readFileSync } from "node:fs";
 import { mock } from "node:test";
 import { act } from "react";
 import { Window } from "happy-dom";
@@ -327,16 +328,11 @@ test("remote retry sends proven offline messages only and checks uncertain deliv
   }
 });
 
-test("machine removal names the actual rows and calls only the local removal action after confirmation", async () => {
+test("an offline remote row offers Close and invokes the shared close handler", async () => {
   resetRemoteChatStatus();
   meshPeer(false);
   const id = "mesh:remote-fixture/halley";
   const halley = tabBase(id, { title: "Halley", remote_peer_id: "remote-fixture", remote_tab_id: "halley", role_profile: "orchestrator" });
-  const austen = tabBase("mesh:remote-fixture/austen", { title: "Austen", remote_peer_id: "remote-fixture", remote_tab_id: "austen" });
-  const other = tabBase("mesh:other/other", { remote_peer_id: "other", remote_tab_id: "other" });
-  const local = tabBase("local");
-  const store = createMuxStateStore(() => muxStateFor(Object.fromEntries([halley, austen, other, local].map(tab => [tab.id, tab]))));
-  const remove = mock.fn<NonNullable<MultiplexerActionsContextType["removeRemoteMachineTabs"]>>();
   const close = mock.fn();
   const open = mock.fn();
   const { TabItem } = await import("../Sidebar/TabItem");
@@ -344,11 +340,9 @@ test("machine removal names the actual rows and calls only the local removal act
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<MuxStateStoreContext.Provider value={store}>
-      <MultiplexerActionsContext.Provider value={muxActions({ removeRemoteMachineTabs: remove })}>
-        <TabItem tab={halley} index={0} isActive={false} onClick={open} onClose={close} canClose workspaceId="fixture" />
-      </MultiplexerActionsContext.Provider>
-    </MuxStateStoreContext.Provider>));
+    await act(async () => root.render(
+      <TabItem tab={halley} index={0} isActive={false} onClick={open} onClose={close} canClose workspaceId="fixture" />,
+    ));
     const activation = host.querySelector<HTMLButtonElement>('button[aria-label^="Halley,"]');
     assert(activation, "the named activation stays available");
     const label = activation.getAttribute("aria-label") ?? "";
@@ -357,15 +351,10 @@ test("machine removal names the actual rows and calls only the local removal act
     assert(open.mock.callCount() === 1, "the unavailable tab opens");
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!
       .dispatchEvent(new window.KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true })));
-    const command = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === "Remove ROG's tabs");
-    assert(command, "the menu offers local machine removal");
+    const command = document.querySelector<HTMLElement>('[role="menuitem"][data-testid="tab-menu-close"]');
+    assert(command, "Close remains accessible while the machine is offline");
     await act(async () => command.click());
-    const dialog = document.querySelector('[role="dialog"][aria-label="Remove 2 tabs from ROG?"]')!;
-    assert(dialog.textContent?.includes("They stay on ROG."), "the confirmation says where the tabs stay");
-    assert(remove.mock.callCount() === 0, "opening the dialog does not remove anything");
-    await act(async () => [...dialog.querySelectorAll("button")].find(button => button.textContent === "Remove")!.click());
-    assert(JSON.stringify(remove.mock.calls[0]?.arguments) === JSON.stringify(["remote-fixture", [halley.id, austen.id]]), "confirmation names only the selected peer's records");
-    assert(close.mock.callCount() === 0, "the peer-close action was never called");
+    assert(close.mock.callCount() === 1, "the row calls the shared close handler");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -1073,6 +1062,9 @@ test("Tab actions restart the agent session and copy its ID", async () => {
 
 test("Tab header does not repeat the mobile top safe area", async () => {
   const { TabTopBar } = await import("./TabTopBar");
+  const stylesheet = document.createElement("style");
+  stylesheet.textContent = readFileSync(new URL("./tabTopBar.css", import.meta.url), "utf8");
+  document.head.append(stylesheet);
   document.documentElement.style.setProperty("--ct-safe-top", "44px");
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -1091,10 +1083,13 @@ test("Tab header does not repeat the mobile top safe area", async () => {
     );
   });
   const header = host.querySelector('[data-testid="tab-top-bar"]') as HTMLDivElement | null;
-  assert(header?.style.paddingTop === "6px", "Tab header keeps only its local 6px padding");
-  assert(!header.style.paddingTop.includes("safe-top"), "titlebar remains the sole top safe-area owner");
+  assert(header, "Tab header renders");
+  const style = window.getComputedStyle(header);
+  assert(style.paddingBlock === "6px", "Tab header uses only its local block padding");
+  assert(!style.paddingTop || style.paddingTop === "6px", "titlebar remains the sole top safe-area owner");
   await act(async () => root.unmount());
   host.remove();
+  stylesheet.remove();
   document.documentElement.style.removeProperty("--ct-safe-top");
 });
 

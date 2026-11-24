@@ -30,24 +30,30 @@ export function capsuleSelectionText(root: Node): { plain: string; portable: str
  * Writes both flavours from a button: a synthetic copy event carries the custom type, which the async
  * Clipboard API cannot; false when the host refused, after a plain-text fallback.
  */
-export function writeClipboardFlavours({ plain, portable }: { plain: string; portable: string }, doc: Document = document): boolean {
-  let written = false;
+export async function writeClipboardFlavours({ plain, portable }: { plain: string; portable: string }, doc: Document = document): Promise<boolean> {
+  let handled = false;
   const onCopy = (event: ClipboardEvent) => {
     if (!event.clipboardData) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     event.clipboardData.setData("text/plain", plain);
     event.clipboardData.setData(DOMIOS_TEXT_MIME, portable);
-    written = true;
+    handled = true;
   };
   doc.addEventListener("copy", onCopy, true);
   try {
-    doc.execCommand?.("copy");
+    if (doc.execCommand?.("copy") && handled) return true;
   } catch {
     // The fallback below covers hosts without execCommand.
   } finally {
     doc.removeEventListener("copy", onCopy, true);
   }
-  if (!written) void navigator.clipboard?.writeText(plain).catch(() => {});
-  return written;
+  const clipboard = doc.defaultView?.navigator.clipboard;
+  if (!clipboard) return false;
+  try {
+    await clipboard.writeText(plain);
+    return true;
+  } catch {
+    return false;
+  }
 }

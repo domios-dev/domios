@@ -70,7 +70,7 @@ import {
   loadAttachedRemoteTabs,
   hydrateAttachedRemoteTabs,
   reconcileAttachedRemoteTabs,
-  saveAttachedRemoteTabs, visibleRemoteTabs,
+  saveAttachedRemoteTabs,
   type RemotePeerTabs,
 } from "../../lib/remoteTabPortal";
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
@@ -134,7 +134,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
   const attachedRemoteTabsRef = useRef<Record<string, Tab>>(loadAttachedRemoteTabs());
 
   const applyRemoteProjection = useCallback((tabs: Record<string, Tab>, remoteStatuses?: Record<string, TabStatus | null>) => {
-    dispatch({ type: "SET_REMOTE_TABS", tabs: visibleRemoteTabs(reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current)), remoteStatuses });
+    dispatch({ type: "SET_REMOTE_TABS", tabs: reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current), remoteStatuses });
   }, []);
 
   useEffect(() => {
@@ -231,7 +231,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     const generation = remoteProjectionGeneration.current;
     const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
     if (!remoteProjectionActiveRef.current || generation !== remoteProjectionGeneration.current) return;
-    const remote = visibleRemoteTabs(remoteTabsFromOrdinaryProjection(ordinary));
+    const remote = remoteTabsFromOrdinaryProjection(ordinary);
     const retained = Object.values(stateRef.current.tabs).filter(tab => {
       const presence = remoteChatPeer(tab.remote_peer_id)?.presence;
       return tab.remote_peer_id && presence && presence !== "online" && !remote[tab.id];
@@ -249,10 +249,10 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     );
     if (!remoteProjectionActiveRef.current || generation !== remoteProjectionGeneration.current) return;
     const current = attachedRemoteTabsRef.current;
-    const kept = visibleRemoteTabs(Object.fromEntries(Object.entries({ ...starting, ...current }).flatMap(([id, tab]) => {
+    const kept = Object.fromEntries(Object.entries({ ...starting, ...current }).flatMap(([id, tab]) => {
       if (current[id] !== attached[id]) return current[id] ? [[id, current[id]]] : [];
       return projection.tabs[id] ? [[id, projection.tabs[id] ?? tab]] : [];
-    })));
+    }));
     attachedRemoteTabsRef.current = kept;
     if (Object.keys(kept).length !== Object.keys(current).length) saveAttachedRemoteTabs(kept);
     applyRemoteProjection(projection.tabs, projection.statuses);
@@ -396,7 +396,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     if (Object.values(stateRef.current.tabs).some(tab => tab.remote_peer_id === peerId)) void requestRemoteRefresh();
   }, [invalidatePeerInventory, markRemoteChannelsReconnecting, refreshPeerInventory, requestRemoteRefresh]));
 
-  const { attachRemoteTab, detachRemoteTab, removeRemoteMachineTabs } = useRemoteAttachments({
+  const attachRemoteTab = useRemoteAttachments({
     attachedRef: attachedRemoteTabsRef, stateRef, dispatch, applyRemoteProjection,
   });
 
@@ -893,7 +893,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       if (spawnInFlight.current.has(guardKey)) return null;
       spawnInFlight.current.add(guardKey);
       try {
-        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke,
+        const result = await spawnFreshGeneralSession(workspaceId, agentId, guardedInvoke,
           machineId !== undefined ? {} : { model, reasoningEffort, preset, accountId }, machineId);
         if (machineId !== undefined) return await attachPeerSpawn(machineId, result.tab_id, beforeRemoteTabSelect);
         applyBackendState(result.snapshot);
@@ -959,35 +959,41 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
     [guardedInvoke, refreshFromBackend],
   );
 
+  const remoteCloses = useRef(new Set<string>());
   const closeTab = useCallback(
     (workspaceId: string, tabId: string) => {
+      const remote = parseCompositeTabId(tabId);
+      if (remote) {
+        if (remoteCloses.current.has(tabId)) return;
+        remoteCloses.current.add(tabId);
+        void requestTabClose(guardedInvoke, workspaceId, tabId)
+          .then(closed => {
+            if (!closed) return;
+            refreshPeerInventory(remote.peerId);
+            return requestRemoteRefresh();
+          })
+          .catch((error: unknown) => publishNotice(tabCloseRejectionNotice(error, workspaceId, tabId)))
+          .finally(() => remoteCloses.current.delete(tabId));
+        return;
+      }
       const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
       if (!ws?.tabs.includes(tabId)) return;
-      const isRemote = Boolean(stateRef.current.tabs[tabId]?.remote_peer_id);
       const restoreTab = () => {
         dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
-        if (isRemote) void requestRemoteRefresh();
-        else void restoreFromBackend();
+        void restoreFromBackend();
       };
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
       requestTabClose(guardedInvoke, workspaceId, tabId)
         .then((closed) => {
           if (!closed) return restoreTab();
-          if (isRemote) {
-            if (attachedRemoteTabsRef.current[tabId]) {
-              const { [tabId]: _, ...remaining } = attachedRemoteTabsRef.current;
-              attachedRemoteTabsRef.current = remaining;
-              saveAttachedRemoteTabs(remaining);
-            }
-            void requestRemoteRefresh();
-          } else refreshFromBackend();
+          refreshFromBackend();
         })
         .catch((error: unknown) => {
           publishNotice(tabCloseRejectionNotice(error, workspaceId, tabId));
           restoreTab();
         });
     },
-    [refreshFromBackend, restoreFromBackend, requestRemoteRefresh, guardedInvoke, publishNotice],
+    [refreshFromBackend, restoreFromBackend, refreshPeerInventory, requestRemoteRefresh, guardedInvoke, publishNotice],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
@@ -1121,8 +1127,6 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       reorderWorkspaces,
       createTab,
       attachRemoteTab,
-      detachRemoteTab,
-      removeRemoteMachineTabs,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -1157,8 +1161,6 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       reorderWorkspaces,
       createTab,
       attachRemoteTab,
-      detachRemoteTab,
-      removeRemoteMachineTabs,
       closeTab,
       reopenClosed,
       reopenGroup,

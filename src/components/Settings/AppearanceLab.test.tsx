@@ -18,6 +18,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const api = vi.hoisted(() => ({
   readAppearance: vi.fn(), proposeAppearance: vi.fn(), changeAppearance: vi.fn(), readAppearanceProposal: vi.fn(),
+  previewAppearancePreset: vi.fn(), switchAppearanceTheme: vi.fn(),
   checkAppearanceContrast: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../lib/appearanceClient", () => ({
@@ -234,6 +235,7 @@ it("explains blocked Apply and opens the existing wallpaper contrast fix", async
   };
   const preset = { ...DEFAULT_THEME, name: "Light fixture" };
   api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME, preset], active: null });
+  api.previewAppearancePreset.mockResolvedValueOnce({ ...look, theme: preset });
   api.checkAppearanceContrast.mockImplementation(async (_target, draft: AppearanceLook) =>
     draft.theme.name === preset.name && draft.wallpaper?.fill_strength === 0.78 ? [{
       name: "wallpaper", pair: "Text on wallpaper", ratio: 1.62, floor: 4.5,
@@ -244,6 +246,10 @@ it("explains blocked Apply and opens the existing wallpaper contrast fix", async
     await lab.render();
     await click([...lab.panel()!.querySelectorAll("button")].find(button => button.textContent === preset.name)!);
     expect(lab.projection()?.look.wallpaper).toEqual(look.wallpaper);
+    expect(lab.button("Apply")?.disabled).toBe(false);
+    expect(lab.button("1 contrast issue")).toBeUndefined();
+    await lab.category("Shape");
+    await lab.changeRange("appearance.roundness", "0.4");
     expect(lab.button("Apply")?.disabled).toBe(true);
     const review = lab.button("1 contrast issue")!;
     expect(lab.button("Apply")?.getAttribute("aria-describedby")).toBe(review.id);
@@ -252,7 +258,7 @@ it("explains blocked Apply and opens the existing wallpaper contrast fix", async
     expect(review.getAttribute("aria-expanded")).toBe("true");
     await click(lab.panel()!.querySelector<HTMLButtonElement>('button[aria-label="Fix Text on wallpaper"]')!);
     expect(lab.projection()?.look.wallpaper?.fill_strength).toBe(0.25);
-    expect(lab.status()).toBe("2 changes");
+    expect(lab.status()).toBe("3 changes");
     expect(lab.button("Apply")?.disabled).toBe(false);
   } finally {
     api.checkAppearanceContrast.mockReset().mockResolvedValue([]);
@@ -318,7 +324,12 @@ it("keeps the applied receipt and named Undo available beyond eight seconds", as
     state: "applied", can_undo: true, applied_at: 1735689600, contrast: [],
   };
   api.readAppearance.mockResolvedValue({ machine, look, presets: [DEFAULT_THEME, nextTheme], active: null });
-  api.proposeAppearance.mockResolvedValue({ ...receipt, state: "proposed", can_undo: false });
+  api.previewAppearancePreset.mockResolvedValueOnce(next);
+  api.switchAppearanceTheme.mockImplementationOnce(async target => {
+    const result = { ...receipt, theme_label: nextTheme.name, wallpaper_switched: false };
+    window.dispatchEvent(new CustomEvent("test-appearance-change", { detail: { target, receipt: result } }));
+    return result;
+  });
   api.changeAppearance.mockImplementation(async (_target, _id, action) => {
     const result = action === "undo" ? { ...receipt, state: "undone", can_undo: false } : receipt;
     window.dispatchEvent(new CustomEvent("test-appearance-change", { detail: { receipt: result } }));
@@ -332,10 +343,12 @@ it("keeps the applied receipt and named Undo available beyond eight seconds", as
     await act(async () => [...lab.host.querySelectorAll("button")].find(button => button.textContent === nextTheme.name)!.click());
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await act(async () => lab.button("Apply")!.click());
-    expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "local" }, receipt.id, "apply");
+    expect(api.switchAppearanceTheme).toHaveBeenLastCalledWith({ machine: "local" }, {
+      kind: "preset", name: nextTheme.name, expected: look,
+    });
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(lab.close).not.toHaveBeenCalled();
-    expect(lab.status()).toMatch(/^Applied · \d{2}:\d{2}$/);
+    expect(lab.status()).toMatch(/^Applied Evening · \d{2}:\d{2}$/);
     expect(lab.button(undo)?.disabled).toBe(false);
     expect(lab.panel()?.querySelector('button[aria-label="Close Appearance Lab"]')).not.toBeNull();
 
@@ -399,11 +412,16 @@ it("keeps the stored named Undo in Settings after leaving Try it", async () => {
   const root = createRoot(host);
   try {
     await act(async () => root.render(<AppearanceLabUndo />));
-    const undo = host.querySelector<HTMLButtonElement>("button")!;
-    expect(undo.textContent?.trim()).toBe("Undo · back to Earlier look");
-    await click(undo);
-    expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "local", peer: undefined }, active.id, "undo");
-    expect(host.querySelector("button")).toBeNull();
+    expect(host.querySelector("button")?.textContent?.trim()).toBe("Undo · back to Earlier look");
+    const theme = { ...active, id: "theme-switch", previous: look, theme_label: "GitHub Light", wallpaper_switched: true };
+    await act(async () => window.dispatchEvent(new CustomEvent("test-appearance-change", {
+      detail: { target: { machine: "local" }, receipt: theme },
+    })));
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Applied GitHub Light · wallpaper switched");
+    expect(host.querySelector("button")?.textContent?.trim()).toBe(`Undo · back to ${look.theme.name}`);
+    await click(host.querySelector("button")!);
+    expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "local", peer: undefined }, theme.id, "undo");
+    expect(host.querySelector("button")?.textContent?.trim()).toBe("Undo · back to Earlier look");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -417,11 +435,44 @@ it("loads the preset's own backdrop and preserves the separately installed wallp
     tuning: null,
   };
   api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME], active: null });
+  api.previewAppearancePreset.mockResolvedValueOnce({ ...look, theme: DEFAULT_THEME });
   const lab = mountLab();
   try {
     await lab.render();
     await click([...lab.host.querySelectorAll("button")].find(button => button.textContent === DEFAULT_THEME.name)!);
     expect(lab.project.mock.lastCall?.[0]?.look).toEqual({ ...look, theme: DEFAULT_THEME });
+  } finally {
+    await lab.cleanup();
+  }
+});
+
+it("stages the preset wallpaper fallback and applies through the named theme route", async () => {
+  const look: AppearanceLook = {
+    theme: DEFAULT_THEME,
+    wallpaper: { background: { pattern: "svg", opacity: 0.16 } },
+    tuning: null,
+  };
+  const preset = { ...DEFAULT_THEME, name: "Light fixture", chat_background: { pattern: "dots" as const } };
+  const preview = { ...look, theme: preset, wallpaper: null };
+  const machine = { id: "fixture", name: "Desk" };
+  api.readAppearance.mockResolvedValue({ machine, look, presets: [preset], active: null });
+  api.previewAppearancePreset.mockResolvedValueOnce(preview);
+  api.switchAppearanceTheme.mockResolvedValueOnce({
+    id: "applied-preset", machine, look: preview, previous: look, can_undo: true,
+    theme_label: preset.name, wallpaper_switched: true,
+  });
+  const lab = mountLab();
+  try {
+    await lab.render();
+    await click([...lab.panel()!.querySelectorAll("button")].find(button => button.textContent === preset.name)!);
+    expect(lab.projection()?.look).toEqual(preview);
+    expect(lab.host.textContent).toContain("Preset GitHub Dark → Light fixture");
+    expect(lab.host.textContent).toContain("Theme wallpaper");
+    await click(lab.button("Apply")!);
+    expect(api.switchAppearanceTheme).toHaveBeenLastCalledWith({ machine: "local" }, {
+      kind: "preset", name: preset.name, expected: look,
+    });
+    expect(lab.host.textContent).toContain("Applied Light fixture · wallpaper switched to the theme's for readability");
   } finally {
     await lab.cleanup();
   }
@@ -457,6 +508,7 @@ it.each(["Close Appearance Lab", "Escape"])("discards the entire preview via %s 
   const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: { background: { pattern: "dots" } }, tuning: null };
   const preset = { ...DEFAULT_THEME, name: "Other look", chat_background: { pattern: "botanical" as const } };
   api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME, preset], active: null });
+  api.previewAppearancePreset.mockResolvedValueOnce({ ...look, theme: preset });
   const writesBefore = api.changeAppearance.mock.calls.length;
   const lab = mountLab();
   try {
