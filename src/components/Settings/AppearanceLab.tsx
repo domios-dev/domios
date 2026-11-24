@@ -1,8 +1,8 @@
-import { useContext, useDeferredValue, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Monitor, Sparkles } from "lucide-react";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, appearanceLookKey, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
-import { APPEARANCE_CHANGED, appearanceError, changeAppearance, checkAppearanceContrast, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
+import { APPEARANCE_CHANGED, appearanceError, changeAppearance, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
 import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { focusTab, generalAgentTab } from "../../lib/generalAgent";
 import { setClientTabUiMode } from "../../lib/clientTabUiMode";
@@ -18,6 +18,8 @@ import { appearanceLabChanges, type AppearanceLabCategory, type AppearanceLabCha
 import { AppearanceLabActions, AppearanceLabCategories, LAB_CATEGORIES, contrastIssues } from "./AppearanceLabPanelControls";
 import { useAppearanceLabDismissal, type AppearanceLabProjection } from "./AppearanceLabSession";
 import type { AppearanceLabHostProps } from "./AppearanceLabHost";
+import { AppearancePaletteInput, useAppearancePalette } from "./AppearancePaletteInput";
+import { useAppearanceContrast } from "./useAppearanceContrast";
 import { usePresence, type PresenceState } from "../Canvas/usePresence";
 import { TabSidePanel } from "../Terminal/tabPanel/TabSidePanel";
 import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
@@ -74,6 +76,9 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const peerName = useMeshPeerName(target.peer);
   const [current, setCurrent] = useState<CurrentAppearance>();
   const [draft, setDraft] = useState<AppearanceLook>();
+  const { editing: paletteEditing, editColour, editDraft, commit: commitColour, reset: resetPalette } = useAppearancePalette(setDraft);
+  const [settledDraft, setSettledDraft] = useState(draft);
+  if (!paletteEditing && settledDraft !== draft) setSettledDraft(draft);
   const [openedProposal, setOpenedProposal] = useState<AppearanceProposal>();
   const wallpaperRevision = useRef(0);
   const [category, setCategory] = useState<AppearanceLabCategory>(showWallpaperOwn ? "wallpaper" : "presets");
@@ -86,7 +91,6 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const [error, setError] = useState("");
   const [ask, setAsk] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [contrast, setContrast] = useState<{ look: AppearanceLook; checks: ContrastCheck[] }>();
   const tabId = useMuxSelector(mainTab);
   const workspaceId = useMuxSelector(mainWorkspace);
   const actions = useContext(MultiplexerActionsContext);
@@ -97,15 +101,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const remoteMain = remoteGeneral?.sessions.find(session => session.tab.protected);
   const generalTab = remote ? remoteMain?.viewerId : tabId;
   const appearanceOnline = !remote || machineChoices.peers?.some(peer => peer.instance_id === target.peer && peer.online);
-  const checking = useDeferredValue(draft);
-  useEffect(() => {
-    if (!checking || !appearanceOnline) return;
-    const controller = new AbortController();
-    void checkAppearanceContrast(target, checking, controller.signal).then(checks => {
-      if (!controller.signal.aborted) setContrast({ look: checking, checks });
-    }).catch(() => {});
-    return () => controller.abort();
-  }, [target, checking, appearanceOnline]);
+  const audit = useAppearanceContrast(target, draft, Boolean(appearanceOnline) && state !== "closing" && !paletteEditing);
 
   useEffect(() => {
     let active = true;
@@ -114,6 +110,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
       ? readAppearanceProposal(target, open.proposal) : undefined;
     Promise.all([readAppearance(target), receipt]).then(([next, stored]) => {
       if (!active) return;
+      resetPalette();
       setCurrent(next);
       setDraft(stored?.look ?? next.look);
       setOpenedProposal(stored);
@@ -121,12 +118,13 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
       if (active) setError(appearanceError(failure));
     });
     return () => { active = false; };
-  }, [target, open, appearanceOnline]);
+  }, [target, open, appearanceOnline, resetPalette]);
 
   useEffect(() => {
     const onChange = (event: Event) => {
       const detail = (event as CustomEvent<{ receipt: AppearanceProposal }>).detail;
       if (detail?.receipt.machine.id !== current?.machine.id) return;
+      resetPalette();
       wallpaperRevision.current++;
       setOpenedProposal(undefined);
       const look = detail.receipt.state === "undone" ? detail.receipt.previous : detail.receipt.look;
@@ -135,9 +133,10 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     };
     window.addEventListener(APPEARANCE_CHANGED, onChange);
     return () => window.removeEventListener(APPEARANCE_CHANGED, onChange);
-  }, [current?.machine.id]);
+  }, [current?.machine.id, resetPalette]);
 
   const changeMachine = (id: string) => {
+    resetPalette();
     wallpaperRevision.current++;
     onProject(undefined);
     setCurrent(undefined);
@@ -154,7 +153,8 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const machine = target.peer ? peerName ?? currentName ?? "Machine" : localName ?? "this machine";
   const unavailable = Boolean(target.peer && machineChoices.peers?.find(peer => peer.instance_id === target.peer)?.online === false);
   const tuning = draft?.tuning ?? DEFAULT_APPEARANCE;
-  const changes = current && draft ? appearanceLabChanges(current.look, draft, current.presets) : [];
+  const changes = useMemo(() => current && settledDraft ? appearanceLabChanges(current.look, settledDraft, current.presets) : [],
+    [current, settledDraft]);
   const dirty = changes.length > 0;
   const active = justApplied?.can_undo ? justApplied : undefined;
   const undoLabel = active && `Undo · back to ${active.previous.theme.name}`;
@@ -167,7 +167,10 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     if (!closing) onProject(projectedLook && { look: projectedLook, peer: target.peer, committed: projectingCommit });
   }, [onProject, projectedLook, target.peer, projectingCommit, closing]);
   const dismiss = () => {
-    if (!closing && !busy) onClose(!justApplied);
+    if (!closing && !busy) {
+      resetPalette();
+      onClose(!justApplied);
+    }
   };
   const editing = !closing && !justApplied;
   const showChanges = editing && dirty && (changesExpanded ?? !phone);
@@ -181,21 +184,27 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     setCategory(next);
     toggleMenu(false);
   };
-  const failures = contrast?.look === draft ? contrast?.checks.filter(check => check.ratio < check.floor) ?? [] : [];
-  const issues = dirty ? contrastIssues(failures) : [];
-  const fixContrast = (fix: NonNullable<ContrastCheck["fix"]>) => setDraft(value => value && applyContrastFix(value, fix));
-  const fixAllContrast = () => setDraft(value => issues.reduce((look, issue) => look && issue.fix ? applyContrastFix(look, issue.fix) : look, value));
-  const editTuning = (patch: Partial<AppearanceTuning>) => setDraft(value => {
+  const { failures } = audit;
+  const issues = useMemo(() => dirty ? contrastIssues(failures) : [], [dirty, failures]);
+  const ratioTheme = audit.theme ?? current?.look.theme;
+  const ratios = useMemo(() => new Map(PALETTE_CONTROLS.map(({ key }) =>
+    [key, ratioTheme && paletteContrast(ratioTheme, key)])), [ratioTheme]);
+  const canApply = dirty && !busy && !comparing && !unavailable && audit.ready && failures.length === 0;
+  const fixContrast = (fix: NonNullable<ContrastCheck["fix"]>) => {
+    if (audit.ready) editDraft(value => value && applyContrastFix(value, fix));
+  };
+  const fixAllContrast = () => {
+    if (audit.ready) editDraft(value => issues.reduce((look, issue) => look && issue.fix ? applyContrastFix(look, issue.fix) : look, value));
+  };
+  const editTuning = (patch: Partial<AppearanceTuning>) => editDraft(value => {
     if (!value) return value;
     const next = { ...value.tuning ?? DEFAULT_APPEARANCE, ...patch };
     const baseline = current?.look.tuning ?? DEFAULT_APPEARANCE;
     const matchesCurrent = (Object.keys(next) as (keyof AppearanceTuning)[]).every(key => next[key] === baseline[key]);
     return { ...value, tuning: matchesCurrent ? current?.look.tuning ?? null : next };
   });
-  const editTheme = (key: keyof ThemeConfig, colour: string) => setDraft(value => value && { ...value, theme: { ...value.theme, [key]: colour } });
-
   const apply = async (button: HTMLButtonElement) => {
-    if (!draft || !current || !dirty || busy || failures.length > 0) return;
+    if (!draft || !current || !canApply) return;
     indicateAppearancePress(button);
     setBusy(true);
     setError("");
@@ -257,11 +266,11 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     void sent.catch(() => {});
   };
 
-  const pickPreset = (theme: ThemeConfig) => setDraft(value => value && { ...value, theme });
+  const pickPreset = (theme: ThemeConfig) => editDraft(value => value && { ...value, theme });
   const discardWallpaper = () => {
     if (!current) return;
     wallpaperRevision.current++;
-    setDraft(look => look && { ...look, wallpaper: current.look.wallpaper,
+    editDraft(look => look && { ...look, wallpaper: current.look.wallpaper,
       theme: { ...look.theme, chat_background: current.look.theme.chat_background } });
   };
   const revert = (change: AppearanceLabChange) => {
@@ -270,7 +279,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
       setChangesExpanded(undefined);
       panelRef.current?.focus();
     }
-    setDraft(look => look && change.revert(look));
+    editDraft(look => look && change.revert(look));
   };
 
   const controlsLabel = category === "shape" ? "Shape and depth" : LAB_CATEGORIES.find(item => item.id === category)?.label;
@@ -314,24 +323,26 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
               const field = `theme.${key}`;
               const failing = failures.filter(failure => failure.fix?.field === field);
               const worst = failing.length ? failing.reduce((low, check) => check.ratio < low.ratio ? check : low) : undefined;
-              const ratio = worst?.ratio ?? paletteContrast(draft.theme, key);
+              const ratio = worst?.ratio ?? ratios.get(key);
               const pass = worst ? false : ratio !== undefined && ratio >= 4.5;
               const fix = worst?.fix;
               return <div key={key} className="ct-appearance-colour">
-                <input type="color" id={`${controlsId}-${key}`} aria-label={label} data-appearance-field={field} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
+                <AppearancePaletteInput id={`${controlsId}-${key}`} label={label} field={field} colour={draft.theme[key]}
+                  editing={paletteEditing} onEdit={colour => editColour(key, colour)} onCommit={commitColour} />
                 <label htmlFor={`${controlsId}-${key}`}>{label}</label><code>{draft.theme[key]}</code>
                 <span className="ct-appearance-colour__status">
                   {ratio !== undefined && <output data-pass={pass}
                     title={worst ? `${worst.pair} ${worst.ratio.toFixed(2)}:1, needs ${worst.floor}:1${failing.length > 1 ? ` · fails on ${failing.length} surfaces` : ""}` : undefined}>
                     {ratio.toFixed(1)}:1{pass ? " ✓" : ""}</output>}
-                  {fix && <button type="button" aria-label={`Fix ${label}`} onClick={() => fixContrast(fix)}>Fix</button>}
+                  {fix && <button type="button" aria-label={`Fix ${label}`} disabled={!audit.ready} onClick={() => fixContrast(fix)}>Fix</button>}
                 </span>
               </div>;
             })}
             <details className="ct-appearance-terminal">
               <summary>Terminal colours · {TERMINAL_COLOURS.length}</summary>
               {TERMINAL_COLOURS.map(key => <label className="ct-appearance-colour" key={key}>
-                <input type="color" aria-label={key.replaceAll("_", " ")} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
+                <AppearancePaletteInput label={key.replaceAll("_", " ")} field={`theme.${key}`} colour={draft.theme[key]}
+                  editing={paletteEditing} onEdit={colour => editColour(key, colour)} onCommit={commitColour} />
                 <span>{key.replaceAll("_", " ")}</span><code>{draft.theme[key]}</code>
               </label>)}
             </details>
@@ -343,7 +354,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
             discard: discardWallpaper,
             ask: generalTab ? () => { setAsk(true); selectCategory("presets"); } : undefined,
             update: wallpaper => {
-              if (wallpaperVersion === wallpaperRevision.current) setDraft(value => value && { ...value, wallpaper });
+              if (wallpaperVersion === wallpaperRevision.current) editDraft(value => value && { ...value, wallpaper });
             },
           }} />
         )}
@@ -389,15 +400,18 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
           onCompare={setComparing} onBack={dismiss} />}
         footer={<AppearanceLabActions changes={changes} changesTrigger={changesTrigger} listOpen={showChanges}
           focusChanges={changesExpanded === true} busy={busy}
-          canApply={dirty && !busy && !comparing && !unavailable && failures.length === 0}
+          canApply={canApply}
           applyLabel={remote ? `Apply to ${machine}` : "Apply"}
           appliedStatus={justApplied && <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
           undoLabel={dirty || unavailable ? undefined : undoLabel}
-          contrast={issues} onFixContrast={fixContrast} onFixAllContrast={fixAllContrast}
+          contrast={issues} canFixContrast={audit.ready} onFixContrast={fixContrast} onFixAllContrast={fixAllContrast}
           onToggleList={() => { toggleMenu(false); setChangesExpanded(!showChanges); }}
           onRevert={revert} onDiscard={dismiss} onApply={button => void apply(button)} onUndo={() => void undo()} />}>
         {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}
         {error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">{error}</p>}
+        {dirty && audit.error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">
+          {audit.error} <button type="button" onClick={audit.retry}>Retry contrast check</button>
+        </p>}
         {!draft && !unavailable && !error && <p className="ct-appearance-try__notice" role="status">Reading appearance…</p>}
         {!justApplied && controls}
       </TabSidePanel>

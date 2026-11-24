@@ -260,6 +260,54 @@ it("explains blocked Apply and opens the existing wallpaper contrast fix", async
   }
 });
 
+it("previews the latest palette input per frame and audits on pause or commit", async () => {
+  const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };
+  api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME], active: null });
+  api.checkAppearanceContrast.mockImplementation(async (_target, draft: AppearanceLook) =>
+    draft.theme.blue === "#000000" ? [{ name: "accent", pair: "Accent on base", ratio: 1, floor: 4.5, fix: null }] : []);
+  const lab = mountLab();
+  try {
+    await lab.render();
+    await lab.category("Palette");
+    api.checkAppearanceContrast.mockClear();
+    lab.project.mockClear();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    const accent = lab.host.querySelector<HTMLInputElement>('input[aria-label="Accent"]')!;
+    const colour = (value: string) => {
+      accent.value = value;
+      accent.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    const advance = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
+
+    await act(async () => { colour("#123456"); colour("#abcdef"); });
+    expect(accent.value).toBe("#abcdef");
+    expect(lab.project).not.toHaveBeenCalled();
+    await advance(16);
+    expect(lab.project).toHaveBeenCalledTimes(1);
+    expect(lab.projection()?.look.theme.blue).toBe("#abcdef");
+    await advance(183);
+    expect(api.checkAppearanceContrast).not.toHaveBeenCalled();
+    await advance(1);
+    expect(api.checkAppearanceContrast).toHaveBeenCalledTimes(1);
+    expect(lab.button("Apply")?.disabled).toBe(false);
+
+    await act(async () => colour("#000000"));
+    expect(lab.button("Apply")?.disabled).toBe(true);
+    await act(async () => accent.dispatchEvent(new Event("change", { bubbles: true })));
+    await advance(16);
+    expect(lab.projection()?.look.theme.blue).toBe("#000000");
+    expect(api.checkAppearanceContrast).toHaveBeenCalledTimes(2);
+    expect(lab.button("Apply")?.disabled).toBe(true);
+    expect(lab.button("1 contrast issue")).toBeDefined();
+    await advance(200);
+    expect(api.checkAppearanceContrast).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+    api.checkAppearanceContrast.mockReset().mockResolvedValue([]);
+    await lab.cleanup();
+  }
+});
+
 it("keeps the applied receipt and named Undo available beyond eight seconds", async () => {
   const machine = { id: "fixture", name: "Desk" };
   const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };

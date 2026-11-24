@@ -38,7 +38,7 @@ import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   chatDaySeparators,
@@ -177,11 +177,11 @@ function rowReports(own: readonly OutboundReportEntry[] | undefined, following: 
 }
 const NO_ASKS: readonly Notification[] = [];
 
-export function TabSessionChat(props: Props) {
+export const TabSessionChat = memo(function TabSessionChat(props: Props) {
   return parseCompositeTabId(props.tabId)
     ? <RemoteTabSessionChat {...props} />
     : <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
-}
+});
 
 function RemoteTabSessionChat(props: Props) {
   const tabSelector = useLatestCallback((state: Parameters<typeof selectTab>[0]) => selectTab(state, props.tabId), [props.tabId]);

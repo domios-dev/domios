@@ -133,7 +133,7 @@ function ContrastSummary({ issues, id, busy, onFix, onFixAll }: {
 
 export function AppearanceLabActions({
   changes, changesTrigger, listOpen, focusChanges, busy, canApply, applyLabel, appliedStatus, undoLabel,
-  contrast, onFixContrast, onFixAllContrast, onToggleList, onRevert, onDiscard, onApply, onUndo,
+  contrast, canFixContrast, onFixContrast, onFixAllContrast, onToggleList, onRevert, onDiscard, onApply, onUndo,
 }: {
   changes: AppearanceLabChange[];
   changesTrigger: RefObject<HTMLButtonElement | null>;
@@ -145,6 +145,7 @@ export function AppearanceLabActions({
   appliedStatus?: ReactNode;
   undoLabel?: string;
   contrast: ContrastIssue[];
+  canFixContrast: boolean;
   onFixContrast(fix: NonNullable<ContrastCheck["fix"]>): void;
   onFixAllContrast(): void;
   onToggleList(): void;
@@ -157,7 +158,7 @@ export function AppearanceLabActions({
   const changesId = useId();
   const contrastId = useId();
   return <footer className="ct-appearance-lab ct-appearance-try__footer" role="region" aria-label="Changes">
-    <ContrastSummary issues={contrast} id={contrastId} busy={busy} onFix={onFixContrast} onFixAll={onFixAllContrast} />
+    <ContrastSummary issues={contrast} id={contrastId} busy={busy || !canFixContrast} onFix={onFixContrast} onFixAll={onFixAllContrast} />
     <div className="ct-appearance-try__actions">
       <div className="ct-appearance-changes__status" role="status" aria-live="polite" data-state={appliedStatus ? "applied" : undefined}>
         {appliedStatus
