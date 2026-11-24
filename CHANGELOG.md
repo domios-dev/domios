@@ -11,8 +11,14 @@ lives in `git log` with no aggregated narrative.
 
 ### Highlights
 
-- The Memory panel has a refreshed layout for Inspect, Activity and Settings that adapts to narrow screens. The Dreams diary now highlights the newest dream and makes insights and recent sessions easier to scan.
+- Memory has a refreshed header and tab controls that adapt to narrow screens. Dreams shows each night's work as a constellation, with a detail view for the run and links into the Memory graph.
 - General can propose a look for another machine paired to your account. You choose whether to apply it on that machine and can undo the change from the proposal card.
+
+### Changed
+
+- The Chat/Terminal toggle sits to the left of the tab name. The chat header hides the machine name when the mesh has only one machine.
+- The selected sidebar tab no longer shows an accent bar, and the newest dream uses a New label without an accent stripe.
+- Dream runs record the nodes they touched, the actions they took, the edges they created, and their current stage. The diary is linked to its run as soon as its draft is created.
 
 ### Fixed
 
@@ -20,6 +26,10 @@ lives in `git log` with no aggregated narrative.
 - Restored chat bubbles with image attachments no longer show a large blank gap.
 - Text attachments keep their original filenames.
 - The queue chip is read-only in tabs where a manager or concierge controls input.
+- Nightly REM runs on Windows without Bash or the Unix `date` command. Run timestamps use the host start time, and graph cleanup keeps removed edges from reappearing.
+- Browser clicks that change the route within the same page now report completion. Browser actions promptly report blocking dialogs and leave them for the owner to handle. Named Browser profiles survive a restart.
+- The Secrets dialog is available again from Settings, and the help points to the restored entry.
+- Windows QA tools recognize the named pipe for an owned DEV tab while retaining their instance and caller checks.
 
 ### Known issues
 
