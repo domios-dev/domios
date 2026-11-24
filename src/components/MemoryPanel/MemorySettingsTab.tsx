@@ -1,3 +1,4 @@
+import { cronToSchedule, type ScheduleFreq } from "./dreamSchedule";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatUntil } from "../../lib/timeLabels";
 import { Cog, Moon, Play, RefreshCw } from "lucide-react";
@@ -10,7 +11,6 @@ import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection"
 import { Button } from "../shared/Button";
 import { UI_INPUT } from "../shared/design";
 
-type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
 const inputClass = `${UI_INPUT.fullCompact} min-w-0 !h-8 !rounded-lg !text-xs`;
 const maintenanceAction = "!h-[30px] !min-h-0 shrink-0 gap-1.5 whitespace-nowrap !rounded-lg !border-[var(--ct-accent)]/35 !bg-[var(--ct-accent)]/14 !text-[12.5px] !font-semibold !text-[var(--ct-accent)]";
 const settingsDescriptionLayout = [
@@ -20,10 +20,6 @@ const settingsDescriptionLayout = [
   "max-sm:[&_.ct-settings-card__aside]:col-start-3 max-sm:[&_.ct-settings-card__aside]:row-start-1",
   "max-sm:[&_.ct-settings-card__desc]:col-span-full max-sm:[&_.ct-settings-card__desc]:row-start-2",
 ].join(" ");
-
-function pad2(n: number): string {
-  return n.toString().padStart(2, "0");
-}
 
 function scheduleToCron(freq: ScheduleFreq, time: string): string | null {
   if (freq === "off") return null;
@@ -37,20 +33,6 @@ function scheduleToCron(freq: ScheduleFreq, time: string): string | null {
     case "every-3": return `${m} ${h} */3 * *`;
     case "weekly": return `${m} ${h} * * 0`;
   }
-}
-
-function cronToSchedule(schedule: string): { freq: ScheduleFreq; time: string; custom: boolean } {
-  const s = schedule.trim();
-  let m: RegExpMatchArray | null;
-  m = s.match(/^(\d+) (\d+) \* \* \*$/);
-  if (m) return { freq: "daily", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  m = s.match(/^(\d+) (\d+) \*\/2 \* \*$/);
-  if (m) return { freq: "every-2", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  m = s.match(/^(\d+) (\d+) \*\/3 \* \*$/);
-  if (m) return { freq: "every-3", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  m = s.match(/^(\d+) (\d+) \* \* 0$/);
-  if (m) return { freq: "weekly", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  return { freq: "daily", time: "06:00", custom: true };
 }
 
 function freqLabel(freq: ScheduleFreq): string {

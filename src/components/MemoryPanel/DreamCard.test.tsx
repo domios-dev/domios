@@ -12,6 +12,7 @@ const window = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "HTMLElement", "SVGElement", "Element", "Node", "Event"] as const) {
   Object.defineProperty(globalThis, key, { value: (window as unknown as Record<string, unknown>)[key], configurable: true });
 }
+Object.defineProperty(globalThis, "ResizeObserver", { value: window.ResizeObserver, configurable: true });
 const copied: string[] = [];
 Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (text: string) => { copied.push(text); } } }, configurable: true });
 const api = { mesh_tailnet_host: null, preview_secret_paths: [], enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
@@ -36,6 +37,11 @@ assert.ok(!host.textContent?.includes("ORPHANS:"));
 const copy = [...host.querySelectorAll("button")].find((button) => button.textContent === "Copy diary")!;
 await act(async () => copy.click());
 assert.deepEqual(copied, [entry.body]);
+
+const emptyNight = dreamNights([{ ...entry, body: "<insight>No changes.</insight>" }], [worker])[0];
+await act(async () => root.render(<DreamDetail night={emptyNight} api={api} onLog={() => {}} onRun={() => {}} />));
+assert.equal(host.querySelector("dl"), null, "zero-only counters do not become rows");
+assert.ok(host.textContent?.includes("No changes recorded for this night."));
 
 const requests: string[] = [];
 baseDaemonTransport().request = async (path) => {

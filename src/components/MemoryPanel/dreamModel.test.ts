@@ -87,3 +87,20 @@ await Promise.all([first, second, third]);
 assert.equal(calls, 2, "one trailing load consumes all invalidations");
 active = false;
 console.log("✓ dream refresh serializes bursts and preserves one trailing invalidation");
+
+const { dreamProgressLabel, dreamProgressDetail } = await import("./dreamProgress");
+const { dreamScheduleLabel, cronToSchedule } = await import("./dreamSchedule");
+assert.equal(dreamProgressLabel(worker("stage", { stage: "read_memories", progress_text: "read_memories" })), "Read memories");
+assert.equal(dreamProgressLabel(worker("stage", { stage: "bridge_islands", progress_text: "6 so far" })), "Bridging islands · 6 so far");
+assert.equal(dreamProgressLabel(worker("unknown", { stage: "future_stage", progress_text: "Observed progress" })), "Observed progress");
+assert.equal(dreamProgressDetail("prune_backlinks"), null);
+assert.equal(dreamScheduleLabel("0 6 * * *"), "Nightly at 06:00");
+assert.equal(cronToSchedule("0 6 * * *").time, "06:00");
+const liveEntry = entry("active");
+const liveNights = dreamNights([liveEntry], [worker("active-run", { diary_id: "active", status: "analyzing" })]);
+assert.equal(liveNights.length, 1, "early diary binding folds the skeleton into its actual live run");
+assert.equal(liveNights[0].state, "live");
+assert.equal(dreamHeatmap(liveNights, at).flatMap((cell) => cell.nights).length, 0, "active runs never enter calendar totals");
+console.log("✓ dream stage labels, configured schedule, and active diary exclusion");
+
+assert.equal(nightState(undefined, worker("cancelled", { status: "done", execution_end: { kind: "cancelled" }, finalization: { state: "pending" } })), "stopped", "cancellation is execution evidence even before finalization");

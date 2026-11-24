@@ -25,7 +25,9 @@ export function DreamChips({ counters: c }: { counters: DreamCounters }) {
     { n: c.reweighted, label: "re-weighted", Icon: Scale },
     { n: c.collapsed + c.backlinks, label: "edges tidied", Icon: Brush },
   ];
-  return <div className="dream-row dream-chips">{chips.filter((chip) => chip.n > 0).map(({ n, label, Icon, tone, prefix }) =>
+  const visible = chips.filter((chip) => chip.n > 0);
+  if (!visible.length) return null;
+  return <div className="dream-row dream-chips">{visible.map(({ n, label, Icon, tone, prefix }) =>
     <span className="dream-chip" key={label} style={{ "--dream-tone": tone } as CSSProperties}>
       <Icon size={12} aria-hidden="true" /><b>{prefix}{n.toLocaleString("en-US")}</b>{label}
     </span>)}
@@ -33,7 +35,7 @@ export function DreamChips({ counters: c }: { counters: DreamCounters }) {
 }
 
 export function dreamInsight(night: DreamNight) {
-  if (night.state === "stopped") return (night.worker?.finalization && "reason" in night.worker.finalization ? night.worker.finalization.reason : null) ?? night.worker?.report ?? "This night stopped before a diary was written.";
+  if (night.state === "stopped") return (night.worker?.finalization && "reason" in night.worker.finalization ? night.worker.finalization.reason : null) ?? night.worker?.report ?? "This run was stopped.";
   if (night.state === "incomplete") return night.entry && parseDream(night.entry.body).insight || "No insight recorded for this run.";
   return night.entry ? parseDream(night.entry.body).insight : night.worker?.progress_text ?? "Dreaming now";
 }

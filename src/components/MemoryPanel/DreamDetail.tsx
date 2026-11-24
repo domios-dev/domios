@@ -1,3 +1,4 @@
+import { dreamProgressDetail } from "./dreamProgress";
 import { useState } from "react";
 import { X } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
@@ -18,6 +19,13 @@ export function DreamDetail({ night, api, onClose, onLog, onRun, onViewInGraph }
   const lead = insight.match(/^.*?[.!?]+(?=\s|$)/su)?.[0] ?? insight;
   const rest = insight.slice(lead.length).trim();
   const c = night.counters;
+  const counterRows = [
+    [c.links, "Linked", `${c.links} islands and orphans`],
+    [c.merged, "Merged", `${c.merged} duplicates`],
+    [c.reweighted, "Re-weighted", `${c.reweighted} memories`],
+    [c.collapsed + c.backlinks, "Tidied", `${c.collapsed} duplicate edges, ${c.backlinks} diary backlinks`],
+    [c.archived, "Archived", String(c.archived)],
+  ].filter(([count]) => Number(count) > 0);
   const hasMerged = data.actions.some(([, action]) => action === "merged");
   const hasArchived = data.actions.some(([, action]) => action === "archived");
   return <section className="dream-detail" aria-label="Selected night" data-testid="memory-dream-detail" data-dream-id={night.id}>
@@ -28,7 +36,7 @@ export function DreamDetail({ night, api, onClose, onLog, onRun, onViewInGraph }
       <div className="dream-row dream-learned"><span className="dream-dot dream-red" />This night stopped.</div>
       <p className="dream-muted">{insight}</p>
       <dl className="dream-kv">
-        <div><dt>Status</dt><dd>{night.worker?.status}</dd></div>
+        <div><dt>Status</dt><dd>{night.worker?.execution_end?.kind === "cancelled" ? "Cancelled" : night.worker?.status}</dd></div>
         {night.worker?.model && <div><dt>Model</dt><dd>{night.worker.model}</dd></div>}
         <div><dt>Diary</dt><dd>{night.entry ? "Saved before stopping" : "No diary written"}</dd></div>
       </dl>
@@ -44,19 +52,16 @@ export function DreamDetail({ night, api, onClose, onLog, onRun, onViewInGraph }
       <DreamChips counters={c} />
       {data.hasItems ? <dl className="dream-kv">{data.actions.map(([id, action]) => <div key={id}><dt>{ACTION_LABELS[action]}</dt>
         <dd title={titles[id] ?? id} className={!titles[id] ? "dream-id dream-muted" : undefined}>{titles[id] ?? id}</dd></div>)}</dl>
-        : <dl className="dream-kv" data-testid="memory-dream-counters">
-          <div><dt>Linked</dt><dd>{c.links} islands and orphans</dd></div>
-          <div><dt>Merged</dt><dd>{c.merged} duplicates</dd></div>
-          <div><dt>Re-weighted</dt><dd>{c.reweighted} memories</dd></div>
-          <div><dt>Tidied</dt><dd>{c.collapsed} duplicate edges, {c.backlinks} diary backlinks</dd></div>
-          <div><dt>Archived</dt><dd>{c.archived || "none"}</dd></div>
-        </dl>}
+        : counterRows.length ? <dl className="dream-kv" data-testid="memory-dream-counters">
+          {counterRows.map(([, label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+        </dl> : <p className="dream-small dream-muted">No changes recorded for this night.</p>}
+
       <div className="dream-row dream-small">
         {onViewInGraph && data.ids[0] && <><button className="dream-link" onClick={() => onViewInGraph(data.ids[0])}>Open in graph</button><span className="dream-muted">·</span></>}
         {night.entry && <button className="dream-link" onPointerLeave={() => setCopied(false)} onBlur={() => setCopied(false)} onClick={async () => {
           try { await navigator.clipboard.writeText(night.entry!.body); setCopied(true); } catch { setCopied(false); }
         }}>{copied ? "Copied" : "Copy diary"}</button>}
-        {night.worker && <button className="dream-link" onClick={onLog}>Open run log</button>}
+        {night.worker && <>{night.entry && <span className="dream-muted">·</span>}<button className="dream-link" onClick={onLog}>Open run log</button></>}
       </div>
     </>}
   </section>;
@@ -68,9 +73,9 @@ export function DreamLive({ night, onStop }: { night: DreamNight; onStop: () => 
   return <section className="dream-card dream-live" aria-label="Dreaming now">
     <div className="dream-row"><span className="dream-dot dream-live-dot" /><b>Dreaming now</b><span className="dream-small dream-muted">started {new Date(night.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="dream-spacer" /><button className="dream-link dream-muted" onClick={onStop}>Stop</button></div>
     <DreamConstellation worker={worker} seed={night.id} />
-    <div className="dream-bar" role="progressbar" aria-label={worker.progress_text ?? "Dreaming"}><i /></div>
+    <div className="dream-bar" role="progressbar" aria-label="Dreaming" data-dream-stage={worker.stage ?? undefined}><i /></div>
     {current >= 0 ? <ol className="dream-steps">{DREAM_STAGES.map(([id, label], index) => <li key={id} className={index < current ? "dream-step-done" : index === current ? "dream-step-now" : ""} aria-current={index === current ? "step" : undefined}>
-      <i>{index < current ? "✓" : ""}</i>{label}{index === current && worker.progress_text && <span className="dream-muted"> · {worker.progress_text}</span>}
+      <i>{index < current ? "✓" : ""}</i>{label}{index === current && dreamProgressDetail(worker.progress_text) && <span className="dream-muted"> · {dreamProgressDetail(worker.progress_text)}</span>}
     </li>)}</ol> : worker.progress_text && <p className="dream-small dream-muted">{worker.progress_text}</p>}
     <div className="dream-small dream-muted">You can keep working; nothing is locked.</div>
   </section>;
