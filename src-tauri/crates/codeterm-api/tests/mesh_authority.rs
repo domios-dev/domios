@@ -91,7 +91,6 @@ fn signed_agent(state: &AppState, machine: &str, tab: &str) -> String {
             instance_id: machine.into(),
             tab_id: tab.into(),
             can_spawn: true,
-            general_main: false,
         }),
     )
     .unwrap()

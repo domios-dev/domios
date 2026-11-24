@@ -7,7 +7,7 @@ use crate::{
     routes::AppState,
 };
 
-const MAIN_OR_OWNER_REQUIRED: &str =
+pub(crate) const MAIN_OR_OWNER_REQUIRED: &str =
     "Appearance proposals require the owner or authenticated General Main on a paired machine in the same account.";
 const OWNER_REQUIRED: &str =
     "Owner authorization required to apply or undo an appearance proposal.";
@@ -26,7 +26,9 @@ enum Caller {
     LocalMain,
     AccountPeer {
         origin: AuthenticatedOrigin,
-        main: bool,
+        access: AccessLevel,
+    },
+    AdmittedMain {
         access: AccessLevel,
     },
     Other,
@@ -34,7 +36,9 @@ enum Caller {
 
 fn authorize(caller: Caller, operation: Operation) -> Result<(), &'static str> {
     match (caller, operation) {
-        (Caller::AccountPeer { access, .. }, _) if access != AccessLevel::Full => {
+        (Caller::AccountPeer { access, .. } | Caller::AdmittedMain { access }, _)
+            if access != AccessLevel::Full =>
+        {
             Err(FULL_ACCESS_REQUIRED)
         }
         (
@@ -46,17 +50,20 @@ fn authorize(caller: Caller, operation: Operation) -> Result<(), &'static str> {
             _,
         )
         | (Caller::LocalMain, Operation::Inspect | Operation::Store)
-        | (
-            Caller::AccountPeer {
-                origin: AuthenticatedOrigin::Agent,
-                main: true,
-                ..
-            },
-            Operation::Store,
-        ) => Ok(()),
+        | (Caller::AdmittedMain { .. }, Operation::Store) => Ok(()),
         (_, Operation::Commit) => Err(OWNER_REQUIRED),
         _ => Err(MAIN_OR_OWNER_REQUIRED),
     }
+}
+
+pub(crate) fn authorize_admitted_store(access: &AccessLevel) -> Result<(), Refusal> {
+    authorize(
+        Caller::AdmittedMain {
+            access: access.clone(),
+        },
+        Operation::Store,
+    )
+    .map_err(|message| (StatusCode::FORBIDDEN, message.into()))
 }
 
 pub(super) fn authorize_request(
@@ -70,9 +77,6 @@ pub(super) fn authorize_request(
         CallerIdentity::Tab(caller) if auth::is_bound_main(state, &caller) => Caller::LocalMain,
         CallerIdentity::Peer { access_level, .. } => Caller::AccountPeer {
             origin,
-            main: matches!(operation, Operation::Store)
-                && auth::authenticated_agent_for_origin(state, headers, origin)?
-                    .is_some_and(|agent| agent.general_main),
             access: access_level,
         },
         _ => Caller::Other,
@@ -85,11 +89,13 @@ pub(crate) fn is_appearance_path(path: &str) -> bool {
         .starts_with("/api/appearance/")
 }
 
-pub(crate) fn is_proposal_path(method: &str, path: &str) -> bool {
-    method.eq_ignore_ascii_case("POST")
-        && codeterm_service_core::api_support::access_policy::request_path(path)
-            .strip_prefix("/api/appearance/")
-            .is_some_and(|machine| !machine.is_empty() && !machine.contains('/'))
+pub(crate) fn proposal_machine<'a>(method: &str, path: &'a str) -> Option<&'a str> {
+    if !method.eq_ignore_ascii_case("POST") {
+        return None;
+    }
+    codeterm_service_core::api_support::access_policy::request_path(path)
+        .strip_prefix("/api/appearance/")
+        .filter(|machine| !machine.is_empty() && !machine.contains('/'))
 }
 
 #[cfg(test)]

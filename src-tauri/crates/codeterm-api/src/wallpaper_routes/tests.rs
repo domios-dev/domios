@@ -10,10 +10,10 @@ const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8">
 </svg>"#;
 
 fn fixture_router(fixture: &ServiceFixture, state: AppState) -> Router {
-    with_store(
+    routes(WallpaperAssets::new(
         WallpaperStore::new(fixture.temp.path().to_owned()),
         Ok(fixture.temp.path().join("wallpaper-settings.toml")),
-    )
+    ))
     .layer(axum::middleware::from_fn_with_state(
         state.clone(),
         crate::auth::auth_middleware,
