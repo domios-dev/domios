@@ -578,6 +578,21 @@ impl GraphWorkerRegistry {
         Ok(true)
     }
 
+    pub fn bind_diary(&self, worker_id: &str, diary_id: &str) {
+        {
+            let mut map = self.inner.write();
+            let Some(worker) = map.get_mut(worker_id).filter(|worker| {
+                is_dreaming_intent(&worker.intent)
+                    && !worker.status.is_terminal()
+                    && worker.diary_id.is_none()
+            }) else {
+                return;
+            };
+            worker.diary_id = Some(diary_id.into());
+        }
+        self.persist();
+    }
+
     /// The live run that owns this diary, by identity. Never derived from the
     /// diary's own body text.
     pub fn live_owner_of_diary(&self, diary_id: &str) -> Option<String> {

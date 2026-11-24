@@ -194,3 +194,45 @@ fn stage_updates_use_fixed_ids_and_scoped_origin_restores_after_unwind() {
     });
     assert_eq!(crate::store::current_write_worker(), None);
 }
+
+#[test]
+fn skeleton_save_binds_own_run_before_final_report() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("workers.json");
+    let registry = GraphWorkerRegistry::load(path.clone());
+    worker(&registry, "gw_diary");
+    worker(&registry, "gw_other");
+    let mem = MemManager::open_in_memory().unwrap();
+    mem.attach_worker_registry(&registry);
+    let mut skeleton = item("first skeleton");
+    skeleton.kind = crate::MemKind::Daily;
+    skeleton.area = Some("_dreams".into());
+    skeleton.tags = vec!["dream-diary".into()];
+    let id = with_write_worker(Some("gw_diary"), || mem.save(skeleton.clone())).unwrap();
+    assert_eq!(
+        registry.get("gw_diary").unwrap().diary_id.as_deref(),
+        Some(id.as_str())
+    );
+    assert_eq!(
+        registry.live_owner_of_diary(&id).as_deref(),
+        Some("gw_diary")
+    );
+    assert_eq!(
+        registry.get("gw_diary").unwrap().finalization,
+        crate::dream_status::DiaryFinalization::Pending
+    );
+    assert!(registry.get("gw_other").unwrap().diary_id.is_none());
+    skeleton.title = "second skeleton".into();
+    with_write_worker(Some("gw_diary"), || mem.save(skeleton.clone())).unwrap();
+    assert_eq!(
+        registry.get("gw_diary").unwrap().diary_id.as_deref(),
+        Some(id.as_str())
+    );
+    registry.complete("gw_diary", "finished".into()).unwrap();
+    assert!(registry.live_owner_of_diary(&id).is_none());
+    let loaded = GraphWorkerRegistry::load(path);
+    assert_eq!(
+        loaded.get("gw_diary").unwrap().diary_id.as_deref(),
+        Some(id.as_str())
+    );
+}
