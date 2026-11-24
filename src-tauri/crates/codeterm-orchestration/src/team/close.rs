@@ -6,9 +6,7 @@ use codeterm_types::team::Team;
 use serde::Serialize;
 
 use super::TeamMutationCaller;
-use codeterm_service_core::service::close_authority::TeamCloseSnapshot;
 use codeterm_service_core::service::lane_removal::LiveTabCwd;
-use codeterm_service_core::service::ServiceContext;
 
 mod git_lane_cleanup;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
@@ -157,44 +155,6 @@ where
     codeterm_service_core::service::publish_mux_state_changed(events);
     finish_team_lane_cleanup_using(plan_store, &lanes, now_ms, cleanup_io)?;
     Ok((team, cleanup, changed_plan_ids))
-}
-
-pub(crate) async fn close_team_scoped(
-    svc: &ServiceContext,
-    team_id: &str,
-    caller: TeamMutationCaller,
-    force: bool,
-    snapshot: Option<&TeamCloseSnapshot>,
-) -> Result<TeamCloseResult, String> {
-    let force = force
-        || matches!(
-            caller,
-            TeamMutationCaller::Human | TeamMutationCaller::HumanConfirmedHeaderless
-        );
-    let caller_kind = caller.kind();
-    let workspace = {
-        let mux = svc.mux.read();
-        super::authorize_team_close(&mux, team_id, &caller, &mux.team_member_tab_ids(team_id))?;
-        mux.get_team(team_id)
-            .ok_or_else(|| format!("Team {team_id} not found"))?
-            .workspace_id
-            .clone()
-    };
-    let inventory = svc
-        .capture_close_inventory(&workspace, Some(team_id))
-        .await?;
-    let result = super::close_team_inner(svc, team_id, caller, force, snapshot).await;
-    let service = svc.clone();
-    match tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
-        .await
-    {
-        Ok(Ok(())) => {}
-        other => log::warn!("[team-close] close history settlement failed: {other:?}"),
-    }
-    if let Err(error) = &result {
-        log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
-    }
-    result
 }
 
 pub(super) fn prepare_team_close(

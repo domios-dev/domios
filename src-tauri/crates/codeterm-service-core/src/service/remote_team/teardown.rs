@@ -2,22 +2,12 @@ use super::{
     member_key, RemoteFinalizationReceipt, RemoteTeamFinalization, RemoteTeamMember,
     RemoteTeamPeer, RemoteWorkerFinalize,
 };
-use crate::service::close_authority::TeamCloseSnapshot;
 use crate::service::ServiceContext;
-use std::collections::BTreeMap;
 
 impl ServiceContext {
     pub fn prepare_remote_team_close(
         &self,
         team: &str,
-    ) -> Result<(Vec<RemoteTeamMember>, bool), String> {
-        self.prepare_remote_team_close_scoped(team, None)
-    }
-
-    fn prepare_remote_team_close_scoped(
-        &self,
-        team: &str,
-        expected: Option<&BTreeMap<String, RemoteTeamMember>>,
     ) -> Result<(Vec<RemoteTeamMember>, bool), String> {
         let local_members = self.mux.read().team_member_tab_ids(team);
         self.remote_teams.update(|data| {
@@ -41,19 +31,15 @@ impl ServiceContext {
                         .into(),
                 );
             }
-            let members: BTreeMap<_, _> = data
-                .members
-                .iter()
-                .filter(|(_, member)| member.team_id == team)
-                .map(|(key, member)| (key.clone(), member.clone()))
-                .collect();
-            if expected.is_some_and(|expected| *expected != members) {
-                return Err(format!(
-                    "Team {team} remote close targets changed; retry the workspace close"
-                ));
-            }
             let started = data.closing_teams.insert(team.into());
-            Ok((members.into_values().collect(), started))
+            Ok((
+                data.members
+                    .values()
+                    .filter(|member| member.team_id == team)
+                    .cloned()
+                    .collect(),
+                started,
+            ))
         })
     }
 
@@ -62,23 +48,11 @@ impl ServiceContext {
         team: &str,
         force: bool,
     ) -> Result<Vec<RemoteTeamFinalization>, String> {
-        self.finalize_remote_team_members_scoped(team, force, None)
-            .await
-    }
-
-    pub async fn finalize_remote_team_members_scoped(
-        &self,
-        team: &str,
-        force: bool,
-        snapshot: Option<&TeamCloseSnapshot>,
-    ) -> Result<Vec<RemoteTeamFinalization>, String> {
         let service = self.clone();
         let team_id = team.to_string();
-        let expected = snapshot.map(|snapshot| snapshot.remote.clone());
-        let (members, newly_started) = crate::service::blocking::run(move || {
-            service.prepare_remote_team_close_scoped(&team_id, expected.as_ref())
-        })
-        .await?;
+        let (members, newly_started) =
+            crate::service::blocking::run(move || service.prepare_remote_team_close(&team_id))
+                .await?;
         let preparation = async {
             let mut peers = Vec::new();
             for member in members.iter().filter(|member| !member.finalized) {

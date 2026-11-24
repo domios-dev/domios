@@ -18,6 +18,7 @@ use codeterm_service_core::service::{
 };
 
 use crate::team::template_start::TemplateStartLocks;
+use crate::team::TeamExt;
 use crate::{CartographerAttachLocks, OrchestratorAttachLocks};
 
 /// Weak, because the port lives in the context's own extensions.
@@ -273,18 +274,10 @@ impl OrchestrationPort for OrchestrationPortImpl {
         team_id: String,
         caller: TeamMutationCaller,
         force: bool,
-        snapshot: codeterm_service_core::service::close_authority::TeamCloseSnapshot,
     ) -> TeamCloseFuture {
         let svc = self.svc();
         Box::pin(async move {
-            let result = crate::team::close::close_team_scoped(
-                &svc,
-                &team_id,
-                caller,
-                force,
-                Some(&snapshot),
-            )
-            .await?;
+            let result = svc.close_team(&team_id, caller, force).await?;
             let preserved: Vec<_> = result
                 .inventory
                 .kept

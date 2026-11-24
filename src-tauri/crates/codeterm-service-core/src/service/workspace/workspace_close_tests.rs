@@ -113,8 +113,7 @@ fn workspace_close_skips_peer_anchored_team_ids() {
     });
     let fixture = ServiceFixture::new(mux);
 
-    let team_ids =
-        super::ServiceContext::workspace_team_ids(&fixture.service.mux.read(), &workspace_id);
+    let team_ids = fixture.service.workspace_team_ids(&workspace_id);
     assert!(!team_ids.contains(&remote_team_id));
     assert!(!team_ids.contains(&qualified_remote_team_id));
 }
@@ -557,7 +556,6 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
         .service
         .close_workspace_with_teardown(
             &workspace_id,
-            None,
             |_, tab_id| {
                 prepared_tabs.push(tab_id.to_string());
                 if tab_id == first_tab.as_str() {
@@ -583,30 +581,6 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
     let view = mux.snapshot().recently_closed;
     assert_eq!(view.len(), 2);
     assert_eq!(view[0].group_id, view[1].group_id);
-}
-
-#[test]
-fn workspace_close_refuses_tabs_added_after_confirmation() {
-    let (mut mux, _) = MultiplexerState::new();
-    let workspace = mux.create_workspace("Disposable".into(), None).id;
-    let confirmed = mux.create_tab(&workspace).unwrap();
-    let fixture = ServiceFixture::new(mux);
-    let targets = super::WorkspaceCloseTargets::capture(
-        &fixture.service,
-        &fixture.service.mux.read(),
-        &workspace,
-    )
-    .unwrap();
-    let added = fixture.service.mux.write().create_tab(&workspace).unwrap();
-
-    let error = fixture
-        .service
-        .close_workspace_scoped(&workspace, Some(&targets))
-        .unwrap_err();
-    assert!(error.starts_with("Workspace changed while closing:"));
-    let mux = fixture.service.mux.read();
-    assert!(mux.get_tab(&confirmed).is_some());
-    assert!(mux.get_tab(&added).is_some());
 }
 
 #[test]

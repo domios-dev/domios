@@ -501,7 +501,7 @@ pub struct CloseTabQuery {
     pub(crate) force: bool,
 }
 
-pub async fn close_tab(
+pub(crate) async fn close_tab(
     AxumState(state): AxumState<AppState>,
     axum::Extension(identity): axum::Extension<crate::auth::CallerIdentity>,
     grant: Option<axum::Extension<crate::auth::peer_grant::PeerGrant>>,

@@ -11,7 +11,6 @@ use codeterm_service_core::multiplexer::state::{
     LifecyclePatch, MultiplexerState, ReadSet, TeamCloseTransaction,
 };
 use codeterm_service_core::multiplexer::types::{AgentRole, TabCloseReason};
-use codeterm_service_core::service::close_authority::TeamCloseSnapshot;
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::team_core::{
     is_remote_team, now_ms, remote_team_origin, TeamMutationCaller, TeamPlanError,
@@ -77,7 +76,37 @@ impl TeamExt for ServiceContext {
         caller: TeamMutationCaller,
         force: bool,
     ) -> Result<TeamCloseResult, String> {
-        close::close_team_scoped(self, team_id, caller, force, None).await
+        let force = force
+            || matches!(
+                caller,
+                TeamMutationCaller::Human | TeamMutationCaller::HumanConfirmedHeaderless
+            );
+        let caller_kind = caller.kind();
+        let workspace = {
+            let mux = self.mux.read();
+            authorize_team_close(&mux, team_id, &caller, &mux.team_member_tab_ids(team_id))?;
+            mux.get_team(team_id)
+                .ok_or_else(|| format!("Team {team_id} not found"))?
+                .workspace_id
+                .clone()
+        };
+        let inventory = self
+            .capture_close_inventory(&workspace, Some(team_id))
+            .await?;
+        let result = close_team_inner(self, team_id, caller, force).await;
+        let service = self.clone();
+        match tokio::task::spawn_blocking(move || {
+            service.settle_close_inventory(inventory.as_deref())
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            other => log::warn!("[team-close] close history settlement failed: {other:?}"),
+        }
+        if let Err(error) = &result {
+            log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
+        }
+        result
     }
 }
 
@@ -349,11 +378,10 @@ async fn close_team_inner(
     team_id: &str,
     caller: TeamMutationCaller,
     force: bool,
-    snapshot: Option<&TeamCloseSnapshot>,
 ) -> Result<TeamCloseResult, String> {
     let close_at = now_ms();
     let (prepared, storage_teardown) =
-        storage_teardown::prepare_storage_team_teardown(svc, team_id, &caller, snapshot).await?;
+        storage_teardown::prepare_storage_team_teardown(svc, team_id, &caller).await?;
     let lane_plan_store = std::sync::Arc::clone(&svc.plan_store);
     let lane_team_id = team_id.to_string();
     let lane_member_ids = prepared.member_tab_ids.clone();
@@ -371,15 +399,7 @@ async fn close_team_inner(
     if !busy.is_empty() && !force {
         return Err(busy.refusal(team_id));
     }
-    if let Some(snapshot) = snapshot {
-        snapshot.validate(&svc.mux.read(), team_id)?;
-    }
-    let remote_members = svc
-        .finalize_remote_team_members_scoped(team_id, force, snapshot)
-        .await?;
-    if let Some(snapshot) = snapshot {
-        snapshot.validate(&svc.mux.read(), team_id)?;
-    }
+    let remote_members = svc.finalize_remote_team_members(team_id, force).await?;
     let plan_store = std::sync::Arc::clone(&svc.plan_store);
     let transaction_team_id = team_id.to_string();
     let transaction_member_ids = prepared.member_tab_ids.clone();
@@ -450,10 +470,8 @@ async fn close_team_inner(
     }
     let (commit, history_batch) = {
         let mut mux = svc.mux.write();
-        let validation = snapshot.map_or(Ok(()), |snapshot| snapshot.validate(&mux, team_id));
-        let expected = (storage_commit.is_none() || snapshot.is_some()).then_some(&prepared);
-        let commit = validation
-            .and_then(|()| commit_prepared_team_close(&mut mux, team_id, &caller, expected));
+        let expected = storage_commit.is_none().then_some(&prepared);
+        let commit = commit_prepared_team_close(&mut mux, team_id, &caller, expected);
         (commit, mux.take_closed_history_batch())
     };
     if let Some(batch) = history_batch {

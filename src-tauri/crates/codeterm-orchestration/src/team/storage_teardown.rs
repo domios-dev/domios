@@ -1,5 +1,4 @@
 use codeterm_service_core::multiplexer::types::TabCloseReason;
-use codeterm_service_core::service::close_authority::TeamCloseSnapshot;
 use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::service::ServiceContext;
 
@@ -24,7 +23,6 @@ pub(super) async fn prepare_storage_team_teardown(
     svc: &ServiceContext,
     team_id: &str,
     caller: &TeamMutationCaller,
-    snapshot: Option<&TeamCloseSnapshot>,
 ) -> Result<(PreparedTeamClose, Option<PreparedStorageTeamTeardown>), String> {
     let Some(storage) = svc
         .try_ext::<codeterm_service_core::startup::StorageAuthority>()
@@ -32,9 +30,6 @@ pub(super) async fn prepare_storage_team_teardown(
         .cloned()
     else {
         let mux = svc.mux.read();
-        if let Some(snapshot) = snapshot {
-            snapshot.validate(&mux, team_id)?;
-        }
         return Ok((super::prepare_team_close(&mux, team_id, caller)?, None));
     };
     let desk = storage
@@ -61,9 +56,6 @@ pub(super) async fn prepare_storage_team_teardown(
         .clone();
     let (prepared, teardown) = {
         let mux = svc.mux.read();
-        if let Some(snapshot) = snapshot {
-            snapshot.validate(&mux, team_id)?;
-        }
         let prepared = super::prepare_team_close(&mux, team_id, caller)?;
         let cron_store = cron.lock();
         let _revisions = cron_store.team_teardown_revisions(team_id)?;

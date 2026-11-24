@@ -219,7 +219,6 @@ impl OrchestrationPort for RecordingOrchestration {
         team_id: String,
         caller: TeamMutationCaller,
         force: bool,
-        _snapshot: crate::service::close_authority::TeamCloseSnapshot,
     ) -> TeamCloseFuture {
         self.closed_teams.lock().push((team_id, caller, force));
         Box::pin(async { Ok(()) })

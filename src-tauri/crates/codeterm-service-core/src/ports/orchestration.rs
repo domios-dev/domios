@@ -13,7 +13,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use crate::service::close_authority::TeamCloseSnapshot;
 use crate::service::extensions::{Extensions, ExtensionsBuilder};
 use crate::service::{ServiceState, TeamMutationCaller};
 
@@ -123,7 +122,6 @@ pub trait OrchestrationPort: Send + Sync {
         team_id: String,
         caller: TeamMutationCaller,
         force: bool,
-        snapshot: TeamCloseSnapshot,
     ) -> TeamCloseFuture;
 }
 
