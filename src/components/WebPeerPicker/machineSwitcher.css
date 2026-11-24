@@ -1,6 +1,35 @@
 .ct-bar-pill.ct-machine-switcher,
 .ct-bar-pill.ct-machine-switcher:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  --ct-machine-strength: 1;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ct-switcher-tone, var(--ct-fg)) calc(15% * var(--ct-machine-strength)), var(--ct-bg)), var(--ct-bg));
   box-shadow: none;
+}
+
+.ct-bar-pill.ct-machine-switcher[data-offline] {
+  --ct-machine-strength: .7;
+}
+
+:is(.ct-titlebar-machine, .ct-titlebar--narrow .ct-titlebar-machine) .ct-machine-switcher {
+  padding-inline: 10px 12px;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ct-titlebar-machine .ct-machine-switcher__label {
+  font-weight: 600;
+}
+
+.ct-titlebar-machine .ct-machine-switcher__this {
+  padding: 1px 6px;
+  font-size: 10.5px;
+}
+
+.ct-titlebar-machine .ct-machine-switcher__chevron {
+  width: 11px;
+  height: 11px;
 }
 
 .ct-bar-pill.ct-machine-switcher:focus-visible,
@@ -9,16 +38,22 @@
   outline-offset: -2px;
 }
 
-.ct-machine-list {
-  width: min(17rem, calc(100vw - 2rem));
+.ct-machine-option:focus-visible {
+  outline-color: var(--ct-switcher-tone);
+}
+
+.ct-menu.ct-machine-list {
+  width: min(21rem, calc(100vw - 2rem));
+  background: var(--ct-surface);
 }
 
 .ct-machine-option {
   --ct-switcher-tone: var(--ct-muted-fg);
+  --ct-machine-strength: 1;
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 44px;
+  min-height: 52px;
   gap: 10px;
   padding: 6px 8px;
   border: 0;
@@ -30,37 +65,73 @@
 }
 
 .ct-machine-option--all {
-  --ct-switcher-tone: var(--ct-accent);
+  --ct-switcher-tone: var(--ct-fg);
   margin-bottom: 3px;
 }
 
-.ct-machine-option:hover {
-  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+.ct-machine-option:hover:not([aria-selected="true"]) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 15%, transparent);
 }
 
 .ct-machine-option[aria-selected="true"] {
-  background: color-mix(in srgb, var(--ct-switcher-tone) 14%, transparent);
+  background: color-mix(in srgb, var(--ct-switcher-tone) calc(10% * var(--ct-machine-strength)), transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ct-switcher-tone) calc(55% * var(--ct-machine-strength)), transparent);
+}
+
+.ct-machine-option[data-offline] {
+  --ct-machine-strength: .7;
 }
 
 .ct-machine-option__tile,
 .ct-machine-constellation {
   display: grid;
   place-items: center;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--ct-switcher-tone) 18%, transparent);
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+
+.ct-machine-option__tile {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ct-switcher-tone) calc(15% * var(--ct-machine-strength)), transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-switcher-tone) calc(25% * var(--ct-machine-strength)), transparent);
+}
+
+.ct-machine-doodle {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: calc(.4 * var(--ct-machine-strength));
+  color: var(--ct-switcher-tone);
+  filter: drop-shadow(.25px 0 currentColor) drop-shadow(0 .25px currentColor);
+}
+
+.ct-machine-doodle::before {
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  mask: var(--ct-machine-doodle-mask);
+  mask-size: 110px 110px;
+  content: "";
+}
+
+.ct-machine-switcher > .ct-machine-doodle {
+  mask-image: linear-gradient(90deg, #000 30%, transparent);
 }
 
 .ct-machine-constellation {
   align-content: center;
-  gap: 1px;
+  gap: 3px;
   padding: 4px;
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
 }
 
 .ct-machine-constellation > i {
-  width: min(100%, 5px);
+  width: min(100%, 8px);
   aspect-ratio: 1;
   border-radius: 50%;
 }
@@ -70,7 +141,7 @@
 }
 
 .ct-machine-constellation > [data-offline] {
-  filter: saturate(.2);
+  opacity: .7;
 }
 
 .ct-machine-option__copy {
@@ -96,7 +167,7 @@
 
 .ct-machine-option__check {
   flex: none;
-  color: var(--ct-accent);
+  color: var(--ct-switcher-tone);
 }
 
 .ct-machine-option__status .activity-dots {

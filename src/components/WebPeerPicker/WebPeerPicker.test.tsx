@@ -1,11 +1,14 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
+import { readMachineAppearance } from "../../lib/chatWallpaperClient";
 import {
   __reloadLocalInstanceNameForTest,
   __resetLocalInstanceNameForTest,
   notifyMeshPeersLoaded,
 } from "../../lib/localInstanceName";
+import { DEFAULT_THEME } from "../../lib/themeCss";
+import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
 import { WebPeerPicker } from "./WebPeerPicker";
 
@@ -19,6 +22,13 @@ vi.mock("../../lib/webApi", async (original) => ({
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
   listen: async () => () => {},
+}));
+vi.mock("../../lib/chatWallpaperClient", () => ({
+  readMachineAppearance: vi.fn(),
+}));
+vi.mock("../../lib/daemonBootstrap", async (original) => ({
+  ...await original<typeof import("../../lib/daemonBootstrap")>(),
+  daemonTransportForPeer: () => ({ subscribe: () => () => {} }),
 }));
 
 const serving = () => Promise.resolve({ paired: [], local_instance_name: "BLACKSTAR [dev]" });
@@ -41,6 +51,7 @@ afterEach(() => {
   setSidebarMachineFilter("local");
   peersResponse.mockReset();
   healthResponse.mockReset();
+  vi.mocked(readMachineAppearance).mockReset();
 });
 
 it("shows the machine name from health when the first mesh peers load fails", async () => {
@@ -109,6 +120,29 @@ it("names a paired machine using its announced kind and offline state", async ()
   expect(chip.label()).toBe("Machine: All machines");
   expect(chip.host.querySelector('[data-testid="peer-picker-button"]')?.textContent).toBe("All machines");
   await chip.unmount();
+});
+
+it("keeps a peer's last theme in the menu after it goes offline", async () => {
+  const peer = { instance_id: "forest-peer", instance_name: "Forest", relay_protocol_version: RELAY_PROTOCOL_VERSION, online: true };
+  peersResponse.mockResolvedValue({ paired: [peer] });
+  vi.mocked(readMachineAppearance).mockImplementation(async peerId => ({
+    theme: { ...DEFAULT_THEME, name: peerId === peer.instance_id ? "Forest Night" : "Local Theme" },
+    wallpaper: null,
+  }));
+  const chip = await mount();
+  const trigger = chip.host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!;
+  const option = () => document.querySelector('[data-peer-id="forest-peer"]');
+  try {
+    await act(async () => trigger.click());
+    expect(option()?.getAttribute("aria-label")).toContain("online · Forest Night");
+    await act(async () => trigger.click());
+    peersResponse.mockResolvedValue({ paired: [{ ...peer, online: false }] });
+    await act(async () => notifyMeshPeersLoaded());
+    vi.mocked(readMachineAppearance).mockClear();
+    await act(async () => trigger.click());
+    expect(option()?.getAttribute("aria-label")).toContain("offline · Forest Night");
+    expect(vi.mocked(readMachineAppearance).mock.calls.map(([id]) => id)).not.toContain(peer.instance_id);
+  } finally { await chip.unmount(); }
 });
 
 it("offers only machine selections and commits the focused option from the keyboard", async () => {

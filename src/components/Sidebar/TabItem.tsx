@@ -35,7 +35,7 @@ import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { managedByLabel } from "./remoteOwnership";
-import { RemoteMachineSummary, RemoteTabIcon, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
+import { RemoteMachineSummary, RemoteTabIcon, RemoteTabMachineGlyph, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
 import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
@@ -583,17 +583,19 @@ function TabItemInner({
           )}
           {trailingSlot}
         </span>
-        {collapsed && groupCollapsible && collapsedSummary ? (
-          <span
-            data-testid="group-collapsed-summary"
-            className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
-          >
-            {collapsedSummary}
-          </span>
-        ) : attachment ? null : (
+        {(!attachment || remote) && (
           <span className="sidebar-tab-body__sub">
-            <TabSubline role={rowText.typeLabel} generalAgent={isGeneralAgent} machine={generalMachine} />
-            <TabDescriptionSubtitle description={rowText.description} />
+            {remote && <RemoteTabMachineGlyph machine={remote} />}
+            {collapsed && groupCollapsible && collapsedSummary ? (
+              <span data-testid="group-collapsed-summary" className="truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
+                {collapsedSummary}
+              </span>
+            ) : !attachment && (rowText.typeLabel || rowText.description?.trim()) && (
+              <span className="min-w-0">
+                <TabSubline role={rowText.typeLabel} generalAgent={isGeneralAgent} machine={generalMachine} />
+                <TabDescriptionSubtitle description={rowText.description} />
+              </span>
+            )}
           </span>
         )}
       </div>
