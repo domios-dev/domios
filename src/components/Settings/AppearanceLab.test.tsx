@@ -11,6 +11,7 @@ import { machine, pair, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { renderAppearanceCard } from "./AppearanceCard";
 import { AppearanceLab } from "./AppearanceLab";
 import { useAppearanceLabSession, type AppearanceLabProjection } from "./AppearanceLabSession";
+import { AppearanceLabUndo } from "./AppearanceLabUndo";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -157,13 +158,14 @@ it("counts staged changes and discards wallpaper without losing other controls",
   try {
     await lab.render();
     expect(lab.status()).toBe("0 changes");
-    expect(lab.button("Apply")?.disabled).toBe(true);
+    expect(lab.button("Apply")).toBeUndefined();
     expect([...lab.host.querySelectorAll("button")].some(button => button.textContent?.trim() === "Reset")).toBe(false);
     await lab.category("Shape");
     const roundness = await lab.changeRange("appearance.roundness", "0.4");
     await lab.changeRange("appearance.shadow_strength", "0.6");
     await lab.category("Wallpaper");
     expect(wallpaper("Dots").checked).toBe(true);
+    expect(lab.host.textContent).toContain("This machine’s own wallpaper stays on top.");
     await act(async () => wallpaper("Botanical").click());
     expect(lab.status()).toBe("3 changes");
     expect(lab.button("Apply")?.disabled).toBe(false);
@@ -223,7 +225,7 @@ it("shows the applied receipt with named Undo and closes after undoing", async (
   }
 });
 
-it("offers the stored Undo on the selected remote machine and targets Apply there after staging", async () => {
+it("keeps older Undo out of the dock and targets Apply to the selected machine after staging", async () => {
   const remote = { id: "peer", name: "Desk [dev-peer]" };
   const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: DEFAULT_APPEARANCE };
   const previous = { ...look, theme: { ...DEFAULT_THEME, name: "Earlier look" } };
@@ -245,7 +247,8 @@ it("offers the stored Undo on the selected remote machine and targets Apply ther
       select.value = remote.id;
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(lab.button("Undo · back to Earlier look")?.disabled).toBe(false);
+    expect(lab.button("Undo · back to Earlier look")).toBeUndefined();
+    expect(lab.button("Apply to Desk #2")).toBeUndefined();
     await lab.category("Shape");
     await lab.changeRange("appearance.roundness", "0.4");
     expect(lab.button("Apply to Desk #2")?.disabled).toBe(false);
@@ -254,6 +257,48 @@ it("offers the stored Undo on the selected remote machine and targets Apply ther
     await lab.cleanup();
     rememberAccountMachineNames(null);
     rememberPeers([]);
+  }
+});
+
+it("keeps the stored named Undo in Settings after leaving Try it", async () => {
+  const machine = { id: "fixture", name: "Desk" };
+  const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };
+  const active: AppearanceProposal = {
+    id: "stored", machine, look, previous: { ...look, theme: { ...look.theme, name: "Earlier look" } },
+    state: "applied", can_undo: true, applied_at: 1735689600, rationale: "", contrast: [],
+  };
+  api.readAppearance.mockResolvedValue({ machine, look, presets: [DEFAULT_THEME], active });
+  api.changeAppearance.mockResolvedValue({ ...active, state: "undone", can_undo: false });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AppearanceLabUndo />));
+    const undo = host.querySelector<HTMLButtonElement>("button")!;
+    expect(undo.textContent?.trim()).toBe("Undo · back to Earlier look");
+    await click(undo);
+    expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "local", peer: undefined }, active.id, "undo");
+    expect(host.querySelector("button")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("loads the preset's own backdrop and preserves the separately installed wallpaper", async () => {
+  const look: AppearanceLook = {
+    theme: { ...DEFAULT_THEME, name: "Current", chat_background: { pattern: "dots" } },
+    wallpaper: { background: { pattern: "botanical" } },
+    tuning: null,
+  };
+  api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME], active: null });
+  const lab = mountLab();
+  try {
+    await lab.render();
+    await click([...lab.host.querySelectorAll("button")].find(button => button.textContent === DEFAULT_THEME.name)!);
+    expect(lab.project.mock.lastCall?.[0]?.look).toEqual({ ...look, theme: DEFAULT_THEME });
+  } finally {
+    await lab.cleanup();
   }
 });
 
@@ -272,8 +317,10 @@ it("pre-stages the proposal from Open in Lab and compares the applied look while
     const compare = lab.host.querySelector<HTMLButtonElement>('button[aria-label="Compare"]')!;
     await act(async () => compare.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })));
     expect(lab.project.mock.lastCall?.[0]?.look).toEqual(look);
+    expect(lab.button("Apply")?.disabled).toBe(true);
     await act(async () => compare.dispatchEvent(new KeyboardEvent("keyup", { key: " ", bubbles: true })));
     expect(lab.project.mock.lastCall?.[0]?.look).toEqual(staged);
+    expect(lab.button("Apply")?.disabled).toBe(false);
   } finally {
     await lab.cleanup();
   }

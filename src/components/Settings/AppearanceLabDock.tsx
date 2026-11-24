@@ -54,7 +54,8 @@ export function AppearanceLabDock({
       <div className="ct-appearance-changes__status" role="status" aria-live="polite" data-state={appliedStatus ? "applied" : undefined}>
         {appliedStatus
           ? <><Check size={15} aria-hidden="true" />{appliedStatus}</>
-          : <button type="button" aria-expanded={listOpen} disabled={!changes.length} onClick={onToggleList}>{count}</button>}
+          : changes.length > 0 ? <button type="button" aria-expanded={listOpen} onClick={onToggleList}>{count}</button>
+            : <span className="sr-only">{count}</span>}
       </div>
       {listOpen && changes.length > 0 && <ul className="ct-appearance-changes__list" aria-label="Staged changes">
         {changes.map(change => <li key={change.label}>
@@ -63,8 +64,8 @@ export function AppearanceLabDock({
         </li>)}
       </ul>}
       {changes.length > 0 && <button type="button" className="ct-appearance-changes__discard" aria-label="Discard changes" disabled={busy} onClick={onDiscard}>Discard</button>}
-      {!appliedStatus && <button type="button" className="ct-appearance-primary ct-appearance-changes__apply" disabled={!canApply}
-        onClick={event => onApply(event.currentTarget)}><Check size={15} aria-hidden="true" />{applyLabel}</button>}
+      {changes.length > 0 && !appliedStatus && <button type="button" className="ct-appearance-primary ct-appearance-changes__apply" disabled={!canApply}
+        onClick={event => onApply(event.currentTarget)}><Check size={15} aria-hidden="true" /><span>{applyLabel}</span></button>}
       {undoLabel && <button type="button" className="ct-appearance-changes__undo" aria-label={undoLabel} disabled={busy} onClick={onUndo}>
         <Undo2 size={15} aria-hidden="true" /><span className="ct-appearance-changes__wide">{undoLabel}</span><span className="ct-appearance-changes__short">Undo</span>
       </button>}
@@ -77,7 +78,7 @@ export function AppearanceLabDock({
       onKeyUp={event => { if (event.key === " " || event.key === "Enter") onCompare(false); }}
       onBlur={() => onCompare(false)}><Contrast size={15} aria-hidden="true" /><span>Compare</span></button>
     <details className="ct-appearance-try__menu">
-      <summary aria-label="Appearance options">⋯</summary>
+      <summary aria-label="More appearance options">⋯</summary>
       <div>{machineSelector}<button type="button" disabled={busy} onClick={onBack}>Back</button></div>
     </details>
     <button type="button" className="ct-appearance-try__sheet-toggle" aria-label={category ? "Collapse appearance card" : "Expand appearance card"}

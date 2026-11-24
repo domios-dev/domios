@@ -130,7 +130,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const tuning = draft?.tuning ?? DEFAULT_APPEARANCE;
   const changes = current && draft ? appearanceLabChanges(current.look, draft, current.presets) : [];
   const dirty = changes.length > 0;
-  const active = current?.active?.can_undo ? current.active : undefined;
+  const active = justApplied?.can_undo ? justApplied : undefined;
   const undoLabel = active && `Undo · back to ${active.previous.theme.name}`;
   const appliedAt = active?.applied_at == null ? undefined : new Date(active.applied_at * 1000);
   const wallpaperVersion = wallpaperRevision.current;
@@ -251,9 +251,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
     void sent.catch(() => {});
   };
 
-  const pickPreset = (theme: ThemeConfig) => setDraft(value => value && {
-    ...value, theme: { ...theme, chat_background: value.theme.chat_background },
-  });
+  const pickPreset = (theme: ThemeConfig) => setDraft(value => value && { ...value, theme });
   const discardWallpaper = () => {
     if (!current) return;
     wallpaperRevision.current++;
@@ -268,7 +266,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const selectedCategory = LAB_CATEGORIES.find(item => item.id === card);
   const cardTitle = card === "shape" ? "Shape and depth" : selectedCategory?.label;
   const machineSelector = (
-    <label className="ct-appearance-machine"><Monitor size={15} aria-hidden="true" />
+    <label className="ct-appearance-machine"><Monitor size={15} aria-hidden="true" />For:
       <select aria-label="Appearance machine" value={target.peer ?? "local"} onChange={event => changeMachine(event.target.value)} disabled={busy}>
         <option value="local">{localName ? `This machine · ${localName}` : "This machine"}</option>
         {machineChoices.peers?.map(peer => <option key={peer.instance_id} value={peer.instance_id}>{accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine"}{peer.online ? "" : " · offline"}</option>)}

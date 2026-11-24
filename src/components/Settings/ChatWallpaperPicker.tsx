@@ -133,6 +133,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
   return <SettingsCard icon={<Wallpaper size={16} />} title={stage ? "Wallpaper" : "Chat wallpaper"} description={stage ? undefined : "Applies to chats on this machine"}
     className="ct-wallpaper-picker" headerRight={source && <button type="button" disabled={busy || !ready}
       className="ct-settings-link" onClick={restoreTheme}>Use theme wallpaper</button>}>
+    {stage && installed && <p className="ct-appearance-try__wallpaper-overlay">This machine’s own wallpaper stays on top.</p>}
     <div role="radiogroup" aria-label="Chat wallpaper pattern" className="ct-wallpaper-gallery">
       {WALLPAPER_PATTERNS.map(pattern => {
         const selected = !showOwn && active.background.pattern === pattern.id;
