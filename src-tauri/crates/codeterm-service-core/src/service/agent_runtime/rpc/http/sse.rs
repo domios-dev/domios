@@ -4,7 +4,7 @@ use serde::Deserializer as _;
 use std::io::Read;
 use tokio::io::AsyncBufReadExt;
 
-// Match the 4 MiB runtime JSON budget so OpenCode's full-text echoes can carry delivery evidence.
+// Match the 4 MiB runtime JSON budget so full-text echoes can carry delivery evidence.
 pub(super) const EVENT_LIMIT: usize = MAX_RUNTIME_VALUE_BYTES;
 const INLINE_JSON_LIMIT: usize = 256 * 1024;
 const EVENT_TYPE_PROBE_LIMIT: u64 = 4096;
