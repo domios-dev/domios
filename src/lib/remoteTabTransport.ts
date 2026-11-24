@@ -100,7 +100,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "tab_todo_list": return call("GET", "/todos");
     case "tab_todo_review": return call("POST", "/todos/review", args.request);
     case "wake_tab": return call("POST", "/wake");
-    case "mux_close_tab": return call("POST", "/close");
+    case "mux_close_tab": return call("POST", args.force === true ? "/close?force=true" : "/close", { as_owner: true });
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
     case "mux_set_focused_tab": return call("POST", "/select");
     case "mux_rerun_restored_shell": return call("POST", "/rerun-restored-shell");

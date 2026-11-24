@@ -1,7 +1,6 @@
 :root {
-  /* Height of the fade each header paints over the content below it. */
   --ct-top-bar-fade: 12px;
-  --ct-tab-top-bar-bg: color-mix(in srgb, var(--ct-bg) 80%, transparent);
+  --ct-tab-top-bar-padding: 6px;
 }
 
 .ct-tab-top-bar,
@@ -13,7 +12,6 @@
   background: var(--ct-bg);
 }
 
-.ct-tab-top-bar::after,
 .ct-jobs-header::after,
 .plan-side-panel__header::after,
 .ct-toolbar::after {
@@ -28,10 +26,177 @@
 }
 
 .ct-tab-top-bar {
-  background: var(--ct-tab-top-bar-bg);
-  backdrop-filter: blur(12px) saturate(1.1);
+  container-type: inline-size;
+  padding-block: var(--ct-tab-top-bar-padding);
+  background: color-mix(in srgb, var(--ct-bg) 80%, transparent);
 }
 
-.ct-tab-top-bar::after {
-  background: linear-gradient(var(--ct-tab-top-bar-bg), transparent);
+@supports (backdrop-filter: blur(8px)) {
+  @media not (prefers-reduced-transparency: reduce) {
+    .ct-tab-top-bar {
+      background: transparent;
+    }
+
+    .ct-tab-top-bar::before {
+      position: absolute;
+      inset: 0 0 auto;
+      z-index: -1;
+      height: 56px;
+      background: linear-gradient(color-mix(in srgb, var(--ct-bg) 72%, transparent), transparent);
+      backdrop-filter: blur(8px);
+      mask-image: linear-gradient(#000 40%, transparent);
+      content: "";
+      pointer-events: none;
+    }
+
+    .ct-tab-top-bar + .ct-tab-content-body:not(:has(> .ct-tab-content-status > *)) {
+      --ct-tab-header-overlap: calc(var(--ct-tab-top-bar-control-h) + 2 * var(--ct-tab-top-bar-padding));
+    }
+
+    .ct-tab-content-body .ct-chat-wallpaper-stack {
+      top: calc(-1 * var(--ct-tab-header-overlap, 0px));
+    }
+
+    .ct-tab-content-body .ct-chat-surface {
+      top: calc(-1 * var(--ct-tab-header-overlap, 0px));
+      padding-top: calc(0.75rem + var(--ct-tab-header-overlap, 0px));
+    }
+  }
+}
+
+.ct-tab-top-bar__identity,
+.ct-tab-header-title {
+  display: flex;
+  align-items: center;
+}
+
+.ct-tab-top-bar__identity {
+  min-height: var(--ct-tab-pill-h);
+  gap: 10px;
+  min-width: min-content;
+}
+
+.ct-tab-header-title {
+  gap: 8px;
+  white-space: nowrap;
+  text-shadow: 0 0 12px var(--ct-bg);
+}
+
+.ct-tab-header-title__glyph {
+  flex: none;
+  color: var(--ct-accent);
+}
+
+.ct-tab-header-title__name,
+.ct-tab-header-title__subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ct-tab-header-title__name {
+  flex: none;
+  max-width: clamp(10ch, 25cqi, 24ch);
+  color: var(--ct-fg);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ct-tab-header-title__subtitle {
+  max-width: min(28ch, 26cqi);
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+}
+
+@container (width < 640px) {
+  .ct-tab-header-title__subtitle {
+    display: none;
+  }
+}
+
+.ct-tab-top-bar__bubbles > div,
+.ct-tab-top-bar__overflow > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ct-tab-top-bar__bubbles > div {
+  width: 100%;
+  max-height: var(--ct-tab-pill-h);
+  overflow: hidden;
+  justify-content: safe end;
+}
+
+.ct-tab-top-bar__bubbles > div > [data-tab-chip-clipped] {
+  visibility: hidden;
+}
+
+.ct-menu.ct-tab-top-bar__overflow {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--ct-border);
+  border-radius: 12px;
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-sm);
+}
+
+.ct-tab-top-bar__overflow > div > * {
+  max-width: 100%;
+}
+
+.ct-tab-view-switch {
+  display: inline-flex;
+  flex: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+  box-shadow: inset 0 0 0 1px var(--ct-border);
+}
+
+.ct-tab-view-switch > button {
+  position: relative;
+  display: grid;
+  width: 24px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.ct-tab-view-switch > button[aria-checked="true"] {
+  color: var(--ct-fg);
+}
+
+.ct-tab-view-switch > button[aria-checked="true"]::before {
+  position: absolute;
+  inset: 0 1px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  content: "";
+}
+
+.ct-tab-view-switch > button > svg {
+  position: relative;
+}
+
+.ct-tab-view-switch > button:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+@media (forced-colors: active) {
+  .ct-tab-view-switch > button[aria-checked="true"] {
+    outline: 1px solid SelectedItem;
+    outline-offset: -1px;
+  }
+
+  .ct-tab-view-switch > button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
 }

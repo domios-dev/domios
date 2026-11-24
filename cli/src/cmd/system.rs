@@ -518,7 +518,19 @@ fn enable_autostart(
     let bin = resolve_app_binary(binary_override)?;
     let supervisor = resolve_supervisor_binary(supervisor_override)?;
     let home = autostart_home()?;
-    codeterm_util::autostart::enable(&home, &crate::data_root(), &supervisor, &bin)?;
+    #[cfg(target_os = "macos")]
+    let bin = bin.canonicalize().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    let bundle_id = codeterm_util::autostart::macos_bundle_identifier(&bin)?;
+    #[cfg(target_os = "macos")]
+    let macos = Some(codeterm_util::autostart::MacosLaunchAgent {
+        label: MAC_LABEL,
+        bundle_id: &bundle_id,
+        environment: &[],
+    });
+    #[cfg(not(target_os = "macos"))]
+    let macos = None;
+    codeterm_util::autostart::enable(&home, &crate::data_root(), &supervisor, &bin, macos)?;
     let mut result = serde_json::json!({"ok":true,"platform":platform_name(),"binary":bin.to_string_lossy(),"supervisor":supervisor.to_string_lossy()});
     #[cfg(windows)]
     {
@@ -538,7 +550,11 @@ fn enable_autostart(
 }
 
 fn disable_autostart() -> Result<serde_json::Value, String> {
-    codeterm_util::autostart::disable(&autostart_home()?, &crate::data_root())?;
+    codeterm_util::autostart::disable(
+        &autostart_home()?,
+        &crate::data_root(),
+        codeterm_util::autostart::MACOS_LABEL,
+    )?;
     let mut result = serde_json::json!({"ok":true,"platform":platform_name()});
     #[cfg(windows)]
     {
@@ -564,7 +580,10 @@ const LINUX_UNIT_NAME: &str = codeterm_util::autostart::LINUX_UNIT;
 
 #[cfg(target_os = "macos")]
 fn mac_plist_path() -> Result<std::path::PathBuf, String> {
-    Ok(codeterm_util::autostart::macos_path(&autostart_home()?))
+    Ok(codeterm_util::autostart::macos_path(
+        &autostart_home()?,
+        MAC_LABEL,
+    ))
 }
 #[cfg(target_os = "linux")]
 fn linux_unit_path() -> Result<std::path::PathBuf, String> {

@@ -186,10 +186,23 @@ fn relayed_mesh_rpc_keeps_the_verified_sender() {
 #[test]
 fn only_the_exact_workspace_close_route_gets_typed_provenance() {
     let access = codeterm_service_core::mesh::types::AccessLevel::Full;
-    for (method, path) in [
-        (Method::GET, "/api/workspaces/ws_remote/close"),
-        (Method::POST, "/api/workspaces/ws_remote/close/extra"),
-        (Method::POST, "/api/workspaces/ws_remote/tabs/tab_1/close"),
+    // The workspace-scoped tab close alias is local-only, so a peer relay refuses it.
+    for (method, path, expected) in [
+        (
+            Method::GET,
+            "/api/workspaces/ws_remote/close",
+            PeerRelayAuthorization::Forward,
+        ),
+        (
+            Method::POST,
+            "/api/workspaces/ws_remote/close/extra",
+            PeerRelayAuthorization::Forward,
+        ),
+        (
+            Method::POST,
+            "/api/workspaces/ws_remote/tabs/tab_1/close",
+            PeerRelayAuthorization::Rejected,
+        ),
     ] {
         assert_eq!(
             authorize_peer_relay(
@@ -200,7 +213,7 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
                 &serde_json::Value::Null,
                 |_| None
             ),
-            PeerRelayAuthorization::Forward,
+            expected,
             "{method} {path}"
         );
     }

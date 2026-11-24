@@ -121,6 +121,7 @@ export function useChatSession({
   live = true,
   queueSendsBehindTurn = false,
   hostRows,
+  showLiveTools = false,
 }: {
   tabId: string;
   cwd?: string | null;
@@ -142,6 +143,7 @@ export function useChatSession({
   live?: boolean;
   queueSendsBehindTurn?: boolean;
   hostRows?:readonly ChatMessage[];
+  showLiveTools?: boolean;
 }) {
   const activatedRef = useRef(false);
   if (active) activatedRef.current = true;
@@ -487,6 +489,7 @@ export function useChatSession({
 
   const view = useChatWindowView({
     hostRows,
+    liveToolsScope: showLiveTools ? `${windowKey}|${sessionBindingNonce ?? ""}` : null,
     cwd,
     queueSendsBehindTurn,
     localAttempt,

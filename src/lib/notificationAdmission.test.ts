@@ -1,10 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { admitBellNotification, notificationDestination } from "./notificationAdmission";
+import { admitBellNotification, BELL_NOTIFICATION_AGE_MS, MAX_BELL_NOTIFICATIONS, notificationDestination, pruneBellNotifications } from "./notificationAdmission";
 import { projectRemoteNotification, remoteNotificationRoute } from "./remoteNotifications";
 import type { Notification } from "./notificationTypes";
 
 const notice: Notification = { id: "one", title: "opaque", body: null, severity: "Info", tab_id: "agent", workspace_id: null, timestamp: 1, read: false };
+
+test("bell admission keeps the newest capped local and remote records", () => {
+  const rows = Array.from({ length: MAX_BELL_NOTIFICATIONS }, (_, index) => ({
+    ...notice, id: String(index), title: String(index), timestamp: index + 1,
+  }));
+  const newest = projectRemoteNotification("peer", "Peer", { ...notice, timestamp: MAX_BELL_NOTIFICATIONS + 1 });
+  const retained = admitBellNotification(rows, newest, "agent_notification");
+  assert.equal(retained.length, MAX_BELL_NOTIFICATIONS);
+  assert.equal(retained[0].id, "1");
+  assert.equal(retained[retained.length - 1]?.id, newest.id);
+});
+
+test("age pruning drops expired rows at the retention boundary", () => {
+  const newer = { ...notice, id: "two", timestamp: 2 };
+  const rows = [notice, newer];
+  assert.equal(pruneBellNotifications(rows, BELL_NOTIFICATION_AGE_MS), rows);
+  assert.deepEqual(pruneBellNotifications(rows, BELL_NOTIFICATION_AGE_MS + 1), [newer]);
+});
 
 test("source routes diagnostics, plugin progress and local notices outside the bell", () => {
   assert.equal(notificationDestination("diagnostic"), "log");

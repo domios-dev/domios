@@ -31,14 +31,14 @@ import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { composerRunningTool, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { composerRunningTool, projectChatTranscriptActivity, supportsChatTranscriptActivity } from "./chatTranscriptActivity";
 import { latestFailedToolCallId as findLatestFailedToolCallId, latestTurnStopNoticeId, submitTurnContinuation } from "./chatTurnTail";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   chatDaySeparators,
@@ -126,8 +126,9 @@ import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
 import { awaitsTranscriptEcho, deliveryPresentation, deliverySendForRow, queuedBehindTurn, undeliveredSends } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, setChatSendDraft, updateChatSendContent, useChatSendSnapshot } from "./chatSendStore";
-import { ComposerQueueTray } from "./ComposerQueueTray";
 import { composerSendFeedback } from "./composerQueueModel";
+import { ComposerQueueTray } from "./ComposerQueueTray";
+import { ChatAttachmentDropOverlay } from "./ChatAttachmentDropOverlay";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
@@ -138,7 +139,6 @@ import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { useRemoteViewerConnection, type RemoteViewerConnection } from "./useRemoteViewerConnection";
 import { webRequestContext } from "../../lib/webApi";
-
 interface Props {
   inputStatus?: ReactNode;
   frozenRestore?: RestoreStageView;
@@ -177,11 +177,11 @@ function rowReports(own: readonly OutboundReportEntry[] | undefined, following: 
 }
 const NO_ASKS: readonly Notification[] = [];
 
-export function TabSessionChat(props: Props) {
+export const TabSessionChat = memo(function TabSessionChat(props: Props) {
   return parseCompositeTabId(props.tabId)
     ? <RemoteTabSessionChat {...props} />
     : <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
-}
+});
 
 function RemoteTabSessionChat(props: Props) {
   const tabSelector = useLatestCallback((state: Parameters<typeof selectTab>[0]) => selectTab(state, props.tabId), [props.tabId]);
@@ -228,6 +228,8 @@ function TabSessionChatBody({
   const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
+  const conciergeHint = isConciergeTab(tab) && tab?.neighbor_authority;
+  const showChatComposer = !conciergeHint && !managedTabPresentation(tab?.managed).locked;
   const { workspaceId, cwd } = useChatWorkspace(tabId);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
@@ -301,6 +303,7 @@ function TabSessionChatBody({
     observeChatSendStatus,
   } = useChatSession({
     hostRows:hostAccountRows,
+    showLiveTools: supportsChatTranscriptActivity(descriptor, tab?.backing, effectiveChatBackend),
     tabId,
     cwd,
     agentSessionId,
@@ -371,6 +374,7 @@ function TabSessionChatBody({
   const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
   const sessionIntent = useSessionIntent(allMessages);
   const showRemoteState = Boolean(remoteChat.state && !tabLock.locked);
+  const queueEditable = !readOnly && !showRemoteState;
   const signIn = showRemoteState ? null : signInPlacement(runtime.state, hasTranscript);
   const signInState = signIn ? runtime.state : null;
   const launchedFailure = dockedTabFailure(tab && { ...tab, agent_runtime_state: runtime.state ?? undefined });
@@ -394,7 +398,6 @@ function TabSessionChatBody({
     attachmentError: attachmentState === "failed" ? error : null,
     locked: tabLock.locked,
   });
-
   const renderedEnrichedMessages = useMemo(
     () => chatWindowRows(enrichedMessages.filter(({ msg }) => setupView.kind !== "none" ? isLocalSendRow(msg, undelivered)
       : !isSessionIntentOnlyMessage(msg) && (showRemoteState || snapshotReady || !firstTurnReady || isLocalSendRow(msg, localFirstTurnSends)))),
@@ -626,7 +629,7 @@ function TabSessionChatBody({
   }, (index) => isUndatedTranscriptRow(renderedEnrichedMessages[index].msg, renderedEnrichedMessages[index].item), rowsPartial),
   [renderedEnrichedMessages, localToday, rowsPartial]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
-  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
+  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion, visible: isActive, onCopyError: showComposerError });
   const jumpToQuoted = useLatestCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
 
   // The rails are content, so they answer to the same authority the setup view
@@ -922,18 +925,7 @@ function TabSessionChatBody({
       }}
       {...(readOnly ? {} : webDropHandlers)}
     >
-      {webDragOver && (
-        <div
-          data-testid="web-drop-overlay"
-          className="absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed pointer-events-none"
-          style={{
-            borderColor: "var(--ct-accent, #58a6ff)",
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, transparent)",
-          }}
-        >
-          <span className="text-sm font-mono">Drop files to attach</span>
-        </div>
-      )}
+      {webDragOver && <ChatAttachmentDropOverlay />}
       <ChatWallpaperBackdrop />
       <div className="relative flex-1 min-h-0">
       {signInState && signIn === "center" && (
@@ -1023,7 +1015,7 @@ function TabSessionChatBody({
             <ChatTranscriptRow
               key={msg.id}
               entry={entry}
-              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? "Live operation" : undefined}
+              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? chatTranscriptActivity.label : undefined}
               daySeparator={daySeparators.get(messageIndex)}
               originProps={originPropsById.get(msg.id)}
               reports={reports}
@@ -1104,7 +1096,7 @@ function TabSessionChatBody({
       )}
       </div>
       <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
-      <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
+      <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId} turnInProgress={agentActivity.active || agentActivity.kind === "waiting-on-user"}>
         {remoteChatReconnecting && !remoteChat.state && <span className="sr-only" role="status" aria-live="polite">Reconnecting</span>}
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
@@ -1113,7 +1105,13 @@ function TabSessionChatBody({
         />
       ) : (
       <>
-      <div ref={setContextSlot} className="ct-ctx-slot" />
+      <div ref={setContextSlot} className="ct-ctx-slot">
+        {!showChatComposer && sendFeedback.items.length > 0 && (
+          <div className="ct-ctx">
+            <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} editable={queueEditable} inline />
+          </div>
+        )}
+      </div>
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
@@ -1139,7 +1137,6 @@ function TabSessionChatBody({
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
           recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />
-        <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} editable={!readOnly && !showRemoteState} />
         {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
@@ -1161,7 +1158,8 @@ function TabSessionChatBody({
         }}
       />}
         {tab && !signInState && <AccountTransitionActions tab={tab}/>}
-        {isConciergeTab(tab) && tab?.neighbor_authority ? <ConciergeChatHint friendship={tab.neighbor_authority.friendship_id} /> : managedTabPresentation(tab?.managed).locked ? null : <ChatComposer
+        {conciergeHint && <ConciergeChatHint friendship={conciergeHint.friendship_id} />}
+        {showChatComposer && <ChatComposer
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
@@ -1177,6 +1175,8 @@ function TabSessionChatBody({
           pluginError={!remoteChat.peerId && !runtimeUnavailable && effectiveChatBackend ? error : null}
           sessionIntent={sessionIntent}
           contextSlot={contextSlot}
+          queueItems={sendFeedback.items}
+          queueEditable={queueEditable}
           onWillSendMessage={willSendMessage}
           addOptimistic={addOptimistic}
           updateOptimistic={updateOptimistic}

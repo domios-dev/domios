@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::{ClosedTab, TabCloseReason};
+use crate::service::close_authority::MeshCloseGrant;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
 
@@ -46,7 +47,7 @@ fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> 
 #[derive(Clone, Copy)]
 enum WorkspaceCloseCaller<'a> {
     LocalTab(&'a str),
-    AuthenticatedMeshPeer(&'a str),
+    AuthenticatedMeshPeer(&'a str, &'a MeshCloseGrant),
     #[cfg(any(test, feature = "test-support"))]
     Human,
     HumanConfirmedHeaderless,
@@ -57,7 +58,7 @@ impl WorkspaceCloseCaller<'_> {
     fn kind(self) -> &'static str {
         match self {
             Self::LocalTab(_) => "AgentTab",
-            Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
+            Self::AuthenticatedMeshPeer(..) => "AuthenticatedMeshPeer",
             #[cfg(any(test, feature = "test-support"))]
             Self::Human => "Human",
             Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
@@ -68,7 +69,7 @@ impl WorkspaceCloseCaller<'_> {
     fn team_caller(self) -> TeamMutationCaller {
         match self {
             Self::LocalTab(tab_id) => TeamMutationCaller::AgentTab(tab_id.to_string()),
-            Self::AuthenticatedMeshPeer(peer_id) => {
+            Self::AuthenticatedMeshPeer(peer_id, _) => {
                 TeamMutationCaller::AuthenticatedMeshPeer(peer_id.to_string())
             }
             #[cfg(any(test, feature = "test-support"))]
@@ -280,22 +281,25 @@ impl ServiceContext {
         peer_id: &str,
         workspace_id: &str,
         force: bool,
+        grant: &MeshCloseGrant,
     ) -> Result<(), String> {
         crate::async_runtime::block_on(self.close_workspace_from_authenticated_mesh_peer_async(
             peer_id,
             workspace_id,
             force,
+            grant,
         ))
     }
 
-    pub(crate) async fn close_workspace_from_authenticated_mesh_peer_async(
+    async fn close_workspace_from_authenticated_mesh_peer_async(
         &self,
         peer_id: &str,
         workspace_id: &str,
         force: bool,
+        grant: &MeshCloseGrant,
     ) -> Result<(), String> {
         self.close_workspace_guarded_for(
-            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id),
+            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id, grant),
             workspace_id,
             force,
         )
@@ -339,7 +343,7 @@ impl ServiceContext {
                     None => self.workspace_has_protected_tab(workspace_id)?,
                 }
             }
-            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id) => {
+            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id, _) => {
                 if peer_id.trim().is_empty() {
                     return Err("authenticated mesh peer id is required".to_string());
                 }
@@ -378,10 +382,30 @@ impl ServiceContext {
         }
 
         let inventory = self.capture_close_inventory(workspace_id, None).await?;
-        let _capture_guard = super::close_history::WorkspaceCloseGuard::new(workspace_id);
-        let result = self
-            .close_workspace_members(caller, workspace_id, force)
-            .await;
+        let admission = {
+            let mux = self.mux.read();
+            let begin = || {
+                mux.ensure_workspace_membership_mutable(workspace_id)?;
+                let workspace = mux
+                    .get_workspace(workspace_id)
+                    .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+                if workspace.protected {
+                    return Err("Cannot close protected workspace".into());
+                }
+                super::close_history::WorkspaceCloseGuard::begin(workspace_id)
+            };
+            match caller {
+                WorkspaceCloseCaller::AuthenticatedMeshPeer(_, grant) => grant.admit(begin),
+                _ => begin(),
+            }
+        };
+        let result = match &admission {
+            Ok(_) => {
+                self.close_workspace_members(caller, workspace_id, force)
+                    .await
+            }
+            Err(error) => Err(error.clone()),
+        };
         let service = self.clone();
         match tokio::task::spawn_blocking(move || {
             service.settle_close_inventory(inventory.as_deref())

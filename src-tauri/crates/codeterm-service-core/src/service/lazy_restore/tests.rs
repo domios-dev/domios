@@ -119,6 +119,37 @@ fn ordinary_shell_failure_keeps_ordinary_recent_activity_restore_policy() {
 }
 
 #[test]
+fn restored_surface_keeps_activation_and_failure_with_its_runtime() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.backing = TabBacking::Surface(crate::multiplexer::types::SurfaceBacking {
+        plugin_id: "fixture".into(),
+        surface_id: "board".into(),
+        instance_id: "saved-surface".into(),
+        owner_label: false,
+        resume_url: None,
+        resume_profile: None,
+    });
+    tab.restored_from_snapshot = true;
+    tab.frozen = true;
+    assert!(!wake_on_open_eligible(tab));
+    tab.boot_stage = Some(BootStage::SpawnFailed);
+    tab.boot_failure_reason = Some("stale PTY wake refusal".into());
+    let fixture = ServiceFixture::new(mux);
+
+    initialize(&fixture.service, 0);
+    fixture.service.wake_tab_on_open(&id).unwrap();
+
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert!(!tab.frozen);
+    assert!(tab.pty_id.is_none());
+    assert!(tab.boot_stage.is_none());
+    assert!(tab.boot_failure_reason.is_none());
+    assert_eq!(tab.surface().unwrap().instance_id, "saved-surface");
+}
+
+#[test]
 fn startup_does_not_freeze_an_already_owned_pty_with_idle_hooks() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();

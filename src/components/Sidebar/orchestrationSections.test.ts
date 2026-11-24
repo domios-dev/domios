@@ -74,6 +74,7 @@ assert(roleBadgeLabel(tab({ role: "Worker", role_profile: REVIEWER_KIND })) === 
 assert(roleShieldLabel(tab({ role: "Worker", role_profile: REVIEWER_KIND })) === "REVIEWER", "reviewer badge");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: "orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
+assert(roleShieldLabel(tab({ role: "Manager", role_profile: "general_agent" })) === "General Agent", "General Agent subtitle");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: null })) === null, "unnamed manager has no UI role");
 assert(roleShieldLabel(null) === null, "null Tab → no shield");
 assert(roleBadgeTestId("ORCHESTRATOR") === "role-badge-orchestrator", "orchestrator testid");

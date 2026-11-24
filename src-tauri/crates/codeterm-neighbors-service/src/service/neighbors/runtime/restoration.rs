@@ -149,7 +149,7 @@ impl NeighborsExt for ServiceContext {
             self.require_neighbor_generation(generation)?;
             let (registry, _scope, metadata) = self.neighbor_key_ports().await?;
             let list = self
-                .neighbor_registry_owned(super::super::NeighborCommand::List {})
+                .neighbor_registry(super::super::NeighborCommand::List {})
                 .await?;
             self.reconcile_neighbor_nonlocal_receivers(
                 &metadata,

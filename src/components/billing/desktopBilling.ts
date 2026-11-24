@@ -5,9 +5,12 @@ export interface SubscriptionReadback {
   current_tier: string;
   paid_subscription: { tier: string; status: "active" | "trialing" | "past_due"; period_end: number } | null;
   billing_interval: BillingInterval | null;
+  plan_change_mode: PlanChangeMode | null;
   period_end: number | null;
   pending_change: { to_tier: string; effective_at: number; status: "scheduled" | "confirmation_pending" } | null;
 }
+
+export type PlanChangeMode = "at_renewal" | "immediate";
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 128;
@@ -53,6 +56,8 @@ export function parseDesktopCatalog(value: unknown): PlanCatalog {
 export function parseSubscription(value: unknown): SubscriptionReadback {
   if (!record(value) || !text(value.current_tier) || (value.period_end !== null && !seconds(value.period_end))) throw new Error("Invalid subscription response");
   const interval = value.billing_interval ?? null;
+  const mode = value.plan_change_mode ?? null;
+  if (mode !== null && mode !== "at_renewal" && mode !== "immediate") throw new Error("Invalid plan change mode");
   const paid = value.paid_subscription;
   let paidSubscription: SubscriptionReadback["paid_subscription"] = null;
   if (paid !== null) {
@@ -68,7 +73,31 @@ export function parseSubscription(value: unknown): SubscriptionReadback {
       || (pending.status !== "scheduled" && pending.status !== "confirmation_pending")) throw new Error("Invalid pending plan change");
     pendingChange = { to_tier: pending.to_tier, effective_at: pending.effective_at, status: pending.status };
   }
-  return { current_tier: value.current_tier, paid_subscription: paidSubscription, billing_interval: interval, period_end: value.period_end, pending_change: pendingChange };
+  return { current_tier: value.current_tier, paid_subscription: paidSubscription, billing_interval: interval, plan_change_mode: mode,
+    period_end: value.period_end, pending_change: pendingChange };
+}
+
+export function planChangeCopy(mode: PlanChangeMode | null, direction: "upgrade" | "downgrade") {
+  const atRenewal = mode === "at_renewal";
+  const downgrade = direction === "downgrade";
+  const card = atRenewal ? "Your plan changes at your next paid renewal. No charge now."
+    : downgrade ? "Your current tier stays active until the next renewal."
+    : mode === "immediate" ? "Upgrade now with prorated billing." : null;
+  const dialog = (from: string, to: string, date: string | null) => {
+    if (atRenewal) {
+      const renewal = date ? `your next paid renewal (${date})` : "your next paid renewal";
+      return `Your plan changes from ${tierName(from)} to ${tierName(to)} at ${renewal}. No charge now.`;
+    }
+    if (downgrade) {
+      const renewal = date ?? "your next renewal";
+      return `${tierName(from)} until ${renewal}, ${tierName(to)} from ${renewal}.`;
+    }
+    return mode === "immediate"
+      ? "Your upgrade takes effect after payment confirmation. Paddle prorates the charge for the remaining billing period."
+      : null;
+  };
+  return { card, dialog, terms: mode === "immediate" ? "Plan changes keep the same billing interval. Final charges are determined by Paddle."
+    : "Plan changes keep the same billing interval." };
 }
 
 export function scheduledPlanCopy(value: SubscriptionReadback, formatDate: (seconds: number) => string): string | null {
@@ -76,6 +105,10 @@ export function scheduledPlanCopy(value: SubscriptionReadback, formatDate: (seco
   if (!pending) return null;
   if (pending.status === "confirmation_pending") return "Your plan change is awaiting confirmation. Please do not submit it again.";
   const date = formatDate(pending.effective_at);
+  if (value.plan_change_mode === "at_renewal") {
+    const from = tierName(value.paid_subscription?.tier ?? value.current_tier);
+    return `Your plan changes from ${from} to ${tierName(pending.to_tier)} at your next paid renewal (${date}). There was no charge for scheduling this change.`;
+  }
   return `${tierName(value.current_tier)} until ${date}, ${tierName(pending.to_tier)} from ${date}`;
 }
 

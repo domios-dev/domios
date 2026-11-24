@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DOMIOS_TEXT_MIME, formatAttachmentMarker, materializeToolEvent, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { isMac } from "../../lib/keybindings";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -44,9 +45,9 @@ const muxState = (tabId: string): ExtendedState => ({
   tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
 });
 
-function Harness({ tabId, rows }: { tabId: string; rows: SelectableRow[] }) {
+function Harness({ tabId, rows, onCopyError }: { tabId: string; rows: SelectableRow[]; onCopyError: (message: string) => void }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const selection = useChatMessageSelection({ tabId, rows, agent: "Fermi", surfaceRef });
+  const selection = useChatMessageSelection({ tabId, rows, agent: "Fermi", surfaceRef, onCopyError });
   return (
     <div ref={surfaceRef} role="log" onKeyDown={selection.onKeyDown}>
       {rows.map(({ msg }, index) => (
@@ -69,6 +70,7 @@ let host: HTMLDivElement | null = null;
 let clipboard: Record<string, string>[] = [];
 let calls: { command: string; args: Record<string, unknown> }[] = [];
 let execCommandDescriptor: PropertyDescriptor | undefined;
+const copyError = vi.fn();
 
 function resetSharedState() {
   __setInvokeForTest(null); __setListenForTest(null);
@@ -81,6 +83,7 @@ beforeEach(() => {
   vi.useRealTimers();
   resetSharedState();
   clipboard = [];
+  copyError.mockClear();
   calls = [];
   execCommandDescriptor = Object.getOwnPropertyDescriptor(document, "execCommand");
   document.execCommand = vi.fn((command: string) => {
@@ -112,7 +115,7 @@ async function render(tabId: string, rows = ROWS) {
   host = document.createElement("div"); document.body.append(host);
   root = createRoot(host);
   await act(async () => root?.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => muxState(tabId))}>
-    <Harness tabId={tabId} rows={rows} />
+    <Harness tabId={tabId} rows={rows} onCopyError={copyError} />
     <ChatComposer tabId={tabId} tabProvider={null} pendingPrompt={null} attachments={[]} addAttachments={() => {}}
       removeAttachment={() => {}} clearAttachments={() => {}} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
       addOptimistic={() => "optimistic"} updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={() => {}} />
@@ -151,6 +154,13 @@ async function keyOn(target: Element, code: string, shiftKey = false, key = code
   await act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { code, key, shiftKey, bubbles: true, cancelable: true })); });
 }
 async function key(code: string, shiftKey = false) { await keyOn(document.activeElement ?? document.body, code, shiftKey); }
+async function copyChord(target: Element) {
+  const event = new KeyboardEvent("keydown", {
+    code: "KeyC", key: "Unidentified", ctrlKey: !isMac, metaKey: isMac, bubbles: true, cancelable: true,
+  });
+  await act(async () => { target.dispatchEvent(event); });
+  return event.defaultPrevented;
+}
 function mouse(target: Element, type: string, init: MouseEventInit = {}) {
   return target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...init }));
 }
@@ -333,6 +343,60 @@ it("selects with Shift+click, copies in order with role headings, and asks about
   expect(capsules()).toEqual([]);
   expect(bar()).toBeNull();
   expect(sends()).toEqual([]);
+});
+
+it("copies selected messages in transcript order and exits selection mode on the copy shortcut", async () => {
+  await render("shortcut-copy");
+  await act(async () => composer().focus());
+  await shiftClick("t1");
+  await shiftClick("a1");
+  expect(bar()?.textContent).toContain("2 messages");
+  expect(document.activeElement).toBe(row("t1"));
+
+  expect(await copyChord(row("t1"))).toBe(true);
+  expect(clipboard).toEqual([{
+    "text/plain": "Fermi\nDone now.\n\nTool · Bash\n$ ls\na.ts",
+    [DOMIOS_TEXT_MIME]: "### Fermi\n\nDone **now**.\n\n### Tool · Bash\n\n$ ls\na.ts",
+  }]);
+  expect(bar()).toBeNull();
+});
+
+it("yields the copy shortcut to the composer and to native message text selection", async () => {
+  await render("native-copy");
+  await shiftClick("a1");
+  await shiftClick("t1");
+  await typeInComposer("draft text");
+  composer().select();
+
+  expect(await copyChord(composer())).toBe(false);
+  expect(clipboard).toEqual([]);
+  expect(bar()?.textContent).toContain("2 messages");
+
+  await act(async () => {
+    row("a1").focus();
+    const range = document.createRange();
+    range.selectNodeContents(row("a1").querySelector("p")!);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+  });
+
+  expect(await copyChord(row("a1"))).toBe(false);
+  expect(clipboard).toEqual([]);
+  expect(bar()?.textContent).toContain("2 messages");
+});
+
+it("keeps the selection and reports the error if the clipboard rejects the copy", async () => {
+  await render("failed-copy");
+  await act(async () => composer().focus());
+  await shiftClick("a1");
+  await shiftClick("t1");
+  vi.mocked(document.execCommand).mockReturnValue(false);
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("Denied"));
+
+  expect(await copyChord(row("a1"))).toBe(true);
+  expect(writeText).toHaveBeenCalledWith("Fermi\nDone now.\n\nTool · Bash\n$ ls\na.ts");
+  expect(copyError).toHaveBeenCalledTimes(1);
+  expect(bar()?.textContent).toContain("2 messages");
 });
 
 it("Quote on a block selection docks one reply for all of it", async () => {

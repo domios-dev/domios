@@ -1,4 +1,5 @@
 use crate::service::messenger::MessageEnvelope;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::channel_placement::SpentQuestion;
 use super::NotifState;
@@ -26,8 +27,15 @@ pub enum AnswerDeliveryOutcome {
     /// Nothing was owed, so nothing was attempted.
     NotAttempted,
     Pending,
+    SubmitUnconfirmed,
     /// The envelope path refused it, with the reason it gave.
     Failed(String),
+}
+
+pub enum AnswerHandoff {
+    Confirmed,
+    Unconfirmed,
+    Refused(String),
 }
 
 impl AnswerDeliveryOutcome {
@@ -51,7 +59,7 @@ impl AnswerDeliveryOutcome {
 pub fn deliver(
     store: &NotifState,
     id: &str,
-    send: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>,
+    send: impl FnOnce(&str, MessageEnvelope, &str) -> AnswerHandoff,
 ) -> AnswerDeliveryOutcome {
     let Some(due) = store.lock().claim_answer_delivery(id) else {
         return AnswerDeliveryOutcome::Pending;
@@ -60,16 +68,26 @@ pub fn deliver(
     let plan = match due {
         AnswerDeliveryPlan::Owed(plan) => plan,
         AnswerDeliveryPlan::AlreadyDelivered => return AnswerDeliveryOutcome::AlreadyDelivered,
+        AnswerDeliveryPlan::Unconfirmed => return AnswerDeliveryOutcome::SubmitUnconfirmed,
         AnswerDeliveryPlan::Nothing => return AnswerDeliveryOutcome::NotAttempted,
     };
-    match send(&plan.to_tab, plan.envelope(), &plan.body()) {
-        Ok(()) => {
+    match catch_unwind(AssertUnwindSafe(|| {
+        send(&plan.to_tab, plan.envelope(), &plan.body())
+    })) {
+        Ok(AnswerHandoff::Confirmed) => {
             store.lock().mark_answer_delivered(id);
             AnswerDeliveryOutcome::Delivered
         }
-        Err(detail) => {
+        Ok(AnswerHandoff::Refused(detail)) => {
             store.lock().release_answer_delivery(id);
             AnswerDeliveryOutcome::Failed(detail)
+        }
+        uncertain => {
+            if uncertain.is_err() {
+                log::error!("[notify-answer] {id} delivery was interrupted");
+            }
+            store.lock().mark_answer_unconfirmed(id);
+            AnswerDeliveryOutcome::SubmitUnconfirmed
         }
     }
 }
@@ -84,7 +102,7 @@ pub fn deliver(
 pub fn settle(
     store: &NotifState,
     id: &str,
-    send: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>,
+    send: impl FnOnce(&str, MessageEnvelope, &str) -> AnswerHandoff,
     spend: impl FnOnce(&SpentQuestion),
 ) -> AnswerDeliveryOutcome {
     let outcome = deliver(store, id, send);

@@ -1,10 +1,18 @@
 use super::*;
-use codeterm_util::autostart::{build_linux_unit, build_macos_plist, windows_task_xml};
+use codeterm_util::autostart::{
+    build_linux_unit, build_macos_plist, windows_task_xml, MacosLaunchAgent,
+};
+
+const MACOS_AGENT: MacosLaunchAgent<'_> = MacosLaunchAgent {
+    label: "com.domios.app",
+    bundle_id: "com.domios.app",
+    environment: &[],
+};
 
 #[test]
 fn launchagent_target_round_trips_escaped_installed_path() {
     let plist = build_macos_plist(
-        "com.domios.app",
+        MACOS_AGENT,
         "/Users/O'Neil & Co/cli/domios",
         "/Applications/Domios.app/Contents/MacOS/domios-app",
     );
@@ -83,7 +91,7 @@ fn every_registration_with_a_missing_target_reports_broken() {
         AutostartState, BrokenReason, InstalledSupervisor, REPAIR_COMMAND,
     };
     let targets = [
-        macos_target(&build_macos_plist("com.domios.app", "/gone/domios", "/Applications/Domios.app/Contents/MacOS/domios-app")),
+        macos_target(&build_macos_plist(MACOS_AGENT, "/gone/domios", "/Applications/Domios.app/Contents/MacOS/domios-app")),
         linux_target(&build_linux_unit("/gone/domios", "/usr/bin/domios-app")),
         windows_target("<Exec><Command>C:\\gone\\domios.exe</Command><Arguments>system supervise --binary app.exe</Arguments></Exec>"),
     ];

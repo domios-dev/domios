@@ -1,6 +1,50 @@
 use super::*;
 
 #[test]
+fn push_scope_capacity_refuses_new_budgets_without_resetting_live_tab_counts() {
+    let mut store = NotificationStore::new(1);
+    assert!(store.admit_push_budget("tab:bound".into(), 1, 0));
+    for index in 1..MAX_PUSH_SCOPES {
+        assert!(store.admit_push_budget(format!("peer:{index}"), 1, 0));
+    }
+    assert!(!store.admit_push_budget("peer:new".into(), 1, 0));
+    store.expire_retained(NOTIFICATION_AGE_MS);
+    assert!(!store.admit_push_budget("tab:bound".into(), 1, NOTIFICATION_AGE_MS));
+    assert!(store.admit_push_budget("peer:new".into(), 1, NOTIFICATION_AGE_MS));
+}
+
+#[test]
+fn expiring_the_record_removes_its_answer_claim_and_channel_placements() {
+    let mut store = NotificationStore::new(10);
+    let id = store.add_ext(
+        "opaque".into(),
+        None,
+        NotificationSeverity::Info,
+        NotificationProvenance {
+            tab_id: Some("tab".into()),
+            ..Default::default()
+        },
+        Ask::offering(Some(vec![NotificationAction::Answer {
+            label: "yes".into(),
+        }])),
+        Some(true),
+        Some(NotifyLevel::ActionNeeded),
+    );
+    store.notifications[0].timestamp = 1;
+    store.remember_channel_placement(&id, "telegram", "1:2");
+    store.record_answer(&id, "yes");
+    assert!(store.claim_answer_delivery(&id).is_some());
+    store.mark_answer_unconfirmed(&id);
+    assert!(store.expire_retained(NOTIFICATION_AGE_MS).is_empty());
+    let expired = store.expire_retained(NOTIFICATION_AGE_MS + 1);
+    assert_eq!(expired.len(), 1);
+    assert_eq!(expired[0].0, id);
+    assert_eq!(expired[0].1.as_ref().unwrap().placements.len(), 1);
+    assert!(store.notification(&id).is_none());
+    assert!(store.answer_claims.is_empty());
+}
+
+#[test]
 fn coalesced_navigation_always_opens_the_latest_event_target() {
     let mut store = NotificationStore::new(10);
     let request = |event: &str, target: &str| PushRequest {

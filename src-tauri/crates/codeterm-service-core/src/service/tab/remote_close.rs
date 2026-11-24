@@ -1,4 +1,5 @@
 use crate::multiplexer::{state::MultiplexerState, types::TabCloseReason};
+use crate::service::close_authority::MeshCloseGrant;
 use crate::service::{worker_loss::busy_worker_close_warnings, ServiceContext};
 
 pub const REMOTE_TAB_CLOSE_REFUSAL_PREFIX: &str = "remote tab close refused";
@@ -33,6 +34,7 @@ impl ServiceContext {
         controller_tab_id: Option<&str>,
         tab_id: &str,
         force: bool,
+        grant: &MeshCloseGrant,
     ) -> Result<Vec<String>, String> {
         let tab_id = {
             let mux = self.mux.read();
@@ -56,12 +58,18 @@ impl ServiceContext {
                 super::BUSY_WORKER_CLOSE_REFUSAL_PREFIX
             ));
         }
-        self.close_tab_with_teardown(
+        self.close_tab_with_teardown_and_cleanup(
             &tab_id,
             TabCloseReason::User,
-            |mux, target| authorize(mux, target, peer_id, controller_tab_id),
+            |mux, target| {
+                grant.admit(|| {
+                    authorize(mux, target, peer_id, controller_tab_id)?;
+                    mux.reserve_tab_close(target)
+                })
+            },
             || Ok(()),
             |mux, target| authorize(mux, target, peer_id, controller_tab_id),
+            super::TabCloseCleanup::Standard,
         )?;
         Ok(busy_worker_close_warnings(&tab_id, &assignments))
     }

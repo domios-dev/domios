@@ -396,10 +396,18 @@ impl ServiceContext {
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
+        let tab_id = self
+            .mux
+            .read()
+            .resolve_tab_id(tab_id)
+            .unwrap_or_else(|| tab_id.to_string());
         self.close_tab_with_teardown_and_cleanup(
-            tab_id,
+            &tab_id,
             reason,
-            validate,
+            |mux, id| {
+                validate(mux, id)?;
+                mux.reserve_tab_close(id)
+            },
             teardown,
             validate_commit,
             TabCloseCleanup::Standard,
@@ -410,7 +418,10 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         reason: TabCloseReason,
-        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        reserve: impl FnOnce(
+            &mut crate::multiplexer::state::MultiplexerState,
+            &str,
+        ) -> Result<crate::multiplexer::state::TabCloseReservation, String>,
         teardown: impl FnOnce() -> Result<(), String>,
         validate_commit: impl FnOnce(
             &mut crate::multiplexer::state::MultiplexerState,
@@ -420,10 +431,7 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
-            let canonical_tab_id = mux
-                .resolve_tab_id(tab_id)
-                .unwrap_or_else(|| tab_id.to_string());
-            validate(&mux, &canonical_tab_id)?;
+            let canonical_tab_id = tab_id.to_string();
             self.remote_teams
                 .ensure_tab_lifecycle_available(&canonical_tab_id)?;
             let tab = mux.get_tab(&canonical_tab_id);
@@ -431,7 +439,7 @@ impl ServiceContext {
             let session_id = tab.and_then(|tab| tab.agent_session_id.clone());
             (
                 mux.get_focused_tab_id().map(str::to_string),
-                mux.reserve_tab_close(tab_id)?,
+                reserve(&mut mux, &canonical_tab_id)?,
                 provider_id,
                 canonical_tab_id,
                 session_id,
@@ -448,7 +456,9 @@ impl ServiceContext {
                 return Err(error);
             }
         };
-        if let Err(error) = teardown().and_then(|()| self.prepare_tab_close(tab_id, reason)) {
+        if let Err(error) =
+            teardown().and_then(|()| self.prepare_tab_close(&canonical_tab_id, reason))
+        {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
         }
@@ -507,7 +517,7 @@ impl ServiceContext {
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         self.retire_closed_tab_notifications(&canonical_tab_id);
-        self.release_bridge_threads(tab_id);
+        self.release_bridge_threads(&canonical_tab_id);
         session_persist::persist_session_after_close(self);
         self.emit_state_changed(MuxEmitCause::TabLifecycle);
         if pre_focus != post_focus {

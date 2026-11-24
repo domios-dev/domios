@@ -45,6 +45,7 @@ export interface ToolEvent {
   backgroundTaskId?: string;
   message: NormalizedChatMessage;
   stream?: ToolStream;
+  liveEditRun?: boolean;
   commandBatch?: ToolEvent[];
   /** Back-to-back file edits of one session, folded into one tree of files. */
   editRun?: ToolEvent[];
@@ -97,9 +98,9 @@ function hasNonzeroExit(message: NormalizedChatMessage): boolean {
 function eventStatus(message: NormalizedChatMessage, phase: ToolEvent["phase"]): ToolEvent["status"] {
   if (message.toolStatus === "running") return "pending";
   if (message.toolStatus === "abandoned" || message.toolStatus === "interrupted") return "interrupted";
-  if (message.toolStatus === "failed") return "error";
+  if (message.toolStatus === "failed" || hasNonzeroExit(message)) return "error";
   if (message.toolStatus === "completed") return "success";
-  if (message.toolError === true || hasNonzeroExit(message)) return "error";
+  if (message.toolError === true) return "error";
   if (message.toolInterrupted === true) return "interrupted";
   if (phase === "call") {
     if (message.toolError !== false && message.toolInput?.status === "inProgress") return "pending";
@@ -299,6 +300,7 @@ function groupToolStreams(
   boundaryFlows: ReadonlySet<string>,
   thoughtKeys: ReadonlyMap<number, string>,
   cwd: string | null | undefined,
+  liveTools: boolean,
 ): TimelineItem[] {
   const absorbed = reconcileTurnDiffs(items, cwd);
   const groups = new Map<string, { flow: string; run: number; indexes: number[] }>();
@@ -310,7 +312,7 @@ function groupToolStreams(
       if (item.message.type !== "thinking") run++;
       return;
     }
-    if (item.event.message.toolInput?.commandBatchId) {
+    if (item.event.message.toolInput?.commandBatchId || (liveTools && item.event.message.toolStatus)) {
       run++;
       return;
     }
@@ -366,7 +368,7 @@ function groupToolStreams(
   });
 }
 
-export function reduceToolEvents(messages: NormalizedChatMessage[], cwd?: string | null): TimelineItem[] {
+export function reduceToolEvents(messages: NormalizedChatMessage[], cwd?: string | null, liveTools = false): TimelineItem[] {
   const items: TimelineItem[] = [];
   const calls = new Map<string, { item: number; event: ToolEvent }>();
   const sourceCalls = new Map<string, Array<{ item: number; event: ToolEvent }>>();
@@ -580,5 +582,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[], cwd?: string
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }
-  return groupEditRuns(groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys, cwd)));
+  return groupEditRuns(groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys, cwd, liveTools)), liveTools);
 }

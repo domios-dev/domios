@@ -220,10 +220,7 @@ impl NeighborsExt for ServiceContext {
     fn retire_neighbor_friend_receivers(&self) -> Vec<String> {
         let cell = self.extensions.get_or_init(Cell::default);
         let mut known = cell.known.lock();
-        let generation = self
-            .neighbor_cell()
-            .generation
-            .fetch_add(1, Ordering::AcqRel);
+        let generation = self.retire_neighbor_runtime_generation();
         cell.version.fetch_add(1, Ordering::AcqRel);
         std::mem::take(&mut *known)
             .into_iter()

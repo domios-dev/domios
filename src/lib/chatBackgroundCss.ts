@@ -16,7 +16,7 @@ const glyphs: Record<ChatIcon, string> = {
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9Z"/>',
 };
 
-export function chatBackgroundToCSS(theme: ThemeConfig, light: boolean): string {
+export function chatBackgroundToCSS(theme: Pick<ThemeConfig, "chat_background" | "foreground">, light: boolean): string {
   const background = theme.chat_background;
   const pattern = background?.pattern ?? "none";
   const isDoodles = pattern === "doodles";

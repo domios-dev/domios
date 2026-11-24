@@ -447,6 +447,12 @@ async fn run(
     if expected.identity.provider == "local" {
         return Ok(());
     }
+    service
+        .drain_neighbor_stop_local(service.neighbor_history_generation())
+        .await
+        .map_err(|_| Error::LocalFence {
+            phase: "off_cleanup",
+        })?;
     let uid = expected.identity.uid.clone();
     let metadata = Metadata::new(
         service

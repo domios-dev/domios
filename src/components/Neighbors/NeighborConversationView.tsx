@@ -58,8 +58,9 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
   const fresh = neighbors.list?.friends.find(entry => entry.friendship_id === friendship);
   const friend: ConversationFriend | undefined = fresh ?? (neighbors.list === null ? cached?.friends.find(entry => entry.friendship_id === friendship) : undefined);
   if (neighbors.error) {
-    return <div className="neighbor-chat absolute inset-0 flex items-center justify-center bg-[var(--ct-bg)]">
-      <p role="status">Neighbors unavailable: {neighbors.error}</p>
+    return <div className="neighbor-chat absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[var(--ct-bg)]">
+      <p role="status">{neighbors.error}</p>
+      <Button size="sm" loading={neighbors.refreshing} onClick={() => void neighbors.refresh()}>Retry</Button>
     </div>;
   }
   if (!friend && neighbors.list === null) {

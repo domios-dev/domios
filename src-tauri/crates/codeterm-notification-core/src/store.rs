@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -206,15 +206,36 @@ pub struct NotificationStore {
     /// eviction or tab close — never by elapsed time.
     push_slots: HashMap<(String, NotifyLevel), PushSlot>,
     /// Lifetime push count per scope. A count, so no clock can advance it.
-    push_counts: HashMap<String, u32>,
+    push_counts: HashMap<String, PushCount>,
     question_slots: HashMap<(String, String), String>,
     /// Live identities of unread records: the same message twice opens one.
     deliveries: DeliveryLedger,
     /// Standing conditions already announced, so re-observation stays quiet.
     conditions: ConditionLedger,
-    answer_claims: HashSet<String>,
+    answer_claims: HashMap<String, AnswerClaim>,
     superseded: Vec<String>,
     persistence: Option<Persistence>,
+}
+
+const MAX_PUSH_SCOPES: usize = 2048;
+const NOTIFICATION_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+struct PushCount {
+    total: u32,
+    last_seen_ms: u64,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+#[derive(PartialEq, Eq)]
+enum AnswerClaim {
+    InFlight,
+    Unconfirmed,
 }
 
 impl NotificationStore {
@@ -239,7 +260,7 @@ impl NotificationStore {
             question_slots: HashMap::new(),
             deliveries: DeliveryLedger::default(),
             conditions: ConditionLedger::default(),
-            answer_claims: HashSet::new(),
+            answer_claims: HashMap::new(),
             superseded: Vec::new(),
             persistence: None,
         }
@@ -306,10 +327,7 @@ impl NotificationStore {
             condition,
         } = ask;
         let id = Uuid::new_v4().to_string();
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let timestamp = now_ms();
 
         // Send-time capture: the asking tab is read from the provenance this
         // record is being created with, never resolved when an answer is tapped.
@@ -346,10 +364,7 @@ impl NotificationStore {
 
         while self.notifications.len() > self.max_notifications {
             let evicted = self.notifications.remove(0);
-            self.close_push_slot_for(&evicted.id);
-            self.question_slots
-                .retain(|_, id| id.as_str() != evicted.id.as_str());
-            self.deliveries.release(&evicted.id);
+            self.forget_record_indexes(&evicted.id);
         }
 
         self.sync_persisted();
@@ -610,9 +625,7 @@ impl NotificationStore {
             },
         );
 
-        let count = self.push_counts.entry(scope).or_insert(0);
-        *count = count.saturating_add(1);
-        if *count > per_scope_limit {
+        if !self.admit_push_budget(scope, per_scope_limit, now_ms()) {
             return PushAdmission::Suppressed(id);
         }
         if is_supersede {
@@ -620,6 +633,61 @@ impl NotificationStore {
         } else {
             PushAdmission::Deliver(id)
         }
+    }
+
+    fn admit_push_budget(&mut self, scope: String, limit: u32, now: u64) -> bool {
+        if self.push_counts.len() >= MAX_PUSH_SCOPES && !self.push_counts.contains_key(&scope) {
+            return false;
+        }
+        let count = self.push_counts.entry(scope).or_insert(PushCount {
+            total: 0,
+            last_seen_ms: now,
+        });
+        count.total = count.total.saturating_add(1);
+        count.last_seen_ms = now;
+        count.total <= limit
+    }
+
+    pub fn expire_retained(&mut self, now: u64) -> Vec<(String, Option<SpentQuestion>)> {
+        let expired = |timestamp| now.saturating_sub(timestamp) >= NOTIFICATION_AGE_MS;
+        self.push_counts.retain(|scope, count| {
+            let transient = scope.starts_with("peer:") || scope.starts_with("consent:");
+            !transient || !expired(count.last_seen_ms)
+        });
+        if !self.notifications.iter().any(|row| expired(row.timestamp)) {
+            return Vec::new();
+        }
+        let expired_rows = self
+            .notifications
+            .extract_if(.., |row| expired(row.timestamp))
+            .collect::<Vec<_>>();
+        let spent = expired_rows
+            .into_iter()
+            .map(|mut row| {
+                self.forget_record_indexes(&row.id);
+                if let Some(request) = row
+                    .answer
+                    .as_ref()
+                    .and_then(|slot| slot.daemon_request.as_ref())
+                {
+                    self.close_push_scope(&format!("consent:{request}"));
+                }
+                row.resolved = true;
+                let spent = channel_placement::spent_question(std::slice::from_ref(&row), &row.id);
+                (row.id, spent)
+            })
+            .collect();
+        self.sync_persisted();
+        spent
+    }
+
+    fn forget_record_indexes(&mut self, id: &str) {
+        self.release_answer_delivery(id);
+        self.close_push_slot_for(id);
+        self.question_slots
+            .retain(|_, question_id| question_id.as_str() != id);
+        self.deliveries.release(id);
+        self.superseded.retain(|superseded| superseded != id);
     }
 
     /// Content-only rewrite: the coalesced record keeps its id, position and
@@ -760,13 +828,12 @@ impl NotificationStore {
         match id {
             Some(id) => {
                 self.notifications.retain(|n| n.id != id);
-                self.question_slots
-                    .retain(|_, question_id| question_id.as_str() != id);
-                self.close_push_slot_for(id);
-                self.deliveries.release(id);
+                self.forget_record_indexes(id);
             }
             None => {
                 self.notifications.clear();
+                self.answer_claims.clear();
+                self.superseded.clear();
                 self.question_slots.clear();
                 self.push_slots.clear();
                 self.deliveries.clear();
@@ -1005,11 +1072,24 @@ impl NotificationStore {
 
     pub fn claim_answer_delivery(&mut self, id: &str) -> Option<AnswerDeliveryPlan> {
         let plan = self.answer_delivery_plan(id);
-        if matches!(plan, AnswerDeliveryPlan::Owed(_)) && !self.answer_claims.insert(id.to_string())
-        {
-            return None;
+        if matches!(plan, AnswerDeliveryPlan::Owed(_)) {
+            match self.answer_claims.entry(id.to_string()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(AnswerClaim::InFlight);
+                }
+                Entry::Occupied(entry) if *entry.get() == AnswerClaim::Unconfirmed => {
+                    return Some(AnswerDeliveryPlan::Unconfirmed);
+                }
+                Entry::Occupied(_) => return None,
+            }
         }
         Some(plan)
+    }
+
+    pub fn mark_answer_unconfirmed(&mut self, id: &str) {
+        if let Some(claim) = self.answer_claims.get_mut(id) {
+            *claim = AnswerClaim::Unconfirmed;
+        }
     }
 
     pub fn release_answer_delivery(&mut self, id: &str) {

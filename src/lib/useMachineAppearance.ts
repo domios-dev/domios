@@ -1,7 +1,8 @@
-import { createContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { AppConfig } from "./types";
 import { daemonTransportForPeer } from "./daemonBootstrap";
 import { readMachineAppearance, readWallpaperAsset, type MachineAppearance } from "./chatWallpaperClient";
+import { DEFAULT_THEME } from "./themeCss";
 import { relayTarget } from "./webApi";
 import { discardWorkspaceSwitchOrigin, useWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
 import { useMeshMachineIdentity } from "./useMeshMachineIdentities";
@@ -15,7 +16,12 @@ export interface SelectedMachineAppearance {
   projectWallpaper: (wallpaper: MachineAppearance["wallpaper"]) => void;
 }
 
-export const MachineAppearanceContext = createContext<SelectedMachineAppearance | null>(null);
+export const MachineAppearanceContext = createContext<(SelectedMachineAppearance & { viewerTheme?: MachineAppearance["theme"] }) | null>(null);
+
+export function useMachineViewerTheme() {
+  const selected = useContext(MachineAppearanceContext);
+  return selected?.viewerTheme ?? selected?.appearance.theme ?? DEFAULT_THEME;
+}
 
 type Target = ReturnType<typeof useWorkspaceBrowseTarget>;
 type PeerAppearance = { target: NonNullable<Target>; appearance: MachineAppearance };

@@ -1,5 +1,5 @@
 import type { PlanView as Plan } from "./planProjection";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { formatPlanFetchError } from "../../lib/fetchResilience";
 import { peerEventRail } from "../../lib/peerEventRail";
@@ -311,14 +311,16 @@ export function usePlans(api: ApiConfig | undefined, options: UsePlansOptions = 
     };
   }, [key, api?.host, api?.port, api?.token, peerId, project, chat, tabId]);
 
-  const current = state.key === key;
-  return {
-    plans: key && current ? state.plans : [],
-    loading: Boolean(key && (!current || state.loading)),
-    reconnecting: Boolean(key && current && state.plans.length && state.error),
-    error: key && current ? state.error : null,
-    refetch,
-  };
+  return useMemo(() => {
+    const current = state.key === key;
+    return {
+      plans: key && current ? state.plans : [],
+      loading: Boolean(key && (!current || state.loading)),
+      reconnecting: Boolean(key && current && state.plans.length && state.error),
+      error: key && current ? state.error : null,
+      refetch,
+    };
+  }, [key, state, refetch]);
 }
 
 export { usePlanTaskBoard, type UsePlanTaskBoardResult } from "./usePlanTaskBoard";

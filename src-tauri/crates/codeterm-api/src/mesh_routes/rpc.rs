@@ -123,11 +123,16 @@ pub async fn mesh_rpc(
         super::relay::authenticate_signed_mesh_request,
     )
     .await;
-    let (peer, origin, agent) = match authenticated {
+    let super::relay::SignedMeshRequest {
+        peer_id,
+        origin,
+        agent,
+        ..
+    } = match authenticated {
         Ok(authenticated) => authenticated,
         Err((_, message)) => return Json(authority_refusal(message)),
     };
-    Json(handle_mesh_rpc(&state, request, origin, agent.as_ref(), move || Ok(peer)).await)
+    Json(handle_mesh_rpc(&state, request, origin, agent.as_ref(), move || Ok(peer_id)).await)
 }
 
 fn authority_refusal(message: String) -> MeshRpcResponse {
@@ -174,6 +179,9 @@ pub(super) async fn handle_mesh_rpc(
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
     authenticate: impl FnOnce() -> Result<String, (axum::http::StatusCode, String)>,
 ) -> MeshRpcResponse {
+    if request.method == "team.close" {
+        return authority_refusal("Team close requires a local caller".into());
+    }
     if !origin_admitted(origin, &request.method) {
         return authority_refusal(
             "Mesh RPC requires an owner credential or an explicit peer lifecycle capability".into(),

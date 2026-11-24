@@ -36,3 +36,26 @@ it("places provider updates before and outside the complete composer group", asy
   expect(Boolean(notice.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   expect(composer.querySelector('textarea[aria-label="Draft"]')).not.toBeNull();
 });
+
+it("omits an update action with an empty notice", async () => {
+  await act(async () => root.render(<ProviderUpdateNotice model={{ key: "job", state: "failed", message: "  ", canUpdate: true }} onUpdate={vi.fn()} onDismiss={vi.fn()} />));
+  expect(host.childElementCount).toBe(0);
+});
+
+it("shows the provider notice after settlement and preserves dismissal through the next turn", async () => {
+  const { ChatComposerSurface } = await import("./ChatComposerSurface");
+  const notice = () => host.querySelector('[role="group"][aria-label="Provider CLI update"]');
+  const render = (turnInProgress: boolean) => act(async () => root.render(
+    <ChatComposerSurface view={{ kind: "none" }} providerId="fixture" turnInProgress={turnInProgress}>
+      <textarea aria-label="Draft" />
+    </ChatComposerSurface>,
+  ));
+  await render(true);
+  expect(notice()).toBeNull();
+  await render(false);
+  expect(notice()).not.toBeNull();
+  await act(async () => notice()?.querySelector<HTMLButtonElement>('button[aria-label="Dismiss provider update"]')?.click());
+  await render(true);
+  await render(false);
+  expect(notice()).toBeNull();
+});

@@ -22,6 +22,10 @@ function entriesEquivalent(a: StreamEntry, b: StreamEntry): boolean {
   return a.event.id === b.event.id;
 }
 
+function membersEquivalent(a?: ToolEvent[], b?: ToolEvent[]): boolean {
+  return a === b || Boolean(a && b && a.length === b.length && a.every((member, index) => toolEventsEquivalent(member, b[index])));
+}
+
 function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
   if (a === b) return true;
   if (
@@ -37,6 +41,7 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
     a.detail !== b.detail ||
     a.result !== b.result ||
     a.error !== b.error ||
+    a.liveEditRun !== b.liveEditRun ||
     a.edits !== b.edits ||
     a.fileDiffs !== b.fileDiffs
   ) {
@@ -44,6 +49,7 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
   }
   if (!messagesEquivalent(a.message, b.message)) return false;
   if (!agentTreesEquivalent(a.agents, b.agents)) return false;
+  if (!membersEquivalent(a.editRun, b.editRun) || !membersEquivalent(a.commandBatch, b.commandBatch)) return false;
   const streamA = a.stream;
   const streamB = b.stream;
   if (!streamA || !streamB) return streamA === streamB;

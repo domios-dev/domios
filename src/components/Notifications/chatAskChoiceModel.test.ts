@@ -19,14 +19,14 @@ assert.equal(open.phase, "open");
 assert.ok(acceptsTap(open, "Yes", null) && acceptsTap(open, "No", null));
 
 const tapped = chatAskChoiceState(ask(), "Yes");
-assert.equal(tapped.phase, "sending");
-assert.equal(tapped.chosen, "Yes");
-assert.ok(!isChoiceEnabled(tapped, "Yes", null) && !isChoiceEnabled(tapped, "No", null));
-assert.ok(!acceptsTap(tapped, "Yes", null), "a repeated tap while sending is a no-op");
+assert.equal(tapped.phase, "open");
+assert.equal(tapped.chosen, null);
 
 const pending = chatAskChoiceState(ask({ answer_pending: true }), "No");
 assert.equal(pending.phase, "sending");
 assert.equal(pending.chosen, "No");
+assert.ok(!isChoiceEnabled(pending, "Yes", null) && !isChoiceEnabled(pending, "No", null));
+assert.ok(!acceptsTap(pending, "Yes", null), "a repeated tap while sending is a no-op");
 
 const answered = chatAskChoiceState(
   ask({ answer: { asked_from_tab: "asker", answered: "Yes", delivered: true } }), "No",
@@ -39,6 +39,10 @@ const refused = chatAskChoiceState(ask({ answer_error: "Refused" }), "Yes");
 assert.equal(refused.phase, "failed");
 assert.equal(refused.error, "Refused");
 assert.ok(acceptsTap(refused, "Yes", null) && acceptsTap(refused, "No", null), "an unrecorded refusal reopens every choice");
+
+const uncertain = chatAskChoiceState(ask({ answer_unconfirmed: true }), "Yes");
+assert.equal(uncertain.phase, "submit_unconfirmed");
+assert.ok(!acceptsTap(uncertain, "Yes", null));
 
 const undelivered = chatAskChoiceState(
   ask({ answer_error: "No agent", answer: { asked_from_tab: "asker", answered: "Yes", delivered: false } }), null,
@@ -54,6 +58,7 @@ const base = ask();
 assert.ok(tabAsksEqual([base], [{ ...base }]));
 for (const changed of [
   { answer_pending: true },
+  { answer_unconfirmed: true },
   { answer_error: "Refused" },
   { resolved: true },
   { answer: { asked_from_tab: "asker", answered: null, delivered: true } },

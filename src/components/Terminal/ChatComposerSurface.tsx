@@ -7,7 +7,7 @@ import { LockedComposer } from "../billing/LockedComposer";
 import { lockedView, type LockedView } from "../billing/freeLimitModel";
 import { ComposerDock } from "./ComposerDock";
 
-export function ChatComposerSurface({ view, children, providerId, tabId, tab, lock = lockedView("agent.tabs", tab) }: { view: ChatBodyView; children: ReactNode; providerId?: string; tabId?: string; tab?: Pick<Tab, "role_profile" | "locked" | "neighbor_authority"> | null; lock?: LockedView }) {
+export function ChatComposerSurface({ view, children, providerId, tabId, tab, turnInProgress, lock = lockedView("agent.tabs", tab) }: { view: ChatBodyView; children: ReactNode; providerId?: string; tabId?: string; tab?: Pick<Tab, "role_profile" | "locked" | "neighbor_authority"> | null; turnInProgress?: boolean; lock?: LockedView }) {
   if (isConciergeTab(tab)) return <div role="group" aria-label="Concierge management" className="ct-chat-bottom-bar shrink-0">{children}</div>;
   if (isReadOnlyTab(tab)) return <div className="ct-chat-bottom-bar shrink-0">
     <ComposerDock mode="floating">
@@ -20,7 +20,7 @@ export function ChatComposerSurface({ view, children, providerId, tabId, tab, lo
   </div>;
   if (lock.locked) return <LockedComposer view={lock} />;
   return composerVisible(view) ? <div data-composer-height-surface className="shrink-0">
-    {providerId && <div className="ct-provider-update-slot"><ProviderUpdateBubble providerId={providerId} callerTabId={tabId} /></div>}
+    {providerId && <div className="ct-provider-update-slot"><ProviderUpdateBubble providerId={providerId} callerTabId={tabId} turnInProgress={turnInProgress} /></div>}
     <div role="group" aria-label="Message composer" className="ct-chat-bottom-bar">{children}</div>
   </div> : null;
 }

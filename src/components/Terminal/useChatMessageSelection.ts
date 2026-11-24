@@ -10,13 +10,13 @@ import {
   messagesReference,
   messagesReplyLabel,
   timestampMs,
-  type ClipboardFlavours,
   type ClipMessage,
   type ClipNames,
   type NormalizedChatMessage,
   type TimelineItem,
 } from "@codeterm/chat-core";
 import { formatMessageTime, writeClipboardFlavours } from "@codeterm/chat-ui";
+import { matchesBinding } from "../../lib/keybindings";
 import type { MessageRowHandlers } from "./ChatMessageRow";
 import { insertIntoComposer } from "./composerInsertion";
 import { replyInComposer } from "./composerReply";
@@ -61,7 +61,7 @@ export function askAboutMessages(tabId: string, clips: readonly ClipMessage[]) {
 }
 
 function editable(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  return target instanceof HTMLElement && (target.isContentEditable || Boolean(target.closest("input, textarea, select")));
 }
 
 function nativeTextSelected(): boolean {
@@ -85,7 +85,7 @@ interface Press {
   dragging: boolean;
 }
 
-export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, streamingMessageId, prepareMessage, contentVersion }: {
+export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, streamingMessageId, prepareMessage, contentVersion, visible = true, onCopyError }: {
   tabId: string;
   rows: readonly SelectableRow[];
   agent: string;
@@ -93,6 +93,8 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   streamingMessageId?: string | null;
   prepareMessage?: (id: string) => boolean;
   contentVersion?: unknown;
+  visible?: boolean;
+  onCopyError?: (message: string) => void;
 }) {
   const [state, dispatch] = useReducer(reduceMessageSelection, EMPTY_SELECTION);
   const renderingStreamId = useDeferredValue(streamingMessageId);
@@ -166,13 +168,17 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
     const blockMode = selectionActive(live.current.state);
     if (blockMode || (event.shiftKey && !nativeTextSelected())) {
       event.preventDefault();
+      if (editable(document.activeElement)) event.currentTarget.focus({ preventScroll: true });
       dispatch({ type: "dragStart", id, order: live.current.index.order, extend: event.shiftKey && blockMode });
       press.current = { id, y: event.clientY, dragging: true };
       track();
       return;
     }
     if (!inGutter) return;
-    if (!target.closest(INTERACTIVE)) event.preventDefault();
+    if (!target.closest(INTERACTIVE)) {
+      event.preventDefault();
+      if (editable(document.activeElement)) event.currentTarget.focus({ preventScroll: true });
+    }
     press.current = { id, y: event.clientY, dragging: false };
     track();
   }, [track]);
@@ -211,14 +217,27 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
 
   const active = selectionActive(state);
   useEffect(() => {
-    if (!active) return;
+    if (!active || !visible) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.code !== "Escape" || event.defaultPrevented || editable(event.target)) return;
-      dispatch({ type: "clear" });
+      if (event.defaultPrevented || editable(event.target)) return;
+      if (event.code === "Escape") {
+        dispatch({ type: "clear" });
+        return;
+      }
+      if (!matchesBinding(event, "Mod+C") || editable(document.activeElement) || nativeTextSelected()) return;
+      const selected = live.current.state.selected;
+      if (selected.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      void copySelection().then((written) => {
+        if (!written) onCopyError?.("Could not copy selected messages.");
+        else if (live.current.state.selected === selected) dispatch({ type: "clear" });
+      });
     };
     const onCopy = (event: ClipboardEvent) => {
-      if (!event.clipboardData || editable(event.target) || nativeTextSelected()) return;
-      const flavours: ClipboardFlavours = messagesClipboard(selectedClips());
+      if (event.defaultPrevented || !event.clipboardData || editable(event.target) || nativeTextSelected()) return;
+      const flavours = messagesClipboard(selectedClips());
       event.preventDefault();
       event.clipboardData.setData("text/plain", flavours.plain);
       event.clipboardData.setData(DOMIOS_TEXT_MIME, flavours.portable);
@@ -229,7 +248,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("copy", onCopy);
     };
-  }, [active, selectedClips]);
+  }, [active, visible, copySelection, onCopyError, selectedClips]);
 
   const { selected, partial, count } = useMemo(() => partSelectionSummary(index, state.selected), [index, state.selected]);
   const liveSelected = useRef(selected);

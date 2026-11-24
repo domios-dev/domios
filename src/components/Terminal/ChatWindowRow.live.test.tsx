@@ -48,7 +48,9 @@ async function renderOperation(message: NormalizedChatMessage) {
 
 it("keeps one accessible tool row and settles the same card in place", async () => {
   const clock = vi.spyOn(Date, "now").mockReturnValue(6_000);
-  const running = await renderOperation(operation("running"));
+  const running = await renderOperation({
+    ...operation("running"), toolResult: "old\nline 1\nline 2\nline 3\nline 4\n",
+  });
   const row = running.querySelector<HTMLElement>('[data-chat-window-row="operation"]');
   const card = running.querySelector('[data-testid="chat-tool-call"]');
   expect(row?.getAttribute("role")).toBe("status");
@@ -58,6 +60,9 @@ it("keeps one accessible tool row and settles the same card in place", async () 
   expect(running.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(1);
   expect(running.querySelector('[data-testid="toolcard-summary"]')?.textContent).toContain("gh run view");
   expect(running.querySelector('[role="timer"]')?.textContent).toBe("Running · 5s");
+  const output = running.querySelector('[data-testid="chat-live-command-output"]');
+  expect(output?.textContent).toBe("line 1\nline 2\nline 3\nline 4");
+  expect(output?.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe("true");
   const expand = running.querySelector<HTMLButtonElement>('button[aria-label="Show full command"]');
   expect(expand).not.toBeNull();
   expect(expand?.getAttribute("aria-expanded")).toBe("false");
@@ -81,6 +86,7 @@ it("keeps one accessible tool row and settles the same card in place", async () 
   expect(completed.querySelector('[data-chat-window-row="operation"]')?.hasAttribute("aria-live")).toBe(false);
   expect(completed.querySelector('[data-testid="chat-tool-call"]')?.getAttribute("data-tool-status")).toBe("success");
   expect(completed.querySelector('[role="timer"]')).toBeNull();
+  expect(completed.querySelector('[data-testid="chat-live-command-output"]')).toBeNull();
   expect(completed.querySelector('[data-testid="toolcard-status"]')?.getAttribute("role")).toBe("status");
   expect(completed.querySelector('[data-testid="toolcard-status"]')?.getAttribute("aria-label")).toBe("success");
   const durations = completed.querySelectorAll('[data-testid="toolcard-duration"]');

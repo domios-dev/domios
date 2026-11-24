@@ -1,7 +1,7 @@
 import type { Notification } from "../../lib/types";
 import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 
-export type ChatAskPhase = "open" | "sending" | "answered" | "failed" | "resolved" | "undeliverable";
+export type ChatAskPhase = "open" | "sending" | "answered" | "submit_unconfirmed" | "failed" | "resolved" | "undeliverable";
 
 export interface ChatAskChoiceState {
   phase: ChatAskPhase;
@@ -12,8 +12,7 @@ export interface ChatAskChoiceState {
 
 /**
  * One ask card's view of its record plus the label this surface just tapped.
- * The tap is optimistic: it shows as sending before the store has heard of it,
- * and the record wins as soon as it carries an answer, a pending flag or an error.
+ * The local tap supplies a label while the store owns the attempt.
  */
 export function chatAskChoiceState(notification: Notification, tapped: string | null): ChatAskChoiceState {
   const slot = notification.answer;
@@ -24,11 +23,13 @@ export function chatAskChoiceState(notification: Notification, tapped: string | 
   if (notification.answer_error) {
     return { phase: "failed", chosen, error: notification.answer_error, showChoices: true };
   }
+  if (notification.answer_unconfirmed || (recorded !== null && !slot?.delivered)) {
+    return { phase: "submit_unconfirmed", chosen, error: null, showChoices: false };
+  }
   if (recorded !== null) return { phase: "answered", chosen: recorded, error: null, showChoices: false };
   if (slot && isAnswerUndeliverable(slot)) {
     return { phase: "undeliverable", chosen: null, error: null, showChoices: false };
   }
-  if (tapped !== null) return { phase: "sending", chosen: tapped, error: null, showChoices: true };
   return { phase: "open", chosen: null, error: null, showChoices: true };
 }
 
