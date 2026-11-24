@@ -1,6 +1,7 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronLeft, Copy, Trash2, X } from "lucide-react";
 import Markdown from "react-markdown";
-import { MemoryProvenance } from "./MemoryProvenance";
+import { MemoryImportance, MemoryKindChip, MemoryProvenance } from "./MemoryProvenance";
+import { memorySheet } from "./MemoryItemEditor";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { BusyState } from "../shared/BusyState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +9,8 @@ import type { ApiConfig } from "../../lib/types";
 import type { MemEdge, MemItemFull, MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import { deleteItem, fetchItemFull, patchItem, type ItemPatch } from "./memoryApi";
-import { UI_BUTTON, UI_INPUT } from "../shared/design";
+import { Button } from "../shared/Button";
+import { Chip } from "../shared/Chip";
 
 interface Props {
   api: ApiConfig;
@@ -204,10 +206,6 @@ export function MemoryNodeDetail({
     [addTag, tagInput, edit.tags.length],
   );
 
-  const inputClass = `${UI_INPUT.full} text-[13px] text-inherit`;
-  const btnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[13px]`;
-  const sectionLabelClass = "text-xs text-[var(--ct-muted-fg)] mb-1";
-  const rowButtonClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} flex items-center gap-1.5 text-left w-full hover:bg-[var(--ct-hover)]`;
   const mutedTextClass = "text-xs text-[var(--ct-muted-fg)]";
 
   return (
@@ -223,257 +221,267 @@ export function MemoryNodeDetail({
           ‹
         </button>
       )}
-    <div
-      data-testid="memory-node-detail"
-      data-memory-id={node.id}
-      data-memory-kind={node.kind}
-      className="absolute top-0 right-0 bottom-0 w-full max-w-[400px] p-4 z-10 overflow-y-auto flex flex-col gap-3 text-[13px] bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)] transition-transform duration-200 ease-out"
-      style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
-      onMouseDown={(e) => e.stopPropagation()}
-      onWheel={(e) => e.stopPropagation()}
-    >
-      {saveError && (
-        <div data-testid="memory-node-detail-error"><InlineErrorNotice error={saveError} operation="saving this memory" blocking /></div>
-      )}
-
-      <div className="flex items-start gap-2">
-        {editing ? (
-          <input
-            data-testid="memory-node-title-input"
-            className={`${inputClass} text-sm font-semibold`}
-            value={edit.title}
-            onChange={(e) => setEdit((s) => ({ ...s, title: e.target.value }))}
-          />
-        ) : (
-          <strong className="text-[15px] font-semibold flex-1 break-words">{node.title}</strong>
+      <div
+        data-testid="memory-node-detail"
+        data-memory-id={node.id}
+        data-memory-kind={node.kind}
+        className={`${memorySheet.frame} motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out`}
+        style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+      >
+        {saveError && (
+          <div data-testid="memory-node-detail-error"><InlineErrorNotice error={saveError} operation="saving this memory" blocking /></div>
         )}
-        <button
-          data-testid="memory-node-detail-tuck"
-          onClick={() => setTucked(true)}
-          aria-label="Hide memory details"
-          title="Hide memory details"
-          className={`${btnClass} !px-2 !py-0.5 !text-base leading-none`}
-        >
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-      </div>
 
-      <MemoryProvenance author={node.author} createdAt={node.created_at} />
-
-      <div className="flex gap-1.5 flex-wrap text-xs opacity-80">
-        <span
-          className="px-1.5 py-px rounded-[3px] font-semibold text-black"
-          style={{ background: colorForKind(node.kind) }}
-        >
-          {node.kind}
-        </span>
-        {node.area && !editing && (
-          <span className="px-1.5 py-px rounded-[3px] bg-[var(--ct-hover)] font-mono">{node.area}</span>
-        )}
-      </div>
-
-      {(editing || node.summary?.trim()) && <div>
-        <div className={sectionLabelClass}>Summary</div>
-        {editing ? (
-          <textarea
-            rows={3}
-            data-testid="memory-node-summary-input"
-            className={`${inputClass} resize-y`}
-            value={edit.summary}
-            onChange={(e) => setEdit((s) => ({ ...s, summary: e.target.value }))}
-          />
-        ) : (
-          <div className="whitespace-pre-wrap opacity-90">{node.summary}</div>
-        )}
-      </div>}
-
-      <div>
-        {loadingBody && <BusyState label="Loading memory" inline className={sectionLabelClass} />}
-        {editing ? (
-          <textarea
-            rows={10}
-            data-testid="memory-node-body-input"
-            className={`${inputClass} resize-y`}
-            value={edit.body}
-            onChange={(e) => setEdit((s) => ({ ...s, body: e.target.value }))}
-          />
-        ) : (
-          <div
-            data-testid="memory-node-body-preview"
-            className="text-[14px] leading-relaxed break-words [&_p]:mb-3 [&_p:last-child]:mb-0"
+        <div className={memorySheet.header}>
+          <Button
+            variant="icon"
+            size="sm"
+            data-testid="memory-node-detail-tuck"
+            onClick={() => setTucked(true)}
+            aria-label="Hide memory details"
+            title="Hide memory details"
           >
-            <Markdown components={{ img: ({ alt }) => <span>{alt}</span>, code: ({ children }) => <code className="font-mono text-[13px] bg-[var(--ct-bg)] rounded px-1">{children}</code>, pre: ({ children }) => <pre className="whitespace-pre-wrap bg-[var(--ct-bg)] p-2 rounded">{children}</pre> }}>{bodyText ?? ""}</Markdown>
+            <ChevronLeft size={16} className="@min-[720px]/memory:hidden" aria-hidden="true" />
+            <X size={16} className="hidden @min-[720px]/memory:block" aria-hidden="true" />
+          </Button>
+          <MemoryKindChip kind={node.kind} />
+          {!editing && (
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="icon" size="sm" onClick={handleCopyId} aria-label={copied ? "Copied!" : "Copy ID"} title={copied ? "Copied!" : "Copy ID"} data-testid="memory-node-copy-id">
+                <Copy size={15} aria-hidden="true" />
+              </Button>
+              <Button size="sm" className="!border !border-[var(--ct-border-subtle)]" onClick={() => setEditing(true)} data-testid="memory-node-edit">
+                Edit
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className={`${memorySheet.body} text-[13px]`}>
+          {!editing && <h2 className="break-words text-lg font-[650]">{node.title}</h2>}
+          <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-[var(--ct-muted-fg)] tabular-nums">
+            <MemoryProvenance author={node.author} createdAt={node.created_at} />
+            {node.updated_at && <span title={new Date(node.updated_at).toLocaleString()}>Updated: {new Date(node.updated_at).toLocaleDateString()}</span>}
+            {node.created_at && <span title={new Date(node.created_at).toLocaleString()}>Created: {new Date(node.created_at).toLocaleDateString()}</span>}
           </div>
-        )}
-      </div>
-
-      {editing && (
-        <div>
-          <div className={sectionLabelClass}>Area</div>
-          <input
-            data-testid="memory-node-area-input"
-            className={inputClass}
-            value={edit.area}
-            onChange={(e) => setEdit((s) => ({ ...s, area: e.target.value }))}
-          />
-        </div>
-      )}
-
-      <div>
-        <div className={sectionLabelClass}>
-          Importance: <span className="text-[13px] text-[var(--ct-fg)]">{editing ? edit.importance : (node.importance ?? 0)} of 5</span>
-        </div>
-        {editing ? (
-          <input
-            type="range"
-            data-testid="memory-node-importance-input"
-            min={0}
-            max={5}
-            step={0.1}
-            value={edit.importance}
-            onChange={(e) => setEdit((s) => ({ ...s, importance: Number(e.target.value) }))}
-            className="w-full"
-          />
-        ) : null}
-      </div>
-
-      {(editing || (node.tags?.length ?? 0) > 0) && <div>
-        <div className={sectionLabelClass}>Tags</div>
-        <div className="flex flex-wrap gap-1">
-          {(editing ? edit.tags : node.tags ?? []).map((t) => (
-            <span
-              key={t}
-              className="px-1.5 py-0.5 bg-[var(--ct-hover)] rounded text-[10px] inline-flex items-center gap-1"
-            >
-              {t}
-              {editing && (
-                <button
-                  data-testid="memory-node-tag-remove"
-                  data-memory-tag={t}
-                  onClick={() => removeTag(t)}
-                  className="bg-transparent border-0 text-inherit p-0 text-xs leading-none cursor-pointer"
-                >
-                  ×
-                </button>
-              )}
-            </span>
-          ))}
           {editing && (
-            <input
-              placeholder="add tag…"
-              data-testid="memory-node-tag-input"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={onTagKeyDown}
-              onBlur={addTag}
-              className={`${inputClass} !w-[100px] !text-[10px]`}
-            />
+            <label className="block">
+              <span className={memorySheet.label}>Title</span>
+              <input
+                data-testid="memory-node-title-input"
+                className={`${memorySheet.input} !h-10 !text-base font-semibold`}
+                value={edit.title}
+                onChange={(e) => setEdit((s) => ({ ...s, title: e.target.value }))}
+              />
+            </label>
           )}
-        </div>
-      </div>}
-
-      {!editing && neighbors.length > 0 && (
-        <div>
-          <div className={sectionLabelClass}>
-            Related ({neighbors.length})
-          </div>
-          {(
-            <div className="flex flex-col gap-0.5 max-h-[260px] overflow-y-auto">
-              {neighbors.map((nb, i) => (
-                <button
-                  key={`${nb.dir}-${nb.id}-${nb.rel}-${i}`}
-                  data-testid="memory-node-related-item"
-                  data-memory-id={nb.id}
-                  data-memory-rel={nb.rel}
-                  onClick={() => onSelectNode(nb.id)}
-                  className={`${rowButtonClass} cursor-pointer`}
-                  title={nb.id}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ background: nb.node ? colorForKind(nb.node.kind) : "#666" }}
-                  />
-                  <span className="opacity-60 text-[9px] uppercase tracking-wide w-3 shrink-0">
-                    {nb.dir === "out" ? "→" : "←"}
-                  </span>
-                  <span className="opacity-70 text-[10px] shrink-0 italic">
-                    {nb.rel}
-                  </span>
-                  <span className="opacity-90 truncate flex-1 min-w-0">
-                    {nb.node?.title ?? nb.id}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!editing && (
-        <details>
-          <summary className={`${sectionLabelClass} cursor-pointer`}>Technical</summary>
-          <div className={`${mutedTextClass} break-all mb-2`}>{node.id}</div>
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] opacity-75">
-            <span title="Has vector embedding for semantic search">
-              embedding: {node.has_vector ? "✓" : "—"}
-            </span>
-            <span title="Has stored body content (vs entity-only)">
-              body: {node.has_body ? "✓" : "—"}
-            </span>
-            {typeof node.access_count === "number" && (
-              <span title="How many times this item has been read">
-                reads: {node.access_count}
-              </span>
+          {(editing || node.summary?.trim()) && <div>
+            <div className={memorySheet.label}>Summary</div>
+            {editing ? (
+              <textarea
+                rows={3}
+                data-testid="memory-node-summary-input"
+                className={`${memorySheet.textarea} !min-h-0`}
+                value={edit.summary}
+                onChange={(e) => setEdit((s) => ({ ...s, summary: e.target.value }))}
+              />
+            ) : (
+              <div className="whitespace-pre-wrap opacity-90">{node.summary}</div>
             )}
-            {typeof node.recurrence_count === "number" && node.recurrence_count > 0 && (
-              <span title="How many similar saves have been deduped into this">
-                merges: {node.recurrence_count}
-              </span>
+          </div>}
+
+          <div>
+            {loadingBody && <BusyState label="Loading memory" inline className={memorySheet.label} />}
+            {editing ? (
+              <label className="block">
+                <span className={memorySheet.label}>Body</span>
+                <textarea
+                  rows={10}
+                  data-testid="memory-node-body-input"
+                  className={memorySheet.textarea}
+                  value={edit.body}
+                  onChange={(e) => setEdit((s) => ({ ...s, body: e.target.value }))}
+                />
+              </label>
+            ) : (
+              <div
+                data-testid="memory-node-body-preview"
+                className="break-words text-[13px] leading-[1.55] [&_p]:mb-3 [&_p:last-child]:mb-0"
+              >
+                <Markdown components={{ img: ({ alt }) => <span>{alt}</span>, code: ({ children }) => <code className="font-mono text-[13px] bg-[var(--ct-bg)] rounded px-1">{children}</code>, pre: ({ children }) => <pre className="whitespace-pre-wrap bg-[var(--ct-bg)] p-2 rounded">{children}</pre> }}>{bodyText ?? ""}</Markdown>
+              </div>
             )}
           </div>
-          {(node.created_at || node.updated_at) && (
+
+          <div className="grid grid-cols-2 items-start gap-4">
+            {editing ? (
+              <label className="min-w-0">
+                <span className={memorySheet.label}>Area</span>
+                <input
+                  data-testid="memory-node-area-input"
+                  className={memorySheet.input}
+                  value={edit.area}
+                  onChange={(e) => setEdit((s) => ({ ...s, area: e.target.value }))}
+                />
+              </label>
+            ) : node.area && (
+              <div className="min-w-0 break-words">
+                <span className={memorySheet.label}>Area</span>
+                {node.area}
+              </div>
+            )}
             <div className={mutedTextClass}>
-              {node.created_at && <div>created: {node.created_at}</div>}
-              {node.updated_at && <div>updated: {node.updated_at}</div>}
+              <MemoryImportance value={editing ? edit.importance : (node.importance ?? 0)} />
+              {editing && (
+                <input
+                  type="range"
+                  data-testid="memory-node-importance-input"
+                  min={0}
+                  max={5}
+                  step={0.1}
+                  value={edit.importance}
+                  onChange={(e) => setEdit((s) => ({ ...s, importance: Number(e.target.value) }))}
+                  className="w-full"
+                />
+              )}
+            </div>
+          </div>
+
+          {(editing || (node.tags?.length ?? 0) > 0) && <div>
+            <div className={memorySheet.label}>Tags</div>
+            <div className="flex flex-wrap gap-1">
+              {(editing ? edit.tags : node.tags ?? []).map((t) => (
+                <Chip
+                  key={t}
+                  className="!h-[22px] !gap-1 !rounded-md !border-0 !bg-[var(--ct-fg)]/7 !px-2 !text-xs"
+                >
+                  {t}
+                  {editing && (
+                    <button
+                      data-testid="memory-node-tag-remove"
+                      data-memory-tag={t}
+                      onClick={() => removeTag(t)}
+                      className="bg-transparent border-0 text-inherit p-0 text-xs leading-none cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  )}
+                </Chip>
+              ))}
+              {editing && (
+                <input
+                  placeholder="add tag…"
+                  data-testid="memory-node-tag-input"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={onTagKeyDown}
+                  onBlur={addTag}
+                  className={`${memorySheet.input} !w-28 !text-xs`}
+                />
+              )}
+            </div>
+          </div>}
+
+          {!editing && neighbors.length > 0 && (
+            <div>
+              <div className={memorySheet.label}>
+                Related ({neighbors.length})
+              </div>
+              {(
+                <div className="flex flex-col gap-0.5 max-h-[260px] overflow-y-auto">
+                  {neighbors.map((nb, i) => (
+                    <button
+                      key={`${nb.dir}-${nb.id}-${nb.rel}-${i}`}
+                      data-testid="memory-node-related-item"
+                      data-memory-id={nb.id}
+                      data-memory-rel={nb.rel}
+                      onClick={() => onSelectNode(nb.id)}
+                      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--ct-bg-hover)]"
+                      title={nb.id}
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ background: nb.node ? colorForKind(nb.node.kind) : "var(--ct-muted-fg)" }}
+                      />
+                      <span className="sr-only">
+                        {nb.dir === "out" ? "→" : "←"}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {nb.node?.title ?? nb.id}
+                      </span>
+                      <span className="max-w-[40%] shrink-0 truncate text-xs text-[var(--ct-muted-fg)]">
+                        {nb.rel}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </details>
-      )}
 
-      <div className="flex gap-1.5 mt-auto flex-wrap">
-        {editing ? (
-          <>
-            <button onClick={handleSave} className={`${btnClass} !bg-[#3b82f6] !border-[#3b82f6]`} data-testid="memory-node-save">
-              Save
-            </button>
-            <button onClick={handleCancel} className={btnClass} data-testid="memory-node-cancel">
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={handleCopyId} className={btnClass} data-testid="memory-node-copy-id">
-              {copied ? "Copied!" : "Copy ID"}
-            </button>
-            <button onClick={() => setEditing(true)} className={btnClass} data-testid="memory-node-edit">
-              Edit
-            </button>
-            {node.pinned && onUnpinPosition && (
-              <button onClick={() => { void onUnpinPosition(node.id).catch(error => setSaveError(String(error))); }} className={btnClass}>
-                Unpin position
-              </button>
-            )}
-            <button
-              onClick={handleDelete}
-              data-testid="memory-node-delete"
-              className={`${btnClass} ml-auto !text-[var(--ct-red)]`}
-            >
-              Delete
-            </button>
-          </>
-        )}
+          {!editing && (
+            <details className={memorySheet.technical}>
+              <summary>Technical</summary>
+              <div className={`${mutedTextClass} mb-2 break-all font-mono`}>{node.id}</div>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] opacity-75">
+                <span title="Has vector embedding for semantic search">
+                  embedding: {node.has_vector ? "✓" : "—"}
+                </span>
+                <span title="Has stored body content (vs entity-only)">
+                  body: {node.has_body ? "✓" : "—"}
+                </span>
+                {typeof node.access_count === "number" && (
+                  <span title="How many times this item has been read">
+                    reads: {node.access_count}
+                  </span>
+                )}
+                {typeof node.recurrence_count === "number" && node.recurrence_count > 0 && (
+                  <span title="How many similar saves have been deduped into this">
+                    merges: {node.recurrence_count}
+                  </span>
+                )}
+              </div>
+              {(node.created_at || node.updated_at) && (
+                <div className={mutedTextClass}>
+                  {node.created_at && <div>created: {node.created_at}</div>}
+                  {node.updated_at && <div>updated: {node.updated_at}</div>}
+                </div>
+              )}
+            </details>
+          )}
+        </div>
+
+        <div className={memorySheet.footer}>
+          {editing ? (
+            <>
+              <Button onClick={handleCancel} size="sm" className="ml-auto" data-testid="memory-node-cancel">
+                Cancel
+              </Button>
+              <Button onClick={handleSave} variant="primary" size="sm" data-testid="memory-node-save">
+                Save
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                onClick={handleDelete}
+                size="sm"
+                data-testid="memory-node-delete"
+                className="!text-[var(--ct-red)]"
+              >
+                <Trash2 size={14} aria-hidden="true" /> Delete
+              </Button>
+              {node.pinned && onUnpinPosition && (
+                <Button onClick={() => { void onUnpinPosition(node.id).catch(error => setSaveError(String(error))); }} size="sm" className="ml-auto">
+                  Unpin position
+                </Button>
+              )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
     </>
   );
 }
