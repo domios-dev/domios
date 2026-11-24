@@ -92,7 +92,25 @@
 }
 .ct-appearance-try__controls > .ct-settings-card { box-shadow: none; border: 0; background: transparent; }
 .ct-appearance-try__controls .ct-appearance-ask { flex-wrap: wrap; }
-.ct-appearance-try__wallpaper-overlay { margin: 0; color: var(--ct-muted-fg); }
+.ct-appearance-try__wallpaper-overlay {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ct-muted-fg);
+}
+.ct-appearance-lab .ct-appearance-try__wallpaper-overlay button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  color: var(--ct-accent);
+  font-weight: 550;
+  white-space: nowrap;
+}
+.ct-appearance-lab .ct-appearance-try__wallpaper-overlay button:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
+}
 .ct-appearance-try__controls .ct-wallpaper-gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .ct-appearance-try__controls .ct-wallpaper-tile { aspect-ratio: auto; min-height: 72px; padding: 4px; font-size: .7rem; }
 .ct-appearance-try__pill { bottom: calc(var(--lab-dock-inset) + 8px); inset-inline-end: 12px; }
@@ -110,6 +128,9 @@
 }
 .ct-appearance-try__categories,
 .ct-appearance-try__actions { display: flex; gap: 4px; align-items: center; }
+.ct-appearance-try__categories { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ct-appearance-try__actions { flex: none; }
+.ct-appearance-lab .ct-appearance-try__categories > button { flex: none; padding-inline: 7px; }
 .ct-appearance-try__actions:has(.ct-appearance-changes__status > .sr-only) { gap: 0; }
 .ct-appearance-try__actions > .ct-appearance-changes__status { flex: none; }
 .ct-appearance-try__actions > .ct-appearance-changes__apply { max-inline-size: min(160px, 38cqi); }
@@ -161,6 +182,10 @@
 @container appearance-lab (max-width: 1120px) {
   .ct-appearance-try__category-label,
   .ct-appearance-try__compare span { display: none; }
+}
+
+@container appearance-lab (max-width: 1250px) {
+  .ct-appearance-try[data-card-open] .ct-appearance-try__compare span { display: none; }
 }
 
 @media (min-width: 721px) {

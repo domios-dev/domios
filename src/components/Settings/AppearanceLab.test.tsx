@@ -181,6 +181,9 @@ it("counts staged changes and discards wallpaper without losing other controls",
     expect(lab.status()).toBe("1 change");
     expect(wallpaper("Dots").checked).toBe(true);
     expect(wallpaper("Botanical").checked).toBe(false);
+    await click([...lab.host.querySelectorAll("button")].find(button => button.textContent === "Use theme wallpaper")!);
+    expect(lab.project.mock.lastCall?.[0]?.look.wallpaper).toBeNull();
+    expect(lab.status()).toBe("2 changes");
     await act(async () => lab.button("Discard changes")!.click());
     expect(lab.close).toHaveBeenCalledWith(true);
     expect(lab.host.querySelector('[role="toolbar"]')).toBeNull();
