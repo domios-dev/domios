@@ -28,10 +28,12 @@ export function DreamCard({
   entry,
   onOpen,
   recordState,
+  newest = false,
 }: {
   entry: DreamDiaryEntry;
   onOpen: () => void;
   recordState?: DiaryRecordState;
+  newest?: boolean;
 }) {
   const parsed = parseDream(entry.body);
   // explicit `<icon>` / `<mood>` block is present.
@@ -44,10 +46,12 @@ export function DreamCard({
       title: entry.title,
     });
   const mood = parsed.mood ?? moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
-  const date = dreamDate(entry.created_at);
+  const date = new Date(entry.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   // Card surfaces the dream's voice (insight). The technical log stays behind the modal's raw copy, never on the card.
   const insight = parsed.insight || entry.body;
-  const snippet = insight.length > 200 ? `${insight.slice(0, 200)}…` : insight;
+  const firstSentence = insight.match(/^.*?[.!?。！？]+[”’"'\])]*(?=\s|$)/su)?.[0];
+  const lead = firstSentence ?? (insight.length > 200 ? `${insight.slice(0, 200)}…` : insight);
+  const rest = firstSentence ? insight.slice(firstSentence.length).trimStart() : "";
   const visibleTags = (entry.tags ?? []).filter((t) => t !== "dream-diary").slice(0, 3);
 
   return (
@@ -56,71 +60,61 @@ export function DreamCard({
       data-testid="memory-dream-card"
       data-dream-id={entry.id}
       onClick={onOpen}
-      className="ct-card snap-start shrink-0 w-[260px] h-[280px] overflow-hidden relative flex flex-col cursor-pointer"
-      style={{ "--ct-card-tone": "var(--ct-magenta)" } as CSSProperties}
+      className="ct-card relative flex cursor-pointer flex-col gap-3 px-[17px] py-[15px] text-left"
     >
-      <div className="ct-card__head justify-between">
-        <div className="ct-card__icon">
-          <Icon size={16} />
-        </div>
-        <div className="text-right ml-auto">
-          <div className="text-[28px] leading-none font-light tracking-tight">
-            {date.day}
-          </div>
-          <div className="text-[11px] mt-1 text-[var(--ct-muted-fg)]">
-            {date.month}
-          </div>
-        </div>
+      {newest && (
+        <span aria-hidden="true" className="absolute inset-x-[17px] -top-px h-0.5 rounded-b-full bg-[var(--ct-accent)]" />
+      )}
+      <div className="flex min-w-0 items-center gap-2 text-xs">
+        <span className="ct-card__icon">
+          <Icon size={14} aria-hidden="true" />
+        </span>
+        <time dateTime={entry.created_at} className="shrink-0 font-semibold">{date}</time>
+        <span className="text-[var(--ct-muted-fg)]" aria-hidden="true">·</span>
+        <Chip variant="muted" className="min-w-0">
+          <span className="truncate" title={mood}>{mood}</span>
+        </Chip>
+        {newest && <span className="ml-auto shrink-0 font-semibold text-[var(--ct-accent)]">New</span>}
       </div>
 
-      <div className="px-4 mt-3 flex items-center justify-center gap-1.5 flex-wrap">
-        <Chip variant="muted">{mood}</Chip>
-        {recordState && recordState.state !== "complete" && (
-          <span
-            data-testid="memory-dream-card-incomplete"
-            data-dream-record-state={recordState.state}
-            title={
-              recordState.state === "incomplete_live"
-                ? `Still being written by ${recordState.workerId}`
-                : recordState.reason
-            }
-            className="ct-small-pill text-[var(--ct-yellow)]"
+      {recordState && recordState.state !== "complete" && (
+        <Chip
+          variant="warning"
+          className="self-start"
+          data-testid="memory-dream-card-incomplete"
+          data-dream-record-state={recordState.state}
+          title={
+            recordState.state === "incomplete_live"
+              ? `Still being written by ${recordState.workerId}`
+              : recordState.reason
+          }
+        >
+          {recordState.state === "incomplete_live" ? "in progress" : "incomplete"}
+        </Chip>
+      )}
+
+      <div data-testid="memory-dream-card-body" className="flex-1 wrap-anywhere">
+        <p className="line-clamp-3 text-sm leading-5 font-semibold">{lead}</p>
+        {rest && (
+          <p className="mt-3 line-clamp-3 text-xs leading-[18px] text-[var(--ct-muted-fg)]">{rest}</p>
+        )}
+      </div>
+
+      {visibleTags.length > 0 && (
+        <footer className="flex flex-wrap gap-1.5">
+          {visibleTags.map((t) => (
+          <Chip
+            key={t}
+            variant="muted"
+            data-testid="memory-dream-card-tag"
+            data-dream-tag={t}
+            className="max-w-full rounded-md border-transparent bg-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] wrap-anywhere"
           >
-            {recordState.state === "incomplete_live" ? "in progress" : "incomplete"}
-          </span>
-        )}
-      </div>
-
-      <div
-        data-testid="memory-dream-card-body"
-        className="relative flex-1 min-h-0 px-4 pt-2 pb-3 flex items-center justify-center text-center text-[12px] leading-relaxed overflow-hidden italic"
-        style={{ color: "var(--ct-fg)", opacity: 0.92 }}
-      >
-        <span className="line-clamp-6">{snippet}</span>
-      </div>
-
-      <div className="relative px-4 pb-3 pt-1 flex items-center justify-center gap-1.5 flex-wrap">
-        {visibleTags.length > 0 ? (
-          visibleTags.map((t) => (
-            <span
-              key={t}
-              data-testid="memory-dream-card-tag"
-              data-dream-tag={t}
-              className="ct-small-pill text-[var(--ct-muted-fg)]"
-              style={{
-                color: "var(--ct-fg)",
-                opacity: 0.7,
-              }}
-            >
-              #{t}
-            </span>
-          ))
-        ) : (
-          <span className="text-[9px] tracking-wide opacity-50">
-            no tags
-          </span>
-        )}
-      </div>
+            #{t}
+          </Chip>
+          ))}
+        </footer>
+      )}
     </article>
   );
 }
@@ -293,26 +287,20 @@ export function DreamDetailModal({
         </div>
 
         <div className="relative px-4 sm:px-6 pb-4 pt-3 flex items-center gap-1.5 flex-wrap">
-          {visibleTags.length > 0 ? (
-            visibleTags.map((t) => (
-              <span
-                key={t}
-                data-testid="memory-dream-modal-tag"
-                data-dream-tag={t}
-                className="ct-small-pill text-[var(--ct-muted-fg)]"
-                style={{
-                  color: "var(--ct-fg)",
-                  opacity: 0.75,
-                }}
-              >
-                #{t}
-              </span>
-            ))
-          ) : (
-            <span className="text-[9px] opacity-40">
-              no tags
+          {visibleTags.map((t) => (
+            <span
+              key={t}
+              data-testid="memory-dream-modal-tag"
+              data-dream-tag={t}
+              className="ct-small-pill text-[var(--ct-muted-fg)]"
+              style={{
+                color: "var(--ct-fg)",
+                opacity: 0.75,
+              }}
+            >
+              #{t}
             </span>
-          )}
+          ))}
           <Button
             onClick={copyAll}
             onPointerLeave={clearCopied}

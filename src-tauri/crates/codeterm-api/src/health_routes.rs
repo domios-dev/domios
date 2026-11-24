@@ -61,6 +61,7 @@ const IDENTIFY_FEATURES: &[&str] = &[
     "rest-api",
     "canvas",
     "delayed_recurrence",
+    crate::mesh_routes::relay::REQUIRE_AGENT_SEND_FEATURE,
     REMOTE_TASK_DISPATCH_FEATURE,
     TEMPLATE_HOSTING_FEATURE,
 ];

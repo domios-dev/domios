@@ -18,7 +18,17 @@ export function envelopeRows(segments: readonly MessageSegment[]): EnvelopeRow[]
       if (previous?.frame && !previous.content.trim() && previous.correlationId === pending.correlationId) {
         previous.content = pending.content;
         previous.segments = pending.segments;
-      } else rows.push(pending);
+      } else {
+        const first = pending.segments[0];
+        if (previous?.frame && first?.type === "text") {
+          const separator = /^(?:[ \t]*\r?\n)+/.exec(first.text)?.[0];
+          if (separator) {
+            pending.segments[0] = { ...first, text: first.text.slice(separator.length) };
+            pending.content = pending.content.slice(separator.length);
+          }
+        }
+        rows.push(pending);
+      }
     }
     pending = { content: "", segments: [] };
   };

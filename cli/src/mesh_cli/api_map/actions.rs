@@ -89,6 +89,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     from_stdin: bool,
     actions: &Option<String>,
     system_context: &Option<String>,
+    require_agent: bool,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
@@ -124,6 +125,9 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
         );
     }
     let mut body = serde_json::json!({"source_tab": source, "system_context": system_context});
+    if require_agent {
+        body["require_agent"] = serde_json::json!(true);
+    }
     if !body_text.is_empty() {
         body["text"] = serde_json::json!(body_text);
     }
