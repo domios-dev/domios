@@ -7,7 +7,7 @@ import { effectiveWallpaper, wallpaperRenderStyle } from "../../lib/chatWallpape
 import type { MachineAppearance } from "../../lib/chatWallpaperClient";
 import { deriveColor } from "../../lib/colors";
 import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
-import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLabel, machineTileColors, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
+import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLabel, machineThemeName, machineTileColors, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
 import { rankPeersByLastActive } from "../../lib/peerRanking";
 import { tabActivity } from "../../lib/tabActivity";
 import { isLightColor } from "../../lib/themeCss";
@@ -33,17 +33,19 @@ function useMachineDoodle(appearance: MachineAppearance | undefined, peerId: str
   const wallpaper = appearance?.wallpaper;
   const asset = useWallpaperAsset(peerId, online && wallpaper?.background.pattern === "svg" ? wallpaper.asset : undefined);
   return useMemo(() => {
-    if (!theme) return "none";
+    if (!theme) return;
     const setting = effectiveWallpaper(theme, wallpaper ?? undefined);
     const { pattern, opacity } = setting.background;
-    if (pattern === "none" || pattern === "dots" || pattern === "image" || opacity === 0 || (setting.asset && !asset)) return "none";
-    return wallpaperRenderStyle(theme, setting, isLightColor(theme.background), asset?.url)["--ct-wallpaper-mask"];
+    if (pattern === "none" || pattern === "dots" || pattern === "image" || opacity === 0 || (setting.asset && !asset)) return;
+    const mask = wallpaperRenderStyle(theme, setting, isLightColor(theme.background), asset?.url)["--ct-wallpaper-mask"];
+    if (mask !== "none") return { mask, custom: pattern === "svg" };
   }, [theme, wallpaper, asset]);
 }
 
-function MachineDoodle({ mask }: { mask: string }) {
-  if (mask === "none") return null;
-  return <span aria-hidden="true" className="ct-machine-doodle" style={{ "--ct-machine-doodle-mask": mask } as CSSProperties} />;
+function MachineDoodle({ doodle }: { doodle: ReturnType<typeof useMachineDoodle> }) {
+  if (!doodle) return null;
+  return <span aria-hidden="true" className="ct-machine-doodle" data-custom={doodle.custom || undefined}
+    style={{ "--ct-machine-doodle-mask": doodle.mask } as CSSProperties} />;
 }
 
 function MachineDot({ peerId, online }: { peerId?: string; online: boolean }) {
@@ -209,7 +211,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         }}
         className={`ct-bar-pill ct-machine-switcher ${compact ? "min-w-0 max-w-[min(10rem,40vw)] sm:max-w-none" : ""}`}
       >
-        {!all && <MachineDoodle mask={selectedDoodle} />}
+        {!all && <MachineDoodle doodle={selectedDoodle} />}
         {all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} tone={selectedTone ?? neutralTone} />}
         <span className="ct-machine-switcher__label min-w-0 truncate">{label}</span>
         {localSelected && <MachineThisBadge className="ct-machine-switcher__this hidden min-[400px]:inline-flex" />}
@@ -284,7 +286,7 @@ function MachineOption({ name, identity, peerId, status, working, local, online,
   const colors = appearance ? machineTileColors(
     desaturateMachineColor(appearance.theme.blue, online), deriveColor(viewer.background, 10), viewer.foreground, selected,
   ) : { tone: neutralTone, glyph: neutralTone };
-  const state = [busy ? `${working} working` : status, appearance?.theme.name].filter(Boolean).join(" · ");
+  const state = [busy ? `${working} working` : status, appearance && machineThemeName(appearance.theme.name)].filter(Boolean).join(" · ");
   return <button type="button" role="option" tabIndex={-1} aria-selected={selected}
     aria-label={machineLabel(name, identity, local ? `this machine, ${state}` : state)}
     data-testid={local ? "peer-picker-self" : "peer-picker-item"} data-peer-id={peerId} data-peer-name={peerId ? name : undefined}
@@ -292,7 +294,7 @@ function MachineOption({ name, identity, peerId, status, working, local, online,
     className="ct-machine-option" style={{ "--ct-switcher-tone": colors.tone } as CSSProperties}
     onClick={event => onSelect(event.currentTarget)}>
     <span className="ct-machine-option__tile">
-      <MachineDoodle mask={doodle} />
+      <MachineDoodle doodle={doodle} />
       <MachineGlyph {...identity} size="mark-15" tone={colors.glyph} />
     </span>
     <span className="ct-machine-option__copy">

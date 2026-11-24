@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, finish, it } from "../test/standaloneTest";
 import { blendColor } from "./colors";
-import { desaturateMachineColor, machineGlyphColor, machineTileColors } from "./machineIdentity";
+import { desaturateMachineColor, machineGlyphColor, machineThemeName, machineTileColors } from "./machineIdentity";
 import { contrastRatio } from "./themeCss";
 
 describe("machine glyph contrast", () => {
@@ -24,6 +24,13 @@ describe("machine glyph contrast", () => {
       }
     }
   });
+});
+
+it("uses preset display names and humanizes unknown slugs", () => {
+  assert.equal(machineThemeName("github-dark"), "GitHub Dark");
+  assert.equal(machineThemeName("paper-ink"), "Paper & Ink");
+  assert.equal(machineThemeName("amber-sky"), "Amber Sky");
+  assert.equal(machineThemeName("Love Letters After Dark"), "Love Letters After Dark");
 });
 
 finish();
