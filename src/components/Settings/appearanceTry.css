@@ -111,7 +111,13 @@ main:has(> .ct-appearance-try) [data-appearance-lab-chat] {
   background: var(--ct-accent);
   font-size: 10px;
 }
-.ct-appearance-try__menu { font-size: 16px; }
+.ct-appearance-lab.ct-appearance-try__categories .ct-appearance-try__menu {
+  inline-size: 32px;
+  block-size: 32px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
 .ct-appearance-try__popover { font-size: 12px; }
 .ct-appearance-lab button.ct-appearance-try__compare--overflow { display: none; }
 .ct-appearance-try__menu-content {
