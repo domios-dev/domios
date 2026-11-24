@@ -1,7 +1,8 @@
 import { createChatErrorNotice } from "./chatErrorNotice";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
-import { lazyFirstTurnComposerIsLive, tabActivity } from "../../lib/tabActivity";
+import { tabActivity } from "../../lib/tabActivity";
+
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { useChatTabNameResolver } from "./useChatTabNameResolver";
 import { accountNoticeRows } from "./accountNoticeRows";
@@ -25,12 +26,14 @@ import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeSessionUnavailable, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { liveRuntimePrompt, manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
+
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { composerRunningTool, projectChatTranscriptActivity, supportsChatTranscriptActivity } from "./chatTranscriptActivity";
 import { latestFailedToolCallId as findLatestFailedToolCallId, latestTurnStopNoticeId, submitTurnContinuation } from "./chatTurnTail";
+import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -38,14 +41,14 @@ import { chatChangesStore } from "./chatChangesStore";
 import { memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
-  ChatBlockActivityProvider, ChatBlockHostProvider, ChatHighlightBudgetProvider, CompactToolRowsProvider,
-  HistoryGapProvider, LocalArtifactScope, PluginNameProvider, extractPlanRefs, type InteractiveAnswerHandler,
   chatDaySeparators,
   chatLocalDay,
   isUndatedTranscriptRow,
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
+import { ChatBlockActivityProvider, ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
+import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import {
@@ -71,7 +74,6 @@ import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
-import { ComposerQueueTray } from "./ComposerQueueTray";
 import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { mergeRuntimePromptDetail } from "./composerModels";
 import { ManagedTabBar } from "./ManagedTabBar";
@@ -99,6 +101,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
+import { ChatHighlightBudgetProvider } from "@codeterm/chat-ui";
 import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
@@ -106,6 +109,7 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useOutboundReportRows } from "./useOutboundReportRows";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, chatRowsPartial, placeChatRails, setupFlowsInLog } from "./chatBodyVisibility";
+import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
 import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
 import { TabRecoveryAction } from "./TabRecoveryAction";
 import { dockedTabFailure, type RestoreStageView } from "../../lib/restoreStageView";
@@ -123,6 +127,8 @@ import { HoldWhileHidden } from "./HoldWhileHidden";
 import { awaitsTranscriptEcho, deliveryPresentation, deliverySendForRow, queuedBehindTurn, undeliveredSends } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, setChatSendDraft, updateChatSendContent, useChatSendSnapshot } from "./chatSendStore";
 import { composerSendFeedback } from "./composerQueueModel";
+import { ComposerQueueTray } from "./ComposerQueueTray";
+import { ChatAttachmentDropOverlay } from "./ChatAttachmentDropOverlay";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
@@ -133,7 +139,6 @@ import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { useRemoteViewerConnection, type RemoteViewerConnection } from "./useRemoteViewerConnection";
 import { webRequestContext } from "../../lib/webApi";
-
 interface Props {
   inputStatus?: ReactNode;
   frozenRestore?: RestoreStageView;
@@ -223,8 +228,8 @@ function TabSessionChatBody({
   const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
-  const concierge = isConciergeTab(tab) && tab?.neighbor_authority;
-  const managedLocked = managedTabPresentation(tab?.managed).locked;
+  const conciergeHint = isConciergeTab(tab) && tab?.neighbor_authority;
+  const showChatComposer = !conciergeHint && !managedTabPresentation(tab?.managed).locked;
   const { workspaceId, cwd } = useChatWorkspace(tabId);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
@@ -369,6 +374,7 @@ function TabSessionChatBody({
   const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
   const sessionIntent = useSessionIntent(allMessages);
   const showRemoteState = Boolean(remoteChat.state && !tabLock.locked);
+  const queueEditable = showChatComposer && !readOnly && !showRemoteState;
   const signIn = showRemoteState ? null : signInPlacement(runtime.state, hasTranscript);
   const signInState = signIn ? runtime.state : null;
   const launchedFailure = dockedTabFailure(tab && { ...tab, agent_runtime_state: runtime.state ?? undefined });
@@ -919,18 +925,7 @@ function TabSessionChatBody({
       }}
       {...(readOnly ? {} : webDropHandlers)}
     >
-      {webDragOver && (
-        <div
-          data-testid="web-drop-overlay"
-          className="absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed pointer-events-none"
-          style={{
-            borderColor: "var(--ct-accent, #58a6ff)",
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, transparent)",
-          }}
-        >
-          <span className="text-sm font-mono">Drop files to attach</span>
-        </div>
-      )}
+      {webDragOver && <ChatAttachmentDropOverlay />}
       <ChatWallpaperBackdrop />
       <div className="relative flex-1 min-h-0">
       {signInState && signIn === "center" && (
@@ -1110,7 +1105,13 @@ function TabSessionChatBody({
         />
       ) : (
       <>
-      <div ref={setContextSlot} className="ct-ctx-slot" />
+      <div ref={setContextSlot} className="ct-ctx-slot">
+        {!showChatComposer && sendFeedback.items.length > 0 && (
+          <div className="ct-ctx">
+            <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} editable={queueEditable} inline />
+          </div>
+        )}
+      </div>
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
@@ -1134,7 +1135,7 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
-          recovery={showRemoteState || (readOnly && !concierge) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
+          recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />
         {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
@@ -1146,8 +1147,6 @@ function TabSessionChatBody({
       </div>
       {deliveryPlansSink}
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
-      {(concierge || managedLocked) && sendFeedback.items.length > 0 &&
-        <ComposerQueueTray tabId={tabId} items={sendFeedback.items} editable={false} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {uploadStatus}
       {pendingThreadRevertTurn && <ThreadRevertConfirmation
@@ -1159,7 +1158,8 @@ function TabSessionChatBody({
         }}
       />}
         {tab && !signInState && <AccountTransitionActions tab={tab}/>}
-        {concierge ? <ConciergeChatHint friendship={concierge.friendship_id} /> : managedLocked ? null : <ChatComposer
+        {conciergeHint && <ConciergeChatHint friendship={conciergeHint.friendship_id} />}
+        {showChatComposer && <ChatComposer
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
@@ -1176,7 +1176,7 @@ function TabSessionChatBody({
           sessionIntent={sessionIntent}
           contextSlot={contextSlot}
           queueItems={sendFeedback.items}
-          queueEditable={!readOnly && !showRemoteState}
+          queueEditable={queueEditable}
           onWillSendMessage={willSendMessage}
           addOptimistic={addOptimistic}
           updateOptimistic={updateOptimistic}

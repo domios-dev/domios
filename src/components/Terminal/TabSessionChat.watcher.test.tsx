@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Terminal/TabSessionChat.watcher.test.tsx
 
+import { readFileSync } from "node:fs";
 import { mock } from "node:test";
 import { act } from "react";
 import { Window } from "happy-dom";
@@ -1061,6 +1062,9 @@ test("Tab actions restart the agent session and copy its ID", async () => {
 
 test("Tab header does not repeat the mobile top safe area", async () => {
   const { TabTopBar } = await import("./TabTopBar");
+  const stylesheet = document.createElement("style");
+  stylesheet.textContent = readFileSync(new URL("./tabTopBar.css", import.meta.url), "utf8");
+  document.head.append(stylesheet);
   document.documentElement.style.setProperty("--ct-safe-top", "44px");
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -1079,10 +1083,13 @@ test("Tab header does not repeat the mobile top safe area", async () => {
     );
   });
   const header = host.querySelector('[data-testid="tab-top-bar"]') as HTMLDivElement | null;
-  assert(header?.style.paddingTop === "6px", "Tab header keeps only its local 6px padding");
-  assert(!header.style.paddingTop.includes("safe-top"), "titlebar remains the sole top safe-area owner");
+  assert(header, "Tab header renders");
+  const style = window.getComputedStyle(header);
+  assert(style.paddingBlock === "6px", "Tab header uses only its local block padding");
+  assert(!style.paddingTop || style.paddingTop === "6px", "titlebar remains the sole top safe-area owner");
   await act(async () => root.unmount());
   host.remove();
+  stylesheet.remove();
   document.documentElement.style.removeProperty("--ct-safe-top");
 });
 
