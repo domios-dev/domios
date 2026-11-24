@@ -61,8 +61,8 @@ import { openNewSessionPicker } from "../../lib/newSessionChoice";
 import { deskWorkspaceMembership, observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { tabAttentionByTab } from "./tabAttention";
 import type { TeamCloseResource } from "./teamCloseResources";
-import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
-import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
+import { readTabCloseBlueprints } from "../Automation/blueprintOwner";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import {
   loadWorkspacesSectionExpanded,
   persistWorkspacesSectionExpanded,
@@ -435,6 +435,10 @@ export const Sidebar = memo(function Sidebar({
   const [pendingTabClose, setPendingTabClose] = useState<{ workspaceId: string; tabId: string; title: string; blueprints: string[] } | null>(null);
 
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
+    if (parseCompositeTabId(tabId)) {
+      closeTab(wsId, tabId);
+      return;
+    }
     setClosingTabs((prev) => {
       const next = new Map(prev);
       next.set(tabId, { wsId });
@@ -450,11 +454,11 @@ export const Sidebar = memo(function Sidebar({
     }, 350);
   }, [closeTab]);
 
-  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+  const animatedCloseTab = useCallback((wsId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => {
     void (async () => {
-      let blueprints: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+      let running: string[];
       try {
-        blueprints = await readWorkspaceBlueprints(wsId);
+        running = await readTabCloseBlueprints(wsId, tabId, ownerWorkspaceId);
       } catch (error) {
         createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
           workspaceId: wsId,
@@ -463,9 +467,8 @@ export const Sidebar = memo(function Sidebar({
           severity: "Error" });
         return;
       }
-      const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
       if (running.length > 0) {
-        setPendingTabClose({ workspaceId: wsId, tabId, title: state.tabs[tabId]?.title || "Tab", blueprints: running });
+        setPendingTabClose({ workspaceId: wsId, tabId, title: title || state.tabs[tabId]?.title || "Tab", blueprints: running });
         return;
       }
       performCloseTab(wsId, tabId);
@@ -857,6 +860,7 @@ export const Sidebar = memo(function Sidebar({
                         onRenameViewer={(tab, title) => {
                           if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
                         }}
+                        onCloseViewer={(tabId, title, ownerWorkspaceId) => animatedCloseTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
                         selectedViewerId={state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null}
                         onSelectViewer={tabId => {
                           setActiveTab(generalWorkspace?.id ?? "", tabId);

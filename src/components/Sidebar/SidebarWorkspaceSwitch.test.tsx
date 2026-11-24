@@ -526,7 +526,7 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   const rename = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-rename"]')!;
   const close = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-close"]')!;
   expect(rename.getAttribute("aria-disabled")).toBe("true");
-  expect(close.getAttribute("aria-disabled")).toBe("true");
+  expect(close.getAttribute("aria-disabled")).toBeNull();
   expect(document.getElementById(rename.getAttribute("aria-describedby")!)?.textContent).toBeTruthy();
   await act(async () => rename.click());
   expect(actions.getAttribute("aria-expanded")).toBe("true");

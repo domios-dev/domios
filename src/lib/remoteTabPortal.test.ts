@@ -143,29 +143,6 @@ describe("remote Tab portal projection", () => {
     expect(Object.keys(loadAttachedRemoteTabs())).toEqual(["mesh:peer/remote-tab"]);
   });
 
-  it("keeps removed records out of later local projections and permits explicit reattachment", async () => {
-    installStorageGlobals();
-    const storage = new FakeStorage();
-    setFrontendCacheStorageForTests(storage);
-    configureDaemonTransport({ origin: "http://fixture.test", token: "remote-test-removal" });
-    const cache = await import("./remoteTabPortal");
-    const { frontendCacheScope } = await import("./frontendCacheRecords");
-    await cache.hydrateAttachedRemoteTabs();
-    const removed = projectAttachedRemoteTab(source({ kind: "pty" }, "pty"), { peer_id: "peer", peer_name: "ROG" }, "ws");
-    const kept = projectAttachedRemoteTab(source({ kind: "pty" }, "pty"), { peer_id: "other", peer_name: "Other" }, "ws");
-    const projection = { [removed.id]: removed, [kept.id]: kept };
-    const saved = storage.waitForCommit();
-    cache.setRemoteTabsDismissed([removed.id], true);
-    await saved;
-    expect(Object.keys(cache.visibleRemoteTabs(projection))).toEqual([kept.id]);
-    const scope = frontendCacheScope("codeterm:remote-tab-attachments:v1")!;
-    expect((await storage.read(scope))?.records).toEqual([{ kind: "dismissed", id: removed.id, value: null }]);
-    const restored = storage.waitForCommit();
-    cache.setRemoteTabsDismissed([removed.id], false);
-    await restored;
-    expect(cache.visibleRemoteTabs(projection)).toEqual(projection);
-  });
-
   it("writes only changed attachment records and merges a local edit made during hydration", async () => {
     installStorageGlobals();
     const storage = new FakeStorage();

@@ -159,7 +159,7 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
                     &Method::POST,
                     &path,
                 ));
-                let response = perform_relay(
+                let response = perform_test_relay(
                     &state,
                     ISOLATED_PEER,
                     &relay_command("POST", path),
@@ -178,7 +178,7 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
             }
         }
         let text = format!("/api/tabs/{foreign}/text?formatted=false");
-        let response = perform_relay(
+        let response = perform_test_relay(
             &state,
             ISOLATED_PEER,
             &relay_command("GET", text),
@@ -249,7 +249,7 @@ async fn dot_segments_cannot_retarget_an_authorized_relay() {
         format!("/api/tabs/{owned}/%2e%2E/{foreign}/send"),
         format!("/api/tabs/{owned}\\..\\{foreign}/send"),
     ] {
-        let refused = perform_relay(
+        let refused = perform_test_relay(
             &state,
             ISOLATED_PEER,
             &relay_command("POST", path),
@@ -430,13 +430,13 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
         crate::auth::AuthenticatedOrigin::Agent,
         crate::auth::AuthenticatedOrigin::Mesh,
     ] {
-        let refused = perform_relay(&state, "peer-full", &cmd, origin, None, None)
+        let refused = perform_test_relay(&state, "peer-full", &cmd, origin, None, None)
             .await
             .expect_err("non-owner origin must be refused");
         assert_eq!(refused.0, StatusCode::FORBIDDEN);
     }
 
-    let isolated = perform_relay(
+    let isolated = perform_test_relay(
         &state,
         ISOLATED_PEER,
         &cmd,
@@ -453,7 +453,7 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
     let mut before_snap = fixture.service.mux.read().snapshot();
     before_snap.generation = 0;
     let before = serde_json::to_value(before_snap).unwrap();
-    let ok = perform_relay(
+    let ok = perform_test_relay(
         &state,
         "peer-full",
         &cmd,
@@ -481,7 +481,7 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
         "close-preview must not mutate multiplexer state"
     );
 
-    let missing = perform_relay(
+    let missing = perform_test_relay(
         &state,
         "peer-full",
         &RelayCommand {
@@ -499,7 +499,7 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
     assert!(!missing.ok);
     assert_eq!(missing.status, StatusCode::NOT_FOUND.as_u16());
 
-    let protected = perform_relay(
+    let protected = perform_test_relay(
         &state,
         "peer-full",
         &RelayCommand {

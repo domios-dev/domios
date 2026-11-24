@@ -31,7 +31,7 @@ async function call(command: NeighborCommand | { operation: "refresh" }, signal?
     body: JSON.stringify(command), signal,
   }).catch((failure: unknown) => {
     if (!listing || signal?.aborted) throw failure;
-    throw new Error(localUnavailable, { cause: failure });
+    throw Object.assign(new Error(localUnavailable), { cause: failure });
   });
   if (!response.ok) {
     const message = await response.text();

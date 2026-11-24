@@ -121,7 +121,8 @@ export function appearanceLabChanges(current: AppearanceLook, draft: AppearanceL
       category: "wallpaper",
       label: "Wallpaper",
       before: current.wallpaper ? wallpaperSummary(current.theme, current.wallpaper) : "Theme wallpaper",
-      after: draft.wallpaper ? wallpaperSummary(draft.theme, draft.wallpaper) : "Theme wallpaper",
+      after: draft.wallpaper ? wallpaperSummary(draft.theme, draft.wallpaper)
+        : after.background.pattern === "none" && !after.background.gradient ? "None" : "Theme wallpaper",
       revert: revertWallpaper,
     });
   }

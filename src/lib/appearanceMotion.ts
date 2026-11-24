@@ -9,7 +9,7 @@ type ViewTransition = { ready: Promise<void>; finished: Promise<void>; skipTrans
 type ViewTransitionDocument = Document & { startViewTransition?: (update: () => void) => ViewTransition };
 
 let stopActive: (() => void) | undefined;
-let press: { button: HTMLButtonElement; origin: Origin; commit?: { proposal: string; peerId?: string; key: string } } | undefined;
+let press: { button: HTMLButtonElement; origin: Origin; commit?: { proposal: string | null; peerId?: string; key: string } } | undefined;
 
 function center({ left, top, width, height }: DOMRect): Origin {
   return { x: left + width / 2, y: top + height / 2 };
@@ -28,7 +28,7 @@ export function clearAppearancePress(button: HTMLButtonElement): void {
   if (press?.button === button) press = undefined;
 }
 
-export function bindAppearancePress(button: HTMLButtonElement, proposal: string, look: AppearanceLook, peerId?: string) {
+export function bindAppearancePress(button: HTMLButtonElement, proposal: string | null, look: AppearanceLook, peerId?: string) {
   if (press?.button === button) press.commit = { proposal, peerId, key: appearanceLookKey(look) };
 }
 

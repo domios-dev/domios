@@ -1,8 +1,8 @@
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Monitor, Sparkles } from "lucide-react";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
-import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, appearanceLookKey, applyContrastFix, paletteContrast, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
-import { APPEARANCE_CHANGED, appearanceError, changeAppearance, proposeAppearance, readAppearance, readAppearanceProposal, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
+import { DEFAULT_APPEARANCE, PALETTE_CONTROLS, TERMINAL_COLOURS, appearanceLookKey, applyContrastFix, paletteContrast, trustedPreset, type AppearanceLook, type AppearanceProposal, type AppearanceTuning, type ContrastCheck, type CurrentAppearance } from "../../lib/appearance";
+import { APPEARANCE_CHANGED, appearanceError, changeAppearance, previewAppearancePreset, proposeAppearance, readAppearance, readAppearanceProposal, switchAppearanceTheme, type AppearanceTarget, type OpenAppearance } from "../../lib/appearanceClient";
 import { bindAppearancePress, clearAppearancePress, indicateAppearancePress } from "../../lib/appearanceMotion";
 import { focusTab, generalAgentTab } from "../../lib/generalAgent";
 import { setClientTabUiMode } from "../../lib/clientTabUiMode";
@@ -80,6 +80,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const [settledDraft, setSettledDraft] = useState(draft);
   if (!paletteEditing && settledDraft !== draft) setSettledDraft(draft);
   const [openedProposal, setOpenedProposal] = useState<AppearanceProposal>();
+  const [presetPreview, setPresetPreview] = useState<AppearanceLook>();
   const wallpaperRevision = useRef(0);
   const [category, setCategory] = useState<AppearanceLabCategory>(showWallpaperOwn ? "wallpaper" : "presets");
   const phone = usePhoneViewport();
@@ -114,6 +115,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
       setCurrent(next);
       setDraft(stored?.look ?? next.look);
       setOpenedProposal(stored);
+      setPresetPreview(undefined);
     }, (failure: unknown) => {
       if (active) setError(appearanceError(failure));
     });
@@ -127,6 +129,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
       resetPalette();
       wallpaperRevision.current++;
       setOpenedProposal(undefined);
+      setPresetPreview(undefined);
       const look = detail.receipt.state === "undone" ? detail.receipt.previous : detail.receipt.look;
       setCurrent(previous => previous && { ...previous, look, active: detail.receipt.can_undo ? detail.receipt : null });
       setDraft(look);
@@ -142,6 +145,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     setCurrent(undefined);
     setDraft(undefined);
     setOpenedProposal(undefined);
+    setPresetPreview(undefined);
     setJustApplied(undefined);
     setComparing(false);
     setChangesExpanded(undefined);
@@ -185,11 +189,13 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     toggleMenu(false);
   };
   const { failures } = audit;
-  const issues = useMemo(() => dirty ? contrastIssues(failures) : [], [dirty, failures]);
+  const isTrustedPreset = trustedPreset(draft, presetPreview) && !paletteEditing;
+  const issues = useMemo(() => dirty && !isTrustedPreset ? contrastIssues(failures) : [], [dirty, failures, isTrustedPreset]);
   const ratioTheme = audit.theme ?? current?.look.theme;
   const ratios = useMemo(() => new Map(PALETTE_CONTROLS.map(({ key }) =>
     [key, ratioTheme && paletteContrast(ratioTheme, key)])), [ratioTheme]);
-  const canApply = dirty && !busy && !comparing && !unavailable && audit.ready && failures.length === 0;
+  const canApply = dirty && !busy && !comparing && !unavailable &&
+    (isTrustedPreset || (audit.ready && failures.length === 0));
   const fixContrast = (fix: NonNullable<ContrastCheck["fix"]>) => {
     if (audit.ready) editDraft(value => value && applyContrastFix(value, fix));
   };
@@ -209,13 +215,20 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     setBusy(true);
     setError("");
     try {
-      const next = openedProposal && openedProposal.state !== "applied"
-        && appearanceLookKey(draft) === appearanceLookKey(openedProposal.look)
-        && appearanceLookKey(current.look) === appearanceLookKey(openedProposal.previous)
-        ? openedProposal : await proposeAppearance(target, draft, current.look);
-      bindAppearancePress(button, next.id, next.look, target.peer ?? relayTarget()?.id);
-      const receipt = await changeAppearance(target, next.id, "apply");
-      if (receipt.can_undo) {
+      let receipt: AppearanceProposal | null;
+      if (isTrustedPreset) {
+        bindAppearancePress(button, null, draft, target.peer ?? relayTarget()?.id);
+        receipt = await switchAppearanceTheme(target, { kind: "preset", name: draft.theme.name, expected: current.look });
+        if (!receipt) clearAppearancePress(button);
+      } else {
+        const next = openedProposal && openedProposal.state !== "applied"
+          && appearanceLookKey(draft) === appearanceLookKey(openedProposal.look)
+          && appearanceLookKey(current.look) === appearanceLookKey(openedProposal.previous)
+          ? openedProposal : await proposeAppearance(target, draft, current.look);
+        bindAppearancePress(button, next.id, next.look, target.peer ?? relayTarget()?.id);
+        receipt = await changeAppearance(target, next.id, "apply");
+      }
+      if (receipt?.can_undo) {
         if (panelRef.current?.contains(document.activeElement)) panelRef.current.focus();
         setJustApplied(receipt);
       }
@@ -266,7 +279,28 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     void sent.catch(() => {});
   };
 
-  const pickPreset = (theme: ThemeConfig) => editDraft(value => value && { ...value, theme });
+  const pickPreset = async (theme: ThemeConfig) => {
+    if (!current || busy) return;
+    const revision = ++wallpaperRevision.current;
+    setBusy(true);
+    setError("");
+    try {
+      const preview = await previewAppearancePreset(target, theme.name, current.look);
+      if (revision !== wallpaperRevision.current) return;
+      setPresetPreview(preview);
+      editDraft(value => {
+        if (!value) return value;
+        const wallpaperKey = (look: AppearanceLook) => appearanceLookKey({ ...current.look, wallpaper: look.wallpaper });
+        const existing = wallpaperKey(value);
+        const keepEdit = existing !== wallpaperKey(current.look) && (!presetPreview || existing !== wallpaperKey(presetPreview));
+        return { ...value, theme: preview.theme, wallpaper: keepEdit ? value.wallpaper : preview.wallpaper };
+      });
+    } catch (failure) {
+      if (revision === wallpaperRevision.current) setError(appearanceError(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
   const discardWallpaper = () => {
     if (!current) return;
     wallpaperRevision.current++;
@@ -301,7 +335,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
           <SettingsCard title="Presets" headerRight={<small>{current.presets.length} looks</small>}>
             <div className="ct-appearance-presets">
               {current.presets.map(theme => (
-                <button type="button" key={theme.name} onClick={() => pickPreset(theme)} aria-pressed={draft.theme.name === theme.name}
+                <button type="button" key={theme.name} onClick={() => void pickPreset(theme)} aria-pressed={draft.theme.name === theme.name}
                   data-appearance-field="theme" style={{ background: theme.background, color: theme.foreground }}>
                   <span aria-hidden="true">{[theme.foreground, theme.blue, theme.green, theme.yellow, theme.red].map((colour, index) => <i key={index} style={{ background: colour }} />)}</span>
                   {theme.name}
@@ -402,14 +436,16 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
           focusChanges={changesExpanded === true} busy={busy}
           canApply={canApply}
           applyLabel={remote ? `Apply to ${machine}` : "Apply"}
-          appliedStatus={justApplied && <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
+          appliedStatus={justApplied && <span>Applied{justApplied.theme_label && ` ${justApplied.theme_label}`}
+            {justApplied.wallpaper_switched && " · wallpaper switched to the theme's for readability"}
+            {appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
           undoLabel={dirty || unavailable ? undefined : undoLabel}
           contrast={issues} canFixContrast={audit.ready} onFixContrast={fixContrast} onFixAllContrast={fixAllContrast}
           onToggleList={() => { toggleMenu(false); setChangesExpanded(!showChanges); }}
           onRevert={revert} onDiscard={dismiss} onApply={button => void apply(button)} onUndo={() => void undo()} />}>
         {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}
         {error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">{error}</p>}
-        {dirty && audit.error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">
+        {dirty && !isTrustedPreset && audit.error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">
           {audit.error} <button type="button" onClick={audit.retry}>Retry contrast check</button>
         </p>}
         {!draft && !unavailable && !error && <p className="ct-appearance-try__notice" role="status">Reading appearance…</p>}

@@ -74,6 +74,54 @@ fn tab_token(state: &AppState, tab: &str) -> String {
 }
 
 #[tokio::test]
+async fn appearance_theme_switch_applies_and_undoes_theme_and_wallpaper_together() {
+    let (mut mux, tab) = MultiplexerState::new();
+    let general = bind_general(&mut mux, &tab, true);
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let owner = "owner-secret";
+    state.config.lock().api.token = Some(owner.into());
+    let general = tab_token(&state, &general);
+    state.config.lock().chat_wallpaper = Some(
+        serde_json::from_value(json!({
+            "background": { "pattern": "svg", "svg": SVG, "opacity": 0.16,
+                "gradient": { "kind": "linear", "stops": ["#0d1117", "#141b33"] } }
+        }))
+        .unwrap(),
+    );
+    let before = codeterm_types::config::schema::AppearanceLook::from_config(&state.config.lock());
+    let app = fixture_router(&fixture, state.clone());
+    let path = "/api/appearance/local/switch-theme";
+    let theme = json!({"kind":"settings","name":"github-light"});
+    let refused = json_call(&app, &general, "POST", path, theme.clone()).await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let response = json_call(&app, owner, "POST", path, theme).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+    let receipt: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(receipt["theme_label"], "GitHub Light");
+    assert_eq!(receipt["wallpaper_switched"], true);
+    assert_eq!(receipt["can_undo"], true);
+    assert_eq!(receipt["look"]["theme"]["name"], "github-light");
+    assert_eq!(receipt["look"]["wallpaper"], serde_json::Value::Null);
+    assert_eq!(receipt["previous"], serde_json::to_value(&before).unwrap());
+
+    let stale = json!({"kind":"preset","name":"Forest Night","expected":before});
+    let refused = json_call(&app, owner, "POST", path, stale).await;
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    let undo = format!(
+        "/api/appearance/local/{}/undo",
+        receipt["id"].as_str().unwrap()
+    );
+    let response = json_call(&app, owner, "POST", &undo, json!(null)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        codeterm_types::config::schema::AppearanceLook::from_config(&state.config.lock()),
+        before
+    );
+}
+
+#[tokio::test]
 async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_all_fields() {
     let (mut mux, tab) = MultiplexerState::new();
     let general = bind_general(&mut mux, &tab, true);

@@ -57,6 +57,55 @@ pub fn sanitize_wallpaper_upload(bytes: &[u8]) -> Result<String, SvgRefusal> {
     sanitize(bytes, SvgUse::ChatTile, true)
 }
 
+pub fn is_current_color_stroke_tile(svg: &[u8]) -> bool {
+    let mut reader = Reader::from_reader(svg);
+    let mut paint = vec![(false, false)];
+    let mut has_stroke = false;
+    loop {
+        let Ok(event) = reader.read_event() else {
+            return false;
+        };
+        let nested = matches!(event, Event::Start(_));
+        match event {
+            Event::Start(element) | Event::Empty(element) => {
+                let (mut no_fill, mut stroke) = paint.last().copied().unwrap_or_default();
+                let name = element.name();
+                if gradient::definition(std::str::from_utf8(name.as_ref()).unwrap_or_default()) {
+                    return false;
+                }
+                for attribute in element.attributes() {
+                    let Ok(attribute) = attribute else {
+                        return false;
+                    };
+                    match attribute.key.as_ref() {
+                        b"fill" => no_fill = attribute.value.as_ref() == b"none",
+                        b"stroke" => match attribute.value.as_ref() {
+                            b"none" => stroke = false,
+                            b"currentColor" => stroke = true,
+                            _ => return false,
+                        },
+                        _ => {}
+                    }
+                }
+                match name.as_ref() {
+                    b"svg" | b"g" => {}
+                    b"line" => has_stroke |= stroke,
+                    _ if !no_fill => return false,
+                    _ => has_stroke |= stroke,
+                }
+                if nested {
+                    paint.push((no_fill, stroke));
+                }
+            }
+            Event::End(_) if paint.len() > 1 => {
+                paint.pop();
+            }
+            Event::Eof => return paint.len() == 1 && has_stroke,
+            _ => return false,
+        }
+    }
+}
+
 fn sanitize(bytes: &[u8], usage: SvgUse, require_square: bool) -> Result<String, SvgRefusal> {
     let max_bytes = match usage {
         SvgUse::PluginIcon => MAX_SVG_BYTES,

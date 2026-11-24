@@ -17,7 +17,7 @@ import { useBodyPainted } from "./useBodyPainted";
 import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
 import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
-import { TabTopBar } from "./TabTopBar";
+import { TAB_BAR_CONTROL_H, TabTopBar } from "./TabTopBar";
 import { isTabVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { FirstRunGeneralPicker, isFirstRunGeneralTab } from "../AgentPicker";
@@ -184,7 +184,7 @@ export function TabContent({
 
   return (
     <TabWrapper tabId={tab.id} isVisible={isVisible}>
-      <div className="flex h-full w-full flex-col">
+      <div className="flex h-full w-full flex-col" style={{ ["--ct-tab-top-bar-control-h" as string]: `${TAB_BAR_CONTROL_H}px` }}>
         <TabTopBar
           tabId={tab.id}
           shellTab={tab}
@@ -200,8 +200,8 @@ export function TabContent({
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
         />
-        <div className="relative flex min-h-0 flex-1 flex-col" data-appearance-surface style={{ background: theme.background }}>
-          <div data-testid="session-status-row" className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto">
+        <div className="ct-tab-content-body relative flex min-h-0 flex-1 flex-col" data-appearance-surface style={{ background: theme.background }}>
+          <div data-testid="session-status-row" className="ct-tab-content-status flex max-h-[40%] shrink-0 flex-col overflow-y-auto">
             <DeferredPresence present={!remoteChat.state && !dockedFailure && !loadRefused && isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}>
               <section aria-label="Session status" className="mx-auto flex w-full max-w-2xl justify-center px-4 py-2">
                 {restore.phase === "failed"
