@@ -3,9 +3,6 @@ import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { MultiplexerActionsContext, MuxStateStoreContext } from "../../store/multiplexer/context";
-import { createPortal } from "react-dom";
-import { ConfirmDialog } from "../Extensions/ConfirmDialog";
 import { Globe, SquareTerminal, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
@@ -375,9 +372,6 @@ function TabItemInner({
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tab.id, !readOnly && !tab.remote_peer_id);
-  const muxActions = useContext(MultiplexerActionsContext);
-  const muxState = useContext(MuxStateStoreContext);
-  const [removeTabs, setRemoveTabs] = useState<readonly string[] | null>(null);
   const observedPeerId = observedMachine?.peerId;
   const observedName = remote?.name;
   const standardMenu = useMemo(() => buildTabMenu({
@@ -392,28 +386,21 @@ function TabItemInner({
     activity: activity ?? null,
     orchestrators,
     canRename: true,
-    canClose: canClose || readOnly,
+    canClose,
     pluginTabMenu,
     telegramThread: telegramThread.state,
   }), [activity, canClose, descriptor, lock, observedName, observedPeerId, orchestrators, pluginTabMenu, readOnly, tabState.status, tab, telegramThread.state]);
 
-  const menuEntries = readOnly ? unavailableTabMenu(standardMenu, remoteStateLabel ?? "Open this tab to use its actions.") : remoteStateLabel && muxActions?.removeRemoteMachineTabs
-    ? [...standardMenu, { kind: "item" as const, id: "remove-machine-tabs", label: `Remove ${machine}'s tabs`,
-        icon: "detach" as const, action: { type: "removeMachineTabs" as const } }]
+  const menuEntries = readOnly
+    ? unavailableTabMenu(standardMenu, remoteStateLabel ?? "Open this tab to use its actions.")
     : standardMenu;
 
   const runMenuAction = (action: TabMenuAction) => {
-    if (action.type === "removeMachineTabs") {
-      const tabs = Object.values(muxState?.getState().tabs ?? { [tab.id]: tab });
-      setRemoveTabs(tabs.filter(candidate => candidate.remote_peer_id === tab.remote_peer_id).map(candidate => candidate.id));
-      return;
-    }
     performTabMenuAction(tab.id, action, {
       sessionBindingNonce: tab.session_binding_nonce,
       switchProvider: openProviderSwitch,
       rename: () => { setEditName(canonicalTitle); setEditing(true); },
       close: onClose,
-      detach: () => muxActions?.detachRemoteTab?.(tab.id),
     }).catch((error) => console.warn("Tab action failed:", error));
   };
 
@@ -627,16 +614,6 @@ function TabItemInner({
       </div>
       {!touchMode && tabMenu}
       {providerSwitchDialog}
-      {removeTabs?.length && tab.remote_peer_id ? createPortal(<ConfirmDialog
-        title={`Remove ${removeTabs.length} ${removeTabs.length === 1 ? "tab" : "tabs"} from ${machine}?`}
-        message={`${removeTabs.length === 1 ? "It stays" : "They stay"} on ${machine}.`}
-        confirmLabel="Remove"
-        onCancel={() => setRemoveTabs(null)}
-        onConfirm={() => {
-          muxActions?.removeRemoteMachineTabs?.(tab.remote_peer_id!, removeTabs);
-          setRemoveTabs(null);
-        }}
-      />, document.body) : null}
     </div>
   );
 }

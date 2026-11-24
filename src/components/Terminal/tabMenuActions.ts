@@ -18,7 +18,6 @@ export interface TabMenuSurfaceHandlers {
   switchProvider?: (providerId: string) => void;
   rename?: () => void;
   close?: () => void;
-  detach?: () => void;
 }
 
 export async function performTabMenuAction(
@@ -32,9 +31,6 @@ export async function performTabMenuAction(
       return;
     case "close":
       handlers.close?.();
-      return;
-    case "detach":
-      handlers.detach?.();
       return;
     case "makeOrchestrator":
       await openOnRefusal("teams", () => makeOrchestrator(tabId, handlers.sessionBindingNonce ?? undefined));

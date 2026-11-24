@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type Dispatch, type MutableRefObject } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
-import { projectAttachedRemoteTab, saveAttachedRemoteTabs, setRemoteTabsDismissed, type RemotePeerTabs } from "../../lib/remoteTabPortal";
+import { projectAttachedRemoteTab, saveAttachedRemoteTabs, type RemotePeerTabs } from "../../lib/remoteTabPortal";
 import { managersToAttach, TEMPLATE_PEER_OUTCOME_EVENT, type TemplatePeerStartOutcome } from "../../lib/teamTemplates/peerStartOutcome";
 import type { Tab, TabStatus } from "../../lib/types";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
@@ -10,10 +10,6 @@ import type { Action } from "./reducer";
 import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 import type { ExtendedState } from "./tree";
 
-/**
- * Remote tabs this machine shows on purpose: attached from the picker or from a Team started on a peer, and detached
- * again here without touching the peer.
- */
 export function useRemoteAttachments({ attachedRef, stateRef, dispatch, applyRemoteProjection }: {
   attachedRef: MutableRefObject<Record<string, Tab>>;
   stateRef: MutableRefObject<ExtendedState>;
@@ -30,44 +26,12 @@ export function useRemoteAttachments({ attachedRef, stateRef, dispatch, applyRem
       || !parseCompositeTabId(`mesh:${peer.peer_id}/${tab.id}`)
       || remoteChatPeer(peer.peer_id)?.presence === "not-paired") return;
     const projected = projectAttachedRemoteTab(tab, peer, workspaceId);
-    setRemoteTabsDismissed([projected.id], false);
     remember({ ...attachedRef.current, [projected.id]: projected });
     applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)),
       status === undefined ? undefined : { [projected.id]: status });
     dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: projected.id });
     dispatch({ type: "SET_FOCUSED_TAB", tabId: projected.id });
-  }, [applyRemoteProjection, attachedRef, dispatch, remember, stateRef]);
-
-  /** Removes only this machine's attachment; the tab keeps running on its peer. */
-  const detachRemoteTab = useCallback((tabId: string) => {
-    const attachment = attachedRef.current[tabId];
-    if (!attachment) return;
-    const { [tabId]: _detached, ...remaining } = attachedRef.current;
-    remember(remaining);
-    const workspaceId = stateRef.current.tabs[tabId]?.workspace_id ?? attachment.workspace_id;
-    if (workspaceId) dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
-    dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
-    const { [tabId]: _shown, ...others } = remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs));
-    applyRemoteProjection(others);
-  }, [applyRemoteProjection, attachedRef, dispatch, remember, stateRef]);
-
-  const removeRemoteMachineTabs = useCallback((peerId: string, tabIds: readonly string[]) => {
-    const displayed = stateRef.current.tabs;
-    const removed = tabIds.filter(id => displayed[id]?.remote_peer_id === peerId);
-    const ids = new Set(removed);
-    if (!ids.size) return;
-    setRemoteTabsDismissed(removed, true);
-    remember(Object.fromEntries(Object.entries(attachedRef.current).filter(([id]) => !ids.has(id))));
-    for (const workspace of stateRef.current.workspaces) {
-      const inWorkspace = workspace.tabs.filter(id => ids.has(id));
-      if (inWorkspace.length) dispatch({ type: "CLOSE_TAB", workspaceId: workspace.id, tabId: inWorkspace[0], removedTabIds: inWorkspace });
-    }
-    dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: removed });
-    if (stateRef.current.focused_tab_id && ids.has(stateRef.current.focused_tab_id)) {
-      dispatch({ type: "SET_FOCUSED_TAB", tabId: null });
-    }
-    applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(displayed).filter(tab => !ids.has(tab.id))));
   }, [applyRemoteProjection, attachedRef, dispatch, remember, stateRef]);
 
   // A Team started on a peer shows its managers in the workspace its form was opened from.
@@ -92,5 +56,5 @@ export function useRemoteAttachments({ attachedRef, stateRef, dispatch, applyRem
     return () => { active = false; stop?.(); };
   }, [attachRemoteTab, stateRef]);
 
-  return { attachRemoteTab, detachRemoteTab, removeRemoteMachineTabs };
+  return attachRemoteTab;
 }

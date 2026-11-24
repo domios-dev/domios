@@ -172,22 +172,30 @@ pub async fn tab_close(
     Query(query): Query<crate::tab_routes::CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if matches!(headers.actor, crate::auth::RequestActor::Owner) {
-        let closed = state
-            .svc
-            .close_tab_as_owner_async(&tab_id, query.force)
-            .await
-            .map_err(crate::tab_routes::map_close_error)?;
-        if !closed {
-            return Ok(Json(
-                serde_json::json!({"ok": false, "confirmation_required": true}),
-            ));
-        }
-    } else {
-        state
-            .svc
-            .close_tab_async(&tab_id)
-            .await
-            .map_err(crate::tab_routes::map_close_error)?;
+        return close_tab_as_owner(&state, &tab_id, query.force).await;
+    }
+    state
+        .svc
+        .close_tab_async(&tab_id)
+        .await
+        .map_err(crate::tab_routes::map_close_error)?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub(crate) async fn close_tab_as_owner(
+    state: &AppState,
+    tab_id: &str,
+    force: bool,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let closed = state
+        .svc
+        .close_tab_as_owner_async(tab_id, force)
+        .await
+        .map_err(crate::tab_routes::map_close_error)?;
+    if !closed {
+        return Ok(Json(
+            serde_json::json!({"ok": false, "confirmation_required": true}),
+        ));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }

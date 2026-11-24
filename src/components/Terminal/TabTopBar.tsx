@@ -31,8 +31,7 @@ import { useProviderSwitchDialog } from "../Sidebar/ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
-import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
-import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
+import { readTabCloseBlueprints } from "../Automation/blueprintOwner";
 import { MachineProvenance } from "../shared/MachineProvenance";
 import { useRemoteViewerConnection } from "./useRemoteViewerConnection";
 import { remoteViewerStatusLabel } from "./remoteViewerStatus";
@@ -140,7 +139,7 @@ export function TabTopBar({
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
-  const { upsertToast, detachRemoteTab } = useMultiplexer();
+  const { upsertToast } = useMultiplexer();
   const liveTranscript = useLiveTranscriptHost();
   const menuTab = tabMenu?.tab ?? null;
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
@@ -252,8 +251,7 @@ export function TabTopBar({
           return;
         }
         try {
-          const blueprints = await readWorkspaceBlueprints(workspaceId);
-          const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
+          const running = await readTabCloseBlueprints(workspaceId, tabId);
           if (running.length > 0) setCloseBlueprints(running);
           else tabMenu.onClose?.();
         } catch (error) {
@@ -262,7 +260,7 @@ export function TabTopBar({
       })();
       return;
     }
-    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose, detach: () => detachRemoteTab?.(tabId) })
+    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose })
       .catch((error) => reportFailure(error, "updating this tab"));
   };
 
