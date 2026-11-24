@@ -35,7 +35,7 @@ export function ChatWallpaperPicker({ config, showOwnInitially, stage }: { confi
   if (stage) return <Picker key={stage.peerId ?? "local"} theme={stage.theme} installed={stage.wallpaper}
     peerId={stage.peerId} ready={stage.ready} stage={stage.update} discard={stage.discard} ask={stage.ask} showOwnInitially={showOwnInitially} />;
   const appearance = selected?.appearance ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null };
-  return <Picker key={selected?.peerId ?? "local"} theme={appearance.theme} installed={appearance.wallpaper}
+  return <Picker key={`${selected?.peerId ?? "local"}:${appearance.theme.name}`} theme={appearance.theme} installed={appearance.wallpaper}
     machineColor={selected?.identity?.color} peerId={selected?.peerId} ready={selected?.ready ?? true}
     project={selected?.projectWallpaper} showOwnInitially={showOwnInitially} />;
 }
@@ -67,7 +67,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
   const source = edit && edit.base === installed ? edit.value : installed;
   const active = effectiveWallpaper(theme, source ?? undefined);
   const custom = active.background.pattern === "svg" || active.background.pattern === "image";
-  const showOwn = ownOpen || custom;
+  const showOwn = ownOpen || (custom && Boolean(source));
   const asset = useWallpaperAsset(peerId, ready ? active.asset : undefined);
   const hasOwnFile = custom && Boolean(active.asset);
   const pickerInput = useRef<HTMLInputElement>(null);
@@ -137,6 +137,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
       <span>This machine’s own wallpaper stays on top.</span>
       <button type="button" disabled={busy || !ready} onClick={restoreTheme}>Use theme wallpaper</button>
     </div>}
+    {!source && (active.background.pattern !== "none" || active.background.gradient) && <small>Theme wallpaper</small>}
     <div role="radiogroup" aria-label="Chat wallpaper pattern" className="ct-wallpaper-gallery">
       {WALLPAPER_PATTERNS.map(pattern => {
         const selected = !showOwn && active.background.pattern === pattern.id;
