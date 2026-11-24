@@ -75,6 +75,7 @@ import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 import { useDictationDraft, useDictationSelection } from "./voice/dictationDraft";
 import { useLiveDictation } from "./voice/useLiveDictation";
+import { remoteDictationUnavailable } from "../../lib/transport/dictation";
 import { ExpandedDictationStatus } from "./voice/DictationStatus";
 import { createSpaceDictationHold, SPACE_DICTATION_POP_MS } from "./voice/spaceDictationHold";
 import { DICTATION_ACTION } from "../../lib/mentionSources/actions";
@@ -263,7 +264,8 @@ function ChatComposerImpl({
     const tab = state.tabs[tabId];
     return JSON.stringify([tabId, tab?.pty_id, tab?.agent_session_id, tab?.session_binding_nonce]);
   }, [tabId]));
-  const dictation = useLiveDictation(tabId, dictationIdentity, isActive && !replacement && !liveLocked, {
+  const dictationUnavailable = remoteDictationUnavailable(tabId);
+  const dictation = useLiveDictation(tabId, dictationIdentity, isActive && !replacement && !liveLocked && !dictationUnavailable, {
     prepare(session) {
       const editor = textareaRef.current;
       if (!editor || editor.value !== displayInput) return false;
@@ -404,6 +406,7 @@ function ChatComposerImpl({
   const mentionPicker = useRef<ComposerMentionsHandle>(null);
   function pickMention(mention: ComposerMention, query: MentionQuery) {
     if (mention.id !== DICTATION_ACTION) { mentionTokens.insert(mention, query); return; }
+    if (dictationUnavailable) { flagComposerError(dictationUnavailable); return; }
     const editor = textareaRef.current;
     if (!editor || editor.value !== displayInput || dictation.active()) return;
     const draft = mentionTokens.draft;
@@ -789,7 +792,7 @@ function ChatComposerImpl({
               dictation.cancel();
               return;
             }
-            if (spaceHold.current?.onKeyDown({
+            if (!dictationUnavailable && spaceHold.current?.onKeyDown({
               code: e.code,
               repeat: e.repeat,
               shiftKey: e.shiftKey,

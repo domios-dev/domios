@@ -56,6 +56,7 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   host.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   configureHtmlFileLoader(null);
   configureLocalArtifactLoader(null);
   configureLocalArtifactOpener(null);
@@ -77,6 +78,48 @@ it("renders image, document and page embeds through invoke and authenticated web
     { path: "/api/tabs/owned-tab/preview/read", body: { path: "/work/view.html", kind: "page" } },
   ]);
   expect(host.querySelector<HTMLButtonElement>('button[aria-label="Reveal pixel.png"]')?.disabled).toBe(true);
+});
+
+it("renders a remote chat's canvas, canvas image, page and document from its owning tab", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 320));
+  const canvasPath = "C:/pad/peer.canvas.json";
+  const imagePath = "C:/pad/peer.png";
+  const reads: { path: string; kind: string; canvas?: string }[] = [];
+  fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer preview-fixture-token");
+    expect(new URL(input).pathname).toBe("/api/mesh/relay-to");
+    const request = JSON.parse(String(init?.body));
+    expect(request.target_instance_id).toBe("board-host");
+    expect(request.method).toBe("POST");
+    if (request.path === "/api/tabs/host-tab/preview/prepare") {
+      return Response.json({ ok: true, status: 200, data: { state: "ready", index_id: "host-fixture" } });
+    }
+    expect(request.path).toBe("/api/tabs/host-tab/preview/read");
+    reads.push(request.body);
+    const data = request.body.kind === "canvas" ? {
+      data: JSON.stringify({ format: "domios.canvas/1", title: "Peer board", items: [
+        { id: "picture", kind: "image", src: imagePath, x: 0, y: 0, w: 320, h: 200 },
+      ] }),
+      media_type: "application/json",
+    } : request.body.kind === "image" ? { data: previewImage, media_type: "image/jpeg" }
+      : request.body.kind === "page" ? { data: "<main>Peer page</main>", media_type: "text/html" }
+      : { data: "# Peer document", media_type: "text/markdown" };
+    return Response.json({ ok: true, status: 200, data });
+  });
+  await act(async () => root?.render(<LocalArtifactScope tabId="mesh:board-host/host-tab">
+    <RichMarkdown text={`<ds-canvas src="${canvasPath}" />\n\n<ds-page src="C:/pad/peer.html" />\n\n<ds-document src="C:/pad/peer.md" />`} />
+  </LocalArtifactScope>));
+  await act(settleDaemon);
+  expect(host.textContent).toContain("Peer board");
+  expect(host.querySelector('[data-canvas-item="picture"] img')?.getAttribute("src")).toBe(previewImage);
+  expect(host.querySelector('iframe[title="HTML preview"]')?.getAttribute("srcdoc")).toContain("Peer page");
+  expect(host.querySelector("h1")?.textContent).toBe("Peer document");
+  expect(reads).toEqual(expect.arrayContaining([
+    { path: canvasPath, kind: "canvas" },
+    { path: imagePath, kind: "image", canvas: canvasPath },
+    { path: "C:/pad/peer.html", kind: "page" },
+    { path: "C:/pad/peer.md", kind: "document" },
+  ]));
 });
 
 it("sends the scoped batch check and refuses a missing tab before network access", async () => {
