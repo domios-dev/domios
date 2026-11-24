@@ -11,6 +11,7 @@ import { isUtilityShell } from "../../lib/shellCommandState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
+import { TabHeaderTitle } from "./TabHeaderTitle";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { BalanceBubble, QuotaBubble, UnavailableLimitsBubble } from "../Usage/ProfileLimitsBubble";
 import type { TabUsageSource } from "./usageTracking";
@@ -115,11 +116,6 @@ function TabRenameField({ title, onDone }: { title: string; onDone: (title: stri
   );
 }
 
-/**
- * Tab header strip: mode switch on the left, status pills (usage + plugins) on
- * the right. Every item shares `TAB_BAR_CONTROL_H` — published to CSS-driven
- * children via the `--ct-tab-pill-h` custom property.
- */
 export function TabTopBar({
   tabId,
   shellTab,
@@ -143,6 +139,8 @@ export function TabTopBar({
   const { upsertToast, detachRemoteTab } = useMultiplexer();
   const liveTranscript = useLiveTranscriptHost();
   const menuTab = tabMenu?.tab ?? null;
+  const titleTab = shellTab ?? menuTab;
+  const showTitle = titleTab && (showSwitch || titleTab.agent_type || titleTab.backing?.kind === "chat_backend");
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
   const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect && !tabMenu?.context.lock?.locked && !menuTab.locked : false;
@@ -322,14 +320,10 @@ export function TabTopBar({
     <div
       data-testid="tab-top-bar"
       data-toast-obstacle
-      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-2 sm:gap-2"
-      style={{
-        ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
-        paddingTop: 6,
-        paddingBottom: 6,
-      }}
+      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-3 sm:gap-2"
+      style={{ ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px` }}
     >
-      <div className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
+      <div className="ct-tab-top-bar__identity">
         {renaming && menuTab && onRename ? (
           <TabRenameField
             title={displayTitleForTab(menuTab)}
@@ -338,19 +332,16 @@ export function TabTopBar({
               if (title) onRename(title);
             }}
           />
-        ) : showSwitch && (
-          <TabModeSwitch
-            tabId={tabId}
-            height={TAB_BAR_CONTROL_H}
-            chatPty={showSwitch}
-          />
-        )}
+        ) : <>
+          {showTitle && <TabHeaderTitle tab={titleTab} />}
+          {showSwitch && <TabModeSwitch tabId={tabId} />}
+        </>}
         <TabLockMark tab={menuTab} />
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
       <div
         ref={bubblesRef}
-        className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
+        className="ct-tab-top-bar__bubbles flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
         style={bubblesOpen
           ? { background: "var(--ct-bg)", rowGap: 8, paddingBottom: 8, marginBottom: -8, boxShadow: "0 12px 12px -6px var(--ct-bg)", position: "relative", zIndex: 3 }
           : { maxHeight: TAB_BAR_CONTROL_H }}
