@@ -374,7 +374,7 @@ function TabSessionChatBody({
   const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
   const sessionIntent = useSessionIntent(allMessages);
   const showRemoteState = Boolean(remoteChat.state && !tabLock.locked);
-  const queueEditable = !readOnly && !showRemoteState;
+  const queueEditable = showChatComposer && !readOnly && !showRemoteState;
   const signIn = showRemoteState ? null : signInPlacement(runtime.state, hasTranscript);
   const signInState = signIn ? runtime.state : null;
   const launchedFailure = dockedTabFailure(tab && { ...tab, agent_runtime_state: runtime.state ?? undefined });
