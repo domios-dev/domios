@@ -14,7 +14,7 @@ test("bell admission keeps the newest capped local and remote records", () => {
   const retained = admitBellNotification(rows, newest, "agent_notification");
   assert.equal(retained.length, MAX_BELL_NOTIFICATIONS);
   assert.equal(retained[0].id, "1");
-  assert.equal(retained.at(-1)?.id, newest.id);
+  assert.equal(retained[retained.length - 1]?.id, newest.id);
 });
 
 test("age pruning drops expired rows at the retention boundary", () => {

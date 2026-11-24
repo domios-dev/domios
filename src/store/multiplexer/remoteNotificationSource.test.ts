@@ -63,7 +63,7 @@ describe("remote notification source", () => {
       captureRoute: () => ({ isCurrent: () => true, confirm: () => {} }),
     });
     const pending = rows.slice(0, -1).map(row => actions.markRead(row.id));
-    const extra = rows.at(-1)!;
+    const extra = rows[rows.length - 1]!;
     expect(actions.deleteNotification(extra.id)).toBeUndefined();
     expect(completions).toHaveLength(2 * MAX_BELL_NOTIFICATIONS);
     completions[0]();
