@@ -1,9 +1,8 @@
 use super::*;
-use codeterm_service_core::config::schema::get_builtin_theme;
 use serde_json::json;
 
 fn builtin(name: &str) -> ThemeConfig {
-    get_builtin_theme(name).unwrap()
+    get_any_theme(name).unwrap()
 }
 
 #[test]
