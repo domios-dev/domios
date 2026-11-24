@@ -149,4 +149,4 @@ For Forest Night, pair green-black `#0f1a16` with warm ink `#d5e2d8` and a coole
 
 A technical look can start with roundness 0–0.35, border brightness 0.6–1, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
