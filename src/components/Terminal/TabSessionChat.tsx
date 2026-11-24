@@ -1,8 +1,7 @@
 import { createChatErrorNotice } from "./chatErrorNotice";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
-import { tabActivity } from "../../lib/tabActivity";
-
+import { lazyFirstTurnComposerIsLive, tabActivity } from "../../lib/tabActivity";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { useChatTabNameResolver } from "./useChatTabNameResolver";
 import { accountNoticeRows } from "./accountNoticeRows";
@@ -26,14 +25,12 @@ import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeSessionUnavailable, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { liveRuntimePrompt, manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
-
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { composerRunningTool, projectChatTranscriptActivity, supportsChatTranscriptActivity } from "./chatTranscriptActivity";
 import { latestFailedToolCallId as findLatestFailedToolCallId, latestTurnStopNoticeId, submitTurnContinuation } from "./chatTurnTail";
-import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -41,14 +38,14 @@ import { chatChangesStore } from "./chatChangesStore";
 import { memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
+  ChatBlockActivityProvider, ChatBlockHostProvider, ChatHighlightBudgetProvider, CompactToolRowsProvider,
+  HistoryGapProvider, LocalArtifactScope, PluginNameProvider, extractPlanRefs, type InteractiveAnswerHandler,
   chatDaySeparators,
   chatLocalDay,
   isUndatedTranscriptRow,
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
-import { ChatBlockActivityProvider, ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
-import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import {
@@ -74,6 +71,7 @@ import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { ComposerQueueTray } from "./ComposerQueueTray";
 import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { mergeRuntimePromptDetail } from "./composerModels";
 import { ManagedTabBar } from "./ManagedTabBar";
@@ -101,7 +99,6 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
-import { ChatHighlightBudgetProvider } from "@codeterm/chat-ui";
 import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
@@ -109,7 +106,6 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useOutboundReportRows } from "./useOutboundReportRows";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, chatRowsPartial, placeChatRails, setupFlowsInLog } from "./chatBodyVisibility";
-import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
 import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
 import { TabRecoveryAction } from "./TabRecoveryAction";
 import { dockedTabFailure, type RestoreStageView } from "../../lib/restoreStageView";
@@ -227,6 +223,8 @@ function TabSessionChatBody({
   const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
+  const concierge = isConciergeTab(tab) && tab?.neighbor_authority;
+  const managedLocked = managedTabPresentation(tab?.managed).locked;
   const { workspaceId, cwd } = useChatWorkspace(tabId);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
@@ -1136,7 +1134,7 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
-          recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
+          recovery={showRemoteState || (readOnly && !concierge) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />
         {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
@@ -1148,6 +1146,8 @@ function TabSessionChatBody({
       </div>
       {deliveryPlansSink}
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
+      {(concierge || managedLocked) && sendFeedback.items.length > 0 &&
+        <ComposerQueueTray tabId={tabId} items={sendFeedback.items} editable={false} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {uploadStatus}
       {pendingThreadRevertTurn && <ThreadRevertConfirmation
@@ -1159,7 +1159,7 @@ function TabSessionChatBody({
         }}
       />}
         {tab && !signInState && <AccountTransitionActions tab={tab}/>}
-        {isConciergeTab(tab) && tab?.neighbor_authority ? <ConciergeChatHint friendship={tab.neighbor_authority.friendship_id} /> : managedTabPresentation(tab?.managed).locked ? null : <ChatComposer
+        {concierge ? <ConciergeChatHint friendship={concierge.friendship_id} /> : managedLocked ? null : <ChatComposer
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
