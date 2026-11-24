@@ -63,7 +63,7 @@ export function DreamCard({
       className="ct-card relative flex cursor-pointer flex-col gap-3 px-[17px] py-[15px] text-left"
     >
       {newest && (
-        <span aria-hidden="true" className="absolute inset-x-[17px] -top-px h-0.5 rounded-b-full bg-[var(--ct-accent)]" />
+        <span aria-hidden="true" className="absolute inset-x-[18px] top-0 h-0.5 rounded-b-[2px] bg-[var(--ct-accent)]" />
       )}
       <div className="flex min-w-0 items-center gap-2 text-xs">
         <span className="ct-card__icon">
@@ -74,24 +74,23 @@ export function DreamCard({
         <Chip variant="muted" className="min-w-0">
           <span className="truncate" title={mood}>{mood}</span>
         </Chip>
+        {recordState && recordState.state !== "complete" && (
+          <Chip
+            variant="warning"
+            className="min-h-[22px] shrink-0 whitespace-nowrap"
+            data-testid="memory-dream-card-incomplete"
+            data-dream-record-state={recordState.state}
+            title={
+              recordState.state === "incomplete_live"
+                ? `Still being written by ${recordState.workerId}`
+                : recordState.reason
+            }
+          >
+            {recordState.state === "incomplete_live" ? "in progress" : "incomplete"}
+          </Chip>
+        )}
         {newest && <span className="ml-auto shrink-0 font-semibold text-[var(--ct-accent)]">New</span>}
       </div>
-
-      {recordState && recordState.state !== "complete" && (
-        <Chip
-          variant="warning"
-          className="self-start"
-          data-testid="memory-dream-card-incomplete"
-          data-dream-record-state={recordState.state}
-          title={
-            recordState.state === "incomplete_live"
-              ? `Still being written by ${recordState.workerId}`
-              : recordState.reason
-          }
-        >
-          {recordState.state === "incomplete_live" ? "in progress" : "incomplete"}
-        </Chip>
-      )}
 
       <div data-testid="memory-dream-card-body" className="flex-1 wrap-anywhere">
         <p className="line-clamp-3 text-sm leading-5 font-semibold">{lead}</p>
