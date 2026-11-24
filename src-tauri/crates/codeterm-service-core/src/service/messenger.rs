@@ -1,6 +1,6 @@
 mod input;
 mod neighbor;
-pub use neighbor::NeighborMessage;
+pub use neighbor::{NeighborMessage, NEIGHBOR_NAMED_FILE_GUIDANCE};
 pub mod switch_handoff;
 mod turn_resume;
 pub use input::{

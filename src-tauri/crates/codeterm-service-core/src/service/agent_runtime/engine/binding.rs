@@ -114,7 +114,9 @@ pub(super) fn bind(
             codeterm_types::pty::BootStage::AgentReady,
             None,
         );
-    })
+    })?;
+    svc.settle_unused_runtime_thread_credential(tab, Some(thread));
+    Ok(())
 }
 
 pub(super) fn commit_runtime_binding(

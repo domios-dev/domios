@@ -164,13 +164,13 @@ pub(super) fn protocol_with(
     })
 }
 
-fn protocol_with_tools(
+fn protocol_with_tools<E: AsRef<str>>(
     mut input: impl BufRead,
     output: &mut impl Write,
     token: &str,
     inbound: &mut impl Inbound,
     list: impl Fn() -> Vec<Value>,
-    mut invoke: impl FnMut(ToolCall) -> Result<Result<String, &'static str>, &'static str>,
+    mut invoke: impl FnMut(ToolCall) -> Result<Result<String, E>, &'static str>,
 ) -> std::io::Result<()> {
     loop {
         let mut line = String::new();
@@ -217,9 +217,9 @@ fn protocol_with_tools(
                             carries_messages = true;
                             Ok(json!({"content":[{"type":"text","text":text}]}))
                         }
-                        Ok(Err(reason)) => {
-                            Ok(json!({"isError":true,"content":[{"type":"text","text":reason}]}))
-                        }
+                        Ok(Err(reason)) => Ok(
+                            json!({"isError":true,"content":[{"type":"text","text":reason.as_ref()}]}),
+                        ),
                         Err(reason) => Err((-32602, reason)),
                     }
                 }
