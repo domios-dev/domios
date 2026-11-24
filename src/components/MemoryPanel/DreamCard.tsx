@@ -62,9 +62,6 @@ export function DreamCard({
       onClick={onOpen}
       className="ct-card relative flex cursor-pointer flex-col gap-3 px-[17px] py-[15px] text-left"
     >
-      {newest && (
-        <span aria-hidden="true" className="absolute inset-x-[18px] top-0 h-0.5 rounded-b-[2px] bg-[var(--ct-accent)]" />
-      )}
       <div className="flex min-w-0 items-center gap-2 text-xs">
         <span className="ct-card__icon">
           <Icon size={14} aria-hidden="true" />
