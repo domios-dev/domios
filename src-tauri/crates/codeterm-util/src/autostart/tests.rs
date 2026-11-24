@@ -1,5 +1,11 @@
 use super::*;
 
+const MACOS_AGENT: MacosLaunchAgent<'_> = MacosLaunchAgent {
+    label: "com.domios.dev.fixture",
+    bundle_id: MACOS_LABEL,
+    environment: &[("CODETERM_DEV_API_PORT", "7748")],
+};
+
 #[test]
 fn linux_unit_refresh_requires_the_exact_ownership_marker() {
     let desired = build_linux_unit("/usr/bin/domios", "/usr/bin/domios-app");
@@ -29,14 +35,101 @@ fn shared_linux_unit_restarts_failures_with_a_bounded_rate() {
 
 #[test]
 fn shared_macos_agent_retries_unsuccessful_exits_without_reopening_after_clean_exit() {
-    let plist = build_macos_plist(
-        MACOS_LABEL,
-        "/Users/O'Neil & Co/domios",
-        "/Applications/Domios.app",
+    let supervisor = "/Users/O'Neil & Co/domios";
+    let app = "/Applications/Domios.app/Contents/MacOS/domios-app";
+    let plist = build_macos_plist(MACOS_AGENT, supervisor, app);
+    let definition: plist::Dictionary = plist::from_bytes(plist.as_bytes()).unwrap();
+    assert_eq!(definition["Label"].as_string(), Some(MACOS_AGENT.label));
+    assert_eq!(
+        definition["AssociatedBundleIdentifiers"].as_string(),
+        Some(MACOS_AGENT.bundle_id)
     );
-    assert!(plist.contains("<key>SuccessfulExit</key>\n        <false/>"));
-    assert!(plist.contains("<key>ThrottleInterval</key>\n    <integer>30</integer>"));
-    assert!(plist.contains("O&apos;Neil &amp; Co"));
+    let arguments: Vec<_> = definition["ProgramArguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|argument| argument.as_string().unwrap())
+        .collect();
+    assert_eq!(
+        arguments,
+        [supervisor, "system", "supervise", "--binary", app]
+    );
+    assert_eq!(
+        definition["KeepAlive"].as_dictionary().unwrap()["SuccessfulExit"].as_boolean(),
+        Some(false)
+    );
+    assert_eq!(definition["RunAtLoad"].as_boolean(), Some(true));
+    assert_eq!(definition["ThrottleInterval"].as_signed_integer(), Some(30));
+    assert_eq!(
+        definition["EnvironmentVariables"].as_dictionary().unwrap()["CODETERM_DEV_API_PORT"]
+            .as_string(),
+        Some("7748")
+    );
+}
+
+#[test]
+fn macos_agent_refresh_updates_only_missing_or_stale_owned_associations() {
+    let app = "/Applications/Domios.app/Contents/MacOS/domios-app";
+    let desired = build_macos_plist(MACOS_AGENT, "/fixture/cli", app);
+    let refreshed = |bytes: &[u8]| {
+        macos::refreshed_definition(bytes, MACOS_AGENT.label, MACOS_AGENT.bundle_id, app).unwrap()
+    };
+    assert!(refreshed(desired.as_bytes()).is_none());
+
+    let original: plist::Dictionary = plist::from_bytes(desired.as_bytes()).unwrap();
+    let mut existing = original.clone();
+    for association in [None, Some(plist::Value::String("com.domios.stale".into()))] {
+        existing.remove("AssociatedBundleIdentifiers");
+        if let Some(association) = association {
+            existing.insert("AssociatedBundleIdentifiers".into(), association);
+        }
+        let mut bytes = Vec::new();
+        plist::to_writer_xml(&mut bytes, &existing).unwrap();
+        let actual: plist::Dictionary = plist::from_bytes(&refreshed(&bytes).unwrap()).unwrap();
+        assert_eq!(actual, original);
+    }
+
+    existing.insert(
+        "AssociatedBundleIdentifiers".into(),
+        plist::Value::Array(vec![MACOS_AGENT.bundle_id.into()]),
+    );
+    let mut bytes = Vec::new();
+    plist::to_writer_binary(&mut bytes, &existing).unwrap();
+    assert!(refreshed(&bytes).is_none());
+
+    let stale = desired.replace(MACOS_AGENT.bundle_id, "com.domios.stale");
+    assert!(refreshed(
+        stale
+            .replace(MACOS_AGENT.label, "com.foreign.agent")
+            .as_bytes()
+    )
+    .is_none());
+    assert!(refreshed(
+        stale
+            .replace(app, "/Applications/Foreign.app/Contents/MacOS/foreign")
+            .as_bytes()
+    )
+    .is_none());
+    assert!(refreshed(stale.replace("supervise", "other").as_bytes()).is_none());
+    assert!(refreshed(b"malformed").is_none());
+}
+
+#[test]
+fn macos_bundle_identifier_reads_the_running_bundle_info_plist() {
+    let root = tempfile::tempdir().unwrap();
+    let contents = root.path().join("Example.app/Contents");
+    let app = contents.join("MacOS/domios-app");
+    std::fs::create_dir_all(app.parent().unwrap()).unwrap();
+    std::fs::write(&app, []).unwrap();
+    let mut info = plist::Dictionary::new();
+    for identifier in [MACOS_LABEL, "com.domios.dev.fixture"] {
+        info.insert("CFBundleIdentifier".into(), identifier.into());
+        plist::to_file_binary(contents.join("Info.plist"), &info).unwrap();
+        assert_eq!(macos::macos_bundle_identifier(&app).unwrap(), identifier);
+    }
+    info.insert("CFBundleIdentifier".into(), "../foreign".into());
+    plist::to_file_xml(contents.join("Info.plist"), &info).unwrap();
+    assert!(macos::macos_bundle_identifier(&app).is_err());
 }
 
 #[test]
@@ -79,10 +172,15 @@ fn shared_install_plans_write_the_definition_before_os_registration_and_start() 
             "fixture-user",
             "/fixture/cli",
             "/fixture/app",
-        );
-        let Step::Write(path, bytes) = &steps[0] else {
-            panic!("registration must follow the definition write")
+            Some(MACOS_AGENT),
+        )
+        .unwrap();
+        let (path, bytes) = match &steps[0] {
+            Step::WriteAtomic(path, bytes) if matches!(platform, Platform::Macos) => (path, bytes),
+            Step::Write(path, bytes) if !matches!(platform, Platform::Macos) => (path, bytes),
+            _ => panic!("registration must follow the definition write"),
         };
+        let macos_path = macos_path(home, MACOS_AGENT.label);
         let (expected_path, expected_bytes, expected_commands) = match platform {
             Platform::Windows => (
                 task.to_path_buf(),
@@ -109,19 +207,15 @@ fn shared_install_plans_write_the_definition_before_os_registration_and_start() 
                 ],
             ),
             Platform::Macos => (
-                macos_path(home),
-                build_macos_plist(MACOS_LABEL, "/fixture/cli", "/fixture/app").into_bytes(),
+                macos_path.clone(),
+                build_macos_plist(MACOS_AGENT, "/fixture/cli", "/fixture/app").into_bytes(),
                 vec![
                     run(
                         "launchctl",
-                        &["unload", &macos_path(home).to_string_lossy()],
+                        &["unload", &macos_path.to_string_lossy()],
                         false,
                     ),
-                    run(
-                        "launchctl",
-                        &["load", &macos_path(home).to_string_lossy()],
-                        true,
-                    ),
+                    run("launchctl", &["load", &macos_path.to_string_lossy()], true),
                 ],
             ),
             Platform::Linux => (

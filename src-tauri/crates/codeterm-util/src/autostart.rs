@@ -1,6 +1,11 @@
 //! Shared supervisor registration definitions and OS installation steps.
 use std::path::{Path, PathBuf};
 
+mod macos;
+pub use macos::{build_macos_plist, MacosLaunchAgent};
+#[cfg(target_os = "macos")]
+pub use macos::{macos_bundle_identifier, refresh_macos_agent};
+
 pub const WINDOWS_TASK: &str = "Domios-Autostart";
 pub const MACOS_LABEL: &str = "com.domios.app";
 pub const LINUX_UNIT: &str = "domios.service";
@@ -50,8 +55,9 @@ fn platform() -> Platform {
     }
 }
 
-pub fn macos_path(home: &Path) -> PathBuf {
-    home.join("Library/LaunchAgents/com.domios.app.plist")
+pub fn macos_path(home: &Path, label: &str) -> PathBuf {
+    home.join("Library/LaunchAgents")
+        .join(format!("{label}.plist"))
 }
 pub fn linux_path(home: &Path) -> PathBuf {
     home.join(".config/systemd/user/domios.service")
@@ -60,6 +66,7 @@ pub fn linux_path(home: &Path) -> PathBuf {
 #[derive(Debug, PartialEq, Eq)]
 enum Step {
     Write(PathBuf, Vec<u8>),
+    WriteAtomic(PathBuf, Vec<u8>),
     Remove(PathBuf),
     Run {
         program: &'static str,
@@ -83,8 +90,9 @@ fn install_plan(
     user: &str,
     supervisor: &str,
     app: &str,
-) -> Vec<Step> {
-    match platform {
+    macos: Option<MacosLaunchAgent<'_>>,
+) -> Result<Vec<Step>, String> {
+    Ok(match platform {
         Platform::Windows => vec![
             Step::Write(
                 task_file.into(),
@@ -107,15 +115,8 @@ fn install_plan(
             run("schtasks", &["/Run", "/TN", WINDOWS_TASK], true),
         ],
         Platform::Macos => {
-            let path = macos_path(home);
-            vec![
-                Step::Write(
-                    path.clone(),
-                    build_macos_plist(MACOS_LABEL, supervisor, app).into_bytes(),
-                ),
-                run("launchctl", &["unload", &path.to_string_lossy()], false),
-                run("launchctl", &["load", &path.to_string_lossy()], true),
-            ]
+            let agent = macos.ok_or("macOS application bundle identity is unavailable")?;
+            macos::install_steps(home, supervisor, app, agent)?
         }
         Platform::Linux => vec![
             Step::Write(
@@ -126,10 +127,10 @@ fn install_plan(
             run("systemctl", &["--user", "enable", LINUX_UNIT], true),
             run("systemctl", &["--user", "start", LINUX_UNIT], true),
         ],
-    }
+    })
 }
 
-fn uninstall_plan(platform: Platform, home: &Path) -> Vec<Step> {
+fn uninstall_plan(platform: Platform, home: &Path, macos_label: &str) -> Vec<Step> {
     match platform {
         Platform::Windows => vec![
             run("schtasks", &["/End", "/TN", WINDOWS_TASK], false),
@@ -138,10 +139,10 @@ fn uninstall_plan(platform: Platform, home: &Path) -> Vec<Step> {
         Platform::Macos => vec![
             run(
                 "launchctl",
-                &["unload", &macos_path(home).to_string_lossy()],
+                &["unload", &macos_path(home, macos_label).to_string_lossy()],
                 false,
             ),
-            Step::Remove(macos_path(home)),
+            Step::Remove(macos_path(home, macos_label)),
         ],
         Platform::Linux => vec![
             run("systemctl", &["--user", "stop", LINUX_UNIT], false),
@@ -166,6 +167,9 @@ fn execute(steps: Vec<Step>) -> Result<(), String> {
                 std::fs::write(path, bytes)
             })()
             .map_err(|error: std::io::Error| error.to_string()),
+            Step::WriteAtomic(path, bytes) => {
+                crate::atomic_write::write_atomic(&path, bytes).map_err(|error| error.to_string())
+            }
             Step::Remove(path) => match std::fs::remove_file(path) {
                 Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                     Err(error.to_string())
@@ -210,8 +214,16 @@ fn set_disabled(data: &Path, disabled: bool) -> Result<(), String> {
     }
 }
 
-pub fn enable(home: &Path, data: &Path, supervisor: &Path, app: &Path) -> Result<(), String> {
-    set_disabled(data, false)?;
+static MACOS_OPERATIONS: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
+pub fn enable(
+    home: &Path,
+    data: &Path,
+    supervisor: &Path,
+    app: &Path,
+    macos: Option<MacosLaunchAgent<'_>>,
+) -> Result<(), String> {
+    let _operation = cfg!(target_os = "macos").then(|| MACOS_OPERATIONS.lock());
     let user = if cfg!(windows) {
         let name = std::env::var("USERNAME").map_err(|error| error.to_string())?;
         match std::env::var("USERDOMAIN") {
@@ -223,22 +235,29 @@ pub fn enable(home: &Path, data: &Path, supervisor: &Path, app: &Path) -> Result
     };
     let task_file =
         std::env::temp_dir().join(format!("{WINDOWS_TASK}-{}.xml", uuid::Uuid::new_v4()));
-    execute(install_plan(
+    let steps = install_plan(
         platform(),
         home,
         &task_file,
         &user,
         &supervisor.to_string_lossy(),
         &app.to_string_lossy(),
-    ))
+        macos,
+    )?;
+    set_disabled(data, false)?;
+    execute(steps)
 }
 
-pub fn disable(home: &Path, data: &Path) -> Result<(), String> {
+pub fn disable(home: &Path, data: &Path, macos_label: &str) -> Result<(), String> {
+    let _operation = cfg!(target_os = "macos").then(|| MACOS_OPERATIONS.lock());
+    if cfg!(target_os = "macos") {
+        macos::validate_identifier(macos_label)?;
+    }
     set_disabled(data, true)?;
-    execute(uninstall_plan(platform(), home))
+    execute(uninstall_plan(platform(), home, macos_label))
 }
 
-pub fn is_enabled(home: &Path) -> bool {
+pub fn is_enabled(home: &Path, macos_label: &str) -> bool {
     match platform() {
         Platform::Windows => {
             let mut command = std::process::Command::new("schtasks");
@@ -246,7 +265,10 @@ pub fn is_enabled(home: &Path) -> bool {
             crate::process_util::no_window_std(&mut command);
             command.output().is_ok_and(|output| output.status.success())
         }
-        Platform::Macos => macos_path(home).exists(),
+        Platform::Macos => {
+            macos::validate_identifier(macos_label).is_ok()
+                && macos_path(home, macos_label).is_file()
+        }
         Platform::Linux => linux_path(home).exists(),
     }
 }
@@ -263,42 +285,6 @@ pub fn build_windows_task_command(supervisor_path: &str, app_binary: &str) -> St
     format!(
         "powershell.exe {}",
         windows_arguments(supervisor_path, app_binary)
-    )
-}
-
-pub fn build_macos_plist(label: &str, supervisor_path: &str, binary_path: &str) -> String {
-    let label = xml_escape(label);
-    let supervisor_path = xml_escape(supervisor_path);
-    let binary_path = xml_escape(binary_path);
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{label}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{supervisor_path}</string>
-        <string>system</string>
-        <string>supervise</string>
-        <string>--binary</string>
-        <string>{binary_path}</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
-    <key>ThrottleInterval</key>
-    <integer>30</integer>
-    <key>ProcessType</key>
-    <string>Interactive</string>
-</dict>
-</plist>
-"#
     )
 }
 
