@@ -59,7 +59,7 @@ export function projectChatTranscriptActivity(
   return { supported, liveToolId: null };
 }
 
-const SHOW_AFTER_MS = 300;
+const SHOW_AFTER_MS = 750;
 const MIN_VISIBLE_MS = 400;
 
 interface RunningTool {

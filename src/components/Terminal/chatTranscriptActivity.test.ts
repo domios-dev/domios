@@ -65,24 +65,24 @@ test("full transcript labels retain multiline commands and complete targets", ()
 test("projects short calls as completed rows and keeps a visible command in its slot through settlement", () => {
   const earlier = tool("previous", "completed");
   const running = tool("call", "running");
-  const completed = { ...tool("call", "completed"), toolDurationMs: 310, toolResult: "done" };
+  const completed = { ...tool("call", "completed"), toolDurationMs: 188, toolResult: "done" };
   const start = projectVisibleChatTools([earlier, running], new Map(), 1000);
   assert.deepEqual(start.rows, [earlier]);
-  assert.equal(start.nextChangeAt, 1300);
+  assert.equal(start.nextChangeAt, 1750);
 
-  const fast = projectVisibleChatTools([earlier, completed], start.running, 1299);
+  const fast = projectVisibleChatTools([earlier, completed], start.running, 1749);
   assert.deepEqual(fast.rows, [earlier, completed]);
   assert.equal(fast.nextChangeAt, Infinity);
 
   const delta = { ...running, toolResult: "line 1\nline 2" };
-  const visible = projectVisibleChatTools([earlier, delta], start.running, 1300);
+  const visible = projectVisibleChatTools([earlier, delta], start.running, 1750);
   assert.deepEqual(visible.rows.map(row => row.id), ["previous", "call"]);
   assert.equal(visible.rows[1].toolResult, delta.toolResult);
   assert.equal(visible.rows[1].toolStartedAtMs, 1000);
-  const hold = projectVisibleChatTools([earlier, completed], visible.running, 1310);
+  const hold = projectVisibleChatTools([earlier, completed], visible.running, 1760);
   assert.equal(hold.rows[1], visible.rows[1]);
-  assert.equal(hold.nextChangeAt, 1700);
-  assert.deepEqual(projectVisibleChatTools([earlier, completed], hold.running, 1700).rows, [earlier, completed]);
+  assert.equal(hold.nextChangeAt, 2150);
+  assert.deepEqual(projectVisibleChatTools([earlier, completed], hold.running, 2150).rows, [earlier, completed]);
 });
 
 test("a running edit keeps its group slot while details arrive and when it completes", () => {
@@ -91,12 +91,12 @@ test("a running edit keeps its group slot while details arrive and when it compl
   const running = { ...edit, id: "second", toolStatus: "running" as const,
     fileDiffs: undefined, toolSummary: "second.ts", toolLocations: [{ path: "second.ts" }] };
   const pending = projectVisibleChatTools([edit, running], new Map(), 0);
-  const visible = projectVisibleChatTools([edit, running], pending.running, 300);
+  const visible = projectVisibleChatTools([edit, running], pending.running, 750);
   const before = conversationEntries(pending.rows, undefined, undefined, true);
   const during = conversationEntries(visible.rows, undefined, undefined, true);
   const done = { ...running, toolStatus: "completed" as const,
     fileDiffs: [{ path: "second.ts", additions: 0, deletions: 0, hunks: [] }] };
-  const after = conversationEntries(projectVisibleChatTools([edit, done], visible.running, 700).rows, undefined, undefined, true);
+  const after = conversationEntries(projectVisibleChatTools([edit, done], visible.running, 1150).rows, undefined, undefined, true);
   for (const [rows, expected] of [[before, ["edit"]], [during, ["edit", "second"]], [after, ["edit", "second"]]] as const) {
     assert.equal(rows.length, 1);
     assert.equal(rows[0].msg.id, "edit");
