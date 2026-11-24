@@ -60,6 +60,8 @@
   --ct-bg-hover: rgba(255, 255, 255, 0.04);
   --ct-bg-active: rgba(255, 255, 255, 0.07);
   --ct-bg-selected: rgba(99, 102, 241, 0.12);
+  --ct-sidebar-selected: color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  --ct-sidebar-hover: color-mix(in srgb, var(--ct-fg) 4%, transparent);
 
   /* Borders - sub-pixel via box-shadow */
   --ct-panel-edge: color-mix(in srgb, var(--ct-fg) 8%, transparent);

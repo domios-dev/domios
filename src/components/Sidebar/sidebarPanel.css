@@ -1,5 +1,102 @@
 .ct-sidebar-panel {
   background: var(--ct-bg);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: [sessions] minmax(0, 1fr) [neighbors] auto [footer] auto;
+}
+
+.ct-sidebar-scroll-shell {
+  display: contents;
+}
+
+.ct-sidebar-content,
+.ct-sidebar-selection-cue {
+  grid-area: sessions / 1;
+}
+
+.sidebar-neighbors-section {
+  grid-area: neighbors / 1;
+}
+
+.sidebar-footer {
+  grid-area: footer / 1;
+}
+
+.ct-sidebar-selection-cue {
+  position: relative;
+  z-index: 5;
+  align-self: start;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  height: 42px;
+  padding: 10px 4px 0;
+  background: linear-gradient(
+    var(--sidebar-cue-fade-direction, to bottom),
+    var(--ct-bg) 50%,
+    color-mix(in srgb, var(--ct-bg) 90%, transparent) 82%,
+    transparent
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--ct-duration-fast) ease;
+}
+
+.ct-sidebar-selection-cue[data-edge="below"] {
+  --sidebar-cue-fade-direction: to top;
+  align-self: end;
+  align-items: flex-end;
+  padding-block: 0 10px;
+}
+
+.ct-sidebar-selection-cue[data-visible] {
+  opacity: 1;
+}
+
+@starting-style {
+  .ct-sidebar-selection-cue[data-visible] {
+    opacity: 0;
+  }
+}
+
+.ct-sidebar-selection-cue__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  border-radius: var(--ct-radius-lg);
+  background: var(--ct-glass-sheen), var(--ct-glass-bg);
+  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-sm);
+  color: var(--ct-fg);
+  font-size: var(--ct-font-size-meta);
+}
+
+.ct-sidebar-selection-cue[data-visible] > button {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ct-sidebar-selection-cue__dot {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ct-accent);
+}
+
+.ct-sidebar-selection-cue__title {
+  min-width: 0;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-sidebar-selection-cue__arrow {
+  color: var(--ct-muted-fg);
 }
 
 .sidebar-neighbors-section__items {
@@ -24,9 +121,12 @@
 }
 
 @media (max-width: 640px) {
-  .ct-sidebar-panel[data-collapsed="false"] {
+  .ct-sidebar-scroll-shell {
+    grid-area: sessions / 1;
     display: block;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     overscroll-behavior-y: contain;
   }
 
@@ -37,6 +137,12 @@
   .ct-sidebar-panel .sidebar-neighbors-section__items {
     max-height: none;
     overflow: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-sidebar-selection-cue {
+    transition: none;
   }
 }
 

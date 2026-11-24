@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { appearanceLookKey, type AppearanceLook } from "../lib/appearance";
+import { appearanceLookKey, appearancePaletteKey, type AppearanceLook } from "../lib/appearance";
 import { listenAppearanceCommit, type AppearanceCommit } from "../lib/appearanceClient";
 import { animateAppearance, finishAppearanceMotion, takeAppearancePress } from "../lib/appearanceMotion";
 import { effectiveWallpaper } from "../lib/chatWallpaper";
@@ -17,10 +17,6 @@ function isNewDoodlePattern(before: AppearanceLook, after: AppearanceLook) {
   return JSON.stringify(before.wallpaper) !== JSON.stringify(after.wallpaper)
     && effectiveWallpaper(before.theme, before.wallpaper ?? undefined).background.pattern !== "doodles"
     && effectiveWallpaper(after.theme, after.wallpaper ?? undefined).background.pattern === "doodles";
-}
-
-function palette({ chat_background: _wallpaper, name: _name, ...colors }: AppearanceLook["theme"]) {
-  return JSON.stringify(colors);
 }
 
 export function useAppearanceMotion({ ready, appearance: { theme, wallpaper: background, tuning }, peerId }: SelectedMachineAppearance,
@@ -91,7 +87,7 @@ export function useAppearanceMotion({ ready, appearance: { theme, wallpaper: bac
     const undo = !switching && (matched?.commit.undo ?? false);
     const origin = switching ? switchOrigin : pressed?.origin;
     return animateAppearance({ look: incoming.look, proposal, undo, origin,
-      fadeContent: palette(before.look.theme) !== palette(incoming.look.theme),
+      fadeContent: appearancePaletteKey(before.look.theme) !== appearancePaletteKey(incoming.look.theme),
       drawDoodles: isNewDoodlePattern(before.look, incoming.look) }, apply);
   }, [incoming, ready, assetReady, asset, peerId]);
 

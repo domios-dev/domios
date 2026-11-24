@@ -1,4 +1,5 @@
-.ct-bar-pill.ct-machine-switcher {
+.ct-bar-pill.ct-machine-switcher,
+.ct-bar-pill.ct-machine-switcher:is(:hover, :focus-visible, [aria-expanded="true"]) {
   box-shadow: none;
 }
 

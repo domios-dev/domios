@@ -36,7 +36,9 @@ import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel
 import { MachineProvenance } from "../shared/MachineProvenance";
 import { useRemoteViewerConnection } from "./useRemoteViewerConnection";
 import { remoteViewerStatusLabel } from "./remoteViewerStatus";
-import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { classifyTabTarget, parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
+import { UsageMachineContext } from "../../hooks/usageMachine";
 import { directTranscriptAvailable } from "../../lib/transport/liveTranscript";
 import { useLiveTranscriptHost } from "./useLiveTranscriptPanel";
 
@@ -274,6 +276,12 @@ export function TabTopBar({
   const accountId = shellTab?.account?.id === "default" ? null : shellTab?.account?.id ?? null;
   const launchProfile = shellTab?.agent_runtime_config?.launchProfile;
   const profileAccountId = typeof launchProfile === "string" && launchProfile ? `profile:${launchProfile}` : null;
+  const usageTarget = classifyTabTarget(tabId);
+  const usagePeerId = usageTarget.kind === "remote" ? usageTarget.peerId : null;
+  const usagePeer = useRemoteChatStatus(tabId, usagePeerId).peer;
+  const usageUnavailable = usageTarget.kind === "invalid-remote"
+    || (usageTarget.kind === "local" && Boolean(shellTab?.remote_peer_id))
+    || (usagePeer && usagePeer.presence !== "online");
   const usageSession = usageSource && {
     provider: usageSource.trackingProvider,
     accountId,
@@ -368,6 +376,9 @@ export function TabTopBar({
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
+        {usageSource && usageVisible && usageUnavailable &&
+          <UnavailableLimitsBubble reason="Usage is unavailable on this machine." />}
+        {!usageUnavailable && (!usagePeerId || isActive) && <UsageMachineContext.Provider value={usagePeerId} key={tabId}>
         {usageSource?.kind === "unavailable" && usageSession && usageVisible && (
           <UnavailableLimitsBubble reason={usageSource.reason} session={usageSession} />
         )}
@@ -396,6 +407,7 @@ export function TabTopBar({
             profileQuotaModelId={shellTab?.agent_session_model ?? usageModelId}
           />
         )}
+        </UsageMachineContext.Provider>}
         <ComposerContextMeter tabId={tabId} />
         <div className="ct-bar-pill-group">
           <DocumentsButton tabId={tabId} />

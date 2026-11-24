@@ -40,6 +40,7 @@ import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSide
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
+import { useSidebarSelectedRow } from "./sidebarSelectedRow";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { TabAttentionMark } from "./TabAttentionMark";
@@ -356,6 +357,7 @@ function TabItemInner({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const tabRef = useRef<HTMLDivElement>(null);
+  const selectedRowRef = useSidebarSelectedRow(tab.id, rowText.title, isActive, tabRef);
   const tabText = attachment
     ? pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[10.5px]", "text-xs", "text-sm"])
     : pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
@@ -463,7 +465,7 @@ function TabItemInner({
 
   return (
     <div
-      ref={tabRef}
+      ref={selectedRowRef}
       hidden={!wholeWorkspace && !wholeTeam && !matchesSidebarMachine(machineFilter, remote?.peerId)}
       role="group"
       aria-label={accessibleRowLabel}
@@ -482,7 +484,7 @@ function TabItemInner({
         ${attachment ? "sidebar-tab--attachment" : ""}
         ${touchMode ? (attachment ? "min-h-9 pl-5 pr-2 py-1" : "min-h-11 pl-5 pr-2 py-2") : attachment ? "pl-4 pr-4 py-0.5" : "pl-4 pr-4 py-1.5"}
         ${animClass}
-        ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+        ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed"}
       `}
     >
       {isActive && <ActiveTabPill />}
@@ -544,7 +546,7 @@ function TabItemInner({
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span
             data-testid="tab-title"
-            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${remoteStateLabel ? "text-[var(--ct-fg)]/60" : attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""} ${lockedDimClass(lock)}`}
+            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${remoteStateLabel ? "text-[var(--ct-fg)]/60" : attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-semibold" : ""} ${lockedDimClass(lock)}`}
             onDoubleClick={(e) => {
               if (readOnly || tab?.protected) return; // Main is unrenameable
               e.stopPropagation();

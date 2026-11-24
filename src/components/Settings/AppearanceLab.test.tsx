@@ -96,7 +96,8 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
     expect(project.mock.lastCall?.[0]?.look.tuning.border_strength).toBe(0.72);
     expect(appearanceLookStyle(project.mock.lastCall?.[0]?.look)["--ct-panel-edge"]).toBe(themeToCSS(DEFAULT_THEME, 0.72)["--ct-panel-edge"]);
     expect(host.querySelector('[role="img"][aria-label="Appearance preview"]')).toBeNull();
-    const apply = [...host.querySelectorAll("button")].find(button => button.textContent === "Apply")!;
+    const apply = [...host.querySelectorAll<HTMLButtonElement>('[role="region"][aria-label="Changes"] button')]
+      .find(button => button.textContent === "Apply")!;
     await act(async () => apply.click());
 
     const guide = readFileSync("prod-docs/APPEARANCE.md", "utf8");

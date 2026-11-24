@@ -34,6 +34,7 @@ interface DictationGesture {
 export function ComposerActionButton({
   voiceUi,
   dictation,
+  dictationUnavailableReason,
   onOpenLiveTranscript,
   liveTranscriptOnTap,
   spaceArming = false,
@@ -45,6 +46,7 @@ export function ComposerActionButton({
 }: {
   voiceUi: ComposerVoiceHandle;
   dictation?: LiveDictation;
+  dictationUnavailableReason?: string | null;
   onOpenLiveTranscript?: () => void;
   liveTranscriptOnTap?: boolean;
   spaceArming?: boolean;
@@ -103,6 +105,8 @@ export function ComposerActionButton({
   useEffect(() => clearHoldTimer, []);
 
   const effectiveSend = mainIsSend && !dictationActive && !voiceActive;
+  const unavailableReason = effectiveSend ? sendUnavailableReason
+    : (dictationUnavailableReason ?? sendUnavailableReason);
   const dictationHold = Boolean(useDictation && dictationGesture?.holdVisual && !dictationGesture.locked);
   const effectiveHold = isHold || dictationHold;
   const effectiveLocked = isLocked || Boolean(dictationActive && !dictationHold);
@@ -113,7 +117,7 @@ export function ComposerActionButton({
     : dictationHold && dictationGesture
       ? bubblePoseFromPointer(dictationGesture.ptrX, dictationGesture.ptrY, dictationGesture.startX, dictationGesture.startY)
       : NEUTRAL_POSE;
-  const effectiveTitle = sendUnavailableReason ?? (
+  const effectiveTitle = unavailableReason ?? (
     effectiveSend
       ? mainTitle
       : dictationActive
@@ -126,7 +130,8 @@ export function ComposerActionButton({
               : "Dictation · tap, hold, or slide up to lock"
           : mainTitle
   );
-  const effectiveAriaLabel = !effectiveSend && useDictation
+  const effectiveAriaLabel = !effectiveSend && dictationUnavailableReason ? "Dictation unavailable"
+    : !effectiveSend && useDictation
     ? (dictationActive ? (dictationFinishing ? "Finishing dictation" : "Stop dictation") : transcriptOnTap ? "Start Live Transcript" : "Start dictation")
     : undefined;
 
@@ -248,10 +253,10 @@ export function ComposerActionButton({
         aria-label={effectiveAriaLabel}
         aria-pressed={useDictation && !effectiveSend ? dictationActive : undefined}
         title={effectiveTitle}
-        aria-description={sendUnavailableReason ?? undefined}
-        aria-disabled={sendUnavailableReason ? "true" : undefined}
+        aria-description={unavailableReason ?? undefined}
+        aria-disabled={unavailableReason ? "true" : undefined}
         onPointerDown={(e) => {
-          if (sendUnavailableReason) {
+          if (unavailableReason) {
             e.preventDefault();
             return;
           }
@@ -287,7 +292,7 @@ export function ComposerActionButton({
           if (effectiveSend) onSend();
         }}
         onTouchStart={(e) => {
-          if (effectiveSend || effectiveLocked || sendUnavailableReason) e.preventDefault();
+          if (effectiveSend || effectiveLocked || unavailableReason) e.preventDefault();
         }}
         onPointerCancel={(e) => {
           suppressNextPointerUpSendRef.current = false;
@@ -308,11 +313,11 @@ export function ComposerActionButton({
           moveVoice(e);
         }}
         onTouchEnd={(e) => {
-          if (effectiveSend || effectiveLocked || sendUnavailableReason) e.preventDefault();
+          if (effectiveSend || effectiveLocked || unavailableReason) e.preventDefault();
         }}
         onClick={(e) => {
           e.preventDefault();
-          if (e.detail !== 0 || sendUnavailableReason) return;
+          if (e.detail !== 0 || unavailableReason) return;
           if (effectiveSend && !sendDisabled) {
             onSend();
           } else if (useDictation && dictation && !dictationFinishing) {
