@@ -56,7 +56,12 @@ fn neighbor_reply_guidance_uses_the_bound_transport_for_each_access_level() {
         assert!(direct.attachments.is_empty());
     }
     restored.settings.mode = Some("read-only-with-writable-roots".into());
-    for cli in [current, "/private/tmp/current-server/codeterm"] {
+    restored.restricted_cli = None;
+    for (mode, cli) in [
+        ("read-only-with-writable-roots", current),
+        ("workspace-write", "/private/tmp/current-server/codeterm"),
+    ] {
+        restored.settings.mode = Some(mode.into());
         restored.host_mcp = Some(RuntimeHostMcp {
             name: NEIGHBOR_REPLY_MCP_NAME.into(),
             command: cli.into(),

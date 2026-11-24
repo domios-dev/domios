@@ -62,7 +62,7 @@ pub trait NeighborsPort: Send + Sync {
         &'a self,
         caller: &'a TabCaller,
     ) -> NeighborFuture<'a, Result<(NeighborAuthority, Permission), String>>;
-    fn neighbor_read_only_reply_scope<'a>(
+    fn neighbor_sandboxed_reply_scope<'a>(
         &'a self,
         _caller: &'a TabCaller,
         _friendship: &'a str,

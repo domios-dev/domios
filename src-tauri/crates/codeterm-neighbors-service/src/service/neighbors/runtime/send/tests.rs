@@ -465,14 +465,14 @@ fn send_command_preserves_client_message_identity() {
 }
 
 #[tokio::test]
-async fn read_only_neighbor_reply_requires_a_question_in_the_bound_friendship() {
+async fn sandboxed_neighbor_reply_requires_a_request_in_the_bound_friendship() {
     let (mux, _) = MultiplexerState::new();
     let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
-    let permission = Permission {
+    let mut permission = Permission {
         allowed: true,
-        machine_access: codeterm_neighbors::permissions::MachineAccess::ReadOnly,
+        machine_access: MachineAccess::ReadOnly,
         scope: "opaque grant".into(),
         ..Default::default()
     };
@@ -497,32 +497,37 @@ async fn read_only_neighbor_reply_requires_a_question_in_the_bound_friendship() 
             .await
             .unwrap();
     }
-    for kind in [Kind::Answer, Kind::Refusal] {
-        for target in [None, Some(answer.as_str()), Some(other_question.as_str())] {
-            assert!(matches!(
-                prepare_outgoing_body(
+    for access in [MachineAccess::ReadOnly, MachineAccess::Folder] {
+        permission.machine_access = access;
+        for kind in [Kind::Answer, Kind::Refusal] {
+            for target in [None, Some(answer.as_str()), Some(other_question.as_str())] {
+                let result = prepare_outgoing_body(
                     &metadata,
                     &friendship,
                     &permission,
                     SendAuthority::FriendshipGrant,
                     kind,
                     OutboundBody::Granted(Zeroizing::new("opaque reply".into())),
-                    target
+                    target,
                 )
-                .await,
-                Err(Error::ReplyTargetUnknown)
-            ));
+                .await;
+                if access == MachineAccess::Folder && kind == Kind::Answer && target.is_none() {
+                    assert!(result.is_ok());
+                } else {
+                    assert!(matches!(result, Err(Error::ReplyTargetUnknown)));
+                }
+            }
+            assert!(prepare_outgoing_body(
+                &metadata,
+                &friendship,
+                &permission,
+                SendAuthority::FriendshipGrant,
+                kind,
+                OutboundBody::Granted(Zeroizing::new("opaque reply".into())),
+                Some(&question)
+            )
+            .await
+            .is_ok());
         }
-        assert!(prepare_outgoing_body(
-            &metadata,
-            &friendship,
-            &permission,
-            SendAuthority::FriendshipGrant,
-            kind,
-            OutboundBody::Granted(Zeroizing::new("opaque reply".into())),
-            Some(&question)
-        )
-        .await
-        .is_ok());
     }
 }
