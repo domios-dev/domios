@@ -249,12 +249,13 @@ fn bound_turn_input(
             if let Some(friendship) = server.env.get(NEIGHBOR_REPLY_FRIENDSHIP_ENV) {
                 frame.set_neighbor_reply_tool(&server.name, friendship);
             }
-        } else if let Some(policy) = context
-            .restricted_cli
-            .as_ref()
-            .filter(|policy| super::cli_exception::binding_matches(policy, context))
-        {
-            frame.set_neighbor_reply_executable(&policy.executable);
+        } else {
+            let executable = context
+                .restricted_cli
+                .as_ref()
+                .filter(|policy| super::cli_exception::binding_matches(policy, context))
+                .map_or("domios", |policy| policy.executable.as_str());
+            frame.set_neighbor_direct_reply(executable);
         }
     }
     runtime_input(classified)
