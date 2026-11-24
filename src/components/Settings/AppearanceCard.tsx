@@ -10,7 +10,6 @@ import { effectiveWallpaper, WALLPAPER_PATTERNS, wallpaperDefaultOpacity, wallpa
 import { isLightColor } from "../../lib/themeCss";
 import { relayTarget } from "../../lib/webApi";
 import { Button } from "../shared/Button";
-import { AppearancePreview } from "./AppearancePreview";
 import "./appearance.css";
 
 const percent = (value: number) => `${Number((value * 100).toFixed(2))}%`;
@@ -148,7 +147,6 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
             {changes(record, wallpaperLabel).map(change => <span key={change}>{change}</span>)}
           </div>
         </div>
-        <div className="ct-appearance-card__preview"><AppearancePreview compact look={look} peer={target.peer} /></div>
       </div>}
       {!record.tweak && hidesThemeWallpaper && <div className="ct-appearance-card__wallpaper">
         <Info size={13} aria-hidden="true" />
@@ -162,7 +160,7 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
         {record.tweak && <div className="ct-appearance-card__changes">
           {tweakChanges(record).map(change => <span key={change}>{change}</span>)}
         </div>}
-        {state === "applied" ? <Button variant="outline" disabled={busy || !record.can_undo} onClick={event => void run("undo", event.currentTarget)}>Undo</Button>
+        {state === "applied" ? <Button variant="outline" aria-label={`Undo · back to ${record.previous.theme.name}`} disabled={busy || !record.can_undo} onClick={event => void run("undo", event.currentTarget)}>Undo</Button>
           : !record.tweak && <Button variant={state === "undone" ? "outline" : "primary"} disabled={busy} onClick={event => void run("apply", event.currentTarget)}>{applyLabel}</Button>}
         <Button variant="ghost" onClick={openLab}><FlaskConical size={13} aria-hidden="true" /> Open in Lab</Button>
         <small className="ct-appearance-card__state" role="status">{stateText}</small>
