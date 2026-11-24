@@ -211,6 +211,45 @@ fn nightly_cleanup_survives_normalize_on_both_backends() {
             )
             .unwrap();
     }
+    for (kind, from, to) in [
+        ("belongs_to", a.clone(), b.clone()),
+        ("uses", b.clone(), a.clone()),
+    ] {
+        sqlite
+            .graph_insert_relation(
+                &ctx,
+                &codeterm_mem::Relation {
+                    from_id: from,
+                    to_id: to,
+                    relation_type: kind.into(),
+                    scope: "global".into(),
+                    valid_from: "2025-01-01T00:00:00Z".into(),
+                    valid_to: Some("2025-01-02T00:00:00Z".into()),
+                    confidence: 1.0,
+                    properties: serde_json::json!({}),
+                    reason: None,
+                },
+            )
+            .unwrap();
+    }
+    for kind in ["belongs_to", "works_on"] {
+        sqlite
+            .graph_insert_relation(
+                &ctx,
+                &codeterm_mem::Relation {
+                    from_id: a.clone(),
+                    to_id: b.clone(),
+                    relation_type: kind.into(),
+                    scope: "global".into(),
+                    valid_from: "2024-01-01T00:00:00Z".into(),
+                    valid_to: Some("2024-02-01T00:00:00Z".into()),
+                    confidence: 1.0,
+                    properties: serde_json::json!({}),
+                    reason: None,
+                },
+            )
+            .unwrap();
+    }
     for page in export_all(&sqlite) {
         MemStore::import_page(fixture.store(), &ctx, &page).unwrap();
     }
@@ -222,7 +261,14 @@ fn nightly_cleanup_survives_normalize_on_both_backends() {
                 .deleted,
             1
         );
-        store.dream_normalize(&ctx).unwrap();
+        let normalized = store.dream_normalize(&ctx).unwrap();
+        assert_eq!(normalized["broken_relations_revived"], 1);
+        let active = store.graph_related(&a, None, None, false).unwrap();
+        assert!(active.iter().any(|edge| edge.relation_type == "works_on"));
+        assert!(!active.iter().any(|edge| edge.relation_type == "belongs_to"));
+        let active = store.graph_related(&a, None, None, false).unwrap();
+        assert!(!active.iter().any(|edge| edge.relation_type == "belongs_to"));
+        assert!(active.iter().any(|edge| edge.relation_type == "uses"));
         assert_eq!(
             store
                 .graph_collapse_synonym_edges(&ctx, false, "dreamer")

@@ -26,11 +26,15 @@ pub async fn mem_archive(
         .map(sanitize_actor)
         .unwrap_or_else(|| changed_by_from_headers(&headers));
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
-    let caller_tab = crate::auth::tab_caller(&state, &headers)?.map(|caller| caller.tab_id);
+    let request_actor = crate::auth::RequestActor::authenticate(&state, &headers)?;
+    let origin = codeterm_service_core::mem_host::WorkerWriteOrigin::capture(
+        &state.svc,
+        request_actor.local_tab(),
+    );
     let svc = state.svc.clone();
     let target = id.clone();
     let output = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::mem_host::with_worker_write(&svc, caller_tab.as_deref(), || {
+        origin.run(&svc, || {
             codeterm_service_core::mem::store::with_author(author, || {
                 archive_mem_item(&svc, &target, &reason, &actor)
             })

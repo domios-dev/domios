@@ -190,8 +190,6 @@ pub fn revive_broken(
     sql.push_str(
         " AND relations.rowid = (SELECT c.rowid FROM relations c \
           WHERE c.valid_to IS NOT NULL \
-          AND COALESCE(c.reason, '') NOT GLOB 'collapse_synonym_edges:*' \
-          AND COALESCE(c.reason, '') NOT GLOB 'prune_dream_hub_edges:*' \
           AND c.from_id = relations.from_id AND c.relation_type = relations.relation_type \
           AND c.to_id = relations.to_id AND c.scope = relations.scope \
           AND c.from_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
@@ -273,7 +271,6 @@ pub fn introduce_topic(
         )?;
     }
 
-    let mut created_relations = Vec::new();
     let mut edges_invalidated: u64 = 0;
     let mut edges_created: u64 = 0;
     let mut created_relations = Vec::new();

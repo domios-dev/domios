@@ -156,10 +156,28 @@ fn nightly_normalize_does_not_revive_deliberate_cleanup() {
         &rel("topic_a", "belongs_to", "topic_b", "2026-01-02T00:00:00Z"),
     )
     .unwrap();
+    let mut older = rel("topic_a", "belongs_to", "topic_b", "2025-01-01T00:00:00Z");
+    older.valid_to = Some("2025-01-02T00:00:00Z".into());
+    insert_relation(&conn, &older).unwrap();
+    let mut recoverable = rel("topic_b", "uses", "topic_a", "2025-01-01T00:00:00Z");
+    recoverable.valid_to = Some("2025-01-02T00:00:00Z".into());
+    insert_relation(&conn, &recoverable).unwrap();
+    let mut old = rel("topic_a", "belongs_to", "topic_b", "2024-01-01T00:00:00Z");
+    old.valid_to = Some("2024-02-01T00:00:00Z".into());
+    insert_relation(&conn, &old).unwrap();
+    let mut recoverable = rel("topic_a", "works_on", "topic_b", "2024-01-01T00:00:00Z");
+    recoverable.valid_to = Some("2024-02-01T00:00:00Z".into());
+    insert_relation(&conn, &recoverable).unwrap();
     let first = collapse_synonym_edges(&conn, false, "dreamer").unwrap();
     assert_eq!(first.deleted, 1);
-    codeterm_mem_store::maintenance::worker_dreaming_normalize(&conn).unwrap();
+    let normalized = codeterm_mem_store::maintenance::worker_dreaming_normalize(&conn).unwrap();
+    assert_eq!(normalized["broken_relations_revived"], 1);
+    assert_eq!(
+        active_rel_types(&conn, "topic_a", "topic_b"),
+        vec!["about", "works_on"]
+    );
     let second = collapse_synonym_edges(&conn, false, "dreamer").unwrap();
     assert_eq!(second.deleted, 0);
     assert!(second.orphan_ids.is_empty());
+    assert!(active_rel_types(&conn, "topic_b", "topic_a").contains(&"uses".into()));
 }

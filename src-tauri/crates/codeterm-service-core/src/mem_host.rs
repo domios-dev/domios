@@ -694,22 +694,37 @@ pub fn cancel_worker(
     Some(info)
 }
 
+pub struct WorkerWriteOrigin {
+    worker_id: Option<String>,
+}
+
+impl WorkerWriteOrigin {
+    pub fn capture(svc: &ServiceContext, caller_tab: Option<&str>) -> Self {
+        let worker_id = caller_tab.and_then(|tab_id| {
+            let mux = svc.mux.read();
+            if let Some(tab) = mux.get_tab(tab_id) {
+                return tab.worker_id.clone();
+            }
+            drop(mux);
+            svc.workers
+                .list()
+                .into_iter()
+                .find(|worker| worker.tab_id == tab_id)
+                .map(|worker| worker.worker_id)
+        });
+        Self { worker_id }
+    }
+
+    pub fn run<R>(&self, svc: &ServiceContext, action: impl FnOnce() -> R) -> R {
+        svc.mem.attach_worker_registry(&svc.workers);
+        codeterm_mem::store::with_write_worker(self.worker_id.as_deref(), action)
+    }
+}
+
 pub fn with_worker_write<R>(
     svc: &ServiceContext,
     caller_tab: Option<&str>,
     action: impl FnOnce() -> R,
 ) -> R {
-    let worker_id = caller_tab.and_then(|tab_id| {
-        let worker_id = svc
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.worker_id.clone())?;
-        svc.workers
-            .get(&worker_id)
-            .filter(|worker| worker.tab_id == tab_id && !worker.status.is_terminal())
-            .map(|worker| worker.worker_id)
-    });
-    svc.mem.attach_worker_registry(&svc.workers);
-    codeterm_mem::store::with_write_worker(worker_id.as_deref(), action)
+    WorkerWriteOrigin::capture(svc, caller_tab).run(svc, action)
 }
