@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { act } from "react";
+import { act, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { appearanceLookStyle, DEFAULT_APPEARANCE, type AppearanceLook, type AppearanceProposal } from "../../lib/appearance";
@@ -9,7 +9,7 @@ import { UNKNOWN_MACHINE } from "../../lib/machineIdentity";
 import { rememberAccountMachineNames, rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
 import { machine, pair, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { renderAppearanceCard } from "./AppearanceCard";
-import { AppearanceLab } from "./AppearanceLab";
+import { AppearanceLabLayer } from "./AppearanceLab";
 import { useAppearanceLabSession, type AppearanceLabProjection } from "./AppearanceLabSession";
 import { AppearanceLabUndo } from "./AppearanceLabUndo";
 
@@ -55,9 +55,8 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
   api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk [dev-local]" }, look, presets: [DEFAULT_THEME], active: null });
   api.proposeAppearance.mockImplementation(async (_target, proposed) => ({ id: "proposal", look: proposed }));
   api.changeAppearance.mockResolvedValue(undefined);
-  const host = document.createElement("div");
-  document.body.append(host);
-  const root = createRoot(host);
+  const lab = mountLab();
+  const { host, project } = lab;
   const select = (label: string) => [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')]
     .find(control => control.getAttribute("aria-label") === label || [...(control.labels ?? [])].some(candidate => candidate.textContent?.trim() === label))!;
   const fields = new Set<string>();
@@ -65,12 +64,15 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
   try {
     rememberNames();
     rememberPeers(paired);
-    const project = vi.fn();
-    await act(async () => root.render(<AppearanceLab config={{ theme: DEFAULT_THEME } as AppConfig}
-      onProject={project} onClose={() => {}} />));
-    expect(host.querySelector('[role="toolbar"][aria-label="Appearance"]')).not.toBeNull();
-    expect(host.querySelector('button[aria-label="Presets"]')?.getAttribute("aria-pressed")).toBe("true");
-    expect(host.querySelector('button[aria-label="Presets"]')?.getAttribute("aria-controls")).toBe(host.querySelector('[role="region"][aria-label="Presets"]')?.id);
+    await lab.render();
+    const panel = lab.panel()!;
+    const toolbar = panel.querySelector('[role="toolbar"][aria-label="Appearance"]')!;
+    const controls = panel.querySelector('[role="region"][aria-label="Presets"]')!;
+    expect([...toolbar.querySelectorAll("button")].map(button => button.getAttribute("aria-label")))
+      .toEqual(["Presets", "Palette", "Wallpaper", "Shape", "Text", "Compare", "More appearance options"]);
+    expect(toolbar.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(toolbar.querySelector('button[aria-label="Presets"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(toolbar.querySelector('button[aria-label="Presets"]')?.getAttribute("aria-controls")).toBe(controls.id);
     const more = host.querySelector<HTMLButtonElement>('button[aria-label="More appearance options"]')!;
     await click(more);
     expect([...document.querySelectorAll('select[aria-label="Appearance machine"] option')].map(option => option.textContent))
@@ -113,10 +115,9 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
     }, look);
     expect(api.changeAppearance).toHaveBeenCalledWith({ machine: "local" }, "proposal", "apply");
   } finally {
-    await act(async () => root.unmount());
+    await lab.cleanup();
     rememberAccountMachineNames(null);
     rememberPeers([]);
-    host.remove();
   }
 });
 
@@ -124,9 +125,25 @@ function mountLab() {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const close = vi.fn((_: boolean) => root.render(null));
+  let session: ReturnType<typeof useAppearanceLabSession>;
+  const close = vi.fn((_: boolean) => session.close());
   const project = vi.fn<(projection?: AppearanceLabProjection) => void>();
-  const region = () => host.querySelector('[role="region"][aria-label="Changes"]')!;
+  const config = { theme: DEFAULT_THEME } as AppConfig;
+  function Fixture() {
+    session = useAppearanceLabSession(true, "main", undefined);
+    const projectSession = session.project;
+    const onProject = useCallback((projection?: AppearanceLabProjection) => {
+      project(projection);
+      projectSession(projection);
+    }, [projectSession]);
+    return <>
+      <button type="button">Try it</button>
+      <AppearanceLabLayer config={config} session={session.session} onProject={onProject} onClose={close} onExited={() => {}} />
+    </>;
+  }
+  const opener = () => host.querySelector<HTMLButtonElement>("button")!;
+  const panel = () => host.querySelector<HTMLElement>('[role="dialog"][aria-label="Appearance Lab"]');
+  const region = () => panel()!.querySelector<HTMLElement>('[role="region"][aria-label="Changes"]')!;
   const button = (label: string) => [...region().querySelectorAll("button")]
     .find(control => (control.getAttribute("aria-label") ?? control.textContent?.trim()) === label);
   const status = () => region().querySelector('[role="status"][aria-live="polite"]')!.textContent;
@@ -139,10 +156,14 @@ function mountLab() {
     return input;
   };
   return {
-    host, region, button, status, changeRange, close, project,
+    host, opener, panel, region, button, status, changeRange, close, project,
+    projection: () => session.projection,
     category: (label: string) => category(host, label),
-    render: (open?: { machine: string; peer?: string; proposal: string }) => act(async () => root.render(<AppearanceLab config={{ theme: DEFAULT_THEME } as AppConfig}
-      open={open} onProject={project} onClose={close} />)),
+    render: async (proposal?: { machine: string; peer?: string; proposal: string }) => {
+      await act(async () => root.render(<Fixture />));
+      opener().focus();
+      await act(async () => session.enter({ main: { workspaceId: "general", tabId: "main" }, opener: opener(), proposal }));
+    },
     cleanup: async () => {
       await act(async () => root.unmount());
       host.remove();
@@ -173,13 +194,16 @@ it("counts staged changes and discards wallpaper without losing other controls",
     expect(lab.status()).toBe("3 changes");
     expect(lab.button("Apply")?.disabled).toBe(false);
     await click(lab.button("3 changes")!);
-    const staged = document.querySelector('[aria-label="Staged changes"]')!;
+    const staged = lab.region().querySelector('[aria-label="Staged changes"]')!;
     expect(staged.textContent).toContain("Roundness 1.00 → 0.40");
     await click(staged.querySelector<HTMLButtonElement>('button[aria-label="Revert Roundness"]')!);
     expect(lab.status()).toBe("2 changes");
     expect(roundness.isConnected).toBe(false);
     expect(lab.project.mock.lastCall?.[0]?.look.tuning).toMatchObject({ roundness: 1, shadow_strength: 0.6 });
     expect(wallpaper("Botanical").checked).toBe(true);
+    await pressEscape();
+    expect(staged.isConnected).toBe(false);
+    expect(document.activeElement).toBe(lab.button("2 changes"));
 
     await click([...lab.host.querySelectorAll("button")].find(button => button.textContent === "Discard wallpaper changes")!);
     expect(lab.status()).toBe("1 change");
@@ -225,7 +249,7 @@ it("keeps the applied receipt and named Undo available beyond eight seconds", as
     expect(lab.close).not.toHaveBeenCalled();
     expect(lab.status()).toMatch(/^Applied · \d{2}:\d{2}$/);
     expect(lab.button(undo)?.disabled).toBe(false);
-    expect(lab.button("Dismiss applied appearance")?.disabled).toBe(false);
+    expect(lab.panel()?.querySelector('button[aria-label="Close Appearance Lab"]')).not.toBeNull();
 
     await act(async () => lab.button(undo)!.click());
     expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "local" }, receipt.id, "undo");
@@ -237,7 +261,7 @@ it("keeps the applied receipt and named Undo available beyond eight seconds", as
   }
 });
 
-it("keeps older Undo out of the dock and targets Apply to the selected machine after staging", async () => {
+it("keeps older Undo out of the panel and targets Apply to the selected machine after staging", async () => {
   const remote = { id: "peer", name: "Desk [dev-peer]" };
   const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: DEFAULT_APPEARANCE };
   const previous = { ...look, theme: { ...DEFAULT_THEME, name: "Earlier look" } };
@@ -339,24 +363,32 @@ it("pre-stages the proposal from Open in Lab and compares the applied look while
   }
 });
 
-it("closes the card first on Escape and restores focus before exiting", async () => {
-  const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };
-  api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME], active: null });
+const pressEscape = () => act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+
+it.each(["Close Appearance Lab", "Escape"])("discards the entire preview via %s and restores focus", async (action) => {
+  const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: { background: { pattern: "dots" } }, tuning: null };
+  const preset = { ...DEFAULT_THEME, name: "Other look", chat_background: { pattern: "botanical" as const } };
+  api.readAppearance.mockResolvedValue({ machine: { id: "fixture", name: "Desk" }, look, presets: [DEFAULT_THEME, preset], active: null });
+  const writesBefore = api.changeAppearance.mock.calls.length;
   const lab = mountLab();
-  const escape = () => act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   try {
     await lab.render();
+    expect(document.activeElement).toBe(lab.panel());
+    await click([...lab.panel()!.querySelectorAll("button")].find(button => button.textContent === preset.name)!);
     await lab.category("Shape");
-    await lab.changeRange("appearance.roundness", "0.4");
-    const shape = lab.host.querySelector<HTMLButtonElement>('button[aria-label="Shape"]')!;
-    await escape();
-    expect(shape.getAttribute("aria-pressed")).toBe("false");
-    expect(lab.host.querySelector('[role="region"][aria-label="Shape and depth"]')).toBeNull();
-    expect(document.activeElement).toBe(shape);
-    expect(lab.close).not.toHaveBeenCalled();
-    await escape();
+    const slider = await lab.changeRange("appearance.roundness", "0.4");
+    slider.focus();
+    expect(lab.projection()?.look).toMatchObject({ theme: preset, tuning: { roundness: 0.4 } });
+    expect(lab.host.textContent).toContain("Previewing · not applied");
+    if (action === "Escape") await pressEscape();
+    else await click(lab.panel()!.querySelector<HTMLButtonElement>('button[aria-label="Close Appearance Lab"]')!);
     expect(lab.close).toHaveBeenCalledWith(true);
-    expect(lab.host.querySelector('[role="toolbar"]')).toBeNull();
+    expect(lab.panel()).toBeNull();
+    expect(lab.projection()).toBeUndefined();
+    expect(api.changeAppearance.mock.calls).toHaveLength(writesBefore);
+    expect(document.activeElement).toBe(lab.opener());
+    await lab.render();
+    expect(lab.projection()?.look).toEqual(look);
   } finally {
     await lab.cleanup();
   }

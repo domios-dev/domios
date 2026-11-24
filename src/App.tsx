@@ -97,6 +97,7 @@ import { appearanceLookKey, appearanceLookStyle } from "./lib/appearance";
 import { OPEN_APPEARANCE, type OpenAppearance } from "./lib/appearanceClient";
 import { generalAgentTab } from "./lib/generalAgent";
 import { useAppearanceLabSession } from "./components/Settings/AppearanceLabSession";
+import { AppearanceLabHost } from "./components/Settings/AppearanceLabHost";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
@@ -112,7 +113,6 @@ import { neighborsEnabled } from "./components/Neighbors/neighborsSwitch";
 const EMPTY_LEVELS: AgentLevelChoice[] = [];
 
 const SettingsPanel = deferredComponent(async () => ({ default: (await import("./components/Settings/SettingsPanel")).SettingsPanel }));
-const AppearanceLab = deferredComponent(async () => ({ default: (await import("./components/Settings/AppearanceLab")).AppearanceLab }));
 const MemoryPanel = deferredComponent(async () => ({ default: (await import("./components/MemoryPanel/MemoryPanel")).MemoryPanel }));
 const MeshPanel = deferredComponent(async () => ({ default: (await import("./components/MeshPanel/MeshPanel")).MeshPanel }));
 const NeighborsView = deferredComponent(async () => ({ default: (await import("./components/Neighbors/NeighborsView")).NeighborsView }));
@@ -194,7 +194,7 @@ function AppInner() {
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
-  const [settingsVisit, setSettingsVisit] = useState<{ id: number; section?: SettingsLinkId; guide?: GuideRequest } | null>(null);
+  const [settingsVisit, setSettingsVisit] = useState<{ id: number; section?: SettingsLinkId; guide?: GuideRequest; focusAppearance?: boolean } | null>(null);
   const [firstRunSettings, setFirstRunSettings] = useState(false);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
@@ -234,7 +234,8 @@ function AppInner() {
     if (!main) return;
     const origin = !proposal ? "settings" : state.active_workspace_id && activeViewTab
       ? { workspaceId: state.active_workspace_id, tabId: activeViewTab } : undefined;
-    lab.enter({ main, previousTab: activeViewTab, machine: machineAppearance.peerId, origin, proposal, showWallpaper });
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    lab.enter({ main, previousTab: activeViewTab, machine: machineAppearance.peerId, origin, opener, proposal, showWallpaper });
     setClientTabUiMode(main.tabId, "chat");
     setAutomationWorkspaceId(null);
     setWorkspaceMapWorkspaceId(null);
@@ -244,21 +245,21 @@ function AppInner() {
     closeSidebarOnMobile();
     window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: main }));
   }, [state, activeViewTab, machineAppearance.peerId, lab.enter, setAutomationWorkspaceId, setWorkspaceMapWorkspaceId, setMainView, closeSidebarOnMobile]);
-  const openSettings = useCallback((section?: SettingsLinkId, guide?: GuideRequest) => {
+  const openSettings = useCallback((section?: SettingsLinkId, guide?: GuideRequest, focusAppearance?: boolean) => {
     if (lockedRef.current) return;
     if (section === "appearance-lab" || section === "chat-wallpaper") {
       enterLab(section === "chat-wallpaper");
       return;
     }
     lab.close();
-    setSettingsVisit((visit) => ({ id: (visit?.id ?? 0) + 1, section, guide }));
+    setSettingsVisit((visit) => ({ id: (visit?.id ?? 0) + 1, section, guide, focusAppearance }));
     openSettingsView();
   }, [openSettingsView, enterLab, lab.close]);
   const exitLab = useCallback((returnToOrigin: boolean) => {
     const origin = lab.session?.origin;
     lab.close();
     if (!returnToOrigin || !origin) return;
-    if (origin === "settings") openSettings("general");
+    if (origin === "settings") openSettings("general", undefined, true);
     else window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: origin }));
   }, [lab.session?.origin, lab.close, openSettings]);
   const openAgentsSettings = useCallback(() => openSettings("agents"), [openSettings]);
@@ -908,7 +909,7 @@ function AppInner() {
         <NewSessionPickerHost firstRunActive={locked} agentsConfig={config.agents} />
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden" data-appearance-lab={lab.session ? "" : undefined}>
+        <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {locked ? (configLoading ? <Loader label="Loading settings" deferred={false} />
             : firstRunSettings ? <SettingsPanel config={config} onUpdateConfig={updateConfig} initialSection="general" onClose={() => setFirstRunSettings(false)} />
             : <FirstRunGeneralPicker providers={firstRunProviders} providersLoading={firstRunProvidersLoading} providersError={firstRunProvidersError} home={state.active_workspace_id && state.focused_tab_id
@@ -928,6 +929,7 @@ function AppInner() {
                 initialSection={settingsVisit?.section}
                 guideRequest={settingsVisit?.guide}
                 onOpenAppearance={enterLab}
+                focusAppearance={settingsVisit?.focusAppearance}
                 restoreNavigation={settingsVisit === null}
               />
             </div>
@@ -1081,7 +1083,7 @@ function AppInner() {
               <div
                 key={tabId}
                 className="absolute inset-0"
-                data-appearance-lab-chat={lab.session && isVisible ? "" : undefined}
+                data-appearance-lab-chat={isVisible ? "" : undefined}
                 inert={!isVisible || !!automationWorkspaceId || undefined}
                 style={{
                   zIndex: isVisible ? 1 : 0,
@@ -1113,8 +1115,7 @@ function AppInner() {
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
           <PlanSidePanelHost api={stableApiConfig} onOpenCanvas={handleNavigateToTab} />
-          {lab.session && <AppearanceLab key={lab.session.proposal?.proposal ?? "try-it"} config={config}
-            open={lab.session.proposal} showWallpaperOwn={lab.session.showWallpaper} onProject={lab.project} onClose={exitLab} />}
+          <AppearanceLabHost config={config} session={lab.session} onProject={lab.project} onClose={exitLab} />
           </>}
         </main>
         </div>

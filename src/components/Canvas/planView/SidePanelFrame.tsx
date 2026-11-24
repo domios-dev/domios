@@ -3,9 +3,9 @@ import { X } from "lucide-react";
 import { BackPill } from "../../shared/BackPill";
 import type { PresenceState } from "../usePresence";
 
-export function SidePanelFrame({ panelRef, state, label, title, actions, children, onClose, contentKey, replaced, onBack, backLabel, closeLabel, ...attributes }: {
+export function SidePanelFrame({ panelRef, state, label, title, actions, toolbar, children, footer, onClose, contentKey, replaced, onBack, backLabel, closeLabel, ...attributes }: {
   panelRef: RefObject<HTMLElement | null>; state: PresenceState; label: string;
-  title: ReactNode; actions?: ReactNode; children: ReactNode; onClose: () => void;
+  title: ReactNode; actions?: ReactNode; toolbar?: ReactNode; children: ReactNode; footer?: ReactNode; onClose: () => void;
   contentKey?: string; replaced?: boolean; onBack?: () => void; backLabel?: string; closeLabel?: string;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
   useLayoutEffect(() => { panelRef.current?.focus(); }, [panelRef, contentKey]);
@@ -28,6 +28,8 @@ export function SidePanelFrame({ panelRef, state, label, title, actions, childre
       {onBack ? <BackPill label={backLabel} testId="plan-side-panel-back" onBack={onBack} /> : null}
       <button type="button" data-testid="plan-side-panel-close" aria-label={closeLabel ?? `Close ${label}`} title="Close (Esc)" className="plan-side-panel__action" onClick={onClose}><X size={15} aria-hidden /></button>
     </header>
+    {toolbar}
     <div key={contentKey} data-testid="plan-side-panel-body" data-replaced={replaced ? "" : undefined} className="plan-side-panel__body plan-detail-selectable">{children}</div>
+    {footer}
   </aside>;
 }
