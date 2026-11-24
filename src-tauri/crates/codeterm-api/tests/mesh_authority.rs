@@ -421,6 +421,85 @@ async fn registered_tab_close_routes_refuse_unscoped_peer_access() {
 }
 
 #[tokio::test]
+async fn mesh_team_rpc_and_surface_close_require_a_local_caller() {
+    initialize();
+    install_rpc();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let source = state(&fixture, "source", 0);
+    let target = state(&fixture, "target", 0);
+    pair(&target, &source);
+    let app = routes::create_router_with_frontend(target.clone(), None);
+    let signed = |origin| {
+        crown::sign_request_with_origin(
+            source
+                .mesh
+                .lock()
+                .ident
+                .identity
+                .private_key
+                .as_deref()
+                .unwrap(),
+            "source",
+            origin,
+        )
+        .unwrap()
+    };
+    for access in [
+        AccessLevel::Custom(vec![codeterm_mesh::types::Permission::Admin]),
+        AccessLevel::Full,
+    ] {
+        assert!(target.mesh.lock().set_peer_access("source", access));
+        for origin in [AuthenticatedOrigin::Owner, AuthenticatedOrigin::Mesh] {
+            let rpc = json!({
+                "method":"team.close", "request_id":"team-close-denied", "protocol_version":1,
+                "params":{"team_id":"team-fixture","confirm":"team-fixture","force":true}
+            });
+            let (status, direct) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/mesh/rpc",
+                rpc.clone(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(direct["error"]["code"], -32003, "{direct}");
+            let (status, relayed) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/mesh/relay",
+                json!({"method":"POST","path":"/api/mesh/rpc","body":rpc}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(relayed["data"]["error"]["code"], -32003, "{relayed}");
+
+            let surface = json!({"tab_id":"surface-fixture"});
+            let (status, _) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/surfaces/close",
+                surface.clone(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            let (status, relayed) = request(
+                app.clone(),
+                &signed(origin),
+                "POST",
+                "/api/mesh/relay",
+                json!({"method":"POST","path":"/api/surfaces/close","body":surface}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(relayed["status"], 403, "{relayed}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer_access() {
     initialize();
     install_rpc();

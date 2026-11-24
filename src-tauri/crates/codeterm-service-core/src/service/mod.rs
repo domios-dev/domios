@@ -49,6 +49,7 @@ pub mod cartographer;
 pub mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod client_selection;
+pub mod close_authority;
 mod close_history;
 pub use close_history::close_inventory_error_data;
 mod command_port_impl;

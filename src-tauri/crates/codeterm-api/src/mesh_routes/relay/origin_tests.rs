@@ -792,3 +792,37 @@ fn owner_tab_close_revalidates_verified_grant_in_blocking_worker() {
             assert!(target.svc.mux.read().get_tab(&tab).is_some());
         });
 }
+
+#[tokio::test]
+async fn workspace_close_refuses_a_stale_grant_before_cascade_admission() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.create_workspace("SharedCloseFixture".into(), None).id;
+    let tab = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let source = state(&fixture, "source");
+    let target = state(&fixture, "target");
+    pair(&target, &source);
+    let token = origin::sign(&source, AuthenticatedOrigin::Owner, None).unwrap();
+    let caller = origin::authenticate_signed_mesh_request(&target, &headers(&token)).unwrap();
+    assert!(target
+        .mesh
+        .lock()
+        .set_peer_access("source", AccessLevel::ReadOnly));
+    assert!(target
+        .mesh
+        .lock()
+        .set_peer_access("source", AccessLevel::Full));
+
+    let refused =
+        close_workspace_from_mesh_peer(&target, "source", &workspace, true, caller.grant.unwrap())
+            .await
+            .unwrap();
+    assert_eq!(refused.status, StatusCode::FORBIDDEN.as_u16());
+    assert!(refused
+        .error
+        .unwrap()
+        .contains("Peer authorization changed"));
+    let mux = target.svc.mux.read();
+    assert!(mux.get_workspace(&workspace).is_some());
+    assert!(mux.get_tab(&tab).is_some());
+}

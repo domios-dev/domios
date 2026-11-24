@@ -4,6 +4,7 @@ use codeterm_service_core::api_support::access_policy::{
     allows_full_dispatch, is_local_only_path, peer_access_allowed, request_path, request_scope,
 };
 use codeterm_service_core::mesh::types::AccessLevel;
+use codeterm_service_core::service::close_authority::{MeshCloseGrant, OwnerTabCloseScope};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PeerRelayAuthorization<'a> {
@@ -146,17 +147,14 @@ pub(super) async fn close_tab_from_mesh_owner(
     grant: crate::auth::peer_grant::PeerGrant,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let force = tab_close_force(path)?;
-    let mesh = state.mesh.clone();
+    let grant = MeshCloseGrant::new(state.mesh.clone(), move |mesh| grant.current(mesh));
     Ok(tab_close_relay_response(
-        crate::web_routes::close_tab_as_owner(state, tab_id, force, move || {
-            if !grant.current(&mesh.lock()) {
-                return Err(format!(
-                    "{}: Peer authorization changed",
-                    codeterm_service_core::service::tab::REMOTE_TAB_CLOSE_REFUSAL_PREFIX
-                ));
-            }
-            Ok(())
-        })
+        crate::web_routes::close_tab_as_owner(
+            state,
+            tab_id,
+            force,
+            OwnerTabCloseScope::Mesh(grant),
+        )
         .await,
     ))
 }
@@ -239,12 +237,14 @@ pub(super) async fn close_workspace_from_mesh_peer(
     peer_id: &str,
     workspace_id: &str,
     force: bool,
+    grant: crate::auth::peer_grant::PeerGrant,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let service = state.svc.clone();
     let peer_id = peer_id.to_string();
     let workspace_id = workspace_id.to_string();
+    let grant = MeshCloseGrant::new(state.mesh.clone(), move |mesh| grant.current(mesh));
     let result = tokio::task::spawn_blocking(move || {
-        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force)
+        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force, &grant)
     })
     .await
     .map_err(|error| {
