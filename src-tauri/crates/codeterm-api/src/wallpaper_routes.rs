@@ -41,7 +41,10 @@ pub(super) fn routes() -> Router<AppState> {
     )
 }
 
-fn with_store(store: WallpaperStore, config_path: Result<PathBuf, String>) -> Router<AppState> {
+pub(super) fn with_store(
+    store: WallpaperStore,
+    config_path: Result<PathBuf, String>,
+) -> Router<AppState> {
     let assets = Arc::new(WallpaperAssets {
         store,
         upload_slot: Arc::new(Semaphore::new(1)),
