@@ -23,7 +23,7 @@ assert.equal(dreamCounters("<insight>There were 123 memories.</insight>").links,
 assert.equal(nightState(entry("good")), "complete");
 assert.equal(nightState(entry("wip", "<insight>WIP: dreaming</insight>")), "incomplete");
 assert.equal(nightState(entry("pending", "<insight>Read.</insight><log>CALIBRATION: pending</log>")), "incomplete");
-assert.equal(nightState(undefined, worker("running", { status: "running" })), "live");
+assert.equal(nightState(undefined, worker("running", { status: "analyzing" })), "live");
 assert.equal(nightState(undefined, worker("failed", { status: "error" })), "stopped");
 assert.equal(nightState(entry("written"), worker("failed", { finalization: { state: "failed", reason: "stopped" } })), "stopped");
 assert.equal(nightState(undefined, worker("unverified")), "incomplete");
@@ -79,11 +79,11 @@ const refresh = dreamRefresh(async () => {
   if (calls === 1) await new Promise<void>((resolve) => { release = resolve; });
 }, () => active);
 const first = refresh();
-await refresh();
-await refresh();
+const second = refresh();
+const third = refresh();
 assert.equal(calls, 1, "a burst never overlaps loads");
 release!();
-await first;
+await Promise.all([first, second, third]);
 assert.equal(calls, 2, "one trailing load consumes all invalidations");
 active = false;
 console.log("✓ dream refresh serializes bursts and preserves one trailing invalidation");

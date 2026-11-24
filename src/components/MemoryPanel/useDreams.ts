@@ -47,7 +47,7 @@ export function useDreams(api: ApiConfig) {
           const res = await request(`/api/mem/dream/diary?${params}`);
           const data = await res.json() as { items: DreamDiaryEntry[]; total: number; next_offset?: number | null };
           entries.push(...data.items);
-          const oldest = data.items.at(-1);
+          const oldest = data.items[data.items.length - 1];
           const next = data.next_offset ?? offset + data.items.length;
           if (!oldest || Date.parse(oldest.created_at) < start || next >= data.total || next <= offset) break;
           offset = next;
@@ -116,4 +116,3 @@ export function useDreams(api: ApiConfig) {
   };
   return { dreamCron, dreamWorkers, diaryEntries, diaryLoading, running, runError, runNow, toggleDreamCron, stop };
 }
-

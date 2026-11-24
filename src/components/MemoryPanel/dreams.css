@@ -100,8 +100,8 @@
   .dream-overview { padding: 14px 16px; }
   .dream-heat-description { display: none; }
   .dream-heat-heading { flex-wrap: wrap; }
-  .dream-heat { grid-template-columns: repeat(18,minmax(0,1fr)); grid-template-rows: repeat(7,12px); }
-  .dream-heat i { width: 100%; }
+  .dream-heat { grid-template-columns: repeat(18,minmax(0,1fr)); grid-template-rows: repeat(7,auto); }
+  .dream-heat i { width: 100%; height: auto; aspect-ratio: 1; min-width: 11px; }
   .dream-total { font-size: 20px; }
   .dream-night, .dream-with-thumb { grid-template-columns: minmax(0,1fr); gap: 10px; }
   .dream-thumbnail, .dream-stopped { height: 56px; }
@@ -111,4 +111,3 @@
 [data-ct-theme='light'] .dream-sheet::backdrop { background: rgb(31 35 40/.32); }
 .dream-schedule .dream-dot { background: var(--ct-green); }
 .dream-schedule .dream-inactive { background: var(--ct-muted-fg); }
-
