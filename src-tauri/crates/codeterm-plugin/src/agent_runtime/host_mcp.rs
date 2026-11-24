@@ -2,6 +2,12 @@ use super::{AgentRuntimeCapability, RuntimeContext, RuntimeFailure, RuntimeFailu
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub const NEIGHBOR_REPLY_MCP_PARAM: &str = "neighborReplyStdio";
+pub const NEIGHBOR_REPLY_MCP_NAME: &str = "domios_neighbor_reply";
+pub const NEIGHBOR_REPLY_MCP_TOOL: &str = "reply";
+pub const NEIGHBOR_REPLY_FRIENDSHIP_ENV: &str = "CODETERM_NEIGHBOR_REPLY_FRIENDSHIP_ID";
+const NEIGHBOR_REPLY_CONFIG_KEY: &str = "mcp_servers.domios_neighbor_reply";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeHostMcpDeclaration {
@@ -52,6 +58,10 @@ impl std::fmt::Debug for RuntimeHostMcp {
 }
 
 impl RuntimeHostMcp {
+    pub fn is_neighbor_reply(&self) -> bool {
+        self.name == NEIGHBOR_REPLY_MCP_NAME
+    }
+
     pub fn descriptor(&self) -> Value {
         let env: Vec<Value> = self
             .env
@@ -83,12 +93,45 @@ impl RuntimeHostMcp {
 pub(super) fn validate(
     cap: &AgentRuntimeCapability,
     ctx: &RuntimeContext,
-    _method: &str,
+    method: &str,
     params: &Value,
 ) -> Result<(), RuntimeFailure> {
     let Some(declaration) = &cap.host_mcp else {
         return Ok(());
     };
+    if declaration.param == NEIGHBOR_REPLY_MCP_PARAM {
+        let config = params.get("config");
+        let declared = declaration.methods.iter().any(|allowed| allowed == method);
+        let server = ctx
+            .host_mcp
+            .as_ref()
+            .filter(|server| server.is_neighbor_reply());
+        let expected = server.filter(|_| declared).map(|server| {
+            json!({
+                "command": server.command,
+                "args": server.args,
+                "env": server.env,
+                "env_vars": ["CODETERM_API_TOKEN"],
+                "required": true,
+            })
+        });
+        let shadowed = config.and_then(Value::as_object).is_some_and(|fields| {
+            fields.iter().any(|(key, value)| {
+                key.strip_prefix(NEIGHBOR_REPLY_CONFIG_KEY)
+                    .is_some_and(|suffix| suffix.starts_with('.'))
+                    || key == "mcp_servers" && value.get(NEIGHBOR_REPLY_MCP_NAME).is_some()
+            })
+        });
+        if config.and_then(|config| config.get(NEIGHBOR_REPLY_CONFIG_KEY)) == expected.as_ref()
+            && !shadowed
+        {
+            return Ok(());
+        }
+        return Err(RuntimeFailure::new(
+            RuntimeFailureCode::BindingMismatch,
+            "Neighbor reply MCP server differs from tab authority",
+        ));
+    }
     let servers = params.get(&declaration.param);
     if servers.is_none() {
         return Ok(());

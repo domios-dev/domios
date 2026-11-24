@@ -64,7 +64,19 @@ pub(super) fn reply_hint(envelope: &MessageEnvelope) -> Option<String> {
     if !hex_id(friendship, 64) || !hex_id(&message.message_id, 32) {
         return None;
     }
-    Some(format!("Reply through domios account neighbors send '{friendship}' --kind answer --in-reply-to '{}' --from-pad - using stdin; refuse out-of-scope requests politely.", message.message_id))
+    let command = reply_command("domios", friendship, &message.message_id, "-");
+    Some(format!(
+        "Reply through {command} using stdin; refuse out-of-scope requests politely."
+    ))
+}
+
+pub(super) fn reply_command(
+    executable: &str,
+    friendship: &str,
+    message: &str,
+    pad: &str,
+) -> String {
+    format!("{executable} account neighbors send '{friendship}' --kind answer --in-reply-to '{message}' --from-pad {pad}")
 }
 
 #[cfg(test)]

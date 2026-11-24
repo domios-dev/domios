@@ -611,6 +611,10 @@ pub async fn ensure_locked(
         }
     }
     crate::startup::boot_timing::mark(tab, None, "runtime_options_ready");
+    let launch_context = session.context.lock().clone();
+    let neighbor_reply = super::host_mcp::neighbor_reply(svc, provider, &launch_context)
+        .await
+        .map_err(RuntimeFailure::Refused)?;
     let mut force_respawn = false;
     let (process, initialized_ms) = loop {
         let old = session.process.lock().clone();
@@ -678,12 +682,16 @@ pub async fn ensure_locked(
             let owner = svc.clone();
             let provider_id = provider.to_string();
             let cli_context = session.context.lock().clone();
-            let restricted_cli = codeterm_plugin::js_runtime::spawn_blocking(move || {
-                super::cli_exception::prepare(&owner, &provider_id, &cli_context)
-            })
-            .await
-            .map_err(|_| RuntimeFailure::Superseded)?
-            .map_err(RuntimeFailure::Refused)?;
+            let restricted_cli = if neighbor_reply.is_some() {
+                None
+            } else {
+                codeterm_plugin::js_runtime::spawn_blocking(move || {
+                    super::cli_exception::prepare(&owner, &provider_id, &cli_context)
+                })
+                .await
+                .map_err(|_| RuntimeFailure::Superseded)?
+                .map_err(RuntimeFailure::Refused)?
+            };
             session.context.lock().restricted_cli = restricted_cli;
             let context = session.context.lock().clone();
             let restricted_cli = context.restricted_cli.is_some();
@@ -693,6 +701,7 @@ pub async fn ensure_locked(
             let provider_id = provider.to_string();
             let launch_nonce = context.binding_nonce.clone();
             let spawn_invocation = session.invocation.lock().clone();
+            let scoped_reply = neighbor_reply.clone();
             let switch_launch =
                 crate::service::messenger::switch_handoff::launch_authority(svc, tab);
             let (process, host_mcp, declared_bridges, stamp) =
@@ -745,22 +754,15 @@ pub async fn ensure_locked(
                     {
                         return Err(RuntimeFailure::Superseded);
                     }
-                    let minted_local = super::host_mcp::minted_local(
-                        &env,
-                        &crate::service::tab_credentials::TabCaller {
-                            tab_id: target.clone(),
-                            binding_nonce: nonce.clone(),
-                        },
-                        |token| owner.identify_tab_credential(token),
-                    );
-                    let host_mcp = super::host_mcp::descriptor(
-                        capability.host_mcp.is_some(),
-                        minted_local,
+                    let host_mcp = super::host_mcp::prepare(
+                        &owner,
+                        capability.host_mcp.as_ref(),
+                        scoped_reply.as_ref(),
                         &target,
                         &nonce,
-                        crate::service::instance_env::instance_cli_binary_path(),
                         &env,
-                    );
+                    )
+                    .map_err(RuntimeFailure::Refused)?;
                     if let Some(authority) = &switch_launch {
                         authority
                             .validate(&owner)
@@ -891,23 +893,7 @@ pub async fn ensure_locked(
             .is_none();
     super::model_unavailable::apply_remembered(svc, session, implicit).await?;
     let context = session.context.lock().clone();
-    let operation = match fork {
-        Some((source_thread_id, turn_id)) => RuntimeOperation::ForkThread {
-            source_thread_id: source_thread_id.clone(),
-            turn_id: turn_id.clone(),
-        },
-        None => match context.thread_id.clone() {
-            Some(thread_id) => RuntimeOperation::ResumeThread {
-                thread_id,
-                instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
-                settings: context.settings.clone(),
-            },
-            None => RuntimeOperation::OpenThread {
-                instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
-                settings: context.settings.clone(),
-            },
-        },
-    };
+    let operation = resume::load_operation(&context, &config, neighbor_reply, fork)?;
     let fallback = super::model_unavailable::Fallback::new(implicit);
     session.state.lock().pending_load_notice = None;
     let result = super::model_unavailable::FALLBACK

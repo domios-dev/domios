@@ -482,7 +482,7 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     verify_files(policy)
 }
 
-fn binding_matches(policy: &RestrictedCliPolicy, context: &RuntimeContext) -> bool {
+pub(super) fn binding_matches(policy: &RestrictedCliPolicy, context: &RuntimeContext) -> bool {
     policy.epoch == context.epoch
         && policy.tab_id == context.tab_id
         && policy.binding_nonce == context.binding_nonce

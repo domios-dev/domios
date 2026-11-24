@@ -2906,6 +2906,18 @@ function restoreContextItems(raw) {
 
 // plugins/provider-codex/src/runtimeSettings.ts
 var windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+var neighborReplyMcp = "domios_neighbor_reply";
+function codexNeighborReplyMcpConfig(ctx) {
+  const server2 = ctx.hostMcp;
+  if (server2?.name !== neighborReplyMcp) return {};
+  return { [`mcp_servers.${neighborReplyMcp}`]: {
+    command: server2.command,
+    args: server2.args,
+    env: server2.env ?? {},
+    env_vars: ["CODETERM_API_TOKEN"],
+    required: true
+  } };
+}
 function codexRestrictedCliConfig(ctx) {
   const policy = ctx.restrictedCli;
   if (!policy) return {};
@@ -2965,7 +2977,7 @@ function codexNeedsWindowsSandboxSelection(raw, needsSplitRoots = false) {
   return true;
 }
 function codexNeedsSplitWindowsRoots(ctx) {
-  return ctx.settings.mode === "read-only-with-writable-roots" && ctx.restrictedCli?.splitWindowsRoots === true;
+  return ctx.settings.mode === "read-only-with-writable-roots" && (ctx.restrictedCli?.splitWindowsRoots === true || ctx.hostMcp?.name === neighborReplyMcp && /^[A-Za-z]:[\\/]/.test(ctx.hostMcp.command));
 }
 function codexManagedMxcRefusal(error) {
   const prefix = "failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ";
@@ -3820,7 +3832,7 @@ function settingsParams(ctx, settings, instructions, windowsSandbox) {
     model: settings.model,
     ...codexServiceTier(settings),
     threadSource: "user",
-    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
+    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...codexNeighborReplyMcpConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
     ...policies.runtimeWorkspaceRoots ? { runtimeWorkspaceRoots: policies.runtimeWorkspaceRoots } : {},
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,

@@ -284,6 +284,12 @@ async fn prepare_outgoing_body(
         if kind == Kind::Refusal && target.is_none() {
             return Err(Error::ReplyTargetUnknown);
         }
+        if authority == SendAuthority::FriendshipGrant
+            && permission.machine_access == codeterm_neighbors::permissions::MachineAccess::ReadOnly
+            && !target.is_some_and(|entry| matches!(entry.kind, Kind::Question | Kind::TabRequest))
+        {
+            return Err(Error::ReplyTargetUnknown);
+        }
     }
     if kind == Kind::Refusal {
         let body = match body {
