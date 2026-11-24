@@ -13,8 +13,20 @@ export interface AppearanceLook {
   tuning: AppearanceTuning | null;
 }
 
-export function appearanceLookKey({ theme, wallpaper, tuning }: AppearanceLook): string {
-  return JSON.stringify([theme, wallpaper, tuning]);
+function stableAppearanceKey(value: object): string {
+  return JSON.stringify(value, (_key, field: unknown) => {
+    if (!field || typeof field !== "object" || Array.isArray(field)) return field;
+    const record = field as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map(name => [name, record[name]]));
+  });
+}
+
+export function appearanceLookKey(look: AppearanceLook): string {
+  return stableAppearanceKey(look);
+}
+
+export function appearancePaletteKey({ chat_background: _wallpaper, name: _name, ...colors }: ThemeConfig): string {
+  return stableAppearanceKey(colors);
 }
 
 export interface AppearanceMachine { id: string; name: string }
