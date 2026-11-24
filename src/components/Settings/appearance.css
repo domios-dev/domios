@@ -161,6 +161,8 @@
   font-size: .75rem;
 }
 .ct-appearance-contrast ul { display: grid; gap: 2px; max-height: min(168px, 24dvh); overflow: auto; margin: 0; padding: 0; list-style: none; }
+/* On phones the open list must leave the colour rows visible above the footer. */
+@media (max-width: 480px) { .ct-appearance-contrast ul { max-height: min(108px, 14dvh); } }
 .ct-appearance-contrast li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 4px; }
 .ct-appearance-contrast li > span { min-width: 0; }
 .ct-appearance-contrast b { font-weight: 600; color: var(--ct-red); }
