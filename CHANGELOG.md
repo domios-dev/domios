@@ -7,6 +7,24 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.23.1]
+
+### Highlights
+
+- The Memory panel has a refreshed layout for Inspect, Activity and Settings that adapts to narrow screens. The Dreams diary now highlights the newest dream and makes insights and recent sessions easier to scan.
+- General can propose a look for another machine paired to your account. You choose whether to apply it on that machine and can undo the change from the proposal card.
+
+### Fixed
+
+- Routed messages stay in a single chat card when they arrive during an agent's turn.
+- Restored chat bubbles with image attachments no longer show a large blank gap.
+- Text attachments keep their original filenames.
+- The queue chip is read-only in tabs where a manager or concierge controls input.
+
+### Known issues
+
+- A restored General tab with a mismatched provider and session can refuse incoming messages, including a look proposal forwarded from another machine.
+
 ## [1.23.0]
 
 ### Highlights
