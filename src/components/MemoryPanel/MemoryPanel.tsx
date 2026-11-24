@@ -16,10 +16,10 @@ import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
-import { UI_PANEL, UI_TEXT } from "../shared/design";
-import { Chip } from "../shared/Chip";
+import { UI_TEXT } from "../shared/design";
 import { Loader } from "../shared/Loader";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
+import "./memoryPanelChrome.css";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
 
@@ -42,7 +42,7 @@ const INSPECT_VIEWS = [{ value: "list", label: "List", Icon: List }, { value: "g
 
 function InspectViewToggle({ view, onToggle }: { view: "list" | "graph"; onToggle: () => void }) {
   return (
-    <div className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-[9px] border border-[var(--ct-border-subtle)] bg-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] p-0.5" role="group" aria-label="Inspect view">
+    <div className="memory-neutral-segments" role="group" aria-label="Inspect view">
       {INSPECT_VIEWS.map(({ value, label, Icon }) => (
         <button
           key={value}
@@ -53,7 +53,7 @@ function InspectViewToggle({ view, onToggle }: { view: "list" | "graph"; onToggl
           data-testid={value !== view ? "memory-inspect-view-toggle" : undefined}
           data-memory-inspect-view={value !== view ? view : undefined}
           onClick={onToggle}
-          className="inline-flex h-full items-center gap-1.5 rounded-md !border !border-transparent px-2 text-xs font-semibold text-[var(--ct-muted-fg)] enabled:cursor-pointer enabled:hover:text-[var(--ct-fg)] aria-pressed:!border-[var(--ct-accent)]/40 aria-pressed:bg-[var(--ct-accent)]/16 aria-pressed:text-[var(--ct-fg)]"
+          className="memory-neutral-segment"
         >
           <Icon size={14} aria-hidden="true" />
           <span className="max-sm:hidden">{label}</span>
@@ -175,35 +175,16 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
       data-memory-active-tab={activeTab}
     >
         <div
-          className={`flex shrink-0 flex-col border-b border-[var(--ct-border-subtle)] px-4 text-[var(--ct-fg)] sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6 ${detailOpen ? "max-sm:hidden" : ""}`}
+          className={`memory-panel-header ${detailOpen ? "max-sm:hidden" : ""}`}
         >
-          <div className="flex min-h-[52px] min-w-0 items-center gap-2.5 whitespace-nowrap sm:min-h-14 sm:gap-3">
-            <Network size={17} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
-            <strong className={`${UI_PANEL.toolbarTitle} shrink-0 !text-[15px] !font-[650]`}>Memory</strong>
-            <span className="ct-meta truncate !text-[12.5px] text-[var(--ct-muted-fg)] tabular-nums" data-testid="memory-stats-summary">
-              {/* Use fresh memStats (refreshes on mem-activity) — the cached graph
-                  snapshot is keyed by layout_version and goes stale after edge edits. */}
-              {memStats
-                ? memStats.total_entities + memStats.total_items
-                : (snapshot.stats?.node_count ?? 0)}{" "}
-              nodes &middot;{" "}
-              {memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)} edges
-            </span>
-            {memStats && memStats.total_vectors < memStats.total_items && (
-              <Chip className="!h-[22px] !gap-1.5 !border-[var(--ct-border-subtle)] !text-[11px] !text-[var(--ct-yellow)]">
-                <span className="size-1.5 shrink-0 rounded-full bg-[var(--ct-yellow)] motion-safe:animate-pulse" />
-                indexing {memStats.total_vectors}/{memStats.total_items}
-              </Chip>
-            )}
-            {memStats && memStats.total_vectors >= memStats.total_items && memStats.total_vectors > 0 && (
-              <Chip className="!h-[22px] !gap-1.5 !border-[var(--ct-border-subtle)] !text-[11px] !text-[var(--ct-muted-fg)] max-sm:!hidden">
-                <span className="size-1.5 shrink-0 rounded-full bg-[var(--ct-green)]" />
-                {memStats.total_vectors} vectors
-              </Chip>
-            )}
-          </div>
+          <h1>Memory</h1>
+          <span className="memory-panel-stats" data-testid="memory-stats-summary">
+            {(memStats ? memStats.total_entities + memStats.total_items : (snapshot.stats?.node_count ?? 0)).toLocaleString("en-US")} memories &middot;{" "}
+            {(memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)).toLocaleString("en-US")} connections &middot;{" "}
+            {(memStats?.total_vectors ?? 0).toLocaleString("en-US")} indexed
+          </span>
 
-          <div className="flex min-h-10 min-w-0 items-end sm:items-stretch sm:self-stretch sm:[&_.ct-liquid-tab-rail__indicator]:!bottom-0">
+          <div className="memory-panel-tabs">
             {detailOpen ? (
               <div
                 className="ct-liquid-tab-rail"

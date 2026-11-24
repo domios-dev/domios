@@ -147,7 +147,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
       data-testid="memory-activity-tab"
     >
       <div className="flex shrink-0 items-center gap-2 px-4 py-3 sm:px-6">
-        <div role="tablist" aria-label="Memory activity" className="flex h-7 items-center gap-0.5 rounded-[9px] border border-[var(--ct-border-subtle)] bg-[var(--ct-fg)]/6 p-0.5">
+        <div role="tablist" aria-label="Memory activity" className="memory-neutral-segments memory-neutral-segments--small">
           {(["workers", "services"] as const).map((value) => (
             <button
               key={value}
@@ -156,7 +156,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
               id={`activity-${value}`}
               aria-selected={tab === value}
               aria-controls={`activity-${value}-panel`}
-              className="h-full cursor-pointer rounded-md !border !border-transparent px-2.5 text-xs font-semibold text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] aria-selected:!border-[var(--ct-accent)]/40 aria-selected:bg-[var(--ct-accent)]/16 aria-selected:text-[var(--ct-fg)]"
+              className="memory-neutral-segment"
               onClick={() => setTab(value)}
             >
               {value === "workers" ? "Workers" : "Services"}
