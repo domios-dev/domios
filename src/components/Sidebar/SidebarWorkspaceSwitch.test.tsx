@@ -168,9 +168,10 @@ function mockSelectionIntersections() {
     disconnect = () => this.targets.clear();
     emit(target: Element, top: number, height = 28) {
       const bottom = top + height;
-      const isIntersecting = height > 0 && top <= 99 && bottom >= 1;
+      const insetTop = -Number.parseFloat(this.options.rootMargin ?? "0");
+      const isIntersecting = height > 0 && top <= 99 && bottom >= insetTop;
       return act(async () => this.callback([{
-        target, isIntersecting, rootBounds: new DOMRect(0, 1, 200, 98),
+        target, isIntersecting, rootBounds: new DOMRect(0, insetTop, 200, 99 - insetTop),
         boundingClientRect: new DOMRect(0, top, 150, height),
       } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
     }
@@ -187,8 +188,7 @@ function mockSelectionIntersections() {
 }
 
 function selectionCue(host: HTMLElement) {
-  const button = host.querySelector<HTMLButtonElement>('button[aria-label^="Show selected tab,"]');
-  return button?.closest("[inert]") ? null : button;
+  return host.querySelector<HTMLButtonElement>('button[aria-label^="Show selected tab,"]');
 }
 
 it("draws a Team's sections and members in the first frame while its Team record and plan are still unread, and keeps those rows when they arrive", async () => {
@@ -405,6 +405,34 @@ it("clears the cue when the selected Team row is collapsed and reveals instantly
   expect(intersections.observed()).toEqual([]);
   expect(selectionCue(host)).toBeNull();
   expect(mux.state.activeTabIds).toEqual({ home: "Morse" });
+});
+
+it("replaces a keyboard cue with focus on the row once it is visible below the sticky header", async () => {
+  const intersections = mockSelectionIntersections();
+  const tabs = [worker("Morse", "home")];
+  const { host } = await mountSidebar([workspaceOf("home", tabs)], tabs, "home");
+  const header = host.querySelector(".sidebar-workspace-detail-header")!;
+  Object.defineProperty(header, "offsetHeight", { value: 24 });
+  const morse = row(host, "Morse")!;
+  const activation = morse.querySelector<HTMLButtonElement>('button[aria-label="Open tab Morse"]')!;
+  await act(async () => activation.click());
+  const observer = intersections.observerFor(morse);
+  const scrollIntoView = vi.fn();
+  morse.scrollIntoView = scrollIntoView;
+  const selectedState = mux.state;
+
+  await observer.emit(morse, -4);
+  const cue = selectionCue(host)!;
+  expect(cue.getAttribute("aria-label")).toBe("Show selected tab, Morse, above");
+  cue.focus();
+  await act(async () => cue.click());
+  expect(scrollIntoView).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(cue);
+
+  await observer.emit(morse, -3);
+  expect(selectionCue(host)).toBeNull();
+  expect(document.activeElement).toBe(activation);
+  expect(mux.state).toBe(selectedState);
 });
 
 it.each([null, "owned-pty"])("selecting a failed tab never restarts it or changes its activity and height-bearing content (pty=%s)", async ptyId => {

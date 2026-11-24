@@ -1,5 +1,6 @@
 .sidebar-tab {
   overflow: clip;
+  scroll-margin-block-start: var(--ct-sidebar-sticky-header, 0px);
 }
 
 .sidebar-tab:is([data-tab-id], .sidebar-neighbor-concierge):not(:has(> .active-tab-pill)):hover {

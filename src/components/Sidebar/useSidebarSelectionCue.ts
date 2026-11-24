@@ -4,6 +4,7 @@ import type { SidebarSelectedRow } from "./sidebarSelectedRow";
 interface SelectionCue {
   row: SidebarSelectedRow;
   edge: "above" | "below";
+  headerHeight: number;
   visible: boolean;
 }
 
@@ -20,41 +21,61 @@ export function useSidebarSelectionCue(
 
     let selected: SidebarSelectedRow | undefined;
     let oppositeEdge: { edge: SelectionCue["edge"]; scrollTop: number } | undefined;
-    // The inset makes edge contact mean one pixel of the actual viewport is visible.
-    const observer = new IntersectionObserver((entries) => {
+    let observer: IntersectionObserver | undefined;
+    let header: HTMLElement | null = null;
+    let headerHeight = 0;
+    const observeRow = () => {
       const row = selected;
-      const entry = entries.find(candidate => candidate.target === row?.element);
-      if (!row || !entry?.rootBounds) return;
-      oppositeEdge = undefined;
-      if (entry.boundingClientRect.height === 0) {
-        setCue(null);
-      } else if (entry.isIntersecting) {
-        setCue(previous => previous?.visible ? { ...previous, visible: false } : previous);
-      } else {
-        const edge = entry.boundingClientRect.top < entry.rootBounds.top ? "above" : "below";
-        const distance = edge === "above"
-          ? entry.boundingClientRect.top - entry.rootBounds.bottom
-          : entry.boundingClientRect.bottom - entry.rootBounds.top;
-        oppositeEdge = { edge, scrollTop: root.scrollTop + distance };
-        setCue(previous => previous?.row === row && previous.edge === edge && previous.visible
-          ? previous : { row, edge, visible: true });
-      }
-    }, { root, rootMargin: "-1px 0px", threshold: [0, 1] });
+      observer?.disconnect();
+      if (!row) return;
+      if (headerHeight) row.element.style.setProperty("--ct-sidebar-sticky-header", `${headerHeight}px`);
+      else row.element.style.removeProperty("--ct-sidebar-sticky-header");
+      const height = headerHeight;
+      // The one-pixel inset keeps edge contact meaningful under the sticky header.
+      observer = new IntersectionObserver((entries, currentObserver) => {
+        if (currentObserver !== observer || row !== selected) return;
+        const entry = entries.find(candidate => candidate.target === row.element);
+        if (!entry?.rootBounds) return;
+        oppositeEdge = undefined;
+        if (entry.boundingClientRect.height === 0 || entry.rootBounds.height === 0) {
+          setCue(null);
+        } else if (entry.isIntersecting) {
+          setCue(previous => previous?.visible ? { ...previous, visible: false } : previous);
+        } else {
+          const edge = entry.boundingClientRect.top < entry.rootBounds.top ? "above" : "below";
+          const distance = edge === "above"
+            ? entry.boundingClientRect.top - entry.rootBounds.bottom
+            : entry.boundingClientRect.bottom - entry.rootBounds.top;
+          oppositeEdge = { edge, scrollTop: root.scrollTop + distance };
+          setCue(previous => previous?.row === row && previous.edge === edge && previous.headerHeight === height && previous.visible
+            ? previous : { row, edge, headerHeight: height, visible: true });
+        }
+      }, { root, rootMargin: `-${height + 1}px 0px -1px`, threshold: [0, 1] });
+      observer.observe(row.element);
+    };
+    const headerSize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      const height = header?.offsetHeight ?? 0;
+      if (height === headerHeight) return;
+      headerHeight = height;
+      observeRow();
+    });
 
     const observeVisibleRow = () => {
       const next = rows.find(({ element }) => !element.closest("[hidden]"));
       if (next === selected) return;
       oppositeEdge = undefined;
-      if (selected) {
-        observer.unobserve(selected.element);
-        observer.takeRecords();
-      }
+      selected?.element.style.removeProperty("--ct-sidebar-sticky-header");
+      headerSize?.disconnect();
       selected = next;
+      header = next?.element.closest(".sidebar-workspace-detail")
+        ?.querySelector<HTMLElement>(":scope > .sidebar-workspace-detail-header") ?? null;
+      headerHeight = header?.offsetHeight ?? 0;
+      if (header) headerSize?.observe(header);
       setCue(null);
-      if (selected) observer.observe(selected.element);
+      observeRow();
     };
     const resampleAfterJump = () => {
-      if (!selected || !oppositeEdge) return;
+      if (!selected || !observer || !oppositeEdge) return;
       const top = root.scrollTop;
       const skippedViewport = oppositeEdge.edge === "above" ? top < oppositeEdge.scrollTop : top > oppositeEdge.scrollTop;
       if (!skippedViewport) return;
@@ -73,10 +94,12 @@ export function useSidebarSelectionCue(
     observeVisibleRow();
     root.addEventListener("scroll", resampleAfterJump, { passive: true });
     return () => {
+      selected?.element.style.removeProperty("--ct-sidebar-sticky-header");
       selected = undefined;
       root.removeEventListener("scroll", resampleAfterJump);
+      headerSize?.disconnect();
       visibility.disconnect();
-      observer.disconnect();
+      observer?.disconnect();
     };
   }, [root, tabId, registeredRows]);
 
