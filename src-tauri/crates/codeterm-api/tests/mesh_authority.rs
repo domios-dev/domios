@@ -706,6 +706,46 @@ async fn owner_and_agent_mesh_workflows_reach_the_same_registered_target_routes(
             );
         }
     }
+
+    let shared_tab = {
+        let mut mux = target.svc.mux.write();
+        let workspace = mux.find_workspace_for_tab(&recipient).unwrap();
+        mux.create_tab(&workspace).unwrap()
+    };
+    for (token, access, expected) in [
+        (agent.as_str(), AccessLevel::Full, 403),
+        ("owner-secret", AccessLevel::ReadOnly, 403),
+        (
+            "owner-secret",
+            AccessLevel::Custom(vec![codeterm_mesh::types::Permission::Admin]),
+            403,
+        ),
+        ("owner-secret", AccessLevel::Full, 200),
+    ] {
+        assert!(target.mesh.lock().set_peer_access("source", access));
+        let (status, answer) = request(
+            app.clone(),
+            token,
+            "POST",
+            "/api/mesh/relay-to",
+            json!({
+                "target_instance_id":"target", "method":"POST",
+                "path":format!("/api/tabs/{shared_tab}/close"),
+                "body":{"as_owner":true}
+            }),
+        )
+        .await;
+        let received = if status == StatusCode::OK {
+            answer["status"].as_u64().unwrap()
+        } else {
+            u64::from(status.as_u16())
+        };
+        assert_eq!(received, expected, "{status}: {answer}");
+        assert_eq!(
+            target.svc.mux.read().get_tab(&shared_tab).is_none(),
+            expected == 200
+        );
+    }
     stop.send(()).unwrap();
     server.await.unwrap();
 }

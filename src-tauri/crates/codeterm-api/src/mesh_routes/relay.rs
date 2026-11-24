@@ -823,6 +823,7 @@ async fn perform_relay_unredacted(
                 && matches!(
                     authorization,
                     PeerRelayAuthorization::WorkspaceClosePreview { .. }
+                        | PeerRelayAuthorization::OwnerTabClose { .. }
                 ))
         {
             return Err((
@@ -872,6 +873,11 @@ async fn perform_relay_unredacted(
                 )
                 .await
                 .map(|response| (response, false));
+            }
+            PeerRelayAuthorization::OwnerTabClose { tab_id } => {
+                return peer_authorization::close_tab_from_mesh_owner(state, tab_id, &cmd.path)
+                    .await
+                    .map(|response| (response, false));
             }
             PeerRelayAuthorization::Forward => {}
         }
