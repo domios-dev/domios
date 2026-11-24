@@ -77,9 +77,25 @@ async fn follow_resume(
     mux: MuxState,
     svc: ServiceContext,
 ) {
+    // Sync once on attach in case the runtime recorded a profile before this watcher subscribed.
+    let initial = updates.borrow_and_update().clone();
+    let mut last_profile = initial.profile.clone();
+    if !initial.is_empty() {
+        let (mux, svc, tab) = (mux.clone(), svc.clone(), tab_id.clone());
+        let written =
+            tokio::task::spawn_blocking(move || write_surface_resume(&svc, &mux, &tab, &initial))
+                .await;
+        if !matches!(written, Ok(Some(_))) {
+            return;
+        }
+    }
     while updates.changed().await.is_ok() {
-        tokio::time::sleep(RESUME_COALESCE).await;
+        let profile_changed = updates.borrow().profile != last_profile;
+        if !profile_changed {
+            tokio::time::sleep(RESUME_COALESCE).await;
+        }
         let resume = updates.borrow_and_update().clone();
+        last_profile = resume.profile.clone();
         let (mux, svc, tab) = (mux.clone(), svc.clone(), tab_id.clone());
         let written =
             tokio::task::spawn_blocking(move || write_surface_resume(&svc, &mux, &tab, &resume))

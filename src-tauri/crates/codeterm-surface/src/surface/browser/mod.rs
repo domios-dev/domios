@@ -5,6 +5,7 @@ mod blueprint_read;
 mod calls;
 mod completion;
 mod diagnostics;
+mod dialog;
 mod domios_instance;
 mod drag;
 mod grab;
@@ -62,6 +63,7 @@ use codeterm_browser::{BrowserHost, BrowserHostConfig, BrowserStatus, OpenOption
 
 pub const BROWSER_RUNTIME: &str = "browser";
 pub(super) const WAIT_DEADLINE: Duration = Duration::from_secs(15);
+pub(super) const DIALOG_DEADLINE: Duration = Duration::from_secs(5);
 const PENDING_GRABS: usize = 16;
 const CLEAN_PROFILE: &str = "clean";
 
@@ -132,6 +134,7 @@ pub struct BrowserRuntime {
     layout: ProfileLayout,
     swept: Arc<BrowserSweep>,
     shared: Arc<PageShared>,
+    launch_gate: tokio::sync::Mutex<()>,
     profile_request: Mutex<String>,
     resume_profile: tokio::sync::Mutex<Option<String>>,
     resume_url: Mutex<Option<String>>,
@@ -165,7 +168,7 @@ impl BrowserRuntime {
                 .and_then(resume::resumable_profile),
         };
         log::debug!("[browser] owner scope {owner_scope}, default temporary session");
-        let shared = PageShared::new(owner);
+        let shared = PageShared::new_with_profile(owner, resume.profile.as_deref());
         shared.seed_resume(resume.clone());
         Self {
             layout: config.layout.clone(),
@@ -173,6 +176,7 @@ impl BrowserRuntime {
             viewport: tokio::sync::Mutex::new(viewport::ViewportOwner::default()),
             swept,
             shared,
+            launch_gate: tokio::sync::Mutex::new(()),
             profile_request: Mutex::new(String::new()),
             resume_profile: tokio::sync::Mutex::new(resume.profile),
             resume_url: Mutex::new(resume.url),
@@ -195,9 +199,20 @@ impl BrowserRuntime {
         };
         let available = self.host.profiles().await;
         match resume::restored_profile(&wanted, &available) {
-            Some(name) => *self.profile_request.lock() = name,
+            Some(name) => {
+                *self.profile_request.lock() = name.clone();
+                self.shared.update(|state| state.profile = name.clone());
+                self.shared.remember_profile(&name);
+            }
             None => {
-                self.shared.remember_profile(&self.profile_request.lock());
+                let fallback = self.profile_request.lock().clone();
+                let label = if fallback.is_empty() {
+                    CLEAN_PROFILE.to_string()
+                } else {
+                    fallback
+                };
+                self.shared.update(|state| state.profile = label.clone());
+                self.shared.remember_profile(&label);
                 self.shared.notice(SurfaceNotice::info(format!(
                     "Profile {wanted} no longer exists; reopened with a temporary session."
                 )));
@@ -235,41 +250,55 @@ impl BrowserRuntime {
         &self,
         exclusive_profile: Option<&str>,
     ) -> Result<PageChannel, String> {
-        self.viewport.lock().await.start(self.host.viewport());
-        sweep_browsers(&self.swept, self.layout.clone()).await;
-        self.apply_resume_profile().await;
-        let viewport = self.host.viewport();
-        let options = OpenOptions {
-            profile: exclusive_profile
-                .map(str::to_owned)
-                .unwrap_or_else(|| self.profile_request.lock().clone()),
-            width: viewport.width as f64,
-            height: viewport.height as f64,
-            dpr: viewport.dpr,
+        let page = {
+            let _launch = self.launch_gate.lock().await;
+            self.viewport.lock().await.start(self.host.viewport());
+            sweep_browsers(&self.swept, self.layout.clone()).await;
+            self.apply_resume_profile().await;
+            let viewport = self.host.viewport();
+            let options = OpenOptions {
+                profile: exclusive_profile
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| self.profile_request.lock().clone()),
+                width: viewport.width as f64,
+                height: viewport.height as f64,
+                dpr: viewport.dpr,
+            };
+            let opened = match exclusive_profile {
+                Some(_) => self.host.open_exclusive(options).await?,
+                None => self.host.open(options).await?,
+            };
+            let page = self.host.page().ok_or("the browser has no page")?;
+            if !opened.reused {
+                self.shared.unbind();
+                let profiles = self.host.profiles().await;
+                self.shared.update(|state| {
+                    state.profile = opened.profile.clone();
+                    state.profiles = profiles;
+                });
+                self.shared.remember_profile(&opened.profile);
+            }
+            self.shared.bind(&page);
+            if self.shared.claim_domains_setup(&page) {
+                let setup = async {
+                    self.send(&page, "Runtime.enable", json!({})).await?;
+                    self.install_overlay(&page).await?;
+                    self.send(
+                        &page,
+                        "Network.enable",
+                        json!({"maxTotalBufferSize":0,"maxResourceBufferSize":0,"maxPostDataSize":0}),
+                    )
+                    .await?;
+                    Ok::<(), String>(())
+                }
+                .await;
+                if let Err(error) = setup {
+                    self.shared.reset_domains_setup(&page);
+                    return Err(error);
+                }
+            }
+            page
         };
-        let opened = match exclusive_profile {
-            Some(_) => self.host.open_exclusive(options).await?,
-            None => self.host.open(options).await?,
-        };
-        let page = self.host.page().ok_or("the browser has no page")?;
-        if !opened.reused {
-            self.shared.unbind();
-            let profiles = self.host.profiles().await;
-            self.shared.update(|state| {
-                state.profile = opened.profile.clone();
-                state.profiles = profiles;
-            });
-            self.shared.remember_profile(&opened.profile);
-        }
-        self.shared.bind(&page);
-        self.send(&page, "Runtime.enable", json!({})).await?;
-        self.install_overlay(&page).await?;
-        self.send(
-            &page,
-            "Network.enable",
-            json!({"maxTotalBufferSize":0,"maxResourceBufferSize":0,"maxPostDataSize":0}),
-        )
-        .await?;
         self.apply_resume_url(&page).await;
         Ok(page)
     }
@@ -324,6 +353,25 @@ impl BrowserRuntime {
         Ok(())
     }
 
+    async fn accept_open_beforeunload_for_close(&self, deadline: Duration) {
+        let Some(active) = self.shared.active_dialog() else {
+            return;
+        };
+        if !active.kind.is_beforeunload() {
+            return;
+        }
+        if let Some(page) = self.host.page() {
+            let _ = page
+                .send_with_deadline(
+                    "Page.handleJavaScriptDialog",
+                    json!({ "accept": true }),
+                    deadline,
+                )
+                .await;
+            self.shared.clear_dialog(page.session_id());
+        }
+    }
+
     async fn navigate(
         &self,
         page: &PageChannel,
@@ -331,6 +379,35 @@ impl BrowserRuntime {
         target: Option<&str>,
     ) -> Result<String, String> {
         let _guard = self.action_gate.lock().await;
+        let plan = self.shared.begin_agent_navigation(page.session_id())?;
+        let _nav_guard = AgentNavigationGuard {
+            shared: self.shared.clone(),
+            session_id: page.session_id().to_string(),
+        };
+        match plan {
+            dialog::NavigationStartPlan::Blocked(active) => return Err(active.blocking_error()),
+            dialog::NavigationStartPlan::DismissStaleBeforeUnloadThenProceed => {
+                match page
+                    .send_with_deadline(
+                        "Page.handleJavaScriptDialog",
+                        json!({ "accept": false }),
+                        DIALOG_DEADLINE,
+                    )
+                    .await
+                {
+                    Ok(_) => self.shared.clear_dialog(page.session_id()),
+                    Err(error) if dialog::is_no_dialog_cdp_error(&error.to_string()) => {
+                        self.shared.clear_dialog(page.session_id());
+                    }
+                    Err(error) => {
+                        return Err(format!(
+                            "failed to clear open beforeunload dialog before navigation: {error}"
+                        ));
+                    }
+                }
+            }
+            dialog::NavigationStartPlan::Proceed => {}
+        }
         let (method, params) = match action {
             NavAction::Reload => ("Page.reload", json!({})),
             NavAction::Goto => {
@@ -347,9 +424,51 @@ impl BrowserRuntime {
                 }
             }
         };
-        self.complete_action(page, true, self.send(page, method, params))
-            .await
-            .map(|(_, completion)| completion)
+        let mut dialogs = page.subscribe_session(&["Page.javascriptDialogOpening"]);
+        let mut beforeunload_accepted = false;
+        let completion = self.complete_action(page, true, self.send(page, method, params));
+        tokio::pin!(completion);
+        let outcome = loop {
+            tokio::select! {
+                result = &mut completion => break result,
+                event = dialogs.recv() => {
+                    let Some(event) = event else {
+                        break completion.await;
+                    };
+                    let opened = dialog::ActiveDialog::from_cdp_params(&event.params);
+                    if opened.kind.is_beforeunload() {
+                        match page
+                            .send_with_deadline(
+                                "Page.handleJavaScriptDialog",
+                                json!({ "accept": true }),
+                                DIALOG_DEADLINE,
+                            )
+                            .await
+                        {
+                            Ok(_) => {
+                                beforeunload_accepted = true;
+                                self.shared.clear_dialog(page.session_id());
+                            }
+                            Err(error) if dialog::is_no_dialog_cdp_error(&error.to_string()) => {
+                                beforeunload_accepted = true;
+                                self.shared.clear_dialog(page.session_id());
+                            }
+                            Err(error) => {
+                                self.shared.record_blocking_dialog(page.session_id(), opened);
+                                break Err(format!(
+                                    "failed to accept beforeunload dialog during navigation: {error}"
+                                ));
+                            }
+                        }
+                    } else {
+                        let error = opened.blocking_error();
+                        self.shared.record_blocking_dialog(page.session_id(), opened);
+                        break Err(error);
+                    }
+                }
+            }
+        };
+        outcome.map(|(_, completion)| dialog::navigation_outcome(completion, beforeunload_accepted))
     }
 
     async fn screenshot_base64(
@@ -405,23 +524,23 @@ impl BrowserRuntime {
         let wanted = if raw.trim().is_empty() || raw.trim().eq_ignore_ascii_case(CLEAN_PROFILE) {
             String::new()
         } else {
-            codeterm_browser::profile::validate_named_profile(raw)?.to_string()
+            let layout = self.layout.clone();
+            let requested = codeterm_browser::profile::validate_named_profile(raw)?.to_string();
+            tokio::task::spawn_blocking(move || layout.resolve_named(&requested))
+                .await
+                .map_err(|error| error.to_string())??
         };
         let label = if wanted.is_empty() {
             "a clean profile".to_string()
         } else {
             format!("profile {wanted}")
         };
-        if !wanted.is_empty() {
-            let layout = self.layout.clone();
-            let name = wanted.clone();
-            tokio::task::spawn_blocking(move || layout.require_named(&name))
-                .await
-                .map_err(|error| error.to_string())??;
-        }
         self.shared
             .notice(SurfaceNotice::info(format!("Switching to {label}…")));
+        let _launch = self.launch_gate.lock().await;
         self.cancel_resume().await;
+        self.accept_open_beforeunload_for_close(DIALOG_DEADLINE)
+            .await;
         let opened = self.host.use_profile(&wanted).await?;
         *self.profile_request.lock() = wanted;
         if !opened.reused {
@@ -577,6 +696,8 @@ impl SurfaceRuntime for BrowserRuntime {
     }
 
     async fn dispose(&self) {
+        self.accept_open_beforeunload_for_close(DIALOG_DEADLINE)
+            .await;
         self.shared.unbind();
         if let Err(error) =
             codeterm_browser::process::termination::close_result(self.host.shutdown().await)
@@ -586,17 +707,32 @@ impl SurfaceRuntime for BrowserRuntime {
     }
 
     async fn close(&self) -> Result<(), super::model::SurfaceError> {
+        self.accept_open_beforeunload_for_close(DIALOG_DEADLINE)
+            .await;
         self.shared.unbind();
         codeterm_browser::process::termination::close_result(self.host.close().await)
             .map_err(super::model::SurfaceError::TerminationFailed)
     }
 
     async fn shutdown(&self, graceful: Duration) -> bool {
+        self.accept_open_beforeunload_for_close(graceful.min(DIALOG_DEADLINE))
+            .await;
         self.shared.unbind();
         !matches!(
             self.host.shutdown_within(graceful).await,
             Some(CloseOutcome::Killed(_))
         )
+    }
+}
+
+struct AgentNavigationGuard {
+    shared: Arc<PageShared>,
+    session_id: String,
+}
+
+impl Drop for AgentNavigationGuard {
+    fn drop(&mut self) {
+        self.shared.end_agent_navigation(&self.session_id);
     }
 }
 

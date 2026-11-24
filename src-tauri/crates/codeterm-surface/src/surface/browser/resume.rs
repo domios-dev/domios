@@ -33,7 +33,30 @@ pub(super) fn resumable_profile(label: &str) -> Option<String> {
 
 /// The remembered profile to launch under, or `None` when it no longer exists.
 pub(super) fn restored_profile(wanted: &str, available: &[String]) -> Option<String> {
-    resumable_profile(wanted).filter(|name| available.iter().any(|known| known == name))
+    restored_profile_matching(
+        wanted,
+        available,
+        codeterm_browser::sweep::paths_case_insensitive(),
+    )
+}
+
+/// Resolves a remembered profile against available directory names, honoring OS path casing.
+pub(super) fn restored_profile_matching(
+    wanted: &str,
+    available: &[String],
+    case_insensitive: bool,
+) -> Option<String> {
+    let name = resumable_profile(wanted)?;
+    if let Some(exact) = available.iter().find(|known| *known == &name) {
+        return Some(exact.clone());
+    }
+    if case_insensitive {
+        return available
+            .iter()
+            .find(|known| known.eq_ignore_ascii_case(&name))
+            .cloned();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -94,5 +117,23 @@ mod tests {
         );
         assert_eq!(restored_profile("deleted", &available), None);
         assert_eq!(restored_profile("clean", &available), None);
+    }
+
+    #[test]
+    fn browser_resume_resolves_profile_casing_only_on_case_insensitive_hosts() {
+        let available = vec!["andrey".to_string(), "Work".to_string()];
+        assert_eq!(
+            restored_profile_matching("Andrey", &available, true).as_deref(),
+            Some("andrey")
+        );
+        assert_eq!(
+            restored_profile_matching("work", &available, true).as_deref(),
+            Some("Work")
+        );
+        assert_eq!(restored_profile_matching("Andrey", &available, false), None);
+        assert_eq!(
+            restored_profile_matching("Work", &available, false).as_deref(),
+            Some("Work")
+        );
     }
 }

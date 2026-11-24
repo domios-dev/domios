@@ -725,3 +725,138 @@ async fn owned_hidpi_emulation_follows_scroll_and_keeps_frames_in_css_coordinate
     }
     host.close().await;
 }
+
+struct CloseDialogConnection {
+    dialog_type: &'static str,
+    closed: watch::Sender<Option<String>>,
+    subscribers: Mutex<Vec<(EventFilter, mpsc::Sender<Arc<CdpEvent>>)>>,
+    dialog_replies: Mutex<Vec<(Option<String>, Value)>>,
+    accepted: watch::Sender<bool>,
+}
+
+impl CloseDialogConnection {
+    fn new(dialog_type: &'static str) -> Arc<Self> {
+        Arc::new(Self {
+            dialog_type,
+            closed: watch::channel(None).0,
+            subscribers: Mutex::new(Vec::new()),
+            dialog_replies: Mutex::new(Vec::new()),
+            accepted: watch::channel(false).0,
+        })
+    }
+
+    fn emit(&self, method: &str, session: Option<&str>, params: Value) {
+        let event = Arc::new(CdpEvent {
+            method: method.into(),
+            session_id: session.map(str::to_string),
+            params,
+        });
+        self.subscribers.lock().retain(|(filter, sender)| {
+            if filter.matches(&event) {
+                let _ = sender.try_send(event.clone());
+            }
+            !sender.is_closed()
+        });
+    }
+}
+
+#[async_trait::async_trait]
+impl CdpConnection for CloseDialogConnection {
+    fn endpoint(&self) -> &str {
+        "ws://127.0.0.1:1/devtools/browser/close-dialog"
+    }
+    fn closed(&self) -> watch::Receiver<Option<String>> {
+        self.closed.subscribe()
+    }
+    fn close(&self, reason: &str) {
+        self.closed.send_replace(Some(reason.into()));
+        self.subscribers.lock().clear();
+    }
+    fn subscribe(&self, filter: EventFilter) -> EventStream {
+        let (sender, receiver) = mpsc::channel(64);
+        self.subscribers.lock().push((filter, sender));
+        EventStream::from_receiver(receiver)
+    }
+    async fn send_to(
+        &self,
+        session: Option<&str>,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+    ) -> Result<Value, CdpError> {
+        match method {
+            "Target.createTarget" => {
+                self.emit(
+                    "Target.targetCreated",
+                    None,
+                    json!({ "targetInfo": { "targetId": "T1" } }),
+                );
+                Ok(json!({ "targetId": "T1" }))
+            }
+            "Target.attachToTarget" => {
+                self.emit(
+                    "Target.attachedToTarget",
+                    None,
+                    json!({ "sessionId": "ST1", "targetInfo": { "targetId": "T1" } }),
+                );
+                Ok(json!({ "sessionId": "ST1" }))
+            }
+            "Page.handleJavaScriptDialog" => {
+                self.dialog_replies
+                    .lock()
+                    .push((session.map(str::to_string), params));
+                self.accepted.send_replace(true);
+                Ok(json!({}))
+            }
+            "Target.closeTarget" => {
+                let mut accepted = self.accepted.subscribe();
+                self.emit(
+                    "Page.javascriptDialogOpening",
+                    Some("ST1"),
+                    json!({ "type": self.dialog_type, "message": "leave?", "url": "https://a.test" }),
+                );
+                if self.dialog_type == "beforeunload" {
+                    tokio::time::timeout(deadline, accepted.wait_for(|done| *done))
+                        .await
+                        .map_err(|_| CdpError::Deadline("Target.closeTarget".into()))?
+                        .map_err(|_| CdpError::Closed("dialog channel closed".into()))?;
+                }
+                Ok(json!({ "success": true }))
+            }
+            _ => Ok(json!({})),
+        }
+    }
+}
+
+#[tokio::test]
+async fn closing_target_accepts_beforeunload_and_never_accepts_alert() {
+    for (dialog_type, expect_accept) in [("beforeunload", true), ("alert", false)] {
+        let dir = PathBuf::from(format!("/fake-close-dialog/{}", uuid::Uuid::new_v4()));
+        let connection = CloseDialogConnection::new(dialog_type);
+        let launch_conn = connection.clone();
+        let launch_dir = dir.clone();
+        let lease = ProfileLease::acquire_with(dir, false, move || async move {
+            Ok(SharedBrowser {
+                client: CdpClient::from_connection(launch_conn),
+                process: None,
+                binary: None,
+                profile: ProfileKind::Named {
+                    name: "close-test".into(),
+                },
+                dir: launch_dir,
+            })
+        })
+        .await
+        .unwrap();
+        let runtime = Arc::new(from_lease(lease, Viewport::default(), hub()).await.unwrap());
+        stop_within(runtime, Duration::from_secs(2)).await;
+        let replies = connection.dialog_replies.lock().clone();
+        if expect_accept {
+            assert_eq!(replies.len(), 1);
+            assert_eq!(replies[0].0.as_deref(), Some("ST1"));
+            assert_eq!(replies[0].1["accept"], true);
+        } else {
+            assert!(replies.is_empty(), "must never auto-dismiss {dialog_type}");
+        }
+    }
+}

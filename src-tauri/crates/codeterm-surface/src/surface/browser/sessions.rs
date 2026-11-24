@@ -71,27 +71,32 @@ impl BrowserRuntime {
         })
         .await
         .map_err(|_| "profile_task_failed")??;
-        self.cancel_resume().await;
-        let viewport = self.host.viewport();
-        let opened = self
-            .host
-            .open(codeterm_browser::OpenOptions {
-                profile: args.profile.clone(),
-                width: viewport.width as f64,
-                height: viewport.height as f64,
-                dpr: viewport.dpr,
-            })
-            .await?;
-        *self.profile_request.lock() = args.profile.clone();
-        if !opened.reused {
-            self.shared.unbind();
+        {
+            let _launch = self.launch_gate.lock().await;
+            self.cancel_resume().await;
+            self.accept_open_beforeunload_for_close(super::DIALOG_DEADLINE)
+                .await;
+            let viewport = self.host.viewport();
+            let opened = self
+                .host
+                .open(codeterm_browser::OpenOptions {
+                    profile: args.profile.clone(),
+                    width: viewport.width as f64,
+                    height: viewport.height as f64,
+                    dpr: viewport.dpr,
+                })
+                .await?;
+            *self.profile_request.lock() = args.profile.clone();
+            if !opened.reused {
+                self.shared.unbind();
+            }
+            let page = self.host.page().ok_or("browser has no page")?;
+            self.shared.bind(&page);
+            self.shared
+                .update(|state| state.profile = opened.profile.clone());
+            self.shared
+                .remember_profile(if args.ephemeral { "" } else { &opened.profile });
         }
-        let page = self.host.page().ok_or("browser has no page")?;
-        self.shared.bind(&page);
-        self.shared
-            .update(|state| state.profile = opened.profile.clone());
-        self.shared
-            .remember_profile(if args.ephemeral { "" } else { &opened.profile });
         self.refresh_profiles().await;
         let page = self.ensure_page().await?;
         self.goto(&page, &args.ui_url()).await?;

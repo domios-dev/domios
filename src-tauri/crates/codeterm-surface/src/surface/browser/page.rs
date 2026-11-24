@@ -4,6 +4,7 @@ use parking_lot::Mutex;
 use serde_json::Value;
 use tokio::sync::{broadcast, watch};
 
+use super::dialog::{ActiveDialog, DialogState, NavigationStartPlan};
 use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
 use super::resume::{resumable_profile, resumable_url};
 use crate::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
@@ -73,7 +74,8 @@ pub(super) enum PageUpdate {
     Navigated { url: String },
     SameDocument { url: String },
     TargetInfo { title: String, url: String },
-    Dialog(bool),
+    DialogOpened(ActiveDialog),
+    DialogClosed,
 }
 
 /// What one CDP event means for the surface state of the page `target_id`.
@@ -109,8 +111,10 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
                 url: text(info.get("url")),
             })
         }
-        "Page.javascriptDialogOpening" => Some(PageUpdate::Dialog(true)),
-        "Page.javascriptDialogClosed" => Some(PageUpdate::Dialog(false)),
+        "Page.javascriptDialogOpening" => Some(PageUpdate::DialogOpened(
+            ActiveDialog::from_cdp_params(params),
+        )),
+        "Page.javascriptDialogClosed" => Some(PageUpdate::DialogClosed),
         _ => None,
     }
 }
@@ -124,7 +128,8 @@ struct PageSession {
     bound_session: Option<String>,
     snapshot: Option<Snapshot>,
     capture: Option<String>,
-    dialog: bool,
+    dialog: DialogState,
+    domains_ready: bool,
     grab_ready: bool,
     listener: Option<tokio::task::AbortHandle>,
 }
@@ -202,11 +207,17 @@ impl PageShared {
         self.session.lock().action = None;
     }
     pub(super) fn new(owner: &str) -> Arc<Self> {
+        Self::new_with_profile(owner, None)
+    }
+
+    pub(super) fn new_with_profile(owner: &str, profile: Option<&str>) -> Arc<Self> {
         let state = SurfaceState {
             owner: owner.to_string(),
             activity: IDLE.into(),
             needs_human: NEEDS_NONE.into(),
-            profile: "clean".into(),
+            profile: profile
+                .and_then(resumable_profile)
+                .unwrap_or_else(|| "clean".into()),
             ..Default::default()
         };
         Arc::new(Self {
@@ -347,7 +358,86 @@ impl PageShared {
             listener.abort();
         }
         *session = PageSession::default();
-        self.update(|state| state.target_id.clear());
+        drop(session);
+        self.update(|state| {
+            state.target_id.clear();
+            state.needs_human = needs_human(&state.url, &state.title, false).to_string();
+        });
+    }
+
+    pub(super) fn active_dialog(&self) -> Option<ActiveDialog> {
+        self.session.lock().dialog.active().cloned()
+    }
+
+    pub(super) fn check_page_verb(&self, verb: &str) -> Result<(), String> {
+        self.session.lock().dialog.check_page_verb(verb)
+    }
+
+    pub(super) fn begin_agent_navigation(
+        &self,
+        session_id: &str,
+    ) -> Result<NavigationStartPlan, String> {
+        let mut session = self.session.lock();
+        if session.bound_session.as_deref() != Some(session_id) {
+            return Err("stale: browser session changed".into());
+        }
+        Ok(session.dialog.begin_agent_navigation())
+    }
+
+    pub(super) fn end_agent_navigation(&self, session_id: &str) {
+        let mut session = self.session.lock();
+        if session.bound_session.as_deref() == Some(session_id) {
+            session.dialog.end_agent_navigation();
+        }
+    }
+
+    pub(super) fn record_blocking_dialog(&self, session_id: &str, dialog: ActiveDialog) {
+        let blocking = {
+            let mut session = self.session.lock();
+            if session.bound_session.as_deref() != Some(session_id) {
+                return;
+            }
+            session.dialog.record_blocking(dialog);
+            session.dialog.is_blocking()
+        };
+        self.update(|state| {
+            state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
+        });
+    }
+
+    pub(super) fn clear_dialog(&self, session_id: &str) {
+        let blocking = {
+            let mut session = self.session.lock();
+            if session.bound_session.as_deref() != Some(session_id) {
+                return;
+            }
+            session.dialog.on_dialog_closed();
+            session.dialog.is_blocking()
+        };
+        self.update(|state| {
+            state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
+        });
+    }
+
+    /// True once per bound page session, so Runtime/Network/overlay setup is not re-sent on every verb.
+    pub(super) fn claim_domains_setup(&self, page: &PageChannel) -> bool {
+        let mut session = self.session.lock();
+        session
+            .bound_page
+            .as_ref()
+            .is_some_and(|bound| bound.same_page(page))
+            && !std::mem::replace(&mut session.domains_ready, true)
+    }
+
+    pub(super) fn reset_domains_setup(&self, page: &PageChannel) {
+        let mut session = self.session.lock();
+        if session
+            .bound_page
+            .as_ref()
+            .is_some_and(|bound| bound.same_page(page))
+        {
+            session.domains_ready = false;
+        }
     }
 
     fn apply(&self, session_id: &str, update: PageUpdate) {
@@ -362,12 +452,16 @@ impl PageShared {
                     session.capture = None;
                     if matches!(update, PageUpdate::Navigated { .. }) {
                         session.cursor_visible = false;
+                        session.dialog.on_navigated();
                     }
                 }
-                PageUpdate::Dialog(open) => session.dialog = *open,
+                PageUpdate::DialogOpened(opened) => {
+                    let _ = session.dialog.on_dialog_opening(opened.clone());
+                }
+                PageUpdate::DialogClosed => session.dialog.on_dialog_closed(),
                 PageUpdate::TargetInfo { .. } => {}
             }
-            session.dialog
+            session.dialog.is_blocking()
         };
         if matches!(&update, PageUpdate::Navigated { .. }) {
             self.set_cursor("default");
@@ -382,7 +476,7 @@ impl PageShared {
                     state.title = title;
                     state.url = url;
                 }
-                PageUpdate::Dialog(_) => {}
+                PageUpdate::DialogOpened(_) | PageUpdate::DialogClosed => {}
             }
             state.needs_human = needs_human(&state.url, &state.title, dialog).to_string();
         });

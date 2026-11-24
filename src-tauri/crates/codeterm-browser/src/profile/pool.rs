@@ -1,6 +1,7 @@
 use super::lease_model::LeaseModel;
 use super::ProfileKind;
 use crate::cdp::CdpClient;
+use crate::cdp_wire::{EventFilter, SessionFilter};
 use crate::process::{BrowserProcess, CloseOutcome, CLOSE_DEADLINE};
 use parking_lot::Mutex;
 use serde_json::json;
@@ -96,6 +97,7 @@ pub struct ProfileLease {
     slot: Option<Arc<Slot>>,
     pub(crate) browser: Arc<SharedBrowser>,
     pub(crate) target_id: Option<String>,
+    pub(crate) session_id: Option<String>,
 }
 
 pub async fn delete_named_profile(layout: &super::ProfileLayout, name: &str) -> Result<(), String> {
@@ -157,6 +159,7 @@ impl ProfileLease {
                     slot: Some(slot.clone()),
                     browser,
                     target_id: None,
+                    session_id: None,
                 })
             }
             .await;
@@ -201,6 +204,7 @@ impl ProfileLease {
         let id = self.id;
         let browser = self.browser.clone();
         let target_id = self.target_id.take();
+        let session_id = self.session_id.take();
         Some(executor.spawn(async move {
             let mut model = slot.lock().await;
             let same_browser = model
@@ -213,18 +217,13 @@ impl ProfileLease {
             }
             if same_browser {
                 if let Some(target_id) = target_id {
-                    if let Err(error) = browser
-                        .client
-                        .send_to(
-                            None,
-                            "Target.closeTarget",
-                            json!({ "targetId": target_id }),
-                            deadline,
-                        )
-                        .await
-                    {
-                        log::debug!("[browser] close profile target {target_id}: {error}");
-                    }
+                    close_target_accepting_beforeunload(
+                        &browser.client,
+                        &target_id,
+                        session_id.as_deref(),
+                        deadline,
+                    )
+                    .await;
                 }
             }
             match model.release(id) {
@@ -232,6 +231,64 @@ impl ProfileLease {
                 None => None,
             }
         }))
+    }
+}
+
+/// Closes a page target while accepting only `beforeunload` dialogs raised by closing it.
+async fn close_target_accepting_beforeunload(
+    client: &CdpClient,
+    target_id: &str,
+    session_id: Option<&str>,
+    deadline: Duration,
+) {
+    let mut dialogs = session_id.map(|sid| {
+        client.subscribe(EventFilter {
+            session: SessionFilter::Session(sid.to_string()),
+            methods: vec!["Page.javascriptDialogOpening".into()],
+        })
+    });
+    let close = client.send_to(
+        None,
+        "Target.closeTarget",
+        json!({ "targetId": target_id }),
+        deadline,
+    );
+    tokio::pin!(close);
+    let result = loop {
+        tokio::select! {
+            result = &mut close => break result,
+            event = async {
+                match dialogs.as_mut() {
+                    Some(stream) => stream.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                let Some(event) = event else {
+                    dialogs = None;
+                    continue;
+                };
+                if event
+                    .params
+                    .get("type")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("beforeunload")
+                {
+                    if let Some(sid) = session_id {
+                        let _ = client
+                            .send_to(
+                                Some(sid),
+                                "Page.handleJavaScriptDialog",
+                                json!({ "accept": true }),
+                                deadline,
+                            )
+                            .await;
+                    }
+                }
+            }
+        }
+    };
+    if let Err(error) = result {
+        log::debug!("[browser] close profile target {target_id}: {error}");
     }
 }
 

@@ -179,26 +179,31 @@ impl BrowserRuntime {
             "open" => self.open_verb(args).await,
             "help" | "close" | "annotate" => Err(format!("{verb} is answered by the surface host")),
             _ => {
+                self.shared.check_page_verb(verb)?;
                 let page = self.ensure_page().await?;
+                self.shared.check_page_verb(verb)?;
                 self.page_verb(ctx, &page, verb, args).await
             }
         }
     }
 
-    fn status_text(&self) -> String {
+    pub(super) fn status_text(&self) -> String {
         let state = self.shared.state();
         let title = if state.title.is_empty() {
             "(untitled)"
         } else {
             state.title.as_str()
         };
-        [
+        let mut lines = vec![
             format!("owner: {}", state.owner),
             format!("profile: {}", state.profile),
             format!("page: {title} — {}", state.url),
             format!("needs human: {}", state.needs_human),
-        ]
-        .join("\n")
+        ];
+        if let Some(dialog) = self.shared.active_dialog() {
+            lines.push(dialog.status_line());
+        }
+        lines.join("\n")
     }
 
     async fn open_verb(&self, args: &[String]) -> Result<String, String> {
@@ -218,6 +223,9 @@ impl BrowserRuntime {
         match profile {
             Some(profile) => self.use_profile(&profile).await?,
             None => {
+                if url.is_some() {
+                    self.resume_url.lock().take();
+                }
                 self.ensure_page().await?;
             }
         }

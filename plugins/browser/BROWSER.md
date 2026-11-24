@@ -13,7 +13,7 @@ Delegate flows over 10,000 output characters to a Worker for a short evidence re
 - **Ownership.** `open` creates `<YourName>'s Browser`, visible beneath your tab and available to workspace agents. `close`, closing your tab or closing your Team ends it.
 - **Profiles.**
   - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
-  - A **named profile** retains logins and cookies. Users create general profiles in the Browser profile menu. Agents select existing profiles with `open --profile NAME`; unknown names fail. For DEV QA, use the origin-bound session commands below, `profile list` and `profile remove NAME` for inactive profiles. Publishing, buying, deleting and sending messages require explicit user instruction.
+  - A **named profile** retains logins, cookies and session profile across Domios restarts. Users create profiles in the Browser profile menu; agents select existing ones with `open --profile NAME` (unknown names fail). For DEV QA, use origin-bound sessions below, `profile list` and `profile remove NAME` (inactive only). Publishing, buying, deleting and sending messages require explicit user instruction.
 - **Shared profiles.** Named-profile tabs share cookies/logins; pages and controls stay independent. Closing one leaves the others open.
 - **Another agent's browser.** Add `--of <title|tab-id>` to act there. Its owner sees your activity. It must already be open; you cannot close it. Use refs from its latest snapshot.
 - **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
@@ -45,7 +45,7 @@ Rules:
 
 ## When the page needs the user
 
-Stop when `status` reports `needs human` other than `none`: captcha, missing login, consent you cannot decide, native file picker, permission prompt or JavaScript dialog. Name the blocker; the user can use *Take control*. Re-snapshot before continuing.
+Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Blocking JS dialogs print `dialog: <type>` in `status` and fail page verbs promptly. Never dismiss `alert`/`confirm`/`prompt`; name the blocker for *Take control*, then re-snapshot. Agent `goto`/`reload`/`back`/`forward`/`close` accept their own `beforeunload` prompt and report `(beforeunload dialog accepted)`.
 
 ## User annotations
 
@@ -148,4 +148,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

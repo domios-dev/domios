@@ -25,6 +25,22 @@ impl ProfileLayout {
         Ok(path)
     }
 
+    /// Validates that `raw` exists and returns its canonical directory name on disk.
+    pub fn resolve_named(&self, raw: &str) -> Result<String, String> {
+        let name = validate_named_profile(raw)?;
+        self.require_named(name)?;
+        if crate::sweep::paths_case_insensitive() {
+            if let Some(canonical) = self
+                .list_named()
+                .into_iter()
+                .find(|known| known.eq_ignore_ascii_case(name))
+            {
+                return Ok(canonical);
+            }
+        }
+        Ok(name.to_string())
+    }
+
     pub fn create_named(&self, raw: &str) -> Result<(), String> {
         let name = validate_named_profile(raw)?;
         std::fs::create_dir_all(self.profiles_dir()).map_err(|error| error.to_string())?;
@@ -45,6 +61,10 @@ mod tests {
         assert!(!layout.profiles_dir().exists());
         layout.create_named("Work").unwrap();
         assert!(layout.require_named("Work").is_ok());
+        assert_eq!(layout.resolve_named("Work").unwrap(), "Work");
+        if crate::sweep::paths_case_insensitive() {
+            assert_eq!(layout.resolve_named("work").unwrap(), "Work");
+        }
         assert!(layout.create_named("Work").is_err());
     }
 
