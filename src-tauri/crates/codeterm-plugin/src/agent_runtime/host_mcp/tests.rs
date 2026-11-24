@@ -108,7 +108,8 @@ fn neighbor_reply_mcp_config_requires_exact_host_descriptor_on_fresh_and_resumed
     server.env =
         std::collections::BTreeMap::from([("CODETERM_SOCKET_PATH".into(), "opaque-socket".into())]);
     let config = json!({"config":{(NEIGHBOR_REPLY_CONFIG_KEY):{"command":server.command, "args":server.args,
-        "env":server.env,"env_vars":["CODETERM_API_TOKEN"],"required":true}}});
+        "env":server.env,"env_vars":["CODETERM_API_TOKEN"],"required":true,
+        "enabled_tools":["reply"],"tools":{"reply":{"approval_mode":"approve"}}}}});
     for method in ["thread/start", "thread/resume"] {
         assert!(validate(&cap, &ctx, method, &config).is_ok());
         let mut shadowed = config.clone();
@@ -118,6 +119,20 @@ fn neighbor_reply_mcp_config_requires_exact_host_descriptor_on_fresh_and_resumed
         broadened["config"][NEIGHBOR_REPLY_CONFIG_KEY]["env_vars"] =
             json!(["CODETERM_OWNER_TOKEN"]);
         assert!(validate(&cap, &ctx, method, &broadened).is_err());
+        let mut server_wide = config.clone();
+        server_wide["config"][NEIGHBOR_REPLY_CONFIG_KEY]["default_tools_approval_mode"] =
+            json!("approve");
+        assert!(validate(&cap, &ctx, method, &server_wide).is_err());
+        let mut extra_tool = config.clone();
+        extra_tool["config"][NEIGHBOR_REPLY_CONFIG_KEY]["tools"]["other"] =
+            json!({"approval_mode":"approve"});
+        assert!(validate(&cap, &ctx, method, &extra_tool).is_err());
+        let mut missing_approval = config.clone();
+        missing_approval["config"][NEIGHBOR_REPLY_CONFIG_KEY]
+            .as_object_mut()
+            .unwrap()
+            .remove("tools");
+        assert!(validate(&cap, &ctx, method, &missing_approval).is_err());
         assert!(validate(&cap, &ctx, method, &json!({})).is_err());
     }
     assert!(validate(&cap, &ctx, "turn/start", &config).is_err());

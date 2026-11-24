@@ -113,6 +113,8 @@ pub(super) fn validate(
                 "env": server.env,
                 "env_vars": ["CODETERM_API_TOKEN"],
                 "required": true,
+                "enabled_tools": [NEIGHBOR_REPLY_MCP_TOOL],
+                "tools": {(NEIGHBOR_REPLY_MCP_TOOL): {"approval_mode": "approve"}},
             })
         });
         let shadowed = config.and_then(Value::as_object).is_some_and(|fields| {
