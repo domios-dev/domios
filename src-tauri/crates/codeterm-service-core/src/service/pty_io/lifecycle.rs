@@ -209,8 +209,14 @@ pub fn claim_restored_pty_boot(
     if !tab.restored_from_snapshot || tab.agent_booting || tab.protected {
         return Ok(None);
     }
-    tab.agent_booting = true;
+    begin_restored_pty_boot(tab);
     Ok(Some(restored_launch(tab, provider_id)))
+}
+
+fn begin_restored_pty_boot(tab: &mut crate::multiplexer::types::Tab) {
+    // The saved report proves the previous process; the new PTY needs its own binding.
+    tab.reported_session_binding_nonce = None;
+    tab.agent_booting = true;
 }
 
 /// A terminal now backs this restored tab, so its lazy-restore sleep is over;
@@ -301,11 +307,8 @@ fn claim_restored_tab(
         tab.remember_superseded_binding_nonce();
         tab.agent_session_id = None;
     }
-    // The snapshot's binding proof belongs to an exited process; voiding it makes the relaunch
-    // reserve its own nonce before this claim is released.
-    tab.reported_session_binding_nonce = None;
+    begin_restored_pty_boot(tab);
     tab.restored_from_snapshot = false;
-    tab.agent_booting = true;
     end_restore_sleep(tab);
     let mut launch = restored_launch(tab, provider_id);
     launch.session_id = session_id;

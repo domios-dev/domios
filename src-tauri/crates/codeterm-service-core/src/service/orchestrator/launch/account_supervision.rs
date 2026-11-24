@@ -160,6 +160,67 @@ impl LaunchAccount {
         launch.fail(svc, failure)
     }
 
+    pub(super) fn write_command(
+        &self,
+        svc: &ServiceContext,
+        launch: &LaunchGeneration,
+        dispatch: impl FnOnce() -> Result<(), String>,
+    ) -> Option<Result<(), LaunchFailure>> {
+        launch.write_if_current(|| {
+            self.validate(svc, &launch.tab_id)
+                .map_err(LaunchFailure::LaunchAuthorityChanged)?;
+            dispatch().map_err(LaunchFailure::LaunchWrite)
+        })
+    }
+
+    pub(super) fn fail_undispatched_command(
+        &self,
+        svc: &ServiceContext,
+        launch: &LaunchGeneration,
+        reason: &str,
+    ) {
+        let attempt = launch.attempt();
+        launch.finish_if_current(|| {
+            if let Some(attempt) = &attempt {
+                svc.retire_public_send_launch_attempt(attempt);
+                crate::service::launch_readiness::retire_attempt(attempt);
+            }
+            if svc.record_undispatched_launch_failure(&launch.tab_id, reason, |current| {
+                let expected = self.expected.lock();
+                let owns_pty = match &attempt {
+                    Some(attempt) => {
+                        crate::service::launch_readiness::attempt_owns_tab(current, attempt)
+                    }
+                    None => current.pty_id == expected.pty_id,
+                };
+                owns_pty
+                    && current.session_binding_nonce == expected.session_binding_nonce
+                    && current.lifecycle_epoch == expected.lifecycle_epoch
+                    && current.lifecycle_operation_id == expected.lifecycle_operation_id
+                    && current.agent_type == expected.agent_type
+                    && current.agent_session_id == expected.agent_session_id
+                    && current.backing == expected.backing
+                    && !current.frozen
+            }) {
+                crate::service::task_files::release_tab(svc, &launch.tab_id);
+            }
+        });
+    }
+
+    pub(super) fn fail_before_backend(
+        &self,
+        svc: &ServiceContext,
+        launch: &LaunchGeneration,
+        error: &str,
+    ) {
+        let failure = LaunchFailure::StartupSupervision(error.into());
+        if self.validate(svc, &launch.tab_id).is_err() {
+            self.fail_undispatched_command(svc, launch, &failure.reason());
+        } else {
+            self.fail_if_current(launch, svc, failure);
+        }
+    }
+
     pub(super) fn validate(&self, svc: &ServiceContext, tab: &str) -> Result<(), String> {
         if crate::crash::shutdown::is_shutting_down() {
             return Err("launch_account_source_changed: service is shutting down".into());
