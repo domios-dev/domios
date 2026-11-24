@@ -207,6 +207,84 @@ fn browser_page_agent_navigation_tracks_beforeunload_and_surfaces_on_cancel_or_a
 }
 
 #[test]
+fn stale_dialog_snapshot_cannot_overwrite_newer_prompt_on_ack_or_cancel_race() {
+    let shared = PageShared::new("Orla");
+    shared.session.lock().bound_session = Some("s".into());
+
+    // Interleaving 1: ack_beforeunload_closed produces a lower-seq None snapshot while a newer
+    // replacement prompt opens and publishes first.
+    let token = shared.begin_agent_navigation("s").unwrap();
+    shared.apply(
+        "s",
+        PageUpdate::DialogOpened(ActiveDialog::from_cdp_params(&json!({
+            "type": "beforeunload",
+            "message": "Draft",
+        }))),
+    );
+    let stale_ack = {
+        let mut session = shared.session.lock();
+        session.dialog.ack_beforeunload_closed(1);
+        next_dialog_snapshot(&mut session)
+    };
+    assert_eq!(stale_ack.tracked, None);
+    assert!(!stale_ack.blocking);
+
+    let prompt = ActiveDialog::from_cdp_params(&json!({
+        "type": "prompt",
+        "message": "Enter PIN",
+    }));
+    shared.apply("s", PageUpdate::DialogOpened(prompt.clone()));
+    assert_eq!(shared.state().needs_human, "dialog");
+    assert_eq!(
+        shared
+            .subscribe_dialogs()
+            .borrow()
+            .tracked
+            .as_ref()
+            .map(|t| &t.dialog),
+        Some(&prompt)
+    );
+
+    // Delayed publication of the stale ack must not overwrite the newer prompt or needs_human.
+    shared.publish_dialog_snapshot(stale_ack);
+    assert_eq!(shared.state().needs_human, "dialog");
+    assert_eq!(
+        shared
+            .subscribe_dialogs()
+            .borrow()
+            .tracked
+            .as_ref()
+            .map(|t| &t.dialog),
+        Some(&prompt)
+    );
+
+    // Interleaving 2: end_agent_navigation produces a lower-seq None snapshot while a newer alert
+    // opens and publishes first.
+    shared.apply("s", PageUpdate::DialogClosed);
+    let stale_cancel = {
+        let mut session = shared.session.lock();
+        assert!(session.dialog.end_agent_navigation(token));
+        next_dialog_snapshot(&mut session)
+    };
+    let alert = ActiveDialog::from_cdp_params(&json!({
+        "type": "alert",
+        "message": "Stop",
+    }));
+    shared.apply("s", PageUpdate::DialogOpened(alert.clone()));
+    shared.publish_dialog_snapshot(stale_cancel);
+    assert_eq!(shared.state().needs_human, "dialog");
+    assert_eq!(
+        shared
+            .subscribe_dialogs()
+            .borrow()
+            .tracked
+            .as_ref()
+            .map(|t| &t.dialog),
+        Some(&alert)
+    );
+}
+
+#[test]
 fn browser_page_seeds_initial_profile_from_resume_only_for_named_profiles() {
     assert_eq!(
         PageShared::new_with_profile("Orla", Some("Andrey"))

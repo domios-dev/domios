@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde_json::Value;
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use super::dialog::{ActiveDialog, DialogState, TrackedDialog};
 use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
@@ -119,6 +119,19 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
     }
 }
 
+/// Versioned dialog watch state so stale snapshots published after releasing `session` never
+/// overwrite a newer dialog opening or blocking transition.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(super) struct DialogSnapshot {
+    pub seq: u64,
+    pub tracked: Option<TrackedDialog>,
+    pub blocking: bool,
+}
+
+enum ListenerFence {
+    BeginAgentNavigation(oneshot::Sender<Result<u64, String>>),
+}
+
 #[derive(Default)]
 struct PageSession {
     cursor_visible: bool,
@@ -129,9 +142,20 @@ struct PageSession {
     snapshot: Option<Snapshot>,
     capture: Option<String>,
     dialog: DialogState,
+    dialog_seq: u64,
+    fence_tx: Option<mpsc::UnboundedSender<ListenerFence>>,
     domains_ready: bool,
     grab_ready: bool,
     listener: Option<tokio::task::AbortHandle>,
+}
+
+fn next_dialog_snapshot(session: &mut PageSession) -> DialogSnapshot {
+    session.dialog_seq += 1;
+    DialogSnapshot {
+        seq: session.dialog_seq,
+        tracked: session.dialog.current_tracked(),
+        blocking: session.dialog.is_blocking_for_human(),
+    }
 }
 
 /// State a page listener and the runtime both write; one per browser surface instance.
@@ -140,7 +164,7 @@ pub(super) struct PageShared {
     notices: broadcast::Sender<SurfaceNotice>,
     resume: watch::Sender<SurfaceResume>,
     cursor: watch::Sender<String>,
-    dialogs: watch::Sender<Option<TrackedDialog>>,
+    dialogs: watch::Sender<DialogSnapshot>,
     session: Mutex<PageSession>,
 }
 
@@ -204,22 +228,31 @@ impl PageShared {
         Ok(())
     }
 
+    pub(super) fn publish_dialog_snapshot(&self, snapshot: DialogSnapshot) {
+        self.dialogs.send_if_modified(|current| {
+            if snapshot.seq <= current.seq {
+                return false;
+            }
+            *current = snapshot;
+            true
+        });
+        self.update(|state| {
+            let blocking = self.dialogs.borrow().blocking;
+            state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
+        });
+    }
+
     pub(super) fn invalidate_action(&self) {
-        let (revoked, blocking, tracked) = {
+        let snapshot = {
             let mut session = self.session.lock();
             session.action = None;
-            let revoked = session.dialog.revoke_agent_navigation();
-            (
-                revoked,
-                session.dialog.is_blocking_for_human(),
-                session.dialog.current_tracked(),
-            )
+            session
+                .dialog
+                .revoke_agent_navigation()
+                .then(|| next_dialog_snapshot(&mut session))
         };
-        if revoked {
-            self.dialogs.send_replace(tracked);
-            self.update(|state| {
-                state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
-            });
+        if let Some(snapshot) = snapshot {
+            self.publish_dialog_snapshot(snapshot);
         }
     }
     pub(super) fn new(owner: &str) -> Arc<Self> {
@@ -241,7 +274,7 @@ impl PageShared {
             notices: broadcast::channel(16).0,
             resume: watch::channel(SurfaceResume::default()).0,
             cursor: watch::channel("default".to_string()).0,
-            dialogs: watch::channel(None).0,
+            dialogs: watch::channel(DialogSnapshot::default()).0,
             session: Mutex::new(PageSession::default()),
         })
     }
@@ -334,7 +367,7 @@ impl PageShared {
 
     /// Binds the listener to `page` once per CDP session; a relaunch brings a new session.
     pub(super) fn bind(self: &Arc<Self>, page: &PageChannel) {
-        let events = {
+        let (events, fence_rx, snapshot) = {
             let mut session = self.session.lock();
             if session
                 .bound_page
@@ -346,21 +379,26 @@ impl PageShared {
             if let Some(listener) = session.listener.take() {
                 listener.abort();
             }
+            let dialog_seq = session.dialog_seq;
+            let (fence_tx, fence_rx) = mpsc::unbounded_channel();
             *session = PageSession {
                 bound_page: Some(page.clone()),
                 bound_session: Some(page.session_id().to_string()),
+                dialog_seq,
+                fence_tx: Some(fence_tx),
                 ..Default::default()
             };
-            self.dialogs.send_replace(None);
-            self.update(|state| {
-                state.target_id = page.target_id().to_string();
-                state.needs_human = needs_human(&state.url, &state.title, false).to_string();
-            });
-            page.subscribe(PAGE_EVENTS)
+            let snapshot = next_dialog_snapshot(&mut session);
+            (page.subscribe(PAGE_EVENTS), fence_rx, snapshot)
         };
-        let listener = tokio::spawn(listen(
+        self.publish_dialog_snapshot(snapshot);
+        self.update(|state| {
+            state.target_id = page.target_id().to_string();
+        });
+        let listener = tokio::spawn(listen_with_fences(
             self.clone(),
             events,
+            Some(fence_rx),
             page.session_id().to_string(),
             page.target_id().to_string(),
         ))
@@ -374,16 +412,21 @@ impl PageShared {
     }
 
     pub(super) fn unbind(&self) {
-        let mut session = self.session.lock();
-        if let Some(listener) = session.listener.take() {
-            listener.abort();
-        }
-        *session = PageSession::default();
-        drop(session);
-        self.dialogs.send_replace(None);
+        let snapshot = {
+            let mut session = self.session.lock();
+            if let Some(listener) = session.listener.take() {
+                listener.abort();
+            }
+            let dialog_seq = session.dialog_seq;
+            *session = PageSession {
+                dialog_seq,
+                ..Default::default()
+            };
+            next_dialog_snapshot(&mut session)
+        };
+        self.publish_dialog_snapshot(snapshot);
         self.update(|state| {
             state.target_id.clear();
-            state.needs_human = needs_human(&state.url, &state.title, false).to_string();
         });
     }
 
@@ -391,7 +434,7 @@ impl PageShared {
         self.session.lock().dialog.active_blocking().cloned()
     }
 
-    pub(super) fn subscribe_dialogs(&self) -> watch::Receiver<Option<TrackedDialog>> {
+    pub(super) fn subscribe_dialogs(&self) -> watch::Receiver<DialogSnapshot> {
         self.dialogs.subscribe()
     }
 
@@ -399,7 +442,7 @@ impl PageShared {
         self.session.lock().dialog.check_page_verb()
     }
 
-    pub(super) fn begin_agent_navigation(&self, session_id: &str) -> Result<u64, String> {
+    fn begin_agent_navigation_inner(&self, session_id: &str) -> Result<u64, String> {
         let mut session = self.session.lock();
         if session.bound_session.as_deref() != Some(session_id) {
             return Err("stale: browser session changed".into());
@@ -410,24 +453,48 @@ impl PageShared {
             .map_err(|active| active.blocking_error())
     }
 
+    #[cfg(test)]
+    pub(super) fn begin_agent_navigation(&self, session_id: &str) -> Result<u64, String> {
+        self.begin_agent_navigation_inner(session_id)
+    }
+
+    /// Drains all earlier CDP events in `listen` before arming agent navigation ownership.
+    pub(super) async fn begin_agent_navigation_ordered(
+        &self,
+        session_id: &str,
+    ) -> Result<u64, String> {
+        let fence_tx = {
+            let session = self.session.lock();
+            if session.bound_session.as_deref() != Some(session_id) {
+                return Err("stale: browser session changed".into());
+            }
+            session.fence_tx.clone()
+        };
+        let Some(fence_tx) = fence_tx else {
+            return self.begin_agent_navigation_inner(session_id);
+        };
+        let (reply_tx, reply_rx) = oneshot::channel();
+        fence_tx
+            .send(ListenerFence::BeginAgentNavigation(reply_tx))
+            .map_err(|_| "stale: browser session changed".to_string())?;
+        reply_rx
+            .await
+            .map_err(|_| "stale: browser session changed".to_string())?
+    }
+
     pub(super) fn end_agent_navigation(&self, session_id: &str, nav_token: u64) {
-        let (ended, blocking, tracked) = {
+        let snapshot = {
             let mut session = self.session.lock();
             if session.bound_session.as_deref() != Some(session_id) {
                 return;
             }
-            let ended = session.dialog.end_agent_navigation(nav_token);
-            (
-                ended,
-                session.dialog.is_blocking_for_human(),
-                session.dialog.current_tracked(),
-            )
+            session
+                .dialog
+                .end_agent_navigation(nav_token)
+                .then(|| next_dialog_snapshot(&mut session))
         };
-        if ended {
-            self.dialogs.send_replace(tracked);
-            self.update(|state| {
-                state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
-            });
+        if let Some(snapshot) = snapshot {
+            self.publish_dialog_snapshot(snapshot);
         }
     }
 
@@ -445,21 +512,15 @@ impl PageShared {
     }
 
     pub(super) fn ack_beforeunload_closed(&self, session_id: &str, generation: u64) {
-        let (blocking, tracked) = {
+        let snapshot = {
             let mut session = self.session.lock();
             if session.bound_session.as_deref() != Some(session_id) {
                 return;
             }
             session.dialog.ack_beforeunload_closed(generation);
-            (
-                session.dialog.is_blocking_for_human(),
-                session.dialog.current_tracked(),
-            )
+            next_dialog_snapshot(&mut session)
         };
-        self.dialogs.send_replace(tracked);
-        self.update(|state| {
-            state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
-        });
+        self.publish_dialog_snapshot(snapshot);
     }
 
     /// True until Runtime/overlay/Network setup has completed and been committed for `page`.
@@ -485,7 +546,7 @@ impl PageShared {
     }
 
     fn apply(&self, session_id: &str, update: PageUpdate) {
-        let (dialog, tracked, dialog_changed) = {
+        let snapshot = {
             let mut session = self.session.lock();
             if session.bound_session.as_deref() != Some(session_id) {
                 return;
@@ -512,14 +573,10 @@ impl PageShared {
                 }
                 PageUpdate::TargetInfo { .. } => {}
             }
-            (
-                session.dialog.is_blocking_for_human(),
-                session.dialog.current_tracked(),
-                dialog_changed,
-            )
+            dialog_changed.then(|| next_dialog_snapshot(&mut session))
         };
-        if dialog_changed {
-            self.dialogs.send_replace(tracked);
+        if let Some(snapshot) = snapshot {
+            self.publish_dialog_snapshot(snapshot);
         }
         if matches!(&update, PageUpdate::Navigated { .. }) {
             self.set_cursor("default");
@@ -536,7 +593,8 @@ impl PageShared {
                 }
                 PageUpdate::DialogOpened(_) | PageUpdate::DialogClosed => {}
             }
-            state.needs_human = needs_human(&state.url, &state.title, dialog).to_string();
+            let blocking = self.dialogs.borrow().blocking;
+            state.needs_human = needs_human(&state.url, &state.title, blocking).to_string();
         });
     }
 
@@ -621,20 +679,58 @@ fn process_event(shared: &PageShared, session_id: &str, target_id: &str, event: 
     }
 }
 
+#[cfg(test)]
 async fn listen(
     shared: Arc<PageShared>,
-    mut events: EventStream,
+    events: EventStream,
     session_id: String,
     target_id: String,
 ) {
-    while let Some(event) = events.recv().await {
-        process_event(&shared, &session_id, &target_id, &event);
-        while let Ok(queued) = events.try_recv() {
-            process_event(&shared, &session_id, &target_id, &queued);
+    listen_with_fences(shared, events, None, session_id, target_id).await;
+}
+
+async fn listen_with_fences(
+    shared: Arc<PageShared>,
+    mut events: EventStream,
+    mut fences: Option<mpsc::UnboundedReceiver<ListenerFence>>,
+    session_id: String,
+    target_id: String,
+) {
+    loop {
+        tokio::select! {
+            biased;
+            event = events.recv() => {
+                let Some(event) = event else {
+                    break;
+                };
+                process_event(&shared, &session_id, &target_id, &event);
+                while let Ok(queued) = events.try_recv() {
+                    process_event(&shared, &session_id, &target_id, &queued);
+                }
+            }
+            fence = async {
+                match fences.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                let Some(fence) = fence else {
+                    fences = None;
+                    continue;
+                };
+                while let Ok(queued) = events.try_recv() {
+                    process_event(&shared, &session_id, &target_id, &queued);
+                }
+                match fence {
+                    ListenerFence::BeginAgentNavigation(reply) => {
+                        let _ = reply.send(shared.begin_agent_navigation_inner(&session_id));
+                    }
+                }
+            }
         }
     }
-    let session = shared.session.lock();
-    if session.bound_session.as_deref() == Some(session_id.as_str()) {
+    let still_bound = shared.session.lock().bound_session.as_deref() == Some(session_id.as_str());
+    if still_bound {
         shared.notice(SurfaceNotice::error(
             "The browser connection stopped. Reopen this surface to continue.",
         ));

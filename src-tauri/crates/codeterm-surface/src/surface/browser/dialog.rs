@@ -1,4 +1,12 @@
-use serde_json::Value;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use serde_json::{json, Value};
+
+use super::input::{self, NavAction};
+use super::page::PageShared;
+use super::{BrowserRuntime, DIALOG_DEADLINE};
+use codeterm_browser::PageChannel;
 
 const MAX_DIALOG_MESSAGE_CHARS: usize = 200;
 
@@ -228,6 +236,185 @@ pub(super) fn navigation_outcome(completion: String, beforeunload_accepted: bool
         format!("{completion} (beforeunload dialog accepted)")
     } else {
         completion
+    }
+}
+
+struct AgentNavigationGuard {
+    shared: Arc<PageShared>,
+    session_id: String,
+    nav_token: u64,
+}
+
+impl Drop for AgentNavigationGuard {
+    fn drop(&mut self) {
+        self.shared
+            .end_agent_navigation(&self.session_id, self.nav_token);
+    }
+}
+
+impl BrowserRuntime {
+    pub(super) async fn navigate_for_agent(
+        &self,
+        page: &PageChannel,
+        action: NavAction,
+        target: Option<&str>,
+    ) -> Result<String, String> {
+        let _guard = self.action_gate.lock().await;
+        let mut dialog_events = self.shared.subscribe_dialogs();
+        self.shared.check_page_verb()?;
+        let (method, params) = match action {
+            NavAction::Reload => ("Page.reload", json!({})),
+            NavAction::Goto => {
+                let href = input::goto_href(target.unwrap_or(""))?;
+                ("Page.navigate", json!({"url":href}))
+            }
+            NavAction::Back | NavAction::Forward => {
+                let history = {
+                    let fetch = self.send(page, "Page.getNavigationHistory", json!({}));
+                    tokio::pin!(fetch);
+                    loop {
+                        tokio::select! {
+                            result = &mut fetch => break result?,
+                            changed = dialog_events.changed() => {
+                                if changed.is_err() {
+                                    break fetch.await?;
+                                }
+                                if let Some(tracked) = dialog_events.borrow_and_update().tracked.clone() {
+                                    return Err(tracked.dialog.blocking_error());
+                                }
+                            }
+                        }
+                    }
+                };
+                match input::history_entry(&history, action == NavAction::Back) {
+                    Some(entry_id) => ("Page.navigateToHistoryEntry", json!({"entryId":entry_id})),
+                    None => return Ok("no history entry; no navigation performed".into()),
+                }
+            }
+        };
+        self.shared.check_page_verb()?;
+        let nav_guard_slot: Mutex<Option<AgentNavigationGuard>> = Mutex::new(None);
+        let nav_token_slot: Mutex<Option<u64>> = Mutex::new(None);
+        let mut beforeunload_accepted = false;
+        let mut handled_generation: Option<u64> = None;
+        let outcome = {
+            let mut pending_accept: Option<(
+                u64,
+                std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<Output = Result<Value, codeterm_browser::CdpError>>
+                            + Send
+                            + '_,
+                    >,
+                >,
+            )> = None;
+            let nav_action = async {
+                // `ActionCompletion::observe` finishes before `observation.finish` polls this future.
+                // Fence through `listen` so earlier CDP dialog events apply before arming ownership.
+                let token = self
+                    .shared
+                    .begin_agent_navigation_ordered(page.session_id())
+                    .await?;
+                *nav_guard_slot.lock() = Some(AgentNavigationGuard {
+                    shared: self.shared.clone(),
+                    session_id: page.session_id().to_string(),
+                    nav_token: token,
+                });
+                *nav_token_slot.lock() = Some(token);
+                self.send(page, method, params).await
+            };
+            let completion = self.complete_action(page, true, nav_action);
+            tokio::pin!(completion);
+            loop {
+                tokio::select! {
+                    result = &mut completion => break result,
+                    accept_result = async {
+                        match pending_accept.as_mut() {
+                            Some((_, fut)) => fut.await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        let accepted_gen = pending_accept.take().map(|(gen_id, _)| gen_id);
+                        match accept_result {
+                            Ok(_) => {
+                                beforeunload_accepted = true;
+                                if let Some(gen_id) = accepted_gen {
+                                    self.shared.ack_beforeunload_closed(page.session_id(), gen_id);
+                                }
+                            }
+                            Err(error) if is_no_dialog_cdp_error(&error.to_string()) => {
+                                beforeunload_accepted = true;
+                                if let Some(gen_id) = accepted_gen {
+                                    self.shared.ack_beforeunload_closed(page.session_id(), gen_id);
+                                }
+                            }
+                            Err(codeterm_browser::CdpError::Cancelled(_)) => {
+                                if let Some(blocking) = self.shared.active_dialog() {
+                                    break Err(blocking.blocking_error());
+                                }
+                            }
+                            Err(error) => {
+                                break Err(format!(
+                                    "failed to accept beforeunload dialog during navigation: {error}"
+                                ));
+                            }
+                        }
+                    }
+                    changed = dialog_events.changed() => {
+                        if changed.is_err() {
+                            break completion.await;
+                        }
+                        let snapshot = dialog_events.borrow_and_update().clone();
+                        let current_nav = *nav_token_slot.lock();
+                        let Some(tracked) = snapshot.tracked else {
+                            pending_accept = None;
+                            continue;
+                        };
+                        if current_nav.is_some()
+                            && tracked.owned_by_nav == current_nav
+                            && tracked.dialog.kind.is_beforeunload()
+                        {
+                            let nav_token = current_nav.unwrap();
+                            if !self.shared.can_accept_beforeunload(
+                                page.session_id(),
+                                nav_token,
+                                tracked.generation,
+                            ) {
+                                pending_accept = None;
+                                if let Some(blocking) = self.shared.active_dialog() {
+                                    break Err(blocking.blocking_error());
+                                }
+                                continue;
+                            }
+                            if handled_generation == Some(tracked.generation) {
+                                continue;
+                            }
+                            handled_generation = Some(tracked.generation);
+                            let shared = self.shared.clone();
+                            let session_id = page.session_id().to_string();
+                            let generation = tracked.generation;
+                            let gate: codeterm_browser::DispatchGate = Arc::new(move || {
+                                shared.can_accept_beforeunload(&session_id, nav_token, generation)
+                            });
+                            pending_accept = Some((
+                                generation,
+                                Box::pin(page.send_guarded_with_deadline(
+                                    "Page.handleJavaScriptDialog",
+                                    json!({ "accept": true }),
+                                    DIALOG_DEADLINE,
+                                    gate,
+                                )),
+                            ));
+                        } else {
+                            pending_accept = None;
+                            break Err(tracked.dialog.blocking_error());
+                        }
+                    }
+                }
+            }
+        };
+        drop(nav_guard_slot);
+        outcome.map(|(_, completion)| navigation_outcome(completion, beforeunload_accepted))
     }
 }
 

@@ -197,8 +197,15 @@ impl BrowserRuntime {
         let Some(wanted) = pending.take() else {
             return;
         };
-        let available = self.host.profiles().await;
-        match resume::restored_profile(&wanted, &available) {
+        let layout = self.layout.clone();
+        let wanted_lookup = wanted.clone();
+        let resolved = tokio::task::spawn_blocking(move || {
+            resume::restored_profile_in_layout(&layout, &wanted_lookup)
+        })
+        .await
+        .ok()
+        .flatten();
+        match resolved {
             Some(name) => {
                 *self.profile_request.lock() = name.clone();
                 self.shared.update(|state| state.profile = name.clone());
@@ -359,109 +366,7 @@ impl BrowserRuntime {
         action: NavAction,
         target: Option<&str>,
     ) -> Result<String, String> {
-        let _guard = self.action_gate.lock().await;
-        let mut dialog_events = self.shared.subscribe_dialogs();
-        let nav_token = self.shared.begin_agent_navigation(page.session_id())?;
-        let _nav_guard = AgentNavigationGuard {
-            shared: self.shared.clone(),
-            session_id: page.session_id().to_string(),
-            nav_token,
-        };
-        let (method, params) = match action {
-            NavAction::Reload => ("Page.reload", json!({})),
-            NavAction::Goto => {
-                let href = input::goto_href(target.unwrap_or(""))?;
-                ("Page.navigate", json!({"url":href}))
-            }
-            NavAction::Back | NavAction::Forward => {
-                let history = {
-                    let fetch = self.send(page, "Page.getNavigationHistory", json!({}));
-                    tokio::pin!(fetch);
-                    loop {
-                        tokio::select! {
-                            result = &mut fetch => break result?,
-                            changed = dialog_events.changed() => {
-                                if changed.is_err() {
-                                    break fetch.await?;
-                                }
-                                if let Some(tracked) = dialog_events.borrow_and_update().clone() {
-                                    return Err(tracked.dialog.blocking_error());
-                                }
-                            }
-                        }
-                    }
-                };
-                match input::history_entry(&history, action == NavAction::Back) {
-                    Some(entry_id) => ("Page.navigateToHistoryEntry", json!({"entryId":entry_id})),
-                    None => return Ok("no history entry; no navigation performed".into()),
-                }
-            }
-        };
-        if let Some(tracked) = dialog_events.borrow_and_update().clone() {
-            return Err(tracked.dialog.blocking_error());
-        }
-        let mut beforeunload_accepted = false;
-        let mut handled_generation: Option<u64> = None;
-        let completion = self.complete_action(page, true, self.send(page, method, params));
-        tokio::pin!(completion);
-        let outcome = loop {
-            tokio::select! {
-                result = &mut completion => break result,
-                changed = dialog_events.changed() => {
-                    if changed.is_err() {
-                        break completion.await;
-                    }
-                    let Some(tracked) = dialog_events.borrow_and_update().clone() else {
-                        continue;
-                    };
-                    if tracked.owned_by_nav == Some(nav_token)
-                        && tracked.dialog.kind.is_beforeunload()
-                    {
-                        if handled_generation == Some(tracked.generation) {
-                            continue;
-                        }
-                        if !self.shared.can_accept_beforeunload(
-                            page.session_id(),
-                            nav_token,
-                            tracked.generation,
-                        ) {
-                            if let Some(blocking) = self.shared.active_dialog() {
-                                break Err(blocking.blocking_error());
-                            }
-                            continue;
-                        }
-                        handled_generation = Some(tracked.generation);
-                        match page
-                            .send_with_deadline(
-                                "Page.handleJavaScriptDialog",
-                                json!({ "accept": true }),
-                                DIALOG_DEADLINE,
-                            )
-                            .await
-                        {
-                            Ok(_) => {
-                                beforeunload_accepted = true;
-                                self.shared
-                                    .ack_beforeunload_closed(page.session_id(), tracked.generation);
-                            }
-                            Err(error) if dialog::is_no_dialog_cdp_error(&error.to_string()) => {
-                                beforeunload_accepted = true;
-                                self.shared
-                                    .ack_beforeunload_closed(page.session_id(), tracked.generation);
-                            }
-                            Err(error) => {
-                                break Err(format!(
-                                    "failed to accept beforeunload dialog during navigation: {error}"
-                                ));
-                            }
-                        }
-                    } else {
-                        break Err(tracked.dialog.blocking_error());
-                    }
-                }
-            }
-        };
-        outcome.map(|(_, completion)| dialog::navigation_outcome(completion, beforeunload_accepted))
+        self.navigate_for_agent(page, action, target).await
     }
 
     async fn screenshot_base64(
@@ -512,7 +417,10 @@ impl BrowserRuntime {
     }
 
     /// `""` or `"clean"` is the throwaway profile; a named one keeps logins across restarts.
-    async fn use_profile(&self, raw: &str) -> Result<(), String> {
+    async fn use_profile(&self, raw: &str, check_dialog: bool) -> Result<(), String> {
+        if check_dialog {
+            self.shared.check_page_verb()?;
+        }
         sweep_browsers(&self.swept, self.layout.clone()).await;
         let wanted = if raw.trim().is_empty() || raw.trim().eq_ignore_ascii_case(CLEAN_PROFILE) {
             String::new()
@@ -528,9 +436,12 @@ impl BrowserRuntime {
         } else {
             format!("profile {wanted}")
         };
+        let _launch = self.launch_gate.lock().await;
+        if check_dialog {
+            self.shared.check_page_verb()?;
+        }
         self.shared
             .notice(SurfaceNotice::info(format!("Switching to {label}…")));
-        let _launch = self.launch_gate.lock().await;
         self.cancel_resume().await;
         let opened = self.host.use_profile(&wanted).await?;
         *self.profile_request.lock() = wanted;
@@ -701,25 +612,23 @@ impl SurfaceRuntime for BrowserRuntime {
             .map_err(super::model::SurfaceError::TerminationFailed)
     }
 
+    async fn agent_close(&self) -> Result<(), super::model::SurfaceError> {
+        self.shared
+            .check_page_verb()
+            .map_err(super::model::SurfaceError::Blocked)?;
+        let _launch = self.launch_gate.lock().await;
+        self.shared
+            .check_page_verb()
+            .map_err(super::model::SurfaceError::Blocked)?;
+        self.close().await
+    }
+
     async fn shutdown(&self, graceful: Duration) -> bool {
         self.shared.unbind();
         !matches!(
             self.host.shutdown_within(graceful).await,
             Some(CloseOutcome::Killed(_))
         )
-    }
-}
-
-struct AgentNavigationGuard {
-    shared: Arc<PageShared>,
-    session_id: String,
-    nav_token: u64,
-}
-
-impl Drop for AgentNavigationGuard {
-    fn drop(&mut self) {
-        self.shared
-            .end_agent_navigation(&self.session_id, self.nav_token);
     }
 }
 

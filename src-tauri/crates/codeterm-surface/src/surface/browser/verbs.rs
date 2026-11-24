@@ -206,7 +206,8 @@ impl BrowserRuntime {
         lines.join("\n")
     }
 
-    async fn open_verb(&self, args: &[String]) -> Result<String, String> {
+    pub(super) async fn open_verb(&self, args: &[String]) -> Result<String, String> {
+        self.shared.check_page_verb()?;
         if args
             .iter()
             .any(|a| a == "--domios-instance" || a == "--api-port")
@@ -221,7 +222,7 @@ impl BrowserRuntime {
         }
         let (url, profile) = parse_open(args);
         match profile {
-            Some(profile) => self.use_profile(&profile).await?,
+            Some(profile) => self.use_profile(&profile, true).await?,
             None => {
                 if url.is_some() {
                     self.resume_url.lock().take();

@@ -93,10 +93,29 @@ async fn follow_resume(
 /// Persists profile changes immediately (even during an active URL coalesce window) while
 /// coalescing rapid URL-only updates into a single write.
 async fn drive_resume_updates<F, Fut>(
+    updates: watch::Receiver<SurfaceResume>,
+    coalesce: Duration,
+    on_write: F,
+) where
+    F: FnMut(SurfaceResume) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    drive_resume_updates_with_hook(updates, coalesce, |_| {}, on_write).await;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResumeDriverPhase {
+    Ready,
+    CoalesceArmed,
+}
+
+async fn drive_resume_updates_with_hook<H, F, Fut>(
     mut updates: watch::Receiver<SurfaceResume>,
     coalesce: Duration,
+    mut on_phase: H,
     mut on_write: F,
 ) where
+    H: FnMut(ResumeDriverPhase),
     F: FnMut(SurfaceResume) -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
@@ -105,6 +124,7 @@ async fn drive_resume_updates<F, Fut>(
     if !initial.is_empty() && !on_write(initial).await {
         return;
     }
+    on_phase(ResumeDriverPhase::Ready);
     let mut pending_url_deadline: Option<tokio::time::Instant> = None;
     loop {
         let flush_now = match pending_url_deadline {
@@ -129,6 +149,7 @@ async fn drive_resume_updates<F, Fut>(
                     true
                 } else {
                     pending_url_deadline = Some(tokio::time::Instant::now() + coalesce);
+                    on_phase(ResumeDriverPhase::CoalesceArmed);
                     false
                 }
             }
@@ -208,28 +229,41 @@ mod tests {
     async fn profile_change_during_url_coalesce_persists_immediately() {
         let (tx, rx) = watch::channel(SurfaceResume::default());
         let (written_tx, mut written_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (phase_tx, mut phase_rx) = tokio::sync::mpsc::unbounded_channel();
         // Long coalesce window proves the profile change wakes immediately rather than waiting on the timer.
-        let driver = tokio::spawn(drive_resume_updates(
+        let driver = tokio::spawn(drive_resume_updates_with_hook(
             rx,
             Duration::from_secs(60),
+            move |phase| {
+                let _ = phase_tx.send(phase);
+            },
             move |resume| {
                 let written_tx = written_tx.clone();
                 async move { written_tx.send(resume).is_ok() }
             },
         ));
+        let ready = tokio::time::timeout(Duration::from_secs(1), phase_rx.recv())
+            .await
+            .expect("driver must signal Ready after inspecting empty initial state")
+            .unwrap();
+        assert_eq!(ready, ResumeDriverPhase::Ready);
         tx.send_replace(SurfaceResume {
             url: Some("https://a.test/1".into()),
             profile: None,
         });
-        tx.send_replace(SurfaceResume {
-            url: Some("https://a.test/1b".into()),
-            profile: None,
-        });
-        tokio::task::yield_now().await;
+        let armed = tokio::time::timeout(Duration::from_secs(1), phase_rx.recv())
+            .await
+            .expect("URL-only update must arm the coalesce window")
+            .unwrap();
+        assert_eq!(armed, ResumeDriverPhase::CoalesceArmed);
         assert!(
             written_rx.try_recv().is_err(),
             "URL-only updates should coalesce inside the window"
         );
+        tx.send_replace(SurfaceResume {
+            url: Some("https://a.test/1b".into()),
+            profile: None,
+        });
         tx.send_replace(SurfaceResume {
             url: Some("https://a.test/2".into()),
             profile: Some("Andrey".into()),

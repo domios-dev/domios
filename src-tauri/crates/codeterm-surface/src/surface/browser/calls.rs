@@ -146,7 +146,7 @@ impl BrowserRuntime {
             }
             "profiles.use" => {
                 let profile: ProfileArgs = parse(method, args)?;
-                self.use_profile(&profile.name).await?;
+                self.use_profile(&profile.name, false).await?;
                 self.profile_view()
             }
             "profiles.create" => {

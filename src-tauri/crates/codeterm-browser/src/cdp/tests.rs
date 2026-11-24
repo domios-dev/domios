@@ -369,7 +369,7 @@ async fn browser_cdp_input_batch_sends_every_phase_before_any_reply() {
     assert_eq!(sent.await.unwrap().unwrap().len(), 2);
 }
 
-fn batch_connection() -> (SocketConnection, mpsc::Receiver<Vec<Message>>) {
+fn batch_connection() -> (SocketConnection, mpsc::Receiver<OutgoingBatch>) {
     let (outgoing, receiver) = mpsc::channel(1);
     let (closed, _) = watch::channel(None);
     let connection = SocketConnection(Arc::new(Inner {
@@ -413,7 +413,11 @@ async fn browser_cdp_batch_on_closed_socket_returns_close_reason() {
 #[tokio::test]
 async fn browser_cdp_batch_writer_loss_keeps_close_reason_for_every_pending_phase() {
     let (connection, receiver) = batch_connection();
-    connection.0.outgoing.try_send(vec![]).unwrap();
+    connection
+        .0
+        .outgoing
+        .try_send(OutgoingBatch::plain(vec![]))
+        .unwrap();
     let batch = connection.send_batch_to(Some("page"), click_phases(), COMMAND_DEADLINE);
     tokio::pin!(batch);
     assert!(futures_util::poll!(&mut batch).is_pending());
@@ -425,6 +429,89 @@ async fn browser_cdp_batch_writer_loss_keeps_close_reason_for_every_pending_phas
         Err(CdpError::Closed("chrome closed the CDP socket".into()))
     );
     assert!(connection.0.state.lock().pending.is_empty());
+}
+
+#[tokio::test]
+async fn browser_cdp_guarded_dialog_accept_drops_unsent_when_revoked_while_queue_blocked() {
+    let (connection, mut receiver) = batch_connection();
+    connection
+        .0
+        .outgoing
+        .try_send(OutgoingBatch::plain(vec![]))
+        .unwrap();
+    let authorized = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let gate_flag = authorized.clone();
+    let gate: DispatchGate = Arc::new(move || gate_flag.load(Ordering::SeqCst));
+    let accept = connection.send_guarded_to(
+        Some("ST1"),
+        "Page.handleJavaScriptDialog",
+        json!({ "accept": true }),
+        COMMAND_DEADLINE,
+        gate,
+    );
+    tokio::pin!(accept);
+    assert!(futures_util::poll!(&mut accept).is_pending());
+
+    // Revoke authority before the blocked outgoing queue frees a slot.
+    authorized.store(false, Ordering::SeqCst);
+    let _blocker = receiver.try_recv().unwrap();
+    assert!(matches!(accept.await, Err(CdpError::Cancelled(_))));
+    assert!(
+        receiver.try_recv().is_err(),
+        "revoked accept must never be enqueued onto the outgoing CDP writer"
+    );
+    assert!(connection.0.state.lock().pending.is_empty());
+}
+
+#[tokio::test]
+async fn browser_cdp_guarded_dialog_accept_invalidates_already_queued_frame_on_wire_replacement() {
+    let (connection, mut receiver) = batch_connection();
+    connection
+        .0
+        .route(Incoming::Event(CdpEvent {
+            method: "Page.javascriptDialogOpening".into(),
+            session_id: Some("ST1".into()),
+            params: json!({ "type": "beforeunload", "message": "Leave?" }),
+        }))
+        .await;
+    let gate: DispatchGate = Arc::new(|| true);
+    let accept = connection.send_guarded_to(
+        Some("ST1"),
+        "Page.handleJavaScriptDialog",
+        json!({ "accept": true }),
+        COMMAND_DEADLINE,
+        gate,
+    );
+    tokio::pin!(accept);
+    assert!(futures_util::poll!(&mut accept).is_pending());
+    let queued = receiver.try_recv().unwrap();
+    assert!(connection.0.should_dispatch(&queued));
+
+    // Replacement dialog arrives on the wire before write_loop flushes the queued accept.
+    connection
+        .0
+        .route(Incoming::Event(CdpEvent {
+            method: "Page.javascriptDialogClosed".into(),
+            session_id: Some("ST1".into()),
+            params: json!({ "result": false }),
+        }))
+        .await;
+    connection
+        .0
+        .route(Incoming::Event(CdpEvent {
+            method: "Page.javascriptDialogOpening".into(),
+            session_id: Some("ST1".into()),
+            params: json!({ "type": "prompt", "message": "Enter PIN" }),
+        }))
+        .await;
+    assert!(
+        !connection.0.should_dispatch(&queued),
+        "wire replacement must invalidate an already-queued beforeunload accept before socket write"
+    );
+    connection
+        .0
+        .cancel_pending(&queued.ids, "dispatch authorization revoked");
+    assert!(matches!(accept.await, Err(CdpError::Cancelled(_))));
 }
 
 #[tokio::test]

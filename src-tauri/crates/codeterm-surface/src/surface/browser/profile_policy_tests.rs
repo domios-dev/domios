@@ -11,7 +11,7 @@ async fn agent_browser_defaults_to_temporary_and_rejects_missing_profiles() {
         SurfaceResume::default(),
     );
     assert_eq!(*runtime.profile_request.lock(), "");
-    assert!(runtime.use_profile("Invented").await.is_err());
+    assert!(runtime.use_profile("Invented", true).await.is_err());
     assert!(!runtime.layout.profiles_dir().exists());
     assert_eq!(*runtime.profile_request.lock(), "");
     assert_eq!(

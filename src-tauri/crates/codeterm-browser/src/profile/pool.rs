@@ -234,8 +234,25 @@ impl ProfileLease {
     }
 }
 
+#[derive(Default)]
+struct CloseDialogTracker {
+    next_gen: u64,
+    current: Option<(u64, bool)>,
+    authorized: bool,
+}
+
+struct CloseAuthGuard {
+    tracker: Arc<Mutex<CloseDialogTracker>>,
+}
+
+impl Drop for CloseAuthGuard {
+    fn drop(&mut self) {
+        self.tracker.lock().authorized = false;
+    }
+}
+
 /// Closes a page target while accepting only a `beforeunload` dialog raised by closing it.
-/// Tracks ordered open/close generations so a superseded `beforeunload` never answers a later dialog.
+/// Tracks ordered open/close generations and re-validates authority at ordered CDP dispatch.
 async fn close_target_accepting_beforeunload(
     client: &CdpClient,
     target_id: &str,
@@ -251,6 +268,14 @@ async fn close_target_accepting_beforeunload(
             ],
         })
     });
+    let tracker = Arc::new(Mutex::new(CloseDialogTracker {
+        next_gen: 0,
+        current: None,
+        authorized: true,
+    }));
+    let _auth_guard = CloseAuthGuard {
+        tracker: tracker.clone(),
+    };
     let close = client.send_to(
         None,
         "Target.closeTarget",
@@ -258,12 +283,27 @@ async fn close_target_accepting_beforeunload(
         deadline,
     );
     tokio::pin!(close);
-    let mut next_gen: u64 = 0;
-    let mut current_dialog: Option<(u64, bool)> = None;
     let mut handled_gen: Option<u64> = None;
+    let mut pending_accept: Option<(
+        u64,
+        std::pin::Pin<
+            Box<dyn Future<Output = Result<serde_json::Value, crate::CdpError>> + Send + '_>,
+        >,
+    )> = None;
     let result = loop {
         tokio::select! {
             result = &mut close => break result,
+            accept_result = async {
+                match pending_accept.as_mut() {
+                    Some((_, fut)) => fut.await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                pending_accept = None;
+                if let Err(error) = accept_result {
+                    log::debug!("[browser] close beforeunload reply {target_id}: {error}");
+                }
+            }
             event = async {
                 match dialogs.as_mut() {
                     Some(stream) => stream.recv().await,
@@ -274,37 +314,53 @@ async fn close_target_accepting_beforeunload(
                     dialogs = None;
                     continue;
                 };
-                let mut apply = |ev: &crate::cdp_wire::CdpEvent| {
-                    if ev.method == "Page.javascriptDialogOpening" {
-                        next_gen += 1;
-                        let is_beforeunload = ev
-                            .params
-                            .get("type")
-                            .and_then(serde_json::Value::as_str)
-                            == Some("beforeunload");
-                        current_dialog = Some((next_gen, is_beforeunload));
-                    } else if ev.method == "Page.javascriptDialogClosed" {
-                        current_dialog = None;
+                let latest = {
+                    let mut state = tracker.lock();
+                    let mut apply = |ev: &crate::cdp_wire::CdpEvent| {
+                        if ev.method == "Page.javascriptDialogOpening" {
+                            state.next_gen += 1;
+                            let is_beforeunload = ev
+                                .params
+                                .get("type")
+                                .and_then(serde_json::Value::as_str)
+                                == Some("beforeunload");
+                            state.current = Some((state.next_gen, is_beforeunload));
+                        } else if ev.method == "Page.javascriptDialogClosed" {
+                            state.current = None;
+                        }
+                    };
+                    apply(first.as_ref());
+                    if let Some(stream) = dialogs.as_mut() {
+                        while let Ok(queued) = stream.try_recv() {
+                            apply(queued.as_ref());
+                        }
                     }
+                    state.current
                 };
-                apply(first.as_ref());
-                if let Some(stream) = dialogs.as_mut() {
-                    while let Ok(queued) = stream.try_recv() {
-                        apply(queued.as_ref());
+                if let Some((active_gen, _)) = &pending_accept {
+                    if latest != Some((*active_gen, true)) {
+                        pending_accept = None;
                     }
                 }
-                if let Some((dialog_gen, true)) = current_dialog {
+                if let Some((dialog_gen, true)) = latest {
                     if handled_gen != Some(dialog_gen) {
                         handled_gen = Some(dialog_gen);
                         if let Some(sid) = session_id {
-                            let _ = client
-                                .send_to(
+                            let tracker_for_gate = tracker.clone();
+                            let gate: crate::DispatchGate = Arc::new(move || {
+                                let state = tracker_for_gate.lock();
+                                state.authorized && state.current == Some((dialog_gen, true))
+                            });
+                            pending_accept = Some((
+                                dialog_gen,
+                                Box::pin(client.send_guarded_to(
                                     Some(sid),
                                     "Page.handleJavaScriptDialog",
                                     json!({ "accept": true }),
                                     deadline,
-                                )
-                                .await;
+                                    gate,
+                                )),
+                            ));
                         }
                     }
                 }

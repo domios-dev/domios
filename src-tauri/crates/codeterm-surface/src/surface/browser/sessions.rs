@@ -58,6 +58,7 @@ pub(super) fn parse(args: &[String]) -> Result<SessionArgs, String> {
 
 impl BrowserRuntime {
     pub(super) async fn open_session(&self, args: &[String]) -> Result<String, String> {
+        self.shared.check_page_verb()?;
         let args = parse(args)?;
         super::sweep_browsers(&self.swept, self.layout.clone()).await;
         if let Some(build) = &args.build {
@@ -73,6 +74,7 @@ impl BrowserRuntime {
         .map_err(|_| "profile_task_failed")??;
         {
             let _launch = self.launch_gate.lock().await;
+            self.shared.check_page_verb()?;
             self.cancel_resume().await;
             let viewport = self.host.viewport();
             let opened = self

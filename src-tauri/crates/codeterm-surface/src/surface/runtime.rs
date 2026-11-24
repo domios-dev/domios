@@ -153,6 +153,10 @@ pub trait SurfaceRuntime: Send + Sync {
         self.dispose().await;
         Ok(())
     }
+    /// Agent-initiated close; runtimes may refuse if a pre-existing owner modal is blocking.
+    async fn agent_close(&self) -> Result<(), SurfaceError> {
+        self.close().await
+    }
     /// Daemon exit: dispose with only `graceful` before a kill; false when something was killed.
     async fn shutdown(&self, graceful: Duration) -> bool {
         let _ = graceful;

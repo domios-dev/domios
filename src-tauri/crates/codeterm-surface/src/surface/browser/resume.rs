@@ -1,4 +1,4 @@
-use codeterm_browser::profile::sanitize_profile_name;
+use codeterm_browser::profile::{sanitize_profile_name, ProfileLayout};
 
 pub(super) const MAX_RESUME_URL: usize = 2048;
 const NOT_A_PROFILE: &[&str] = &["", "clean", "attached"];
@@ -31,21 +31,26 @@ pub(super) fn resumable_profile(label: &str) -> Option<String> {
     (sanitize_profile_name(label) == label).then(|| label.to_string())
 }
 
-/// The remembered profile to launch under, or `None` when it no longer exists.
-pub(super) fn restored_profile(wanted: &str, available: &[String]) -> Option<String> {
-    restored_profile_matching(
-        wanted,
-        available,
-        codeterm_browser::sweep::paths_case_insensitive(),
-    )
+/// Validates that the persisted profile path actually exists on disk before returning its canonical
+/// directory name; prevents folding a deleted spelling onto a differently cased directory on
+/// case-sensitive volumes (e.g. case-sensitive APFS on macOS).
+pub(super) fn restored_profile_in_layout(layout: &ProfileLayout, wanted: &str) -> Option<String> {
+    let name = resumable_profile(wanted)?;
+    layout.resolve_named(&name).ok()
 }
 
-/// Resolves a remembered profile against available directory names, preferring exact matches first.
+/// Pure profile-restore matcher: requires `exact_path_exists` (proving the persisted path resolves
+/// to a real directory on this volume) before preferring exact spelling and optional case-folding.
+#[cfg(test)]
 pub(super) fn restored_profile_matching(
     wanted: &str,
     available: &[String],
+    exact_path_exists: bool,
     case_insensitive: bool,
 ) -> Option<String> {
+    if !exact_path_exists {
+        return None;
+    }
     let name = resumable_profile(wanted)?;
     codeterm_browser::profile::match_profile_name(&name, available, case_insensitive)
 }
@@ -101,39 +106,53 @@ mod tests {
 
     #[test]
     fn browser_resume_falls_back_to_clean_when_the_profile_is_gone() {
-        let available = vec!["personal".to_string(), "work".to_string()];
+        let root = tempfile::tempdir().unwrap();
+        let layout = ProfileLayout::new(root.path().to_path_buf());
+        layout.create_named("personal").unwrap();
+        layout.create_named("work").unwrap();
         assert_eq!(
-            restored_profile("work", &available).as_deref(),
+            restored_profile_in_layout(&layout, "work").as_deref(),
             Some("work")
         );
-        assert_eq!(restored_profile("deleted", &available), None);
-        assert_eq!(restored_profile("clean", &available), None);
+        assert_eq!(restored_profile_in_layout(&layout, "deleted"), None);
+        assert_eq!(restored_profile_in_layout(&layout, "clean"), None);
     }
 
     #[test]
-    fn browser_resume_resolves_profile_casing_only_on_case_insensitive_hosts() {
+    fn browser_resume_resolves_profile_casing_only_when_persisted_path_exists() {
         let available = vec!["andrey".to_string(), "Work".to_string()];
+        // Case-insensitive volume: persisted path resolves on disk to the same directory.
         assert_eq!(
-            restored_profile_matching("Andrey", &available, true).as_deref(),
+            restored_profile_matching("Andrey", &available, true, true).as_deref(),
             Some("andrey")
         );
         assert_eq!(
-            restored_profile_matching("work", &available, true).as_deref(),
+            restored_profile_matching("work", &available, true, true).as_deref(),
             Some("Work")
         );
-        assert_eq!(restored_profile_matching("Andrey", &available, false), None);
+        // Case-sensitive volume (e.g. case-sensitive APFS on macOS): deleted "Work" does not exist
+        // on disk even though "work" is in `available`, so restore must fall back to clean (None).
+        let lower_only = vec!["work".to_string()];
         assert_eq!(
-            restored_profile_matching("Work", &available, false).as_deref(),
+            restored_profile_matching("Work", &lower_only, false, true),
+            None
+        );
+        assert_eq!(
+            restored_profile_matching("Andrey", &available, true, false),
+            None
+        );
+        assert_eq!(
+            restored_profile_matching("Work", &available, true, false).as_deref(),
             Some("Work")
         );
-        // When both spellings exist (e.g. case-sensitive macOS volume), exact match wins.
+        // When both spellings exist on a case-sensitive volume, exact match wins.
         let both = vec!["Work".to_string(), "work".to_string()];
         assert_eq!(
-            restored_profile_matching("work", &both, true).as_deref(),
+            restored_profile_matching("work", &both, true, true).as_deref(),
             Some("work")
         );
         assert_eq!(
-            restored_profile_matching("Work", &both, true).as_deref(),
+            restored_profile_matching("Work", &both, true, true).as_deref(),
             Some("Work")
         );
     }

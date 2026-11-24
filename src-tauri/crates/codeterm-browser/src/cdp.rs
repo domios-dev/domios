@@ -39,6 +39,7 @@ pub enum CdpError {
     Protocol(ProtocolError),
     Deadline(String),
     Malformed(String),
+    Cancelled(String),
 }
 
 impl std::fmt::Display for CdpError {
@@ -48,15 +49,41 @@ impl std::fmt::Display for CdpError {
             Self::Protocol(error) => write!(f, "CDP error {}: {}", error.code, error.message),
             Self::Deadline(method) => write!(f, "CDP {method} got no reply before its deadline"),
             Self::Malformed(detail) => write!(f, "unexpected CDP reply: {detail}"),
+            Self::Cancelled(reason) => write!(f, "CDP dispatch cancelled: {reason}"),
         }
     }
 }
+
+/// Checked immediately before enqueuing and immediately before writing a guarded command to CDP.
+pub type DispatchGate = Arc<dyn Fn() -> bool + Send + Sync>;
 
 type Reply = Result<Value, CdpError>;
 
 struct PendingReply {
     sender: oneshot::Sender<Reply>,
     document: bool,
+}
+
+struct OutgoingBatch {
+    messages: Vec<Message>,
+    ids: Vec<u64>,
+    session_id: Option<String>,
+    guarded_dialog: bool,
+    captured_dialog_epoch: u64,
+    gate: Option<DispatchGate>,
+}
+
+impl OutgoingBatch {
+    fn plain(messages: Vec<Message>) -> Self {
+        Self {
+            messages,
+            ids: Vec::new(),
+            session_id: None,
+            guarded_dialog: false,
+            captured_dialog_epoch: 0,
+            gate: None,
+        }
+    }
 }
 
 struct Subscriber {
@@ -71,6 +98,8 @@ struct State {
     pending: HashMap<u64, PendingReply>,
     subscribers: Vec<Subscriber>,
     closed: Option<String>,
+    wire_dialog_epoch: HashMap<String, u64>,
+    wire_dialog_beforeunload: HashMap<String, bool>,
 }
 
 struct Inner {
@@ -78,7 +107,7 @@ struct Inner {
     next_id: AtomicU64,
     next_subscriber: AtomicU64,
     state: Mutex<State>,
-    outgoing: mpsc::Sender<Vec<Message>>,
+    outgoing: mpsc::Sender<OutgoingBatch>,
     closed: watch::Sender<Option<String>>,
 }
 
@@ -113,8 +142,62 @@ impl Inner {
             }
             Incoming::Event(event) => {
                 let event = Arc::new(event);
-                self.fan_out(event.clone());
+                self.note_dialog_event(&event);
+                self.fan_out(event);
             }
+        }
+    }
+
+    fn note_dialog_event(&self, event: &CdpEvent) {
+        let Some(sid) = event.session_id.as_deref() else {
+            return;
+        };
+        let is_beforeunload = match event.method.as_str() {
+            "Page.javascriptDialogOpening" => {
+                event.params.get("type").and_then(Value::as_str) == Some("beforeunload")
+            }
+            "Page.javascriptDialogClosed" => false,
+            _ => return,
+        };
+        let mut state = self.state.lock();
+        let epoch = state.wire_dialog_epoch.entry(sid.to_string()).or_insert(0);
+        *epoch += 1;
+        state
+            .wire_dialog_beforeunload
+            .insert(sid.to_string(), is_beforeunload);
+    }
+
+    fn should_dispatch(&self, batch: &OutgoingBatch) -> bool {
+        if batch.gate.as_ref().is_some_and(|gate| !gate()) {
+            return false;
+        }
+        if batch.guarded_dialog {
+            if let Some(sid) = batch.session_id.as_deref() {
+                let state = self.state.lock();
+                if state.wire_dialog_epoch.get(sid).copied().unwrap_or(0)
+                    != batch.captured_dialog_epoch
+                {
+                    return false;
+                }
+                if state.wire_dialog_beforeunload.get(sid) == Some(&false) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn cancel_pending(&self, ids: &[u64], reason: &str) {
+        let replies: Vec<PendingReply> = {
+            let mut state = self.state.lock();
+            ids.iter()
+                .filter_map(|id| state.pending.remove(id))
+                .collect()
+        };
+        for reply in replies {
+            let _ = reply
+                .sender
+                .send(Err(CdpError::Cancelled(reason.to_string())));
         }
     }
 
@@ -216,9 +299,32 @@ impl SocketConnection {
         params: Value,
         deadline: Duration,
     ) -> Reply {
-        self.send_batch_to(session_id, vec![(method.to_string(), params)], deadline)
-            .await
-            .map(|mut replies| replies.remove(0))
+        self.send_batch_guarded_to(
+            session_id,
+            vec![(method.to_string(), params)],
+            deadline,
+            None,
+        )
+        .await
+        .map(|mut replies| replies.remove(0))
+    }
+
+    pub async fn send_guarded_to(
+        &self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        can_dispatch: DispatchGate,
+    ) -> Reply {
+        self.send_batch_guarded_to(
+            session_id,
+            vec![(method.to_string(), params)],
+            deadline,
+            Some(can_dispatch),
+        )
+        .await
+        .map(|mut replies| replies.remove(0))
     }
 
     async fn send_batch_to(
@@ -227,14 +333,41 @@ impl SocketConnection {
         commands: Vec<(String, Value)>,
         deadline: Duration,
     ) -> Result<Vec<Value>, CdpError> {
+        self.send_batch_guarded_to(session_id, commands, deadline, None)
+            .await
+    }
+
+    async fn send_batch_guarded_to(
+        &self,
+        session_id: Option<&str>,
+        commands: Vec<(String, Value)>,
+        deadline: Duration,
+        gate: Option<DispatchGate>,
+    ) -> Result<Vec<Value>, CdpError> {
+        if gate.as_ref().is_some_and(|check| !check()) {
+            return Err(CdpError::Cancelled("dispatch authorization revoked".into()));
+        }
         let until = Instant::now() + deadline;
+        let guarded_dialog = gate.is_some()
+            && commands
+                .iter()
+                .any(|(method, _)| method == "Page.handleJavaScriptDialog");
         let mut ids = Vec::with_capacity(commands.len());
         let mut responses = Vec::with_capacity(commands.len());
         let mut messages = Vec::with_capacity(commands.len());
-        {
+        let captured_dialog_epoch = {
             let mut state = self.0.state.lock();
             if let Some(reason) = &state.closed {
                 return Err(CdpError::Closed(reason.clone()));
+            }
+            let epoch = session_id
+                .and_then(|sid| state.wire_dialog_epoch.get(sid).copied())
+                .unwrap_or(0);
+            if guarded_dialog
+                && session_id.and_then(|sid| state.wire_dialog_beforeunload.get(sid).copied())
+                    == Some(false)
+            {
+                return Err(CdpError::Cancelled("dialog no longer active".into()));
             }
             for (method, params) in commands {
                 let id = self.0.next_id.fetch_add(1, Ordering::Relaxed);
@@ -252,13 +385,22 @@ impl SocketConnection {
                     id, &method, params, session_id,
                 )));
             }
-        }
+            epoch
+        };
+        let batch = OutgoingBatch {
+            messages,
+            ids: ids.clone(),
+            session_id: session_id.map(str::to_string),
+            guarded_dialog,
+            captured_dialog_epoch,
+            gate,
+        };
         let _pending = PendingRequests {
             client: Arc::downgrade(&self.0),
             ids,
         };
         async {
-            tokio::time::timeout_at(until, self.0.outgoing.send(messages))
+            let permit = tokio::time::timeout_at(until, self.0.outgoing.reserve())
                 .await
                 .map_err(|_| CdpError::Deadline("input batch queue".into()))?
                 .map_err(|_| {
@@ -267,6 +409,10 @@ impl SocketConnection {
                             .unwrap_or_else(|| "writer stopped".into()),
                     )
                 })?;
+            if !self.0.should_dispatch(&batch) {
+                return Err(CdpError::Cancelled("dispatch authorization revoked".into()));
+            }
+            permit.send(batch);
             futures_util::future::try_join_all(responses.into_iter().map(
                 |(method, response)| async move {
                     tokio::time::timeout_at(until, response)
@@ -320,6 +466,19 @@ pub trait CdpConnection: Send + Sync {
         params: Value,
         deadline: Duration,
     ) -> Reply;
+    async fn send_guarded_to(
+        &self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        can_dispatch: DispatchGate,
+    ) -> Reply {
+        if !can_dispatch() {
+            return Err(CdpError::Cancelled("dispatch authorization revoked".into()));
+        }
+        self.send_to(session_id, method, params, deadline).await
+    }
     async fn send_batch_to(
         &self,
         session_id: Option<&str>,
@@ -357,6 +516,17 @@ impl CdpConnection for SocketConnection {
         deadline: Duration,
     ) -> Reply {
         self.send_to(session_id, method, params, deadline).await
+    }
+    async fn send_guarded_to(
+        &self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        can_dispatch: DispatchGate,
+    ) -> Reply {
+        SocketConnection::send_guarded_to(self, session_id, method, params, deadline, can_dispatch)
+            .await
     }
     async fn send_batch_to(
         &self,
@@ -411,6 +581,18 @@ impl CdpClient {
     ) -> Reply {
         self.0.send_to(session_id, method, params, deadline).await
     }
+    pub async fn send_guarded_to(
+        &self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        can_dispatch: DispatchGate,
+    ) -> Reply {
+        self.0
+            .send_guarded_to(session_id, method, params, deadline, can_dispatch)
+            .await
+    }
     /// Flattened session: page commands share this socket and carry `sessionId`.
     pub async fn attach_page(&self, target_id: &str) -> Result<PageChannel, CdpError> {
         let result = self
@@ -433,22 +615,30 @@ impl CdpClient {
 
 async fn write_loop(
     mut writer: futures_util::stream::SplitSink<Socket, Message>,
-    mut messages: mpsc::Receiver<Vec<Message>>,
+    mut messages: mpsc::Receiver<OutgoingBatch>,
     inner: Weak<Inner>,
 ) {
     let Some(mut closed) = inner.upgrade().map(|inner| inner.closed.subscribe()) else {
         return;
     };
     loop {
-        let message = tokio::select! {
+        let batch = tokio::select! {
             _ = closed.wait_for(Option::is_some) => break,
-            message = messages.recv() => match message {
-                Some(message) => message,
+            batch = messages.recv() => match batch {
+                Some(batch) => batch,
                 None => break,
             },
         };
+        if batch.gate.is_some() {
+            if let Some(owner) = inner.upgrade() {
+                if !owner.should_dispatch(&batch) {
+                    owner.cancel_pending(&batch.ids, "dispatch authorization revoked");
+                    continue;
+                }
+            }
+        }
         let written = async {
-            for part in message {
+            for part in batch.messages {
                 writer.feed(part).await?;
             }
             writer.flush().await
@@ -512,7 +702,9 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
                 }
             }
             Some(Ok(Message::Ping(payload))) => {
-                let _ = owner.outgoing.try_send(vec![Message::Pong(payload)]);
+                let _ = owner
+                    .outgoing
+                    .try_send(OutgoingBatch::plain(vec![Message::Pong(payload)]));
             }
             Some(Ok(Message::Close(frame))) => {
                 break Some(format!("chrome closed the CDP socket ({frame:?})"));
@@ -634,6 +826,24 @@ impl PageChannel {
     ) -> Reply {
         self.client
             .send_to(Some(&self.session_id), method, params, deadline)
+            .await
+    }
+
+    pub async fn send_guarded_with_deadline(
+        &self,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        can_dispatch: DispatchGate,
+    ) -> Reply {
+        self.client
+            .send_guarded_to(
+                Some(&self.session_id),
+                method,
+                params,
+                deadline,
+                can_dispatch,
+            )
             .await
     }
 
