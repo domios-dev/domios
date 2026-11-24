@@ -127,6 +127,8 @@ import { HoldWhileHidden } from "./HoldWhileHidden";
 import { awaitsTranscriptEcho, deliveryPresentation, deliverySendForRow, queuedBehindTurn, undeliveredSends } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, setChatSendDraft, updateChatSendContent, useChatSendSnapshot } from "./chatSendStore";
 import { composerSendFeedback } from "./composerQueueModel";
+import { ComposerQueueTray } from "./ComposerQueueTray";
+import { ChatAttachmentDropOverlay } from "./ChatAttachmentDropOverlay";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
@@ -137,7 +139,6 @@ import { requestChatMessageReveal } from "../../lib/chatMessageReveal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { useRemoteViewerConnection, type RemoteViewerConnection } from "./useRemoteViewerConnection";
 import { webRequestContext } from "../../lib/webApi";
-
 interface Props {
   inputStatus?: ReactNode;
   frozenRestore?: RestoreStageView;
@@ -227,6 +228,8 @@ function TabSessionChatBody({
   const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
+  const conciergeHint = isConciergeTab(tab) && tab?.neighbor_authority;
+  const showChatComposer = !conciergeHint && !managedTabPresentation(tab?.managed).locked;
   const { workspaceId, cwd } = useChatWorkspace(tabId);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
@@ -371,6 +374,7 @@ function TabSessionChatBody({
   const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
   const sessionIntent = useSessionIntent(allMessages);
   const showRemoteState = Boolean(remoteChat.state && !tabLock.locked);
+  const queueEditable = !readOnly && !showRemoteState;
   const signIn = showRemoteState ? null : signInPlacement(runtime.state, hasTranscript);
   const signInState = signIn ? runtime.state : null;
   const launchedFailure = dockedTabFailure(tab && { ...tab, agent_runtime_state: runtime.state ?? undefined });
@@ -921,18 +925,7 @@ function TabSessionChatBody({
       }}
       {...(readOnly ? {} : webDropHandlers)}
     >
-      {webDragOver && (
-        <div
-          data-testid="web-drop-overlay"
-          className="absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed pointer-events-none"
-          style={{
-            borderColor: "var(--ct-accent, #58a6ff)",
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, transparent)",
-          }}
-        >
-          <span className="text-sm font-mono">Drop files to attach</span>
-        </div>
-      )}
+      {webDragOver && <ChatAttachmentDropOverlay />}
       <ChatWallpaperBackdrop />
       <div className="relative flex-1 min-h-0">
       {signInState && signIn === "center" && (
@@ -1112,7 +1105,13 @@ function TabSessionChatBody({
         />
       ) : (
       <>
-      <div ref={setContextSlot} className="ct-ctx-slot" />
+      <div ref={setContextSlot} className="ct-ctx-slot">
+        {!showChatComposer && sendFeedback.items.length > 0 && (
+          <div className="ct-ctx">
+            <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} editable={queueEditable} inline />
+          </div>
+        )}
+      </div>
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
@@ -1159,7 +1158,8 @@ function TabSessionChatBody({
         }}
       />}
         {tab && !signInState && <AccountTransitionActions tab={tab}/>}
-        {isConciergeTab(tab) && tab?.neighbor_authority ? <ConciergeChatHint friendship={tab.neighbor_authority.friendship_id} /> : managedTabPresentation(tab?.managed).locked ? null : <ChatComposer
+        {conciergeHint && <ConciergeChatHint friendship={conciergeHint.friendship_id} />}
+        {showChatComposer && <ChatComposer
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
@@ -1176,7 +1176,7 @@ function TabSessionChatBody({
           sessionIntent={sessionIntent}
           contextSlot={contextSlot}
           queueItems={sendFeedback.items}
-          queueEditable={!readOnly && !showRemoteState}
+          queueEditable={queueEditable}
           onWillSendMessage={willSendMessage}
           addOptimistic={addOptimistic}
           updateOptimistic={updateOptimistic}
