@@ -1,5 +1,42 @@
 use super::*;
 
+pub(super) fn load_operation(
+    context: &RuntimeContext,
+    config: &Value,
+    neighbor_reply: Option<super::super::host_mcp::NeighborReply>,
+    fork: Option<&(String, String)>,
+) -> Result<RuntimeOperation, RuntimeFailure> {
+    let instructions = match neighbor_reply {
+        Some(reply)
+            if context
+                .host_mcp
+                .as_ref()
+                .is_some_and(RuntimeHostMcp::is_neighbor_reply) =>
+        {
+            reply.instructions
+        }
+        Some(_) => return Err(RuntimeFailure::Superseded),
+        None => config["systemPrompt"].as_str().unwrap_or_default().into(),
+    };
+    Ok(match fork {
+        Some((source_thread_id, turn_id)) => RuntimeOperation::ForkThread {
+            source_thread_id: source_thread_id.clone(),
+            turn_id: turn_id.clone(),
+        },
+        None => match context.thread_id.clone() {
+            Some(thread_id) => RuntimeOperation::ResumeThread {
+                thread_id,
+                instructions,
+                settings: context.settings.clone(),
+            },
+            None => RuntimeOperation::OpenThread {
+                instructions,
+                settings: context.settings.clone(),
+            },
+        },
+    })
+}
+
 fn unused(config: &Value, thread: &str) -> bool {
     config["unusedThreadId"].as_str() == Some(thread)
 }

@@ -5,7 +5,10 @@ mod children;
 mod declarations;
 pub use children::*;
 mod host_mcp;
-pub use host_mcp::{RuntimeHostMcp, RuntimeHostMcpDeclaration, RuntimeHostMcpHttp};
+pub use host_mcp::{
+    RuntimeHostMcp, RuntimeHostMcpDeclaration, RuntimeHostMcpHttp, NEIGHBOR_REPLY_FRIENDSHIP_ENV,
+    NEIGHBOR_REPLY_MCP_NAME, NEIGHBOR_REPLY_MCP_PARAM, NEIGHBOR_REPLY_MCP_TOOL,
+};
 mod history;
 pub use history::*;
 mod background;

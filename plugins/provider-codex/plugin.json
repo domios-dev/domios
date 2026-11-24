@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.83",
+  "version": "1.14.84",
   "minCodeterm": "1.22.1",
   "hostApi": 2,
   "accounts": {
@@ -68,6 +68,13 @@
     "subagentVisibility": true,
     "agentRuntime": {
       "localImagePaths": true,
+      "hostMcp": {
+        "param": "neighborReplyStdio",
+        "methods": [
+          "thread/start",
+          "thread/resume"
+        ]
+      },
       "restrictedCli": {
         "kind": "execpolicy-service-operations",
         "metadataDirectory": ".codex"

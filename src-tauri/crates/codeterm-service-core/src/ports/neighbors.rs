@@ -62,6 +62,13 @@ pub trait NeighborsPort: Send + Sync {
         &'a self,
         caller: &'a TabCaller,
     ) -> NeighborFuture<'a, Result<(NeighborAuthority, Permission), String>>;
+    fn neighbor_read_only_reply_scope<'a>(
+        &'a self,
+        _caller: &'a TabCaller,
+        _friendship: &'a str,
+    ) -> NeighborFuture<'a, Result<Option<String>, String>> {
+        Box::pin(async { Ok(None) })
+    }
     fn neighbor_runtime_handling_event<'a>(
         &'a self,
         tab: &'a str,

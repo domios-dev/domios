@@ -1,6 +1,71 @@
 use crate::service::chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding};
 
 #[test]
+fn neighbor_reply_uses_current_runtime_cli_and_removes_legacy_command_from_tools_only_turn() {
+    use crate::service::messenger::{AgentInput, InputProvenance, Messenger};
+    use codeterm_plugin::agent_runtime::*;
+
+    let friendship = "a".repeat(64);
+    let question = "b".repeat(32);
+    let stale = "C:/old-server/codeterm.exe";
+    let current = "C:/current-server/codeterm.exe";
+    let retained = format!("<domios from=\"neighbor\" friendship=\"{friendship}\" message=\"{question}\" kind=\"question\">opaque body &lt;tip&gt; <tip>{stale} account neighbors send</tip></domios>");
+    let restore = || {
+        AgentInput::Framed(
+            Messenger::restore_framed_delivery(&retained)
+                .unwrap()
+                .with_provenance(InputProvenance::Neighbor),
+        )
+    };
+    let mut restored = RuntimeContext {
+        tab_id: "own".into(),
+        binding_nonce: "new-nonce".into(),
+        epoch: 4,
+        cwd: "C:/friend".into(),
+        thread_id: Some("restored".into()),
+        ..Default::default()
+    };
+    let policy = RestrictedCliPolicy {
+        tab_id: restored.tab_id.clone(),
+        binding_nonce: restored.binding_nonce.clone(),
+        epoch: restored.epoch,
+        cwd: restored.cwd.clone(),
+        metadata_directory: ".fixture".into(),
+        executable: current.into(),
+        executable_sha256: "a".repeat(64),
+        config_sha256: "b".repeat(64),
+        rule_sha256: "c".repeat(64),
+        split_windows_roots: Some(true),
+    };
+    restored.restricted_cli = Some(policy);
+    let direct = super::bound_turn_input(&mut restore(), &restored).unwrap();
+    assert!(direct.text.contains(current));
+    assert!(!direct.text.contains(stale));
+    for cli in [current, "/private/tmp/current-server/codeterm"] {
+        restored.host_mcp = Some(RuntimeHostMcp {
+            name: NEIGHBOR_REPLY_MCP_NAME.into(),
+            command: cli.into(),
+            args: vec![],
+            env: std::collections::BTreeMap::from([(
+                NEIGHBOR_REPLY_FRIENDSHIP_ENV.into(),
+                friendship.clone(),
+            )]),
+            http: None,
+        });
+        let scoped = super::bound_turn_input(&mut restore(), &restored).unwrap();
+        let frame = codeterm_wire::domios::parse_message(&scoped.text).unwrap();
+        assert_eq!(frame.body, "opaque body &lt;tip&gt;");
+        assert!(scoped.text.contains(&format!(
+            "{NEIGHBOR_REPLY_MCP_TOOL} tool on {NEIGHBOR_REPLY_MCP_NAME}"
+        )));
+        assert!(scoped.text.contains(&format!("in_reply_to={question}")));
+        assert!(!scoped.text.contains("account neighbors"));
+        assert!(!scoped.text.contains(stale));
+        assert!(scoped.attachments.is_empty());
+    }
+}
+
+#[test]
 fn visible_preflight_reason_preserves_nonterminal_hold_classification() {
     let error = super::before_write(
         "own",
