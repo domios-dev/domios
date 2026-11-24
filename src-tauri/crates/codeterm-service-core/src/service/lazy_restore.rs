@@ -63,10 +63,11 @@ fn provider_lost_session(tab: &Tab) -> bool {
 }
 
 pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
-    if tab
-        .close_restore
-        .as_ref()
-        .is_some_and(|closed| closed.stopped)
+    if matches!(tab.backing, TabBacking::Surface(_))
+        || tab
+            .close_restore
+            .as_ref()
+            .is_some_and(|closed| closed.stopped)
     {
         return false;
     }
@@ -148,6 +149,13 @@ fn initialize_with_continuing(
     for workspace in &snapshot.workspaces {
         for id in &workspace.tabs {
             if let Some(tab) = mux.get_tab_mut(id) {
+                if matches!(tab.backing, TabBacking::Surface(_)) {
+                    // The surface runtime owns activation and reports its own failures.
+                    tab.frozen = false;
+                    tab.boot_stage = None;
+                    tab.boot_failure_reason = None;
+                    continue;
+                }
                 if automatic_restore_refusal(tab).is_some() {
                     tab.frozen = true;
                     continue;
