@@ -87,13 +87,15 @@ impl BrowserRuntimeFactory {
 
 async fn sweep_browsers(swept: &BrowserSweep, layout: ProfileLayout) {
     swept
-        .get_or_init(|| async {
-            async move {
-                let report = codeterm_browser::sweep_orphans(layout).await;
-                log::debug!("[browser] startup orphan sweep: {report:?}");
-            }
-            .boxed()
-            .shared()
+        .get_or_init(|| {
+            futures_util::future::ready(
+                async move {
+                    let report = codeterm_browser::sweep_orphans(layout).await;
+                    log::debug!("[browser] startup orphan sweep: {report:?}");
+                }
+                .boxed()
+                .shared(),
+            )
         })
         .await
         .clone()

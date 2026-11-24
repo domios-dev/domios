@@ -41,6 +41,26 @@ fn register_extensions(builder: &mut ExtensionsBuilder) {
     builder.insert_late::<crate::service::neighbors::runtime::logout::LogoutKeyPorts>();
 }
 impl NeighborsPort for NeighborPortImpl {
+    fn neighbor_read_only_reply_scope<'a>(
+        &'a self,
+        caller: &'a TabCaller,
+        friendship: &'a str,
+    ) -> NeighborFuture<'a, Result<Option<String>, String>> {
+        let svc = self.svc();
+        Box::pin(async move {
+            Ok(svc
+                .neighbor_capability_permission_for(caller, false)
+                .await?
+                .filter(|(id, permission)| {
+                    id == friendship
+                        && permission.allowed
+                        && permission.machine_access
+                            == codeterm_neighbors::permissions::MachineAccess::ReadOnly
+                })
+                .map(|(_, permission)| permission.scope))
+        })
+    }
+
     fn account<'a>(&'a self) -> NeighborFuture<'a, Result<Arc<codeterm_account::Account>, String>> {
         let svc = self.svc();
         Box::pin(async move { svc.account().await })

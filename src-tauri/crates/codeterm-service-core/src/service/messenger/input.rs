@@ -70,6 +70,44 @@ impl FramedDelivery {
         self
     }
 
+    fn neighbor_reply_ids(&self) -> Option<(String, String)> {
+        if self.provenance != InputProvenance::Neighbor {
+            return None;
+        }
+        let frame = codeterm_wire::domios::parse_message(&self.to_message())?;
+        if frame.attr("from") != Some("neighbor")
+            || !matches!(frame.attr("kind"), Some("question" | "tab_request"))
+        {
+            return None;
+        }
+        let (friendship, message) = (frame.attr("friendship")?, frame.attr("message")?);
+        (codeterm_neighbors::wire::hex_id(friendship, 64)
+            && codeterm_neighbors::wire::hex_id(message, 32))
+        .then(|| (friendship.to_owned(), message.to_owned()))
+    }
+
+    pub(crate) fn set_neighbor_reply_executable(&mut self, executable: &str) {
+        if let Some((friendship, message)) = self.neighbor_reply_ids() {
+            let command = super::neighbor::reply_command(
+                executable,
+                &friendship,
+                &message,
+                "'<relative_reply_file>'",
+            );
+            self.suffix = format!(" <tip>Use this launch's pinned command in place of any executable from earlier turns. Write the reply in your own AgentPad and run {command}. Use --kind refusal for a linked refusal.</tip>");
+        }
+    }
+
+    pub(crate) fn set_neighbor_reply_tool(&mut self, server: &str, bound_friendship: &str) {
+        if let Some((_, message)) = self
+            .neighbor_reply_ids()
+            .filter(|(friendship, _)| friendship == bound_friendship)
+        {
+            let tool = codeterm_plugin::agent_runtime::NEIGHBOR_REPLY_MCP_TOOL;
+            self.suffix = format!(" <tip>Send a linked answer or refusal only with the {tool} tool on {server}. Pass in_reply_to={message}, kind=answer or refusal, and body with the reply text. Domios CLI calls and network access are unavailable in this read-only session.</tip>");
+        }
+    }
+
     pub(crate) fn chat_message(&self, id: String) -> Option<crate::agent::chat_types::ChatMsg> {
         let wire = self.to_message();
         let parsed = codeterm_wire::domios::parse_message(&wire)?;

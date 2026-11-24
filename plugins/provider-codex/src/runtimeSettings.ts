@@ -2,6 +2,15 @@ import type { HostOwnedCapabilities, JsonValue, RuntimeSettings, RuntimeContext 
 import { object, text } from "./runtimeProtocol";
 
 const windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+const neighborReplyMcp = "domios_neighbor_reply";
+
+export function codexNeighborReplyMcpConfig(ctx: RuntimeContext): Record<string, JsonValue> {
+  const server = ctx.hostMcp;
+  if (server?.name !== neighborReplyMcp) return {};
+  return {[`mcp_servers.${neighborReplyMcp}`]: {
+    command:server.command,args:server.args,env:server.env ?? {},env_vars:["CODETERM_API_TOKEN"],required:true,
+  }};
+}
 
 export function codexRestrictedCliConfig(ctx: RuntimeContext): Record<string, JsonValue> {
   const policy = ctx.restrictedCli;
@@ -71,7 +80,8 @@ export function codexNeedsWindowsSandboxSelection(raw: unknown, needsSplitRoots 
 
 export function codexNeedsSplitWindowsRoots(ctx: RuntimeContext): boolean {
   return ctx.settings.mode === "read-only-with-writable-roots"
-    && ctx.restrictedCli?.splitWindowsRoots === true;
+    && (ctx.restrictedCli?.splitWindowsRoots === true
+      || (ctx.hostMcp?.name === neighborReplyMcp && /^[A-Za-z]:[\\/]/.test(ctx.hostMcp.command)));
 }
 
 export function codexManagedMxcRefusal(error: {code: number; message: string}): boolean {

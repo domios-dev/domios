@@ -222,6 +222,20 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Rest,
     ),
     (
+        "wallpaper",
+        &["codeterm", "wallpaper", "clear"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Rest,
+    ),
+    (
+        "appearance",
+        &["codeterm", "appearance", "current"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Rest,
+    ),
+    (
         "surface",
         &["codeterm", "surface", "list"],
         Local::Socket,

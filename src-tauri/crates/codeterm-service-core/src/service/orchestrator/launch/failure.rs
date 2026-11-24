@@ -19,6 +19,7 @@ pub(super) enum LaunchFailure {
     ShellReadyTimeout,
     PtyEof,
     TabClosed,
+    LaunchAuthorityChanged(String),
     LaunchWrite(String),
     TaskDelivery(String),
     ProviderInputNotReady(String),
@@ -36,7 +37,9 @@ impl LaunchFailure {
             Self::ShellReadyTimeout => "ShellReadyTimeout".into(),
             Self::PtyEof => "PtyEof".into(),
             Self::TabClosed => "TabClosedBeforePtyLink".into(),
-            Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
+            Self::LaunchAuthorityChanged(error) | Self::LaunchWrite(error) => {
+                format!("LaunchWriteFailed: {error}")
+            }
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
             Self::ProviderInputNotReady(reason) => format!("ProviderInputNotReady: {reason}"),
             Self::SessionBindingNotObserved(reason) => {

@@ -158,7 +158,24 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 
 Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 
-Owner-authenticated `PUT /api/chat-wallpaper` sets the per-machine wallpaper with `{wallpaper}`. Pass `null` to restore the theme. `GET /api/chat-wallpaper/appearance` returns the current theme and wallpaper, and `PUT` at the same path applies `{mutating, expected}` atomically when the current look matches `expected`.
+#### Chat wallpaper
+
+These routes require owner authorization except for submitting the assigned General draft. The owner can use PNG, JPEG, WebP or static SVG uploads. Unsupported media returns 415, oversized input returns 413, and an upload already in progress returns 429.
+
+| Method | Path | Body | Response or effect |
+|--------|------|------|--------------------|
+| POST | `/api/chat-wallpaper/assets` | Image bytes with `Content-Type` | Saves an asset and returns 201 `{id}`. |
+| POST | `/api/chat-wallpaper/assets/copy/{id}` | Existing PNG or SVG asset bytes with `Content-Type` | Stores the bytes under the matching content ID and returns 204. |
+| POST | `/api/chat-wallpaper/assets/encoded` | `{media_type, data, copy_id?}` | Saves base64 data or copies it under the matching ID. Returns 201 `{id}`. |
+| DELETE | `/api/chat-wallpaper/assets/{id}` | — | Returns `{ok: true}`. Returns 409 when the current look or a retained proposal still uses the asset. |
+| PUT | `/api/chat-wallpaper` | `{wallpaper, expected_wallpaper?}` | Sets this machine's wallpaper and returns `{ok: true}`. Pass `wallpaper: null` to use the theme. A mismatched expected wallpaper returns 409. |
+| GET | `/api/chat-wallpaper/appearance` | — | Returns the current `{theme, wallpaper, tuning}` look. |
+| PUT | `/api/chat-wallpaper/appearance` | `{mutating, expected}` | Applies a complete look when `expected` still matches. Returns `{ok: true}` or 409 for a stale look. |
+| POST | `/api/chat-wallpaper/apply-svg` | `{svg}` | Saves and applies a static tile and returns `{id}`. |
+| POST | `/api/chat-wallpaper/drafts` | — | Issues a ten-minute draft for the bound General session and returns `{request, tab_id}`. Returns 409 when General is unavailable. |
+| POST | `/api/chat-wallpaper/drafts/{request}` | `{svg}` | The assigned authenticated General session submits a live owner-issued draft. Success returns `{id}` and consumes the request. An expired or wrong binding returns 403 and a changed wallpaper returns 409. |
+
+Direct wallpaper setting and SVG application by a non-owner return 403 `wallpaper_owner_required`.
 
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
@@ -173,6 +190,7 @@ Owner-authenticated `PUT /api/chat-wallpaper` sets the per-machine wallpaper wit
 | POST | `/api/mesh/sync` | `MeshSyncPayload` | Refresh metadata of already-paired peers; never adds peers |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
 | POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires a supported relay protocol version (`2`). |
+| POST | `/api/mesh/chat-wallpaper/assets/{peer}` | Image bytes with `Content-Type`, optional `?copy_id=<id>` | Owner-only upload relayed to the destination installation's encoded wallpaper route. Returns the destination response. A copy requires bytes matching the supplied ID. |
 | POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
 | GET | `/api/stream-mux` | `?session=<id>` | The browser's single multiplexed SSE. Channels added below ride it as frames tagged `{channel, data|open|activity|end}`, so HTTP/1.1 keeps sockets free for REST. Closing it releases every channel. |
@@ -232,4 +250,4 @@ Session changes retain caller and binding checks. Provider hook ingress methods:
 
 `POST /api/tabs` with `cmd` returns the created tab id and `command_submission`. `submitted` is backed by a shell command-start mark. Once bytes are queued, absent confirmation returns success with `submit_unconfirmed`, `bytes_written: true` and the exact PTY id; never replay it. Proven pre-write failure remains an error. Use `tab exec` for final completion and exit status.
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->

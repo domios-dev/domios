@@ -357,8 +357,8 @@ fn surface_runtime_registry_take_all_drains_every_instance() {
         .unwrap();
     assert_eq!(registry.take_all().len(), 2);
     assert!(registry.take_all().is_empty());
-    let (_, created) = registry
-        .get_or_create("t1", "fake", "Jev", "scope", None)
-        .unwrap();
-    assert!(created);
+    assert!(matches!(
+        registry.get_or_create("t1", "fake", "Jev", "scope", None),
+        Err(SurfaceError::Placement(reason)) if reason == "surface runtimes are stopping"
+    ));
 }

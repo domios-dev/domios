@@ -426,7 +426,10 @@ pub(super) fn spawn(
             _ = transport_ended.changed(), if http_transport => matches!(&*transport_ended.borrow(), Some(RuntimeFailure::Superseded)),
             _ = stopping.changed() => stopping.borrow().unwrap_or(false),
         };
-        if let Some(reason @ RuntimeFailure::PipeFailure { .. }) = &*transport_ended.borrow() {
+        if let Some(
+            reason @ (RuntimeFailure::PipeFailure { .. } | RuntimeFailure::SseEventTooLarge { .. }),
+        ) = &*transport_ended.borrow()
+        {
             log::debug!(
                 "[runtime-http] pid={pid} transport ended before runtime retirement: {reason}"
             );
