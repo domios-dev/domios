@@ -1,6 +1,6 @@
 import { Check, ChevronDown, Contrast, LayoutGrid, Palette, RectangleHorizontal, Sparkles, TriangleAlert, Type, Undo2, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import type { ContrastCheck } from "../../lib/appearance";
+import type { AppearanceProposal, ContrastCheck } from "../../lib/appearance";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import type { AppearanceLabCategory, AppearanceLabChange } from "./AppearanceLabChanges";
 
@@ -11,6 +11,29 @@ export const LAB_CATEGORIES = [
   { id: "shape", label: "Shape", icon: RectangleHorizontal },
   { id: "text", label: "Text", icon: Type },
 ] as const;
+
+const APPLIED_TIME = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+export function AppearanceAppliedLabel({ receipt }: { receipt: AppearanceProposal }) {
+  const appliedAt = receipt.applied_at == null ? undefined : new Date(receipt.applied_at * 1000);
+  return <>
+    <Check size={15} aria-hidden="true" />
+    <span>Applied{receipt.theme_label && ` ${receipt.theme_label}`}
+      {receipt.wallpaper_switched && " · wallpaper switched to the theme's for readability"}
+      {appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}
+    </span>
+  </>;
+}
+
+export function AppearanceUndoButton({ label, disabled, onUndo }: {
+  label: string;
+  disabled: boolean;
+  onUndo(): void;
+}) {
+  return <button type="button" className="ct-appearance-changes__undo" aria-label={label} disabled={disabled} onClick={onUndo}>
+    <Undo2 size={15} aria-hidden="true" /><span>{label}</span>
+  </button>;
+}
 
 export function AppearanceLabCategories({
   controlsId, category, changes, busy, comparing, menuOpen, machineSelector,
@@ -162,7 +185,7 @@ export function AppearanceLabActions({
     <div className="ct-appearance-try__actions">
       <div className="ct-appearance-changes__status" role="status" aria-live="polite" data-state={appliedStatus ? "applied" : undefined}>
         {appliedStatus
-          ? <><Check size={15} aria-hidden="true" />{appliedStatus}</>
+          ? appliedStatus
           : changes.length > 0 ? <button ref={changesTrigger} type="button" aria-expanded={listOpen} aria-controls={listOpen ? changesId : undefined}
             onClick={onToggleList}>{count}</button>
             : <span className="sr-only">{count}</span>}
@@ -171,9 +194,7 @@ export function AppearanceLabActions({
       {changes.length > 0 && !appliedStatus && <button type="button" className="ct-appearance-primary ct-appearance-changes__apply" disabled={!canApply}
         aria-describedby={contrast.length > 0 ? contrastId : undefined}
         onClick={event => onApply(event.currentTarget)}><Check size={15} aria-hidden="true" /><span>{applyLabel}</span></button>}
-      {undoLabel && <button type="button" className="ct-appearance-changes__undo" aria-label={undoLabel} disabled={busy} onClick={onUndo}>
-        <Undo2 size={15} aria-hidden="true" /><span>{undoLabel}</span>
-      </button>}
+      {undoLabel && <AppearanceUndoButton label={undoLabel} disabled={busy} onUndo={onUndo} />}
     </div>
     {listOpen && <ul id={changesId} className="ct-appearance-changes__list" aria-label="Staged changes">
       {changes.map((change, index) => <li key={change.label}>

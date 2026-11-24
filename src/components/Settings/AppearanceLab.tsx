@@ -15,7 +15,7 @@ import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "
 import { cleanMachineName } from "../../lib/machineIdentity";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 import { appearanceLabChanges, type AppearanceLabCategory, type AppearanceLabChange } from "./AppearanceLabChanges";
-import { AppearanceLabActions, AppearanceLabCategories, LAB_CATEGORIES, contrastIssues } from "./AppearanceLabPanelControls";
+import { AppearanceAppliedLabel, AppearanceLabActions, AppearanceLabCategories, LAB_CATEGORIES, contrastIssues } from "./AppearanceLabPanelControls";
 import { useAppearanceLabDismissal, type AppearanceLabProjection } from "./AppearanceLabSession";
 import type { AppearanceLabHostProps } from "./AppearanceLabHost";
 import { AppearancePaletteInput, useAppearancePalette } from "./AppearancePaletteInput";
@@ -33,7 +33,6 @@ import "./appearanceTry.css";
 const mainTab = (state: ExtendedState) => generalAgentTab(state)?.tabId;
 const mainWorkspace = (state: ExtendedState) => generalAgentTab(state)?.workspaceId;
 const LOCAL: AppearanceTarget = { machine: "local" };
-const APPLIED_TIME = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const SIDE_PANEL_MOTION = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
 
 export function AppearanceLabLayer({ config, session, onProject, onClose, onExited }: AppearanceLabHostProps & { onExited(): void }) {
@@ -162,7 +161,6 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
   const dirty = changes.length > 0;
   const active = justApplied?.can_undo ? justApplied : undefined;
   const undoLabel = active && `Undo · back to ${active.previous.theme.name}`;
-  const appliedAt = active?.applied_at == null ? undefined : new Date(active.applied_at * 1000);
   const wallpaperVersion = wallpaperRevision.current;
   const closing = state === "closing";
   const projectingCommit = Boolean(justApplied && (target.peer ?? relayTarget()?.id) === machineAppearance?.peerId);
@@ -436,9 +434,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
           focusChanges={changesExpanded === true} busy={busy}
           canApply={canApply}
           applyLabel={remote ? `Apply to ${machine}` : "Apply"}
-          appliedStatus={justApplied && <span>Applied{justApplied.theme_label && ` ${justApplied.theme_label}`}
-            {justApplied.wallpaper_switched && " · wallpaper switched to the theme's for readability"}
-            {appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
+          appliedStatus={justApplied && <AppearanceAppliedLabel receipt={justApplied} />}
           undoLabel={dirty || unavailable ? undefined : undoLabel}
           contrast={issues} canFixContrast={audit.ready} onFixContrast={fixContrast} onFixAllContrast={fixAllContrast}
           onToggleList={() => { toggleMenu(false); setChangesExpanded(!showChanges); }}
