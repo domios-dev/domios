@@ -10,7 +10,8 @@ use crate::service::{ServiceContext, SpawnAgentParams};
 pub struct FreshGeneralSessionRequest {
     pub workspace_id: Option<String>,
     pub provider_id: Option<String>,
-    pub cwd: Option<String>,
+    #[serde(rename = "cwd")]
+    _cwd: Option<String>,
     pub role: String,
     pub intent: String,
     pub model: Option<String>,
@@ -22,7 +23,6 @@ pub struct FreshGeneralSessionRequest {
 struct ResolvedFreshGeneralSessionRequest {
     workspace_id: String,
     provider_id: String,
-    cwd: String,
     role: String,
     intent: String,
     model: Option<String>,
@@ -44,10 +44,8 @@ impl FreshGeneralSessionRequest {
                 .ok_or("General workspace is unavailable")?,
             provider_id: self
                 .provider_id
+                .filter(|id| !id.trim().is_empty())
                 .unwrap_or_else(|| config.agent_provider.clone()),
-            cwd: self
-                .cwd
-                .unwrap_or_else(|| super::general_dir().to_string_lossy().to_string()),
             role: self.role,
             intent: self.intent,
             model: self.model.or_else(|| config.model.clone()),
@@ -90,11 +88,8 @@ fn validate_request(
     {
         return Err("Fresh General sessions belong to the General workspace".into());
     }
-    if request.provider_id.trim().is_empty()
-        || crate::paths::canonical_cwd(&request.cwd)
-            != crate::paths::canonical_cwd(&super::general_dir().to_string_lossy())
-    {
-        return Err("General session configuration changed; refresh and try again".into());
+    if request.provider_id.trim().is_empty() {
+        return Err("No provider is configured for General sessions".into());
     }
     Ok(())
 }
