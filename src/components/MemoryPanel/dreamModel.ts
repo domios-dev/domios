@@ -58,6 +58,7 @@ export function dreamCounters(body: string): DreamCounters {
 
 export function nightState(entry?: DreamDiaryEntry, worker?: DreamWorker): DreamNight["state"] {
   if (worker && !isTerminalWorkerStatus(worker.status)) return "live";
+  if (worker?.execution_end && ["cancelled", "timed_out", "orphaned"].includes(worker.execution_end.kind)) return "stopped";
   if (worker?.finalization?.state === "failed" || (worker && worker.status !== "done")) return "stopped";
   if (!entry || !diaryCompleteness(entry.body).complete || worker?.finalization?.state === "partial") return "incomplete";
   return "complete";
@@ -92,6 +93,7 @@ export function dreamHeatmap(nights: DreamNight[], now: number) {
   start.setDate(start.getDate() - end.getDay() - 17 * 7);
   const byDay = new Map<string, DreamNight[]>();
   for (const night of nights) {
+    if (night.state === "live") continue;
     const key = dreamDay(night.at);
     byDay.set(key, [...(byDay.get(key) ?? []), night]);
   }

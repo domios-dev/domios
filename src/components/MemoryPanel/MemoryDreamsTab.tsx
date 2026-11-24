@@ -11,6 +11,7 @@ import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
 import { DreamCard } from "./DreamCard";
 import { DreamDetail, DreamLive } from "./DreamDetail";
 import { DreamOverview } from "./DreamOverview";
+import { dreamScheduleLabel } from "./dreamSchedule";
 import { dreamNights, selectDreamNight } from "./dreamModel";
 import { useDreams } from "./useDreams";
 import { useDreamLayout, useDreamSheet } from "./useDreamDetail";
@@ -33,10 +34,15 @@ function MemoryDreamsTabImpl({ api, onViewInGraph }: Props) {
   const nights = dreamNights(data.diaryEntries, data.dreamWorkers);
   const live = nights.find((night) => night.state === "live");
   const selected = detailDismissed ? undefined : selectDreamNight(nights.filter((night) => night.state !== "live"), selectedId);
+  const runNow = () => {
+    setSelectedId(null);
+    setDetailDismissed(false);
+    closeSheet();
+    return data.runNow();
+  };
   const detail = selected && <DreamDetail key={selected.id} night={selected} api={api} onClose={() => { setDetailDismissed(true); closeSheet(); }}
-    onLog={() => selected.worker && setLogWorker(selected.worker)} onRun={data.runNow} onViewInGraph={onViewInGraph} />;
+    onLog={() => selected.worker && setLogWorker(selected.worker)} onRun={runNow} onViewInGraph={onViewInGraph} />;
   const cron = data.dreamCron;
-  const next = cron?.next_run ? new Date(cron.next_run).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: cron.tz ?? "UTC" }) : null;
   return <div ref={ref} className="dreams-root" data-testid="memory-dreams-tab">
     <div className="dreams-page">
       <div className="dream-row dream-title">
@@ -45,10 +51,10 @@ function MemoryDreamsTabImpl({ api, onViewInGraph }: Props) {
           onClick={() => cron && data.toggleDreamCron(!cron.enabled)} disabled={!cron}
           aria-label={cron?.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}>
           <span className={["dream-dot", cron?.enabled ? "" : "dream-inactive"].join(" ")} />
-          {cron ? cron.enabled ? <>Nightly{next && <> at {next}</>}{cron.next_run && <> · next {formatUntil(cron.next_run, Date.now())}</>}</> : "Nightly off" : "Not configured"}
+          {cron ? cron.enabled ? <>{dreamScheduleLabel(cron.schedule)}{cron.next_run && <> · next {formatUntil(cron.next_run, Date.now())}</>}</> : "Nightly off" : "Not configured"}
         </button>
         <span className="dream-spacer" />
-        {!live && <button className="dream-button" data-testid="memory-dream-run-now" onClick={data.runNow} disabled={data.running}>
+        {!live && <button className="dream-button" data-testid="memory-dream-run-now" onClick={runNow} disabled={data.running}>
           <Play size={11} aria-hidden="true" />{data.running ? "Starting…" : "Dream now"}
         </button>}
       </div>
@@ -63,7 +69,10 @@ function MemoryDreamsTabImpl({ api, onViewInGraph }: Props) {
         {!compact && <aside>{live && !selectedId ? <DreamLive night={live} onStop={() => data.stop(live.worker!)} /> : selected && <div className="dream-card dream-panel">{detail}</div>}</aside>}
       </div>}
     </div>
-    {compact && <dialog ref={sheet} className="dream-sheet" onClose={closeSheet} aria-label="Night details" onClick={(event) => { if (event.target === event.currentTarget) closeSheet(); }}>
+    {compact && <dialog ref={sheet} className="dream-sheet" onClose={closeSheet} onKeyDown={(event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") { event.preventDefault(); closeSheet(); }
+    }} aria-label="Night details" onClick={(event) => { if (event.target === event.currentTarget) closeSheet(); }}>
       <div className="dream-grab" />{sheetOpen && detail}
     </dialog>}
     {logWorker && (logWorker.session_id ? <RunChatPopup tabId={logWorker.tab_id}

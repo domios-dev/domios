@@ -11,9 +11,11 @@ const window = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "HTMLElement", "HTMLDialogElement", "SVGElement", "Element", "Node", "Event"] as const) {
   Object.defineProperty(globalThis, key, { value: (window as unknown as Record<string, unknown>)[key], configurable: true });
 }
+let viewportWidth = 1000;
+let isRunning = false;
 class ResizeObserverStub {
   constructor(private callback: (entries: { contentRect: { width: number } }[]) => void) {}
-  observe() { this.callback([{ contentRect: { width: 1000 } }]); }
+  observe() { this.callback([{ contentRect: { width: viewportWidth } }]); }
   disconnect() {}
 }
 Object.defineProperty(globalThis, "ResizeObserver", { value: ResizeObserverStub, configurable: true });
@@ -28,8 +30,10 @@ baseDaemonTransport().request = async (path) => {
     const offset = new URL(path, "http://test").searchParams.get("offset");
     return Response.json(offset === "0" ? { items: [entry], total: 2, next_offset: 1 } : { items: [{ ...entry, id: "older", created_at: new Date(at - 86400000).toISOString(), body: "<insight>WIP: dreaming</insight>" }], total: 2, next_offset: null });
   }
+  if (path === "/api/mem/dream") { isRunning = true; return Response.json({}); }
   if (path === "/api/crons") return Response.json([]);
   if (path === "/api/mem/workers") return Response.json([
+    ...(isRunning ? [{ worker_id: "active-run", tab_id: null, intent: "dreaming:all", spawned_by: "user", spawned_at: at + 100, status: "analyzing", stage: "bridge_islands", progress_text: "bridge_islands", touched_nodes: [], color: "", report: null, done_at: null }] : []),
     { worker_id: "run", tab_id: null, intent: "dreaming:all", spawned_by: "cron", spawned_at: at + 1, status: "error", progress_text: null, touched_nodes: [], color: "", report: "Failure token", done_at: at + 60000 },
   ]);
   return Response.json({});
@@ -50,6 +54,27 @@ assert.ok(host.textContent?.includes("Incomplete"));
 assert.equal(seen.filter((path) => path.includes("/api/mem/dream/diary")).length, 2, "the overview loads all pages in its time window");
 assert.ok(seen.some((path) => path.includes("limit=100")));
 assert.ok(!seen.some((path) => path.includes("/api/mem/search")), "diaries never use relevance search");
+await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="memory-dream-run-now"]')!.click());
+assert.ok(host.querySelector('[aria-label="Dreaming now"]'), "starting a run resets historical selection to live");
+assert.ok(!host.querySelector('[aria-label="Dreaming now"]')?.textContent?.includes("bridge_islands"));
 await act(async () => root.unmount());
+isRunning = false;
+viewportWidth = 390;
+const phone = createRoot(host);
+await act(async () => phone.render(<MemoryDreamsTab api={api} />));
+await act(async () => host.querySelector<HTMLElement>('[data-testid="memory-dream-card"]')!.click());
+const dialog = host.querySelector<HTMLDialogElement>("dialog")!;
+assert.ok(dialog.open, "a phone night opens the sheet");
+let escapedToWindow = false;
+const outerEscape = () => { escapedToWindow = true; };
+window.addEventListener("keydown", outerEscape);
+await act(async () => { dialog.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+assert.equal(dialog.open, false);
+assert.equal(escapedToWindow, false, "sheet Escape cannot close the outer Memory panel");
+window.removeEventListener("keydown", outerEscape);
+await act(async () => host.querySelector<HTMLElement>('[data-testid="memory-dream-card"]')!.click());
+assert.ok(dialog.open, "sheet reopens after Escape");
+await act(async () => phone.unmount());
+
 __setListenForTest(null);
 console.log("✓ Dreams transport authority, diary pagination, stopped runs and selected panel");

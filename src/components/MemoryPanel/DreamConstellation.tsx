@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { dreamRunData, type DreamWorker } from "./dreamModel";
 
 function hash(text: string) {
@@ -14,17 +15,37 @@ export function constellationNodes(worker: DreamWorker, seed: string, cap: numbe
     degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
   }
   const ids = [...data.ids].sort((a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || a.localeCompare(b)).slice(0, cap);
-  return ids.map((id) => ({ id, x: 10 + hash(`${seed}:${id}:x`) % 800 / 10, y: 12 + hash(`${seed}:${id}:y`) % 760 / 10 }));
+  const points = ids.map((id) => ({ id, x: 10 + hash(`${seed}:${id}:x`) % 800 / 10, y: 12 + hash(`${seed}:${id}:y`) % 760 / 10 }));
+  if (!points.length) return points;
+  const centerX = (Math.min(...points.map((point) => point.x)) + Math.max(...points.map((point) => point.x))) / 2;
+  const centerY = (Math.min(...points.map((point) => point.y)) + Math.max(...points.map((point) => point.y))) / 2;
+  return points.map((point) => ({ ...point, x: point.x + 50 - centerX, y: point.y + 50 - centerY }));
+}
+
+function useConstellationBounds(visible: boolean) {
+  const ref = useRef<SVGSVGElement>(null);
+  const [bounds, setBounds] = useState({ width: 140, height: 100 });
+  useEffect(() => {
+    if (!ref.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setBounds({ width, height });
+    });
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [visible]);
+  return { ref, ...bounds };
 }
 
 export function DreamConstellation({ worker, seed, thumbnail = false, before = false }: {
   worker?: DreamWorker; seed: string; thumbnail?: boolean; before?: boolean;
 }) {
+  const { ref, width, height } = useConstellationBounds(!!worker && dreamRunData(worker).hasConstellation);
   if (!worker || !dreamRunData(worker).hasConstellation) return null;
-  const nodes = constellationNodes(worker, seed, 24);
+  const nodes = constellationNodes(worker, seed, 24).map((node) => ({ ...node, x: node.x * width / 100, y: node.y * height / 100 }));
   const points = new Map(nodes.map((node) => [node.id, node]));
   const edges = dreamRunData(worker).edges.filter((edge) => points.has(edge.from) && points.has(edge.to));
-  return <svg className={`dream-constellation ${thumbnail ? "dream-thumbnail" : ""}`} viewBox="0 0 100 100" preserveAspectRatio="none"
+  return <svg ref={ref} className={`dream-constellation ${thumbnail ? "dream-thumbnail" : ""}`} viewBox={`0 0 ${width} ${height}`}
     role="img" aria-label={before ? "Touched memories before this run" : "Memories and links changed by this run"}>
     {!before && edges.map((edge, index) => <line key={index} x1={points.get(edge.from)!.x} y1={points.get(edge.from)!.y}
       x2={points.get(edge.to)!.x} y2={points.get(edge.to)!.y} stroke="var(--dream-moon)" strokeOpacity=".7" strokeWidth="1.3" vectorEffect="non-scaling-stroke"><title>{edge.relation}</title></line>)}
@@ -32,7 +53,7 @@ export function DreamConstellation({ worker, seed, thumbnail = false, before = f
       const action = before ? undefined : worker.node_actions?.[id];
       return <g key={id}><title>{id}</title>
         {action === "merged" && <circle cx={x} cy={y} r="5" fill="var(--dream-moon)" opacity=".14" />}
-        <circle cx={x} cy={y} r={action === "merged" ? 2.8 : 1.8} fill={action === "archived" ? "none" : before ? "var(--ct-muted-fg)" : "var(--dream-moon)"}
+        <circle cx={x} cy={y} r={action === "merged" ? 3.6 : 2.3} fill={action === "archived" ? "none" : before ? "var(--ct-muted-fg)" : "var(--dream-moon)"}
           opacity={before ? .55 : .85} stroke={action === "archived" ? "var(--ct-muted-fg)" : "none"} vectorEffect="non-scaling-stroke" />
       </g>;
     })}

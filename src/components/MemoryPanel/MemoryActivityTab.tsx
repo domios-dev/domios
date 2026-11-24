@@ -1,3 +1,4 @@
+import { dreamProgressLabel } from "./dreamProgress";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Fragment, memo, useState } from "react";
 import { ChevronRight, Moon, Network, Plus, RefreshCw } from "lucide-react";
@@ -270,7 +271,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                           </span>
                           {current.live[0] && (
                             <span className="block text-xs mt-2 truncate">
-                              {current.live[0].progress_text || taskLabel(current.live[0])}
+                              {dreamProgressLabel(current.live[0]) || taskLabel(current.live[0])}
                             </span>
                           )}
                         </span>
@@ -402,7 +403,7 @@ export function WorkerHistory({
         <p className={muted}>
           {[worker.agent_provider, worker.model].filter(Boolean).join(" · ") || "Executor unknown"}
         </p>
-        {worker.progress_text && <p>{worker.progress_text}</p>}
+        {dreamProgressLabel(worker) && <p>{dreamProgressLabel(worker)}</p>}
         {reason && <p className="whitespace-pre-wrap break-words text-[var(--ct-red)]">{reason}</p>}
         {worker.finalization &&
           worker.finalization.state !== "succeeded" &&
