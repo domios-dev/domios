@@ -21,13 +21,14 @@ impl HierarchyReportDelivery for ServiceContext {
                 task_id: report.task_id.clone(),
                 attempt_id: report.attempt_id.clone(),
             });
-        self.gateway_deliver(
+        self.gateway_deliver_with_shares(
             recipient_tab_id,
             envelope,
             &report.inject_body(),
             crate::service::message_gateway::DeliveryClass::AgentTraffic,
+            Some(&super::local_preview::PadAttachments::default()),
         )
-        .map(|delivery| delivery.is_written())
+        .map(|(delivery, _)| delivery.is_written())
     }
 }
 

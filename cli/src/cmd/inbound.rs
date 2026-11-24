@@ -18,10 +18,8 @@ pub(crate) trait Inbound {
     fn settle(&mut self, id: &str, written: bool);
 }
 
-#[cfg(test)]
 pub(crate) struct NoInbound;
 
-#[cfg(test)]
 impl Inbound for NoInbound {
     fn claim(&mut self) -> Option<Claim> {
         None

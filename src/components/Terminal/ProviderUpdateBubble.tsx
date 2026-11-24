@@ -8,6 +8,7 @@ import { Button } from "../shared/Button";
 export function ProviderUpdateNotice({ model, onUpdate, onDismiss }: {
   model: ProviderUpdateModel; onUpdate: () => void; onDismiss: () => void;
 }) {
+  if (!model.message.trim()) return null;
   return <div role="group" aria-label="Provider CLI update" className="ct-ctx-bubble ct-provider-update">
     <Download size={13} aria-hidden="true" className="shrink-0" />
     <span role="status" className="ct-provider-update__message" aria-live="polite">{model.message}</span>
@@ -16,13 +17,13 @@ export function ProviderUpdateNotice({ model, onUpdate, onDismiss }: {
   </div>;
 }
 
-export function ProviderUpdateBubble({ providerId, callerTabId }: { providerId: string; callerTabId?: string }) {
+export function ProviderUpdateBubble({ providerId, callerTabId, turnInProgress = false }: { providerId: string; callerTabId?: string; turnInProgress?: boolean }) {
   const { status, refresh } = useProviderCliStatus(providerId);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const model = providerUpdateModel(status?.display_name ?? providerId, status);
-  if (!model || dismissed === `${providerId}:${model.key}`) return null;
+  if (turnInProgress || !model || dismissed === `${providerId}:${model.key}`) return null;
   const update = async () => {
     if (launching) return;
     setLaunching(true); setFailure(null);

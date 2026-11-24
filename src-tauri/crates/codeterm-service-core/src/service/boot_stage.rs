@@ -453,6 +453,38 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn record_undispatched_launch_failure(
+        &self,
+        tab_id: &str,
+        reason: &str,
+        owns_tab: impl FnOnce(&Tab) -> bool,
+    ) -> bool {
+        let stage = BootStage::SpawnFailed;
+        if !self.record_boot_stage_transition(tab_id, stage, Some(reason), |tab| {
+            if !matches!(
+                tab.boot_stage,
+                Some(
+                    BootStage::PtyStarting
+                        | BootStage::PtySpawned
+                        | BootStage::ReaderReady
+                        | BootStage::ShellReady
+                        | BootStage::AgentLaunching
+                        | BootStage::LaunchDeadlineElapsed
+                )
+            ) || tab.launch_session_authenticated()
+                || !owns_tab(tab)
+            {
+                return false;
+            }
+            apply_boot_stage(tab, stage, Some(reason));
+            true
+        }) {
+            return false;
+        }
+        self.finish_boot_stage_transition(tab_id, stage, Some(reason));
+        true
+    }
+
     pub(crate) fn complete_launch_input_attach(
         &self,
         attempt: &super::launch_readiness::LaunchAttempt,

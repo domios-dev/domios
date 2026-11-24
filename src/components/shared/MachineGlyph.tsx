@@ -13,15 +13,16 @@ const ICONS = {
   other: CircleDashed,
 } satisfies Record<MachineKind, typeof Laptop>;
 
-export function MachineGlyph({ kind, color, size = "mark-12", label, muted = false }: {
+export function MachineGlyph({ kind, color, tone, size = "mark-12", label, muted = false }: {
   kind?: string | null;
   color?: string | null;
+  tone?: string;
   size?: "mark-12" | "mark-15" | "tile" | "rail";
   label?: string;
   muted?: boolean;
 }) {
   const Icon = ICONS[machineKind(kind)];
-  const tone = muted ? "var(--ct-muted-fg)" : `var(--ct-machine-${machineColor(color)})`;
+  const ink = tone ?? (muted ? "var(--ct-muted-fg)" : `var(--ct-machine-${machineColor(color)})`);
   const tile = size === "tile" || size === "rail";
 
   return (
@@ -30,7 +31,7 @@ export function MachineGlyph({ kind, color, size = "mark-12", label, muted = fal
       aria-label={label}
       role={label ? "img" : undefined}
       className={tile ? "ct-card__icon shrink-0" : "inline-flex shrink-0 items-center align-middle"}
-      style={tile ? { "--ct-card-tone": tone, ...(size === "rail" && { width: 36, height: 36 }) } as CSSProperties : { color: tone }}
+      style={tile ? { "--ct-card-tone": ink, ...(size === "rail" && { width: 36, height: 36 }) } as CSSProperties : { color: ink }}
     >
       <Icon aria-hidden="true" size={size === "mark-12" ? 12 : 15} strokeWidth={size === "mark-12" ? 2.25 : 2} />
     </span>

@@ -20,15 +20,16 @@ impl InstanceEnv {
 }
 
 pub fn instance_cli_binary_path() -> Option<PathBuf> {
-    select_instance_cli_path(
-        std::env::var_os("CODETERM_CLI_PATH").map(PathBuf::from),
-        || {
-            let local_cli = crate::paths::data_dir()
-                .join("bin")
-                .join(format!("codeterm{}", std::env::consts::EXE_SUFFIX));
-            local_cli.exists().then_some(local_cli)
-        },
-    )
+    select_instance_cli_path(lifecycle_cli_binary_path(), || {
+        let local_cli = crate::paths::data_dir()
+            .join("bin")
+            .join(format!("codeterm{}", std::env::consts::EXE_SUFFIX));
+        local_cli.exists().then_some(local_cli)
+    })
+}
+
+pub(crate) fn lifecycle_cli_binary_path() -> Option<PathBuf> {
+    std::env::var_os("CODETERM_CLI_PATH").map(PathBuf::from)
 }
 
 fn select_instance_cli_path(

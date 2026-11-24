@@ -58,6 +58,10 @@ third-party = [
     { name = "wasite", version = "1.0.2" },
     { name = "whoami", version = "2.1.3" },
     { name = "utf-8" },
+    # Raster decoders belong to the daemon and surface crates, outside the CLI closure.
+    { name = "image" },
+    { name = "image-webp" },
+    { name = "quick-error" },
     { name = "digest", version = "0.11.3" },
     { name = "candle-core" },
     { name = "candle-nn" },

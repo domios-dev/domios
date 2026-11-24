@@ -41,6 +41,7 @@ import { renamePlan } from "../Canvas/plansApi";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
+import { SidebarScrollLayout } from "./SidebarScrollLayout";
 import { SidebarSkeleton } from "./SidebarSkeleton";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
@@ -60,8 +61,8 @@ import { openNewSessionPicker } from "../../lib/newSessionChoice";
 import { deskWorkspaceMembership, observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { tabAttentionByTab } from "./tabAttention";
 import type { TeamCloseResource } from "./teamCloseResources";
-import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
-import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
+import { readTabCloseBlueprints } from "../Automation/blueprintOwner";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import {
   loadWorkspacesSectionExpanded,
   persistWorkspacesSectionExpanded,
@@ -434,6 +435,10 @@ export const Sidebar = memo(function Sidebar({
   const [pendingTabClose, setPendingTabClose] = useState<{ workspaceId: string; tabId: string; title: string; blueprints: string[] } | null>(null);
 
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
+    if (parseCompositeTabId(tabId)) {
+      closeTab(wsId, tabId);
+      return;
+    }
     setClosingTabs((prev) => {
       const next = new Map(prev);
       next.set(tabId, { wsId });
@@ -449,11 +454,11 @@ export const Sidebar = memo(function Sidebar({
     }, 350);
   }, [closeTab]);
 
-  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+  const animatedCloseTab = useCallback((wsId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => {
     void (async () => {
-      let blueprints: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+      let running: string[];
       try {
-        blueprints = await readWorkspaceBlueprints(wsId);
+        running = await readTabCloseBlueprints(wsId, tabId, ownerWorkspaceId);
       } catch (error) {
         createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
           workspaceId: wsId,
@@ -462,9 +467,8 @@ export const Sidebar = memo(function Sidebar({
           severity: "Error" });
         return;
       }
-      const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
       if (running.length > 0) {
-        setPendingTabClose({ workspaceId: wsId, tabId, title: state.tabs[tabId]?.title || "Tab", blueprints: running });
+        setPendingTabClose({ workspaceId: wsId, tabId, title: title || state.tabs[tabId]?.title || "Tab", blueprints: running });
         return;
       }
       performCloseTab(wsId, tabId);
@@ -504,6 +508,8 @@ export const Sidebar = memo(function Sidebar({
     return workspaceId ? sidebarWorkspaceKey(null, workspaceId) : null;
   });
   const activeWorkspaceId = state.active_workspace_id;
+  const activeTabId = isWorkspaceMode && !workspaceCanvasActive && activeWorkspaceId
+    ? state.activeTabIds[activeWorkspaceId] ?? null : null;
   const activeOrdinaryWorkspaceId = ordinaryWorkspaces.find(workspace => workspace.id === activeWorkspaceId)?.id;
   useEffect(() => {
     if (activeOrdinaryWorkspaceId) setPreferredWorkspaceKey(sidebarWorkspaceKey(null, activeOrdinaryWorkspaceId));
@@ -763,14 +769,15 @@ export const Sidebar = memo(function Sidebar({
           data-touch-mode={touchMode ? "true" : "false"}
           data-collapsed={isSidebarCollapsed && !isPeeking ? "true" : "false"}
           data-peek={isPeeking || undefined}
-          className="ct-sidebar-panel shrink-0 h-full min-h-0 flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
+          className="ct-sidebar-panel shrink-0 h-full min-h-0 grid select-none overflow-x-hidden overflow-y-hidden relative"
           style={isPeeking ? { width: "100%", "--ct-sidebar-peek-width": `${peekWidth}px` } as React.CSSProperties : { width: "100%" }}
           onMouseEnter={isPeeking ? holdPeek : undefined}
           onMouseLeave={isPeeking ? releasePeek : undefined}
         >
           {(!isSidebarCollapsed || isPeeking) && (
-            <>
-            <div ref={contentScrollRef} className="ct-sidebar-content flex-1 min-w-0 overflow-y-scroll overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
+            <SidebarScrollLayout scrollRef={contentScrollRef} activeTabId={activeTabId}>
+            {scrollRef => <>
+            <div ref={scrollRef} className="ct-sidebar-content min-w-0 overflow-y-scroll overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
               {restoring && <SidebarSkeleton compact={isCompact} />}
               {isCompact && !restoring && (
                 <SidebarCompactRail
@@ -853,6 +860,7 @@ export const Sidebar = memo(function Sidebar({
                         onRenameViewer={(tab, title) => {
                           if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
                         }}
+                        onCloseViewer={(tabId, title, ownerWorkspaceId) => animatedCloseTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
                         selectedViewerId={state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null}
                         onSelectViewer={tabId => {
                           setActiveTab(generalWorkspace?.id ?? "", tabId);
@@ -866,7 +874,7 @@ export const Sidebar = memo(function Sidebar({
               </SidebarDnd>
             </div>
             {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
-              activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
+              activeTabId={activeTabId} />}
             <div
               role="navigation"
               aria-label="Sidebar views"
@@ -923,7 +931,8 @@ export const Sidebar = memo(function Sidebar({
                 )}
               </div>
             </div>
-          </>
+            </>}
+            </SidebarScrollLayout>
         )}
       </aside>
       <button

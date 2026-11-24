@@ -1,0 +1,136 @@
+.ct-appearance-base {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background: var(--ct-bg);
+}
+
+/* Keep the clip on the snapshot while its radius interpolates. */
+@property --ct-appearance-reveal-size {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+html[data-appearance-motion="wave"] {
+  --ct-appearance-wave-time: 560ms;
+}
+
+html[data-appearance-motion="wave"] [data-appearance-surface] {
+  background: transparent !important;
+}
+
+html[data-appearance-motion="wave"] .ct-appearance-content {
+  view-transition-name: appearance-content;
+}
+
+html[data-appearance-motion="wave"] .ct-appearance-base {
+  view-transition-name: appearance-base;
+}
+
+html[data-appearance-motion="wave"] [data-appearance-backdrop] {
+  view-transition-name: appearance-wallpaper;
+}
+
+html[data-appearance-motion]::view-transition {
+  pointer-events: none;
+}
+
+html[data-appearance-motion]::view-transition-group(root),
+html[data-appearance-motion]::view-transition-group(appearance-content),
+html[data-appearance-motion]::view-transition-group(appearance-base),
+html[data-appearance-motion]::view-transition-group(appearance-wallpaper) {
+  animation: none;
+}
+
+html[data-appearance-motion]::view-transition-group(appearance-content) { z-index: 3; }
+html[data-appearance-motion]::view-transition-group(appearance-wallpaper) { z-index: 2; }
+html[data-appearance-motion]::view-transition-group(appearance-base) { z-index: 1; }
+
+html[data-appearance-motion]::view-transition-old(root),
+html[data-appearance-motion]::view-transition-new(root),
+html[data-appearance-motion]::view-transition-old(appearance-content),
+html[data-appearance-motion]::view-transition-new(appearance-content),
+html[data-appearance-motion]::view-transition-old(appearance-base),
+html[data-appearance-motion]::view-transition-old(appearance-wallpaper) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html[data-appearance-motion]::view-transition-old(root),
+html[data-appearance-motion]::view-transition-old(appearance-content) {
+  opacity: 0;
+}
+
+html[data-appearance-motion="wave"]::view-transition-old(root),
+html[data-appearance-motion="wave"]::view-transition-old(appearance-base),
+html[data-appearance-motion="wave"]::view-transition-old(appearance-wallpaper) {
+  animation: ct-appearance-snapshot-hold var(--ct-appearance-wave-time) linear both;
+}
+
+html[data-appearance-motion="wave"]::view-transition-old(root) {
+  --ct-appearance-held-opacity: 0;
+}
+
+html[data-appearance-motion="wave"]::view-transition-new(appearance-base) {
+  --ct-reveal-origin: var(--ct-appearance-origin);
+  --ct-reveal-radius: var(--ct-appearance-radius);
+  clip-path: circle(var(--ct-appearance-reveal-size) at var(--ct-reveal-origin));
+  animation: ct-appearance-wave var(--ct-appearance-wave-time) cubic-bezier(.2,.7,.2,1) both;
+  mix-blend-mode: normal;
+}
+
+html[data-appearance-motion="wave"]::view-transition-new(appearance-wallpaper) {
+  --ct-reveal-origin: var(--ct-appearance-chat-origin);
+  --ct-reveal-radius: var(--ct-appearance-chat-radius);
+  clip-path: circle(var(--ct-appearance-reveal-size) at var(--ct-reveal-origin));
+  animation: ct-appearance-wave var(--ct-appearance-wave-time) cubic-bezier(.2,.7,.2,1) both;
+  mix-blend-mode: normal;
+}
+
+html[data-appearance-motion="wave"][data-appearance-content-fade]::view-transition-old(appearance-content),
+html[data-appearance-motion="fade"]::view-transition-old(root) {
+  animation: ct-appearance-content-fade-out var(--ct-appearance-fade-time, var(--ct-appearance-wave-time)) ease both;
+  mix-blend-mode: plus-lighter;
+}
+
+html[data-appearance-motion="wave"][data-appearance-content-fade]::view-transition-new(appearance-content),
+html[data-appearance-motion="fade"]::view-transition-new(root) {
+  animation: ct-appearance-content-fade-in var(--ct-appearance-fade-time, var(--ct-appearance-wave-time)) ease both;
+  mix-blend-mode: plus-lighter;
+}
+
+html[data-appearance-motion="fade"] {
+  --ct-appearance-fade-time: 200ms;
+}
+
+@keyframes ct-appearance-wave {
+  from { --ct-appearance-reveal-size: 0px; }
+  to { --ct-appearance-reveal-size: var(--ct-reveal-radius); }
+}
+
+@keyframes ct-appearance-snapshot-hold {
+  from, to { opacity: var(--ct-appearance-held-opacity, 1); }
+}
+
+@keyframes ct-appearance-content-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ct-appearance-content-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.ct-chat-wallpaper[data-drawing-doodles]::after {
+  opacity: 0;
+}
+
+.ct-appearance-doodles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}

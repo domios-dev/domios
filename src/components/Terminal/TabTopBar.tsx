@@ -8,9 +8,10 @@ import { ChangesButton } from "./ChangesPanel";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
+import { TabHeaderTitle } from "./TabHeaderTitle";
+import { TabHeaderOverflow } from "./TabHeaderOverflow";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { BalanceBubble, QuotaBubble, UnavailableLimitsBubble } from "../Usage/ProfileLimitsBubble";
 import type { TabUsageSource } from "./usageTracking";
@@ -31,12 +32,13 @@ import { useProviderSwitchDialog } from "../Sidebar/ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
-import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
-import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
+import { readTabCloseBlueprints } from "../Automation/blueprintOwner";
 import { MachineProvenance } from "../shared/MachineProvenance";
 import { useRemoteViewerConnection } from "./useRemoteViewerConnection";
 import { remoteViewerStatusLabel } from "./remoteViewerStatus";
-import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { classifyTabTarget, parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
+import { UsageMachineContext } from "../../hooks/usageMachine";
 import { directTranscriptAvailable } from "../../lib/transport/liveTranscript";
 import { useLiveTranscriptHost } from "./useLiveTranscriptPanel";
 
@@ -113,11 +115,6 @@ function TabRenameField({ title, onDone }: { title: string; onDone: (title: stri
   );
 }
 
-/**
- * Tab header strip: mode switch on the left, status pills (usage + plugins) on
- * the right. Every item shares `TAB_BAR_CONTROL_H` — published to CSS-driven
- * children via the `--ct-tab-pill-h` custom property.
- */
 export function TabTopBar({
   tabId,
   shellTab,
@@ -138,9 +135,11 @@ export function TabTopBar({
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
-  const { upsertToast, detachRemoteTab } = useMultiplexer();
+  const { upsertToast } = useMultiplexer();
   const liveTranscript = useLiveTranscriptHost();
   const menuTab = tabMenu?.tab ?? null;
+  const titleTab = shellTab ?? menuTab;
+  const showTitle = titleTab && (showSwitch || titleTab.agent_type || titleTab.backing?.kind === "chat_backend");
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
   const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect && !tabMenu?.context.lock?.locked && !menuTab.locked : false;
@@ -250,8 +249,7 @@ export function TabTopBar({
           return;
         }
         try {
-          const blueprints = await readWorkspaceBlueprints(workspaceId);
-          const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
+          const running = await readTabCloseBlueprints(workspaceId, tabId);
           if (running.length > 0) setCloseBlueprints(running);
           else tabMenu.onClose?.();
         } catch (error) {
@@ -260,20 +258,22 @@ export function TabTopBar({
       })();
       return;
     }
-    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose, detach: () => detachRemoteTab?.(tabId) })
+    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose })
       .catch((error) => reportFailure(error, "updating this tab"));
   };
 
-  // Bubbles that do not fit one row stay clipped behind a toggle instead of wrapping the bar onto a second line.
-  const bubblesRef = useRef<HTMLDivElement>(null);
-  const [hiddenBubbles, setHiddenBubbles] = useState(0);
-  const [bubblesOpen, setBubblesOpen] = useState(false);
   const usageLabel = shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined;
   const usageContext = shellTab && "context" in shellTab ? shellTab.context : undefined;
   const tabProvider = shellTab?.agent_type ?? (shellTab?.backing?.kind === "chat_backend" ? shellTab.backing.plugin_id : null);
   const accountId = shellTab?.account?.id === "default" ? null : shellTab?.account?.id ?? null;
   const launchProfile = shellTab?.agent_runtime_config?.launchProfile;
   const profileAccountId = typeof launchProfile === "string" && launchProfile ? `profile:${launchProfile}` : null;
+  const usageTarget = classifyTabTarget(tabId);
+  const usagePeerId = usageTarget.kind === "remote" ? usageTarget.peerId : null;
+  const usagePeer = useRemoteChatStatus(tabId, usagePeerId).peer;
+  const usageUnavailable = usageTarget.kind === "invalid-remote"
+    || (usageTarget.kind === "local" && Boolean(shellTab?.remote_peer_id))
+    || (usagePeer && usagePeer.presence !== "online");
   const usageSession = usageSource && {
     provider: usageSource.trackingProvider,
     accountId,
@@ -285,43 +285,15 @@ export function TabTopBar({
     modelId: shellTab?.agent_session_model ?? usageModelId,
     modelGroups: usageModelGroups,
   };
-  useLayoutEffect(() => {
-    const row = bubblesRef.current;
-    if (!row) return;
-    // Bubbles mount and resize on their own (plugins load late), so both child changes and child sizes re-measure.
-    const sizes = new ResizeObserver(() => check());
-    const check = () => {
-      const top = row.getBoundingClientRect().top;
-      setHiddenBubbles(Array.from(row.children).filter((child) => {
-        if (!(child instanceof HTMLElement) || child.dataset.bubblesToggle) return false;
-        const box = child.getBoundingClientRect();
-        return box.width > 0 && box.top - top >= TAB_BAR_CONTROL_H;
-      }).length);
-    };
-    const watch = () => {
-      sizes.disconnect();
-      sizes.observe(row);
-      for (const child of Array.from(row.children)) sizes.observe(child);
-      check();
-    };
-    const mutations = new MutationObserver(watch);
-    mutations.observe(row, { childList: true, subtree: true, characterData: true });
-    watch();
-    return () => { sizes.disconnect(); mutations.disconnect(); };
-  }, []);
 
   return (
     <div
       data-testid="tab-top-bar"
       data-toast-obstacle
-      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-2 sm:gap-2"
-      style={{
-        ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
-        paddingTop: 6,
-        paddingBottom: 6,
-      }}
+      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-3 sm:gap-2"
+      style={{ ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px` }}
     >
-      <div className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
+      <div className="ct-tab-top-bar__identity">
         {renaming && menuTab && onRename ? (
           <TabRenameField
             title={displayTitleForTab(menuTab)}
@@ -330,37 +302,14 @@ export function TabTopBar({
               if (title) onRename(title);
             }}
           />
-        ) : showSwitch && (
-          <TabModeSwitch
-            tabId={tabId}
-            height={TAB_BAR_CONTROL_H}
-            chatPty={showSwitch}
-          />
-        )}
+        ) : <>
+          {showTitle && <TabHeaderTitle tab={titleTab} />}
+          {showSwitch && <TabModeSwitch tabId={tabId} />}
+        </>}
         <TabLockMark tab={menuTab} />
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
-      <div
-        ref={bubblesRef}
-        className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
-        style={bubblesOpen
-          ? { background: "var(--ct-bg)", rowGap: 8, paddingBottom: 8, marginBottom: -8, boxShadow: "0 12px 12px -6px var(--ct-bg)", position: "relative", zIndex: 3 }
-          : { maxHeight: TAB_BAR_CONTROL_H }}
-      >
-        {(hiddenBubbles > 0 || bubblesOpen) && (
-          <button
-            type="button"
-            data-bubbles-toggle="true"
-            className="ct-bar-pill inline-flex shrink-0 items-center justify-center gap-0.5 px-2 text-xs"
-            style={{ height: TAB_BAR_CONTROL_H }}
-            aria-expanded={bubblesOpen}
-            aria-label={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
-            title={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
-            onClick={() => setBubblesOpen((open) => !open)}
-          >
-            {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}
-          </button>
-        )}
+      <TabHeaderOverflow isActive={isActive}>
         {Boolean(parseCompositeTabId(tabId)) && <RemoteViewerPill tabId={tabId} tab={shellTab} />}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
@@ -368,6 +317,9 @@ export function TabTopBar({
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
+        {usageSource && usageVisible && usageUnavailable &&
+          <UnavailableLimitsBubble reason="Usage is unavailable on this machine." />}
+        {!usageUnavailable && (!usagePeerId || isActive) && <UsageMachineContext.Provider value={usagePeerId} key={tabId}>
         {usageSource?.kind === "unavailable" && usageSession && usageVisible && (
           <UnavailableLimitsBubble reason={usageSource.reason} session={usageSession} />
         )}
@@ -396,6 +348,7 @@ export function TabTopBar({
             profileQuotaModelId={shellTab?.agent_session_model ?? usageModelId}
           />
         )}
+        </UsageMachineContext.Provider>}
         <ComposerContextMeter tabId={tabId} />
         <div className="ct-bar-pill-group">
           <DocumentsButton tabId={tabId} />
@@ -403,7 +356,7 @@ export function TabTopBar({
         </div>
         <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
-      </div>
+      </TabHeaderOverflow>
         {entries.length > 0 && (
           <TabActionsMenu
             tab={menuTab ?? undefined}

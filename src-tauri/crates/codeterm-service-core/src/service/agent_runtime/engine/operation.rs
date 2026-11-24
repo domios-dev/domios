@@ -154,7 +154,7 @@ async fn run_inner(
     svc: &ServiceContext,
     session: &Arc<Session>,
     process: &Arc<Process>,
-    operation: RuntimeOperation,
+    mut operation: RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let tab_id = session.context.lock().tab_id.clone();
@@ -219,6 +219,13 @@ async fn run_inner(
         }) as rpc::PrewriteGuard
     });
     let mut context = session.context.lock().clone();
+    let turn_starts = matches!(&operation, RuntimeOperation::SubmitTurn { .. })
+        .then(|| svc.runtime_turn_starts(&context.tab_id, &context.binding_nonce, context.epoch));
+    let before_turn_start = turn_starts.as_ref().map(|starts| starts.sequence());
+    let before_completion = turn_starts
+        .as_ref()
+        .map(|_| session.completions.lock().sequence());
+    let mut fallback_settings = None;
     #[cfg(debug_assertions)]
     let submit_stages = {
         let mut started = std::time::Instant::now();
@@ -371,12 +378,19 @@ async fn run_inner(
                 let captured_login = super::super::login::declared_operation_witness(&operation);
                 let captured_switch = switch_guard.clone();
                 let captured_claim = switch_authority.clone();
+                let fallback_witness = fallback_settings.as_ref().and(turn_starts.clone());
                 let guard: rpc::PrewriteGuard = Arc::new(move || {
                     let result = (|| {
                         if runtime.context.lock().epoch != epoch {
                             return Err(RuntimeFailure::Superseded);
                         }
                         validate_binding(&owner, &runtime)?;
+                        if fallback_witness.as_ref().is_some_and(|starts| {
+                            Some(starts.sequence()) != before_turn_start
+                                || Some(runtime.completions.lock().sequence()) != before_completion
+                        }) {
+                            return Err(RuntimeFailure::WrittenAwaitingEvidence);
+                        }
                         if let Some(witness) = &captured_login {
                             super::super::login::validate_declared_witness(&runtime, witness)?;
                         }
@@ -579,6 +593,67 @@ async fn run_inner(
                 reason,
                 before_acceptance,
             } => {
+                if reason.code == RuntimeFailureCode::ModelUnavailable {
+                    use super::super::model_unavailable as unavailable;
+                    if let Some(model) = unavailable::settings(&mut operation)
+                        .and_then(|settings| settings.model.clone())
+                    {
+                        unavailable::remember(svc, session, process, &model).await;
+                        let no_turn_observed = || {
+                            turn_starts.as_ref().is_none_or(|starts| {
+                                Some(starts.sequence()) == before_turn_start
+                                    && Some(session.completions.lock().sequence())
+                                        == before_completion
+                            })
+                        };
+                        let replay_safe = before_acceptance
+                            && refused
+                            && no_turn_observed()
+                            && switch_guard.is_none();
+                        if let Some(candidate) = unavailable::choose(
+                            svc,
+                            session,
+                            &context,
+                            &operation,
+                            &model,
+                            replay_safe,
+                        )
+                        .await
+                        {
+                            if no_turn_observed() {
+                                let settings = unavailable::settings(&mut operation)
+                                    .ok_or(RuntimeFailure::Superseded)?;
+                                let candidate_id = candidate.id.clone();
+                                unavailable::replace_model(settings, candidate);
+                                fallback_settings = Some(settings.clone());
+                                unavailable::publish(svc, session, &context, "model_rerouted",
+                                    format!("Model {model} is unavailable for this account. Trying {candidate_id}."), &candidate_id);
+                                next = plan(session, &context, &operation).await?;
+                                continue;
+                            }
+                        }
+                        unavailable::publish(
+                            svc,
+                            session,
+                            &context,
+                            unavailable::SUBTYPE,
+                            reason.message.clone(),
+                            &model,
+                        );
+                        super::super::capacity_retry::notice::model_unavailable(
+                            svc,
+                            &context.tab_id,
+                            &context.binding_nonce,
+                            &reason.message,
+                        );
+                        let failure = RuntimeFailure::ModelUnavailable {
+                            model,
+                            message: reason.message,
+                        };
+                        unavailable::record_launch_failure(&failure);
+                        return Err(failure);
+                    }
+                }
                 // Declined input never entered the turn, so it stays held for the next prompt.
                 if before_acceptance
                     && super::super::turn_requests::submit_joins_turn(session, &operation)
@@ -683,6 +758,23 @@ async fn run_inner(
                     return Ok(result);
                 }
                 owned_context::record(svc, session, &context, &operation, &result)?;
+                if let (RuntimeResult::TurnAccepted { .. }, Some(settings)) =
+                    (&result, fallback_settings.as_ref())
+                {
+                    if let Err(error) = super::super::model_unavailable::persist_fallback(
+                        svc, session, &context, settings,
+                    ) {
+                        log::warn!("[model-catalogue] could not save fallback selection: {error}");
+                    }
+                }
+                if let (
+                    RuntimeOperation::OpenThread { .. },
+                    RuntimeResult::ThreadLoaded { .. },
+                    Some(settings),
+                ) = (&operation, &result, fallback_settings)
+                {
+                    session.context.lock().settings = settings;
+                }
                 return Ok(result);
             }
         }

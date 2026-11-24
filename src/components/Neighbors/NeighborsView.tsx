@@ -133,14 +133,14 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
       </span>
       {updating && <span role="status" className="neighbors-updating"><ActivityDots size="small" tone="muted" active />Updating</span>}
       {identity && <button type="button" className="neighbors-refresh ct-liquid-interactive ml-auto" aria-label="Refresh Neighbors" title="Refresh Neighbors"
-        disabled={neighbors.pending} onClick={neighbors.refresh}>
-        <BusySpinner icon={RefreshCw} size={13} spinning={neighbors.pending} />
+        disabled={neighbors.pending || neighbors.refreshing} onClick={neighbors.refresh}>
+        <BusySpinner icon={RefreshCw} size={13} spinning={neighbors.pending || neighbors.refreshing} />
       </button>}
     </div>
     <div className="neighbors-body" data-panel={panelOpen || undefined}>
       <div className="neighbors-canvas ct-canvas-background">
-        {(neighbors.error || agentError) && <div className="neighbors-notices">
-          {neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
+        {((enabled && neighbors.error) || agentError) && <div className="neighbors-notices">
+          {enabled && neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
           {agentError && <InlineErrorNotice error={agentError} operation="asking your General Agent" role="alert" />}
         </div>}
         <div className="neighbors-stage" role="group" aria-label="Your neighborhood" onKeyDown={moveFocus}>

@@ -158,7 +158,14 @@ async fn rest_health_answers_while_theme_preparation_waits_on_config() {
     let mut apply = Box::pin(crate::theme_routes::apply_theme_with(
         state.clone(),
         serde_json::from_value(serde_json::json!({"name":"github-dark"})).unwrap(),
-        |_, _| Err("fixture persistence refusal".into()),
+        false,
+        |config, _| {
+            let _guard = config.lock();
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "fixture persistence refusal".into(),
+            ))
+        },
     ));
     assert!(apply.as_mut().now_or_never().is_none());
     health_responds(router).await;

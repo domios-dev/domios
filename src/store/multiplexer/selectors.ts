@@ -250,6 +250,7 @@ export function tabAsksEqual(a: Notification[], b: Notification[]): boolean {
       && ask.actions === other.actions
       && ask.resolved === other.resolved
       && ask.answer_pending === other.answer_pending
+      && ask.answer_unconfirmed === other.answer_unconfirmed
       && ask.answer_error === other.answer_error
       && ask.answer?.answered === other.answer?.answered
       && ask.answer?.delivered === other.answer?.delivered

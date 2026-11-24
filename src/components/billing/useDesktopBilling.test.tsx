@@ -26,7 +26,8 @@ async function mount() {
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<Harness />));
 }
-const readback = { billing_interval: "month", current_tier: "max", paid_subscription: { tier: "max", status: "active", period_end: 1700000000 }, period_end: 1700000000, pending_change: null };
+const readback = { billing_interval: "month", plan_change_mode: "immediate", current_tier: "max",
+  paid_subscription: { tier: "max", status: "active", period_end: 1700000000 }, period_end: 1700000000, pending_change: null };
 const ok = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
 const setup = (change: () => Promise<Response>) => transport.localFetch.mockImplementation(async (_url: string, init: RequestInit) => {
   const { operation } = JSON.parse(String(init.body)) as { operation: string };
@@ -133,8 +134,9 @@ it("updates two mounted consumers from one entitlement event and replaces a stal
     await started;
   });
   expect(seen.map(value => value.subscription)).toEqual([null, null]);
-  await act(async () => finishFresh(ok(readback)));
-  expect(seen.map(value => value.subscription)).toEqual([readback, readback]);
+  const fresh = { ...readback, plan_change_mode: "at_renewal" };
+  await act(async () => finishFresh(ok(fresh)));
+  expect(seen.map(value => value.subscription)).toEqual([fresh, fresh]);
   expect(subscriptionCalls).toBe(2);
   expect(catalogCalls).toBe(1);
   await act(async () => window.dispatchEvent(new Event("focus")));

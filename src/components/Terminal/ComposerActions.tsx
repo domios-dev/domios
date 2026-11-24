@@ -8,6 +8,7 @@ import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
 import { DictationPresence } from "./voice/DictationStatus";
 import type { LiveDictation } from "./voice/useLiveDictation";
+import { remoteDictationUnavailable } from "../../lib/transport/dictation";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
@@ -123,6 +124,7 @@ function ComposerActionsBody({
           <ComposerActionButton
             voiceUi={voiceUi}
             dictation={dictation}
+            dictationUnavailableReason={dictation ? remoteDictationUnavailable(tabId) : undefined}
             onOpenLiveTranscript={onOpenLiveTranscript}
             liveTranscriptOnTap={liveTranscriptOnTap}
             spaceArming={spaceArming}

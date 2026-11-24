@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.37",
+  "version": "1.14.38",
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "accounts": {

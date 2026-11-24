@@ -145,7 +145,7 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
         return {
           type: "UPDATE_NOTIFICATION_ANSWER",
           id,
-          update: {
+          update: data.submit_unconfirmed === true ? { unconfirmed: true, answered: data.answered } : {
             answered: data.answered,
             delivered: data.delivered === true,
             error: typeof data.deliveryError === "string" ? data.deliveryError

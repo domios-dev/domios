@@ -13,6 +13,7 @@ use tokio::{io::AsyncReadExt, sync::watch};
 
 pub struct Process {
     pub client: Client,
+    pub(super) binary_fingerprint: Option<codeterm_plugin::model_catalog::BinaryFingerprint>,
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
     stop: watch::Sender<Option<bool>>,
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
@@ -42,6 +43,7 @@ impl Process {
         });
         Self {
             client,
+            binary_fingerprint: None,
             ended: exit,
             stop,
             boundary: None,
@@ -256,6 +258,7 @@ pub(super) fn spawn(
     _tab: &str,
 ) -> Result<Process, RuntimeFailure> {
     let (binary, cap) = (launch.binary.as_path(), &launch.capability);
+    let binary_fingerprint = codeterm_plugin::model_catalog::fingerprint_path(binary);
     let cwd = launch.process_cwd(tab_cwd);
     #[cfg(any(test, feature = "test-support"))]
     if let Some(factory) = test_ports::factory(_tab) {
@@ -423,7 +426,10 @@ pub(super) fn spawn(
             _ = transport_ended.changed(), if http_transport => matches!(&*transport_ended.borrow(), Some(RuntimeFailure::Superseded)),
             _ = stopping.changed() => stopping.borrow().unwrap_or(false),
         };
-        if let Some(reason @ RuntimeFailure::PipeFailure { .. }) = &*transport_ended.borrow() {
+        if let Some(
+            reason @ (RuntimeFailure::PipeFailure { .. } | RuntimeFailure::SseEventTooLarge { .. }),
+        ) = &*transport_ended.borrow()
+        {
             log::debug!(
                 "[runtime-http] pid={pid} transport ended before runtime retirement: {reason}"
             );
@@ -483,6 +489,7 @@ pub(super) fn spawn(
         ended.send_replace(Some(end));
     });
     Ok(Process {
+        binary_fingerprint,
         client,
         ended: exit,
         stop,

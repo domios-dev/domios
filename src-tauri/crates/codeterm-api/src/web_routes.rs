@@ -167,14 +167,46 @@ pub async fn tab_focus(
 
 pub async fn tab_close(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
-    Path((_workspace_id, tab_id)): Path<(String, String)>,
+    axum::Extension(identity): axum::Extension<crate::auth::CallerIdentity>,
+    headers: crate::auth::AgentHeaders,
+    Path((workspace_id, tab_id)): Path<(String, String)>,
+    Query(query): Query<crate::tab_routes::CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    state
+    if !matches!(identity, crate::auth::CallerIdentity::Local)
+        || !matches!(headers.actor, crate::auth::RequestActor::Owner)
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "This operation requires the local owner".into(),
+        ));
+    }
+    close_tab_as_owner(
+        &state,
+        &tab_id,
+        query.force,
+        codeterm_service_core::service::close_authority::OwnerTabCloseScope::Workspace(
+            workspace_id,
+        ),
+    )
+    .await
+}
+
+pub(crate) async fn close_tab_as_owner(
+    state: &AppState,
+    tab_id: &str,
+    force: bool,
+    scope: codeterm_service_core::service::close_authority::OwnerTabCloseScope,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let closed = state
         .svc
-        .close_tab_async(&tab_id)
+        .close_tab_as_owner_async_scoped(tab_id, force, scope)
         .await
         .map_err(crate::tab_routes::map_close_error)?;
+    if !closed {
+        return Ok(Json(
+            serde_json::json!({"ok": false, "confirmation_required": true}),
+        ));
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

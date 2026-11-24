@@ -88,8 +88,25 @@ fn missing_rollout_replaces_only_a_proven_unused_thread_without_sending_input() 
         let (fixture, tab, peer, _cleanup) = runtime_fixture_with(PROVIDER);
         let session = for_tab(&tab).unwrap();
         crate::async_runtime::block_on(async {
+            let svc = &fixture.service;
+            let mut startup_env = None;
             if never_used {
-                bind(&fixture.service, &session, "own-thread", true).unwrap();
+                bind(svc, &session, "own-thread", true).unwrap();
+                let context = session.context.lock().clone();
+                let old = svc
+                    .mint_tab_credential(&tab, &context.binding_nonce)
+                    .unwrap();
+                prepare_startup_credential(svc, &context);
+                let env = crate::service::agent_runtime::environment::compose(
+                    svc,
+                    &tab,
+                    &session.provider,
+                    &context.binding_nonce,
+                )
+                .unwrap();
+                assert!(svc.authenticate_local_credential(&old).is_err());
+                assert_neighbor_launch_credential(svc, &env);
+                startup_env = Some(env);
             } else if evidence == "used" {
                 fixture
                     .service
@@ -170,6 +187,20 @@ fn missing_rollout_replaces_only_a_proven_unused_thread_without_sending_input() 
                         .as_deref(),
                     Some("replacement-thread")
                 );
+                let env = startup_env.unwrap();
+                assert_neighbor_launch_credential(svc, &env);
+                let nonce = svc.rotate_session_binding_nonce(&tab);
+                assert!(svc
+                    .authenticate_local_credential(&env["CODETERM_API_TOKEN"])
+                    .is_err());
+                let relaunched = crate::service::agent_runtime::environment::compose(
+                    svc,
+                    &tab,
+                    &session.provider,
+                    &nonce,
+                )
+                .unwrap();
+                assert_neighbor_launch_credential(svc, &relaunched);
             } else {
                 assert_eq!(result, Err(RuntimeFailure::ConversationMissing));
                 assert_eq!(
@@ -179,6 +210,24 @@ fn missing_rollout_replaces_only_a_proven_unused_thread_without_sending_input() 
             }
         });
     }
+}
+
+fn assert_neighbor_launch_credential(
+    svc: &ServiceContext,
+    env: &std::collections::HashMap<String, String>,
+) {
+    let credential = &env["CODETERM_API_TOKEN"];
+    let caller = svc.identify_tab_credential(credential).unwrap();
+    assert_eq!(caller.tab_id, env["CODETERM_TAB_ID"]);
+    assert_eq!(caller.binding_nonce, env["CODETERM_SESSION_BINDING_NONCE"]);
+    let mut params = Some(json!({
+        "method": "POST",
+        "path": "/api/account/neighbors/runtime",
+        "caller_tab_id": caller.tab_id,
+        "session_binding_nonce": caller.binding_nonce,
+    }));
+    svc.bind_local_rpc(credential, "api.request", &mut params)
+        .unwrap();
 }
 
 #[test]

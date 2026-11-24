@@ -5,24 +5,33 @@ pub mod outbound_authority;
 mod pad_files;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
+async fn incoming_question(
+    fixture: &ServiceFixture,
+    metadata: &Metadata,
+    friendship: &str,
+) -> String {
+    let target = "b".repeat(32);
+    let entry = serde_json::from_value(json!({"direction":"in","author":"friend","sender_uid":"peer","body":"opaque incoming","at":1,"message_id":target,"kind":"question"})).unwrap();
+    fixture
+        .service
+        .append_neighbor_history(
+            metadata,
+            friendship,
+            entry,
+            fixture.service.neighbor_history_generation(),
+        )
+        .await
+        .unwrap();
+    target
+}
+
 #[tokio::test]
 async fn refusal_preflight_accepts_cyrillic_and_rejects_oversize_without_writing() {
     let (mux, _) = MultiplexerState::new();
     let fixture = crate::test_support::fixture(mux);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
-    let target = "b".repeat(32);
-    let incoming = serde_json::from_value(json!({"direction":"in","author":"friend","sender_uid":"peer","body":"opaque incoming","at":1,"message_id":target,"kind":"question"})).unwrap();
-    fixture
-        .service
-        .append_neighbor_history(
-            &metadata,
-            &friendship,
-            incoming,
-            fixture.service.neighbor_history_generation(),
-        )
-        .await
-        .unwrap();
+    let target = incoming_question(&fixture, &metadata, &friendship).await;
     let before = metadata.history_page(&friendship, None, 50).await.unwrap();
     let permission = Permission::default();
     for text in ["", " \t\r\n", "\u{2003}\u{3000}"] {
@@ -167,6 +176,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
         },
     );
     metadata.save_settings(settings).await.unwrap();
+    let target = incoming_question(&fixture, &metadata, &friend).await;
     let calls = Arc::new(NoNetwork);
     let transport = FirebaseTransport {
         calls: calls.clone(),
@@ -211,7 +221,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
                         friendship: friend.clone(),
                         kind,
                         body: OutboundBody::Granted(Zeroizing::new(text)),
-                        in_reply_to: None,
+                        in_reply_to: (kind == Kind::Answer).then(|| target.clone()),
                         author: Author::Person("me".into()),
                     },
                 )
@@ -452,4 +462,72 @@ fn send_command_preserves_client_message_identity() {
     assert!(
         matches!(command, NeighborRuntimeCommand::Send { message_id: Some(observed), .. } if observed == id)
     );
+}
+
+#[tokio::test]
+async fn sandboxed_neighbor_reply_requires_a_request_in_the_bound_friendship() {
+    let (mux, _) = MultiplexerState::new();
+    let fixture = crate::test_support::fixture(mux);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let mut permission = Permission {
+        allowed: true,
+        machine_access: MachineAccess::ReadOnly,
+        scope: "opaque grant".into(),
+        ..Default::default()
+    };
+    let friendship = "a".repeat(64);
+    let foreign = "b".repeat(64);
+    let question = "a".repeat(32);
+    let answer = "b".repeat(32);
+    let other_question = "c".repeat(32);
+    for (friend, id, kind) in [
+        (&friendship, &question, "question"),
+        (&friendship, &answer, "answer"),
+        (&foreign, &other_question, "question"),
+    ] {
+        let entry = serde_json::from_value(json!({"direction":"in","author":"friend","sender_uid":"peer","body":"opaque","at":1,"message_id":id,"kind":kind})).unwrap();
+        service
+            .append_neighbor_history(
+                &metadata,
+                friend,
+                entry,
+                service.neighbor_history_generation(),
+            )
+            .await
+            .unwrap();
+    }
+    for access in [MachineAccess::ReadOnly, MachineAccess::Folder] {
+        permission.machine_access = access;
+        for kind in [Kind::Answer, Kind::Refusal] {
+            for target in [None, Some(answer.as_str()), Some(other_question.as_str())] {
+                let result = prepare_outgoing_body(
+                    &metadata,
+                    &friendship,
+                    &permission,
+                    SendAuthority::FriendshipGrant,
+                    kind,
+                    OutboundBody::Granted(Zeroizing::new("opaque reply".into())),
+                    target,
+                )
+                .await;
+                if access == MachineAccess::Folder && kind == Kind::Answer && target.is_none() {
+                    assert!(result.is_ok());
+                } else {
+                    assert!(matches!(result, Err(Error::ReplyTargetUnknown)));
+                }
+            }
+            assert!(prepare_outgoing_body(
+                &metadata,
+                &friendship,
+                &permission,
+                SendAuthority::FriendshipGrant,
+                kind,
+                OutboundBody::Granted(Zeroizing::new("opaque reply".into())),
+                Some(&question)
+            )
+            .await
+            .is_ok());
+        }
+    }
 }

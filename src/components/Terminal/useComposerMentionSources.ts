@@ -16,11 +16,22 @@ import { planMentionSource } from "../../lib/mentionSources/plans";
 import { blueprintMentionSource } from "../../lib/mentionSources/blueprints";
 import { mentionScopeForTab } from "../../lib/mentionSources/scope";
 import { watchMentionState } from "../../lib/mentionSources/live";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { peerMentionTabs } from "../../lib/mentionSources/peerTabs";
 
 export function useComposerMentionSources(tabId: string) {
   const mux = useMuxStateStore();
   const api = usePlansApiOptional();
   const contextKey = usePlanDataContextKey();
+  const { peerWorkspaces, generals } = usePairedWorkspaceInventory();
+  const peerId = parseCompositeTabId(tabId)?.peerId;
+  const composerWorkspaces = peerId ? peerWorkspaces : undefined;
+  const composerPeers = peerId ? generals : undefined;
+  const hostTabs = useMemo(() => peerId && composerPeers
+    ? Object.fromEntries([...peerMentionTabs({ generals: composerPeers, peerWorkspaces: composerWorkspaces }, peerId)]
+      .map(([id, entry]) => [id, entry.tab]))
+    : undefined, [peerId, composerPeers, composerWorkspaces]);
   const planListeners = useRef(new Set<() => void>());
   useEffect(() => {
     let active = true;
@@ -34,7 +45,10 @@ export function useComposerMentionSources(tabId: string) {
   }, []);
   const cache = useRef(new Map<string, Promise<AutomationGraph>>());
   const lifetime = useRef(new AbortController());
-  const scope = useCallback(() => mentionScopeForTab(mux.getState(), tabId), [mux, tabId]);
+  const scope = useCallback(() => {
+    const state = mux.getState();
+    return mentionScopeForTab({ tabs: hostTabs ?? state.tabs, workspaces: state.workspaces }, tabId, composerWorkspaces);
+  }, [composerWorkspaces, hostTabs, mux, tabId]);
   const registry = useMemo(() => {
     const files = new Map<string, Promise<readonly MentionFile[]>>();
     const searches = new Map<string, Promise<Plan[]>>();
@@ -60,8 +74,12 @@ export function useComposerMentionSources(tabId: string) {
       }
       return reading;
     };
-    return createMentionRegistry([
-      tabMentionSource(mux.getState), taskMentionSource(readPlans), planMentionSource(readPlans),
+    const tabs = tabMentionSource(() => {
+      const state = mux.getState();
+      return { tabs: hostTabs ?? state.tabs, workspaces: state.workspaces, peerWorkspaces: composerWorkspaces };
+    });
+    return createMentionRegistry(peerId ? [tabs] : [
+      tabs, taskMentionSource(readPlans), planMentionSource(readPlans),
       blueprintMentionSource(readGraph, () => mux.getState().tabs),
       fileMentionSource(async (path, signal) => {
         if (!api) return [];
@@ -85,6 +103,6 @@ export function useComposerMentionSources(tabId: string) {
       },
       close: () => { lifetime.current.abort(); lifetime.current = new AbortController(); cache.current.clear(); files.clear(); searches.clear(); },
     });
-  }, [mux, api, contextKey]);
+  }, [mux, api, contextKey, peerId, hostTabs, composerWorkspaces]);
   return { registry, scope };
 }

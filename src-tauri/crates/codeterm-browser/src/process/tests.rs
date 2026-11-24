@@ -45,6 +45,60 @@ async fn browser_process_ready_from_stderr_then_killed_on_request() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn browser_process_descendant_pipe_closes_when_the_root_exits() {
+    use std::os::unix::ffi::OsStrExt;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::unix::pipe::OpenOptions;
+
+    let root = tempfile::tempdir().unwrap();
+    let control = root.path().join("exit");
+    let witness = root.path().join("descendant");
+    for path in [&control, &witness] {
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    }
+    let mut signal = OpenOptions::new()
+        .read_write(true)
+        .open_sender(&control)
+        .unwrap();
+    let mut witness_pipe = OpenOptions::new().open_receiver(&witness).unwrap();
+    let args = vec![
+        "-c".into(),
+        format!(
+            "exec 4<&0; sh -c 'exec 3>\"$1\"; printf x >&3; printf \"%s\\n\" \"$2\" >&2; read line <&4' \
+             sh \"$1\" 'DevTools listening on {FAKE_ENDPOINT}' & read line <\"$2\""
+        ),
+        "sh".into(),
+        witness.to_string_lossy().into_owned(),
+        control.to_string_lossy().into_owned(),
+    ];
+    let process =
+        BrowserProcess::spawn_with_stdin(Path::new("sh"), &args, READY_DEADLINE, Stdio::piped())
+            .await
+            .unwrap();
+    let mut byte = [0];
+    tokio::time::timeout(KILL_DEADLINE, witness_pipe.read_exact(&mut byte))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(byte, [b'x']);
+    signal.write_all(b"exit\n").await.unwrap();
+    signal.flush().await.unwrap();
+    assert!(process
+        .wait_exit_until(Instant::now() + KILL_DEADLINE)
+        .await
+        .is_some());
+    assert_eq!(
+        tokio::time::timeout(KILL_DEADLINE, witness_pipe.read(&mut byte))
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
+}
+
 #[tokio::test]
 async fn browser_process_exit_before_devtools_is_an_error() {
     let (binary, args) = fake_browser("Opening in existing browser session.", false);

@@ -359,8 +359,9 @@ export const TerminalTab = memo(function TerminalTab({
     const term = termRef.current;
     if (!term) return;
     refitAndCommitResize();
-    if (frameReady && !questionInOverlay) term.focus();
-  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, frameReady, termRef, refitAndCommitResize, questionInOverlay]);
+    const viewSwitch = document.activeElement?.closest(".ct-tab-view-switch");
+    if (frameReady && !questionInOverlay && viewSwitch?.getAttribute("data-tab-id") !== tabId) term.focus();
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, frameReady, termRef, refitAndCommitResize, questionInOverlay, tabId]);
 
   useLayoutEffect(() => {
     if (questionInOverlay) fallbackCloseRef.current?.focus();

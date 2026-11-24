@@ -1,6 +1,6 @@
 name: tests-rust
 
-# Rust tier: the full suite, one platform subset per OS and embeddings, then their receipts.
+# Rust tier: Clippy, the full suite, one platform subset per OS and embeddings, then their receipts.
 
 on:
   workflow_call:
@@ -53,17 +53,16 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 'line-tables-only'
 
 jobs:
-  # All Linux compilation shares the warm linux-build executor.
   rust-tests:
     name: rust tests (full suite)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    # ubunta keeps a single runner, so its jobs never share the host's sccache server; hosted is the opt-out.
+    # A private selector may share ubunta with packaging. Unset or hosted uses a separate hosted VM.
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted' && '"ubuntu-24.04"' || vars.CI_LINUX_RUST_FULL_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
       actions: read
       pull-requests: read
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       matrix:
         suite: [full]
@@ -106,7 +105,8 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      - &hosted-node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         id: ci-2
         with:
           package-manager-cache: false
@@ -117,7 +117,8 @@ jobs:
         with:
           python-version: "3.12"
         if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - &source-checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.sha }}
@@ -133,25 +134,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
-      - name: Test builds link the system OpenSSL
+      - &hosted-openssl
+        name: Test builds link the system OpenSSL
         # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
-      - name: Fast APT mirror
+      - &hosted-apt-mirror
+        name: Fast APT mirror
         # Pinned commit of release 1.4.5; apt still verifies every package signature. country skips its geo lookup.
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
         with:
           country: US
-      - name: Hosted Linux build prerequisites
+      - &hosted-linux-prerequisites
+        name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
-      - name: Hosted Rust dependency cache
+      - &hosted-cargo-cache
+        name: Hosted Rust dependency cache
         if: ${{ runner.environment == 'github-hosted' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
@@ -160,7 +165,8 @@ jobs:
             ~/.cargo/git
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
-      - name: Hosted sccache
+      - &hosted-sccache
+        name: Hosted sccache
         if: runner.environment == 'github-hosted'
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         with:
@@ -168,10 +174,12 @@ jobs:
           disable_annotations: true
         env:
           SCCACHE_GHA_ENABLED: "true"
-      - name: Prepare compile fixtures
+      - &compile-fixtures
+        name: Prepare compile fixtures
         id: ci-7
         run: node scripts/ci-rust-prepare.mjs
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+      - &hosted-rust-toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         id: ci-4
         with:
           toolchain: 1.99.1
@@ -229,16 +237,6 @@ jobs:
           RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: bash build.sh ci-tests ${{ matrix.suite }}
-      - name: Check app and CLI release manifests
-        if: runner.os == 'Linux' && matrix.suite == 'full'
-        shell: bash
-        run: |
-          cargo check --manifest-path src-tauri/Cargo.toml
-          cargo check --manifest-path cli/Cargo.toml
-      - name: Clippy app release gate
-        if: runner.os == 'Linux' && matrix.suite == 'full'
-        shell: bash
-        run: bash scripts/clippy-gate.sh
       - name: Compile ${{ matrix.suite }} Rust tests (Windows)
         if: runner.os == 'Windows'
         env:
@@ -298,6 +296,33 @@ jobs:
     outputs:
       warnings: ${{ steps.target.outputs.warnings }}
       archived: ${{ steps.compile.outcome == 'success' }}
+
+  rust-release-clippy:
+    name: rust release Clippy
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    # Give Clippy its own VM so a private full-suite runner can work in parallel.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: '0'
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+    steps:
+      - *hosted-node
+      - *source-checkout
+      - *hosted-openssl
+      - *hosted-apt-mirror
+      - *hosted-linux-prerequisites
+      - *hosted-cargo-cache
+      - *hosted-rust-toolchain
+      - *hosted-sccache
+      - *compile-fixtures
+      - name: Stage workspace test resources
+        run: node scripts/prepare-test-bundle.mjs x86_64-unknown-linux-gnu
+      - name: Clippy app release gate
+        run: bash scripts/clippy-gate.sh
 
   rust-platform:
     name: rust platform (${{ matrix.os }})
@@ -771,7 +796,7 @@ jobs:
   # CLI contracts (transport rows, help text, generated manifest, essence map) fail in minutes here, not in the Rust tier.
   rust-receipts:
     name: rust test receipts
-    needs: [rust-tests, rust-platform, rust-embeddings]
+    needs: [rust-tests, rust-platform, rust-embeddings, rust-release-clippy]
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
@@ -844,7 +869,8 @@ jobs:
           TESTS_RESULT: ${{ needs.rust-tests.result }}
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
           EMBEDDINGS_RESULT: ${{ needs.rust-embeddings.result }}
-        run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.EMBEDDINGS_RESULT !== 'success') process.exit(1)"
+          CLIPPY_RESULT: ${{ needs.rust-release-clippy.result }}
+        run: node -e "if (['TESTS_RESULT', 'PLATFORM_RESULT', 'EMBEDDINGS_RESULT', 'CLIPPY_RESULT'].some(name => process.env[name] !== 'success')) process.exit(1)"
       - name: One passing Linux full suite, native subsets and embeddings
         id: ci-5
         continue-on-error: ${{ inputs.artifacts_optional }}

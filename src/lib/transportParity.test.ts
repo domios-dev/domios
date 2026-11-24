@@ -5,6 +5,9 @@ import { rustRouteContracts, routeMatches } from "./transportRouteAudit";
 import type { TransportClient } from "./transportClient";
 import fixtures from "./transportCommandContracts.json";
 
+const usageReads = ["usage_history", "usage_latest", "usage_projection", "provider_model_usage"] as const;
+const localUsageCommands = new Set<string>([...usageReads, "usage_refresh"]);
+
 const result = { ok: true, status: 200, data: [], peer: { instance_id: "peer", instance_name: "Peer" }, paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
   tabs: {tab:{agent_session_id:"root",session_binding_nonce:"nonce",agent_runtime_state:{state:"loaded",epoch:4}}} };
 function reply(path: string, body?: unknown) {
@@ -29,10 +32,35 @@ describe("audited command registry", () => {
     const localSpawns = new Set(["spawn_general_agent_session", "mux_spawn_tab"]);
     for (const [command, expected] of Object.entries(fixtures.commands)) {
       calls.length = 0;
-      await dispatchCommand(commands, command, localSpawns.has(command) ? localArgs : { ...localArgs, peerId });
+      const args = localSpawns.has(command) ? localArgs : { ...localArgs, peerId: localUsageCommands.has(command) ? null : peerId };
+      await dispatchCommand(commands, command, args);
       expect.soft(calls, command).toEqual(expected);
     }
     console.info("[transportParity mode=enforce] zero pending HTTP contracts");
+  });
+  it("pins usage reads to the local owner or exact peer and refreshes on the owning machine", async () => {
+    const { client } = fixture();
+    const localCalls: Array<[string, string, unknown]> = [];
+    client.json = async () => { throw new Error("Unexpected selected-peer request"); };
+    client.localJson = async <T>(method: string, path: string, body?: unknown) => {
+      localCalls.push([method, path, body]);
+      return reply(path, body) as T;
+    };
+    const commands = createCommandRegistry(client);
+    for (const command of usageReads) {
+      const [[method, path]] = fixtures.commands[command];
+      localCalls.length = 0;
+      await dispatchCommand(commands, command, { ...fixtures.args, peerId: null });
+      await dispatchCommand(commands, command, fixtures.args);
+      expect(localCalls, command).toEqual([
+        [method, path, undefined],
+        ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method, path, body: null }],
+      ]);
+    }
+    localCalls.length = 0;
+    await dispatchCommand(commands, "usage_refresh", { ...fixtures.args, peerId: null });
+    await expect(dispatchCommand(commands, "usage_refresh", fixtures.args)).rejects.toThrow("owning machine");
+    expect(localCalls).toEqual([["POST", "/api/usage/refresh", { provider: "provider", account_id: "account" }]]);
   });
   it("keeps explicit peer commands on the base client when a relay is selected", async () => {
     const { client } = fixture();

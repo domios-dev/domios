@@ -6,8 +6,8 @@ import { chatWindowRange, timelineItemKey } from "./chatWindow";
 export const CHAT_PAGE_SIZE = 100;
 export const CHAT_READING_SIZE = 300;
 
-export function conversationEntries(messages: NormalizedChatMessage[], cache: EnrichmentCache = new WeakMap()) {
-  return chatWindowRows(enrichTimelineItems(reduceToolEvents(messages), cache));
+export function conversationEntries(messages: NormalizedChatMessage[], cache: EnrichmentCache = new WeakMap(), cwd?: string | null, liveTools = false) {
+  return chatWindowRows(enrichTimelineItems(reduceToolEvents(messages, cwd, liveTools), cache));
 }
 
 export function earlierMessageLabel(loaded: number, canBackfill: boolean): string {

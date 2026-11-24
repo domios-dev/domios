@@ -149,7 +149,7 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
                                 &session,
                                 &nonce,
                                 &records,
-                                initialized && !incomplete && !partial,
+                                initialized && !incomplete,
                             );
                             super::provider_signals::apply(&svc, &tab, &session, &nonce, &records);
                             if !incomplete {
@@ -172,9 +172,7 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
                             }
                             offset = end;
                             incomplete_history |= incomplete;
-                            if partial {
-                                mark_unavailable(&svc, &tab, &session, &nonce);
-                            } else {
+                            if !partial {
                                 set_initialized(&svc, &tab, &session, &nonce, !incomplete_history);
                             }
                         }

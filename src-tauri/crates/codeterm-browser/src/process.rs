@@ -11,6 +11,8 @@ pub mod termination;
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(unix)]
+mod unix_group;
 
 pub const READY_DEADLINE: Duration = Duration::from_secs(15);
 pub const CLOSE_DEADLINE: Duration = Duration::from_secs(5);
@@ -74,8 +76,6 @@ pub struct BrowserProcess {
     ready_after: Duration,
     exit: watch::Receiver<Option<ProcessExit>>,
     kill: watch::Sender<bool>,
-    #[cfg(windows)]
-    _job: Option<codeterm_util::windows_job::Job>,
 }
 
 impl std::fmt::Debug for BrowserProcess {
@@ -132,36 +132,31 @@ impl BrowserProcess {
             .kill_on_drop(true);
         #[cfg(unix)]
         command.process_group(0);
-        // PDEATHSIG follows the spawning thread, so this must run on a long-lived runtime worker.
-        #[cfg(target_os = "linux")]
-        unsafe {
-            command.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-                Ok(())
-            });
-        }
         let started = Instant::now();
         let mut child = command
             .spawn()
             .map_err(|error| format!("browser spawn failed ({}): {error}", binary.display()))?;
         #[cfg(windows)]
-        let job = contain(&child)?;
+        let tree = codeterm_util::windows_job::Job::attach(&child).map_err(|error| {
+            format!("could not contain Chromium in its kill-on-close Job: {error}")
+        })?;
         let pid = child.id().ok_or("browser process has no pid")?;
+        #[cfg(unix)]
+        let tree = unix_group::OwnedProcessGroup::new(pid)
+            .map_err(|error| format!("could not guard Chromium process group: {error}"))?;
         let stderr = child.stderr.take().ok_or("browser stderr is not piped")?;
         let stdout = child.stdout.take().ok_or("browser stdout is not piped")?;
         let (ready_tx, mut ready_rx) = oneshot::channel();
         tokio::spawn(drain_output(stderr, stdout, ready_tx));
         let (exit_tx, exit_rx) = watch::channel(None);
         let (kill_tx, kill_rx) = watch::channel(false);
-        tokio::spawn(supervise(child, pid, kill_rx, exit_tx));
+        tokio::spawn(supervise(child, tree, kill_rx, exit_tx));
         let mut process = Self {
             pid,
             endpoint: String::new(),
             ready_after: Duration::ZERO,
             exit: exit_rx,
             kill: kill_tx,
-            #[cfg(windows)]
-            _job: job,
         };
         let mut exit = process.exit.clone();
         let readiness = tokio::time::timeout(deadline, async {
@@ -250,17 +245,10 @@ impl Drop for BrowserProcess {
     }
 }
 
-/// Every Chromium process descends from the suspended root, so all of them die with the daemon.
 #[cfg(windows)]
-fn contain(
-    child: &tokio::process::Child,
-) -> Result<Option<codeterm_util::windows_job::Job>, String> {
-    let job = codeterm_util::windows_job::Job::contain(child)
-        .inspect_err(|error| log::warn!("[browser-process] no kill-on-close job: {error}"))
-        .ok();
-    codeterm_util::windows_job::resume(child)?;
-    Ok(job)
-}
+type ProcessTree = codeterm_util::windows_job::Job;
+#[cfg(unix)]
+type ProcessTree = unix_group::OwnedProcessGroup;
 
 async fn drain_output(
     mut stderr: tokio::process::ChildStderr,
@@ -308,35 +296,38 @@ async fn drain_output(
 
 async fn supervise(
     mut child: tokio::process::Child,
-    pid: u32,
+    tree: ProcessTree,
     mut kill: watch::Receiver<bool>,
     exit: watch::Sender<Option<ProcessExit>>,
 ) {
-    // The watch Ref must not live into the kill branch's awaits: it holds the channel's read lock.
     let kill_requested = async move {
         let _ = kill.wait_for(|kill| *kill).await;
     };
     // Child::wait closes its stdin; the supervisor keeps the pipe alive until exit.
     let _stdin = child.stdin.take();
-    let status = tokio::select! {
-        status = child.wait() => status.ok(),
-        () = kill_requested => {
-            kill_tree(pid).await;
-            let _ = child.start_kill();
-            child.wait().await.ok()
+    #[cfg(windows)]
+    let status = {
+        tokio::select! {
+            _ = kill_requested => {}
+            _ = child.wait() => {}
+        }
+        let reaped =
+            tokio::task::spawn_blocking(move || tree.terminate_and_wait(KILL_DEADLINE)).await;
+        match reaped {
+            Ok(Ok(())) => child.wait().await,
+            Ok(Err(error)) => Err(std::io::Error::other(error)),
+            Err(error) => Err(std::io::Error::other(error)),
         }
     };
-    exit.send_replace(Some(ProcessExit {
-        code: status.and_then(|status| status.code()),
-    }));
-}
-
-/// The tree kill runs before the child handle kill so the parent link still finds the children.
-async fn kill_tree(pid: u32) {
-    match tokio::task::spawn_blocking(move || super::sweep::kill_tree_blocking(pid)).await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => log::warn!("[browser-process] tree kill {pid}: {error}"),
-        Err(error) => log::warn!("[browser-process] tree kill {pid} task failed: {error}"),
+    #[cfg(unix)]
+    let status = tree.reap(&mut child, kill_requested).await;
+    match status {
+        Ok(status) => {
+            exit.send_replace(Some(ProcessExit {
+                code: status.code(),
+            }));
+        }
+        Err(error) => log::warn!("[browser-process] tree exit unconfirmed: {error}"),
     }
 }
 

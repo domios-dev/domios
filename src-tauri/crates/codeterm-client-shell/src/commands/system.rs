@@ -66,19 +66,22 @@ fn open_tailscale() -> bool {
 }
 
 #[tauri::command]
-pub async fn get_autostart_enabled() -> Result<bool, String> {
-    tokio::task::spawn_blocking(crate::autostart::is_enabled)
+pub async fn get_autostart_enabled(app: crate::app_runtime::AppHandle) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || crate::autostart::is_enabled(&app))
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
+pub async fn set_autostart_enabled(
+    app: crate::app_runtime::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         if enabled {
-            crate::autostart::enable()
+            crate::autostart::enable(&app)
         } else {
-            crate::autostart::disable()
+            crate::autostart::disable(&app)
         }
     })
     .await

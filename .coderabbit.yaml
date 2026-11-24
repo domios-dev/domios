@@ -6,6 +6,7 @@ reviews:
   profile: "chill"
   request_changes_workflow: false
   high_level_summary: true
+  high_level_summary_in_walkthrough: true
   poem: false
   collapse_walkthrough: true
   path_filters:
@@ -21,6 +22,7 @@ reviews:
       - "github-actions[bot]"
     ignore_title_keywords:
       - "sync master into develop"
+      - "[domios-full-release]"
     base_branches:
       - "develop"
       - "integ/.*"

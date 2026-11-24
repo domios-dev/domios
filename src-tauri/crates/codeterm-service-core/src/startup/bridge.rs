@@ -30,7 +30,7 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
             .map_err(|e| format!("previous bridge stop failed: {}", e))?;
     }
 
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, rx) = bridge::manager::outbound_channel();
     *svc.bridge_outbound.lock() = Some(tx);
     *svc.ext::<crate::service::BridgeOutboundRx>().0.lock() = None;
 

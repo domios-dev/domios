@@ -1,8 +1,9 @@
 import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
-import { admitBellNotification, isRemoteNotification } from "../../lib/notificationAdmission";
+import { admitBellNotification, isRemoteNotification, pruneBellNotifications } from "../../lib/notificationAdmission";
 import { remoteNotificationRoute } from "../../lib/remoteNotifications";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
-import { reconcilePageSelection, seededSelection, type PageSelection } from "./pageSelection";
+import { isSurfaceTab } from "../../lib/surfaceTab";
+import { reconcilePageSelection, seededSelection, tabAfterClose, type PageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -42,6 +43,7 @@ export type Action =
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
+  | { type: "PRUNE_NOTIFICATIONS"; now: number }
   | { type: "REPLACE_REMOTE_NOTIFICATION_HISTORY"; peerId: string; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
@@ -265,6 +267,10 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const prevActive = state.activeTabIds[w.id];
         if (prevActive && attached.tabs[prevActive]?.remote_peer_id && w.tabs.includes(prevActive)) {
           activeTabIds[w.id] = prevActive;
+        } else if (action.pageOwnedSelection && prevActive && isSurfaceTab(state.tabs[prevActive]) && !attached.tabs[prevActive]) {
+          const oldWorkspace = state.workspaces.find((workspace) => workspace.id === w.id);
+          const fallback = tabAfterClose(prevActive, oldWorkspace?.tabs ?? [], state.tabs, w.tabs, attached.tabs);
+          if (fallback) activeTabIds[w.id] = fallback;
         } else if (w.active_tab_id) {
           activeTabIds[w.id] = w.active_tab_id;
         }
@@ -470,10 +476,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           );
           const remaining = ws.tabs.filter((id) => !removedTabIds.has(id));
           const currentActive = newActiveTabIds[action.workspaceId];
+          const fallback = (id: string) => tabAfterClose(id, ws.tabs, state.tabs, remaining, newTabs);
           if (currentActive && removedTabIds.has(currentActive)) {
-            const fallback = remaining[remaining.length - 1];
-            if (fallback) {
-              newActiveTabIds[action.workspaceId] = fallback;
+            const nextActive = fallback(currentActive);
+            if (nextActive) {
+              newActiveTabIds[action.workspaceId] = nextActive;
             } else {
               delete newActiveTabIds[action.workspaceId];
             }
@@ -483,7 +490,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             tabs: remaining,
             active_tab_id:
               ws.active_tab_id && removedTabIds.has(ws.active_tab_id)
-                ? (remaining[remaining.length - 1] ?? null)
+                ? (fallback(ws.active_tab_id) ?? null)
                 : ws.active_tab_id,
           };
         }),
@@ -641,6 +648,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const notifications = new Map(action.notifications.map((notification) => [notification.id, notification]));
       for (const notification of state.notifications) notifications.set(notification.id, notification);
       return { ...state, notificationsLoaded: true, notifications: [...notifications.values()].reduce<Notification[]>((records, notification) => admitBellNotification(records, notification, "agent_notification"), []) };
+    }
+
+    case "PRUNE_NOTIFICATIONS": {
+      const notifications = pruneBellNotifications(state.notifications, action.now);
+      return notifications === state.notifications ? state : { ...state, notifications };
     }
 
     case "REPLACE_REMOTE_NOTIFICATION_HISTORY": {

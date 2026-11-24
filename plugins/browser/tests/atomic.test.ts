@@ -195,6 +195,43 @@ describe("Browser visible typing and submission", () => {
     } finally { window.happyDOM.abort(); }
   });
 
+  it("prepares Draft.js-style contenteditable via selection without mutating managed DOM and reads back safely", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.body.innerHTML =
+        '<div id="empty" contenteditable="true" tabindex="0"><div data-contents="true"><span data-offset-key="k0"><br data-text="true"></span></div></div>' +
+        '<div id="filled" contenteditable="true" tabindex="0"><div data-contents="true"><span data-offset-key="k1"><span data-text="true">existing</span></span></div></div>' +
+        '<input id="secret" type="password" value="opaque-secret">';
+      const prepare = window.eval(`(${readFileSync(resolve(source, "type-focus.js"), "utf8")})`);
+      const readback = window.eval(`(${readFileSync(resolve(source, "type-readback.js"), "utf8")})`);
+      const empty = window.document.getElementById("empty") as unknown as HTMLElement;
+      const filled = window.document.getElementById("filled") as unknown as HTMLElement;
+      const secret = window.document.getElementById("secret") as unknown as HTMLInputElement;
+      for (const el of [empty, filled]) {
+        el.getClientRects = () => [{ width: 20 }] as unknown as ReturnType<typeof el.getClientRects>;
+        Object.defineProperty(el, "isContentEditable", { value: true, configurable: true });
+        for (const child of Array.from(el.querySelectorAll("*"))) {
+          Object.defineProperty(child, "isContentEditable", { value: true, configurable: true });
+        }
+      }
+      const emptyContents = empty.querySelector('[data-contents="true"]')!;
+      expect(prepare.call(empty, false)).toBe("focused");
+      expect(emptyContents.isConnected).toBe(true);
+      expect(window.document.getSelection()?.anchorNode).toBe(empty.querySelector('[data-offset-key="k0"]'));
+
+      const filledContents = filled.querySelector('[data-contents="true"]')!;
+      expect(prepare.call(filled, false)).toBe("selected");
+      expect(filledContents.isConnected).toBe(true);
+      expect(filled.textContent).toBe("existing");
+      expect(window.document.getSelection()?.toString()).toBe("existing");
+
+      expect(readback.call(filled, false)).toEqual({ ok: true, text: "existing" });
+      const secretReadback = readback.call(secret, true);
+      expect(secretReadback).toEqual({ ok: true, length: "opaque-secret".length });
+      expect(JSON.stringify(secretReadback)).not.toContain("opaque-secret");
+    } finally { window.happyDOM.abort(); }
+  });
+
   it("uses one requestSubmit fallback, accepts Enter submit evidence and cleans observers", () => {
     const window = new Window({ url: "https://example.test" });
     try {

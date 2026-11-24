@@ -172,7 +172,7 @@ it.each([false,true,undefined])("names a runtime agent by its declared model, ne
   }
 });
 
-it("shows non-idle background activity while preserving idle turn state and clears when finished", async () => {
+it("keeps the sidebar idle while processes run and clears the badge on completion", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -214,9 +214,9 @@ it("shows non-idle background activity while preserving idle turn state and clea
     expect(item?.getAttribute("data-tab-activity")).toBe("idle");
     expect(item?.getAttribute("data-background-work")).toBe("true");
     const indicator = host.querySelector('[data-testid="tab-background-activity"]');
-    expect(indicator?.getAttribute("aria-label")).toBe("Running background task");
-    expect(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent).toBe("Running background task");
-    expect(host.querySelector('[role="status"]')?.textContent).toContain("Pulse tab status Running background task");
+    expect(indicator?.getAttribute("aria-label")).toBe("1 background process running");
+    expect(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent).toBe("Idle · 1 background process running");
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Pulse tab status Idle, 1 background process running");
 
     const twoTasks: Tab = {
       ...base,
@@ -240,8 +240,8 @@ it("shows non-idle background activity while preserving idle turn state and clea
     };
     await act(async () => root.render(<TabItem tab={twoTasks} hasAgent status="Idle" index={0} isActive={false}
       onClick={() => undefined} onClose={() => undefined} canClose workspaceId="fixture" />));
-    expect(host.querySelector('[data-testid="tab-background-activity"]')?.getAttribute("aria-label")).toBe("Running 2 background tasks");
-    expect(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent).toBe("Running 2 background tasks");
+    expect(host.querySelector('[data-testid="tab-background-activity"]')?.getAttribute("aria-label")).toBe("2 background processes running");
+    expect(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent).toBe("Idle · 2 background processes running");
 
     const cleared: Tab = {
       ...base,

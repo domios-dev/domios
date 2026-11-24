@@ -25,6 +25,26 @@ async fn oversized_theme_is_rejected_before_parsing_or_writing() {
     );
 }
 
+#[tokio::test]
+async fn invalid_chat_background_returns_typed_save_refusal() {
+    let fixture = codeterm_neighbors_service::test_support::fixture(
+        codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
+    );
+    let result = super::save_theme_api(
+        axum::extract::State(crate::test_support::app_state(&fixture)),
+        Default::default(),
+        axum::Json(super::SaveThemeBody {
+            id: "invalid-wallpaper".into(),
+            toml: "[chat_background]\nscale = 513".into(),
+        }),
+    )
+    .await;
+    let (status, axum::Json(body)) = result.unwrap_err();
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "invalid_chat_background");
+    assert!(body["message"].as_str().unwrap().contains("scale"));
+}
+
 pub(crate) struct SettingsProbe {
     pub(crate) path: PathBuf,
 }

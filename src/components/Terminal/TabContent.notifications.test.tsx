@@ -19,7 +19,10 @@ vi.mock("../MemoryPanel/workerFocusStore", () => ({ isTabVisible: () => true }))
 vi.mock("../AgentPicker", () => ({ isFirstRunGeneralTab: () => false }));
 vi.mock("./TerminalTab", () => ({ TerminalTab: () => <main aria-label="Terminal" /> }));
 vi.mock("./TabSessionChat", () => ({ TabSessionChat: () => <main aria-label="Chat" /> }));
-vi.mock("./TabTopBar", () => ({ TabTopBar: () => <nav aria-label="Tab controls" /> }));
+vi.mock("./TabTopBar", async () => ({
+  TAB_BAR_CONTROL_H: (await import("./tabBarConstants")).TAB_BAR_CONTROL_H,
+  TabTopBar: () => <nav aria-label="Tab controls" />,
+}));
 vi.mock("./RestoredShell", () => ({ RestoredShell: () => null }));
 vi.mock("./SurfaceTabHost", () => ({ SurfaceTabHost: () => <main aria-label="Plugin surface" /> }));
 vi.mock("../../store/multiplexer/hooks", () => ({

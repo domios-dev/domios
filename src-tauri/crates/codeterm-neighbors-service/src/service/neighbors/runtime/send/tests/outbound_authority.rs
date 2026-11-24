@@ -17,10 +17,20 @@ async fn assert_preflight(
     metadata: &Metadata,
     authority: SendAuthority,
     author: Author,
-    kind: Kind,
-    file: bool,
+    command: &NeighborRuntimeCommand,
     expected: Error,
 ) {
+    let NeighborRuntimeCommand::Send {
+        attach,
+        message_id,
+        friendship_id,
+        kind,
+        body,
+        in_reply_to,
+    } = command
+    else {
+        panic!("expected a Neighbor send command");
+    };
     let calls = Arc::new(NoNetwork);
     let transport = FirebaseTransport {
         calls: calls.clone(),
@@ -41,16 +51,18 @@ async fn assert_preflight(
         scope: KeyScope::installation("machine", "owner").unwrap(),
         uid: "owner",
     };
-    let friend = "a".repeat(64);
-    let before = metadata.history_page(&friend, None, 50).await.unwrap();
-    let body = if file {
+    let before = metadata
+        .history_page(friendship_id, None, 50)
+        .await
+        .unwrap();
+    let body = if attach.is_empty() {
+        OutboundBody::Granted(Zeroizing::new(body.clone()))
+    } else {
         OutboundBody::Files {
             pad: None,
-            text: Zeroizing::new(String::new()),
-            paths: vec!["opaque-file".into()],
+            text: Zeroizing::new(body.clone()),
+            paths: attach.clone(),
         }
-    } else {
-        OutboundBody::Granted(Zeroizing::new("opaque outgoing text".into()))
     };
     let error = fixture
         .service
@@ -59,12 +71,12 @@ async fn assert_preflight(
             &lifecycle,
             metadata,
             Outgoing {
-                message_id: None,
+                message_id: message_id.clone(),
                 authority,
-                friendship: friend.clone(),
-                kind,
+                friendship: friendship_id.clone(),
+                kind: *kind,
                 body,
-                in_reply_to: None,
+                in_reply_to: in_reply_to.clone(),
                 author,
             },
         )
@@ -77,7 +89,10 @@ async fn assert_preflight(
         usize::from(expected == Error::SecretStore)
     );
     assert_eq!(
-        metadata.history_page(&friend, None, 50).await.unwrap(),
+        metadata
+            .history_page(friendship_id, None, 50)
+            .await
+            .unwrap(),
         before
     );
 }
@@ -143,8 +158,7 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
                     &metadata,
                     authority,
                     author,
-                    kind,
-                    file,
+                    &command,
                     Error::SecretStore,
                 )
                 .await;
@@ -166,8 +180,7 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
                 &metadata,
                 authority,
                 fixture.service.neighbor_author(caller).unwrap(),
-                Kind::TabRequest,
-                false,
+                &command,
                 Error::TabRequestsNotAllowed,
             )
             .await;
@@ -217,6 +230,7 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
         .service
         .set_neighbor_friend_receiver_for_test(&friend, Some(true), 1);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let target = incoming_question(&fixture, &metadata, &friend).await;
     for grant in [None, Some(false), Some(true)] {
         let mut settings = crate::service::neighbors::storage::Settings::default();
         settings.bindings.insert(friend.clone(), concierge.clone());
@@ -259,7 +273,7 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
                     friendship_id: friend.clone(),
                     kind,
                     body: "opaque".into(),
-                    in_reply_to: None,
+                    in_reply_to: (kind == Kind::Answer).then(|| target.clone()),
                 };
                 let nonce = format!("nonce-{caller}");
                 fixture
@@ -277,8 +291,7 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
                     &metadata,
                     authority,
                     fixture.service.neighbor_author(Some(caller)).unwrap(),
-                    kind,
-                    file,
+                    &command,
                     if grant == Some(true) {
                         Error::SecretStore
                     } else {

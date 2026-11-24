@@ -28,6 +28,7 @@ icon_svg?: string | null;
 icon_color?: string | null;
 icon_hint?: string | null;
 answer_pending?: boolean;
+answer_unconfirmed?: boolean;
 answer_error?: string;
 remote_origin?: RemoteNotificationOrigin;
 };

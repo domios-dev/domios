@@ -234,14 +234,14 @@ impl ServiceContext {
             None
         };
         if current {
-            let outcome = self.close_tab_with_teardown_and_pad(
+            let outcome = self.close_tab_with_teardown_and_cleanup(
                 owner.tab_id(),
                 reason,
-                |mux, _| {
+                |mux, id| {
                     if !owner.matches(mux) {
                         return Err("Cron launch changed before cleanup".into());
                     }
-                    Ok(())
+                    mux.reserve_tab_close(id)
                 },
                 || Ok(()),
                 |mux, _| {
@@ -250,7 +250,7 @@ impl ServiceContext {
                     }
                     Ok(())
                 },
-                false,
+                crate::service::tab::TabCloseCleanup::KeepPad,
             );
             if let Err(error) = outcome {
                 if owner.matches(&self.mux.read()) {

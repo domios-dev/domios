@@ -7,6 +7,7 @@ import type {
   Team,
 } from "../../lib/types";
 import { DEV_BUILD } from "../../lib/devBuild";
+import { implicitTabId } from "./pageSelection";
 
 export interface ExtendedState extends MultiplexerState {
   teams: Team[];
@@ -40,7 +41,7 @@ export function reconcileBackendWorkspaceTabs(
     const active_tab_id =
       workspace.active_tab_id && workspaceTabs.includes(workspace.active_tab_id)
         ? workspace.active_tab_id
-        : workspaceTabs[0] ?? null;
+        : implicitTabId(workspaceTabs, tabs) ?? null;
     return { ...workspace, tabs: workspaceTabs, active_tab_id };
   });
 }

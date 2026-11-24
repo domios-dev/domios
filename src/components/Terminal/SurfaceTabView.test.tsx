@@ -123,6 +123,20 @@ describe("surface tab view", () => {
     expect(created).toEqual([{ baseUrl: "http://127.0.0.1:7686", token: "token", tabId: "surface-tab", peerId: "eight" }]);
   });
 
+  it("does not connect a stream whose owning tab is missing", async () => {
+    const { created, factory } = fakeTransports();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName={null} isVisible decl={streamDecl} createTransport={factory} />);
+    expect(created).toEqual([]);
+    expect(host!.querySelector("[role='status']")?.textContent?.trim()).toBe("Surface owner unavailable");
+  });
+
+  it("attributes an ownerless stream to the user", async () => {
+    const { factory } = fakeTransports();
+    await mount(<SurfaceTabView tab={{ ...tab, parent_tab_id: null }} backing={backing} ownerName={null} isVisible decl={streamDecl} createTransport={factory} />);
+    expect(byRole("toolbar", "User's Board controls")).not.toBeNull();
+    expect(host!.querySelector("[data-testid='surface-breadcrumb']")?.textContent).toBe("User›Board");
+  });
+
   it("holds no stream while the stream tab is hidden", async () => {
     const { created, factory } = fakeTransports();
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible={false} decl={streamDecl} createTransport={factory} />);

@@ -51,6 +51,7 @@ mod plan_time;
 pub(crate) mod protocol;
 mod radar;
 mod receiver_target;
+mod refusal;
 mod remote_team_rpc;
 mod remote_worker_policy;
 #[cfg(test)]
@@ -528,13 +529,17 @@ fn respond_to_request(
     {
         object.remove("authenticated_mesh_peer_id");
     }
+    let neighbor_runtime = req.method == "api.request"
+        && local_params.as_ref().is_some_and(|params| {
+            params["path"].as_str() == Some(local_api::NEIGHBOR_RUNTIME_ROUTE)
+        });
     if let Err(message) = svc.bind_local_rpc(&req.credential, &req.method, &mut local_params) {
-        return JsonRpcResponse::error(id, -32003, message);
+        return refusal::authorization(id, message, neighbor_runtime);
     }
     if let Err(message) = codeterm_service_core::async_runtime::block_on(
         svc.authorize_neighbor_rpc_credential(&req.credential, &req.method, local_params.as_ref()),
     ) {
-        return JsonRpcResponse::error(id, -32003, message);
+        return refusal::authorization(id, message, neighbor_runtime);
     }
     match codeterm_service_core::async_runtime::block_on(svc.neighbor_rpc_discovery(
         &req.credential,
@@ -543,7 +548,7 @@ fn respond_to_request(
     )) {
         Ok(Some(value)) => return JsonRpcResponse::success(id, value),
         Ok(None) => {}
-        Err(message) => return JsonRpcResponse::error(id, -32003, message),
+        Err(message) => return refusal::authorization(id, message, neighbor_runtime),
     }
     if req.method == "cli.local.authorize" {
         return match codeterm_service_core::async_runtime::block_on(
@@ -554,14 +559,14 @@ fn respond_to_request(
             ),
         ) {
             Ok(value) => JsonRpcResponse::success(id, value),
-            Err(message) => JsonRpcResponse::error(id, -32003, message),
+            Err(message) => refusal::authorization(id, message, neighbor_runtime),
         };
     }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let caller_tab = match svc.authenticate_local_credential(&req.credential) {
         Ok(caller) => caller.map(|caller| caller.tab_id),
-        Err(message) => return JsonRpcResponse::error(id, -32003, message),
+        Err(message) => return refusal::authorization(id, message, neighbor_runtime),
     };
     let author = match codeterm_service_core::async_runtime::block_on(
         codeterm_service_core::mem_ops::author::mem_author_for_rpc(
@@ -571,7 +576,7 @@ fn respond_to_request(
         ),
     ) {
         Ok(author) => author,
-        Err(message) => return JsonRpcResponse::error(id, -32003, message),
+        Err(message) => return refusal::authorization(id, message, neighbor_runtime),
     };
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _arrival = boot_timing::enter_request(id.as_ref(), &req.method, received_at_us);

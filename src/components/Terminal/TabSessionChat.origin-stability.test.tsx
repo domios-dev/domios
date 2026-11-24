@@ -8,6 +8,8 @@ import type { Tab } from "../../lib/types";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
+import { CHAT_TOOL_SHOW_DELAY_MS } from "./chatTranscriptActivity";
+import { withChatToolClock } from "./chatTranscriptActivity.testSupport";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -185,60 +187,69 @@ async function main() {
     await act(async () => root.unmount());
   });
 
-  test("keeps one collapsed operation at its source position through idle and completion", async () => {
+  test("keeps one collapsed operation at its source position through idle and completion", () => withChatToolClock(async (timers) => {
     const liveTabId = "live-operation-tab";
     const command = "domios plugin browser goto http://127.0.0.1:14997/;\ndomios plugin browser screenshot evidence/chat-running-dark.png";
-    const operation = { id: "live-tool", type: "tool_call", content: "", toolId: "live-tool", toolKind: "command", toolInput: { cmd: command }, toolSummary: "browser fixture", toolResult: "opaque-live-output", toolStatus: "running", toolStartedAtMs: Date.now() - 3000, seq: 1 };
+    const output = "opaque-earlier-output\nline 2\nline 3\nline 4\nopaque-live-output";
+    const operation = { id: "live-tool", type: "tool_call", content: "", toolId: "live-tool", toolKind: "command", toolInput: { cmd: command }, toolSummary: "browser fixture", toolResult: output, toolStatus: "running", toolStartedAtMs: Date.now() - 3000, seq: 1 };
     initial.splice(0, initial.length, operation as never, assistant("after-tool", "Inspecting the page", 2));
     let state: ExtendedState = { ...muxStateFor({ [liveTabId]: { ...tabBase(liveTabId), agent_state: { state: "working" } } as Tab }), tabStatuses: { [liveTabId]: "Working" } };
     const store = createMuxStateStore(() => state);
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
-    await act(async () => root.render(
-      <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><MuxStateStoreContext.Provider value={store}>
-        <MultiplexerActionsContext.Provider value={muxActions()}>
-          <TabSessionChat tabId={liveTabId} chatBackend isVisible />
-        </MultiplexerActionsContext.Provider>
-      </MuxStateStoreContext.Provider></ChatBlockHostProvider>,
-    ));
-    const log = host.querySelector('[role="log"]');
-    const live = log?.querySelector('[data-testid="chat-live-operation"]');
-    assert(live?.textContent?.includes("browser"), "live item names the command");
-    assert(live?.textContent?.includes("evidence/chat-running-dark.png"), "compact tree names both command segments");
-    assert(!live?.textContent?.includes("opaque-live-output"), "live command output starts collapsed");
-    const later = log?.querySelector('[data-message-id="after-tool"]');
-    assert(live && later && live.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING, "the live operation stays before later output");
-    assert(log?.querySelectorAll('[data-testid="chat-live-operation"]').length === 1, "one live item");
-    assert(log?.querySelectorAll('[data-chat-window-row="live-tool"] [data-testid="chat-command-group"]').length === 1, "one normal tool card owns both live and finished presentation");
-    assert(live?.querySelector('[role="timer"]')?.textContent?.includes("Running"), "elapsed progress renders");
-    const expand = live?.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
-    assert(expand?.getAttribute("aria-expanded") === "false", "live command group starts collapsed");
-    await act(async () => expand?.click());
-    assert(expand?.getAttribute("aria-expanded") === "true", "full operation can be expanded");
-    await act(async () => live?.querySelector<HTMLElement>('[data-testid="chat-message"]')?.focus());
-    const actions = live?.querySelector<HTMLButtonElement>('button[aria-label="Message actions"]');
-    assert(actions, "the operation shares the row's message actions");
-    await act(async () => actions.click());
-    const details = document.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Details"]');
-    assert(details, "live operation offers output details");
-    await act(async () => details.click());
-    assert(live?.textContent?.includes("opaque-live-output"), "expanded operation reveals its current output");
-    await act(async () => {
-      state = { ...state, tabStatuses: { [liveTabId]: "Idle" }, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
-      store.notify();
-    });
-    assert(!log?.querySelector('[data-testid="chat-live-operation"]'), "idle hides stale running activity");
-    await act(async () => {
-      state = { ...state, tabStatuses: { [liveTabId]: "Working" }, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
-      store.notify();
-      emit(`tab-chat-msg-${liveTabId}`, { tab_id: liveTabId, source_session_id: null, session_binding_nonce: null, messages: [{ ...operation, toolStatus: "completed", toolCompletedAtMs: Date.now() }] });
-    });
-    assert(!log?.querySelector('[data-testid="chat-live-operation"]'), "completed operation clears its live marker");
-    assert(log?.querySelector('[data-chat-window-row="live-tool"]') === live, "settlement preserves the same operation row node");
-    assert(log?.querySelector('[data-chat-window-row="live-tool"] [data-testid="chat-command-group"]'), "completed operation stays in its normal row");
-    await act(async () => root.unmount());
-    host.remove();
-  });
+    try {
+      await act(async () => root.render(
+        <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><MuxStateStoreContext.Provider value={store}>
+          <MultiplexerActionsContext.Provider value={muxActions()}>
+            <TabSessionChat tabId={liveTabId} chatBackend isVisible />
+          </MultiplexerActionsContext.Provider>
+        </MuxStateStoreContext.Provider></ChatBlockHostProvider>,
+      ));
+      await act(async () => timers.tick(CHAT_TOOL_SHOW_DELAY_MS));
+      const log = host.querySelector('[role="log"]');
+      const live = log?.querySelector('[data-testid="chat-live-operation"]');
+      assert(live?.textContent?.includes("browser"), "live item names the command");
+      assert(live?.textContent?.includes("evidence/chat-running-dark.png"), "compact tree names both command segments");
+      const liveTail = live?.querySelector('[data-testid="chat-live-command-output"]');
+      assert(liveTail?.textContent?.includes("opaque-live-output"), "the collapsed command shows its live output tail");
+      assert(!liveTail?.textContent?.includes("opaque-earlier-output"), "the earlier output stays behind Details");
+      const later = log?.querySelector('[data-message-id="after-tool"]');
+      assert(live && later && live.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING, "the live operation stays before later output");
+      assert(log?.querySelectorAll('[data-testid="chat-live-operation"]').length === 1, "one live item");
+      assert(log?.querySelectorAll('[data-chat-window-row="live-tool"] [data-testid="chat-command-group"]').length === 1, "one normal tool card owns both live and finished presentation");
+      assert(live?.querySelector('[role="timer"]')?.textContent?.includes("Running"), "elapsed progress renders");
+      const expand = live?.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
+      assert(expand?.getAttribute("aria-expanded") === "false", "live command group starts collapsed");
+      await act(async () => expand?.click());
+      assert(expand?.getAttribute("aria-expanded") === "true", "full operation can be expanded");
+      await act(async () => live?.querySelector<HTMLElement>('[data-testid="chat-message"]')?.focus());
+      const actions = live?.querySelector<HTMLButtonElement>('button[aria-label="Message actions"]');
+      assert(actions, "the operation shares the row's message actions");
+      await act(async () => actions.click());
+      const details = document.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Details"]');
+      assert(details, "live operation offers output details");
+      await act(async () => details.click());
+      const fullOutput = live?.querySelector<HTMLElement>('[role="region"][aria-label="Command output"]');
+      assert(fullOutput && !fullOutput.hidden && fullOutput.textContent?.includes("opaque-earlier-output"), "Details reveals the full output");
+      await act(async () => {
+        state = { ...state, tabStatuses: { [liveTabId]: "Idle" }, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
+        store.notify();
+      });
+      assert(!log?.querySelector('[data-testid="chat-live-operation"]'), "idle hides stale running activity");
+      await act(async () => {
+        state = { ...state, tabStatuses: { [liveTabId]: "Working" }, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
+        store.notify();
+        emit(`tab-chat-msg-${liveTabId}`, { tab_id: liveTabId, source_session_id: null, session_binding_nonce: null, messages: [{ ...operation, toolStatus: "completed", toolCompletedAtMs: Date.now() }] });
+      });
+      await act(async () => timers.runAll());
+      assert(!log?.querySelector('[data-testid="chat-live-operation"]'), "completed operation clears its live marker");
+      assert(log?.querySelector('[data-chat-window-row="live-tool"]') === live, "settlement preserves the same operation row node");
+      assert(log?.querySelector('[data-chat-window-row="live-tool"] [data-testid="chat-command-group"]'), "completed operation stays in its normal row");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  }));
 
   test("authenticated incoming routed send stays at its authoritative position through work, tool patch, and reentry", async () => {
     const ritchieTabId = "ritchie-tab";

@@ -485,7 +485,7 @@ button.ct-status-identity:focus-visible {
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  border: 1px solid color-mix(in srgb, var(--ct-fg) 22%, transparent);
+  border: 1px solid var(--ct-panel-edge);
   background: transparent;
   color: var(--ct-bg);
   transition:

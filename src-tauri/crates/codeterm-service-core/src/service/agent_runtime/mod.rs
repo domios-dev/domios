@@ -33,6 +33,7 @@ pub(crate) mod lease;
 pub mod login;
 pub mod lost_session;
 pub mod model;
+mod model_unavailable;
 mod owned_context;
 #[cfg(any(unix, test))]
 mod ownership;

@@ -236,6 +236,31 @@ pub(super) fn runtime_input(
     }
 }
 
+fn bound_turn_input(
+    classified: &mut crate::service::messenger::AgentInput,
+    context: &RuntimeContext,
+) -> Result<TurnInput, RuntimeFailure> {
+    if let crate::service::messenger::AgentInput::Framed(frame) = classified {
+        if let Some(server) = context
+            .host_mcp
+            .as_ref()
+            .filter(|server| server.is_neighbor_reply())
+        {
+            if let Some(friendship) = server.env.get(NEIGHBOR_REPLY_FRIENDSHIP_ENV) {
+                frame.set_neighbor_reply_tool(&server.name, friendship);
+            }
+        } else {
+            let executable = context
+                .restricted_cli
+                .as_ref()
+                .filter(|policy| super::cli_exception::binding_matches(policy, context))
+                .map_or("domios", |policy| policy.executable.as_str());
+            frame.set_neighbor_direct_reply(executable);
+        }
+    }
+    runtime_input(classified)
+}
+
 fn prepare_image_input(
     mut input: TurnInput,
     local_paths: bool,
@@ -281,12 +306,12 @@ pub(crate) async fn submit_loaded(
     session: &Arc<Session>,
     process: &Arc<super::process::Process>,
     send_id: &str,
-    classified: crate::service::messenger::AgentInput,
+    mut classified: crate::service::messenger::AgentInput,
 ) -> Result<(), DeliveryError> {
-    let input = runtime_input(&classified)
-        .map_err(|reason| before_write(&session.context.lock().tab_id, reason))?;
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
+    let input =
+        bound_turn_input(&mut classified, &context).map_err(|reason| before_write(tab, reason))?;
     let _update_input =
         svc.admit_update_input(tab)
             .map_err(|detail| DeliveryError::TabBusyRefused {

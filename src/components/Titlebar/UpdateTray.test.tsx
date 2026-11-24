@@ -79,7 +79,7 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
-    expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
     expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector('[aria-label="Installed plugin ahead of channel"]')).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -91,7 +91,7 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-it("leaves the trigger idle when the app source fails: no warning, no failed badge, no offer, no toast", async () => {
+it("keeps the trigger hidden and skips the toast when the app source fails", async () => {
   fake.check.mockResolvedValue({ errors: { app: "Failed to fetch release: domios-dev/domios: manifest fetch returned HTTP 504" }, items: [
     { id: "app", kind: "app", installed: "1.19.0", latest: "1.19.0", compatible: true, state: "up_to_date", reason: "cached_check", channel: "official" },
   ] });
@@ -99,10 +99,7 @@ it("leaves the trigger idle when the app source fails: no warning, no failed bad
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
-    expect(trigger.getAttribute("data-activity-state")).toBe("idle");
-    expect(trigger.getAttribute("aria-description")).toBe("Open updates.");
-    expect(trigger.title).not.toBe("Updates available");
+    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
     expect(host.querySelector('[data-testid="notification-toast"]')).toBeNull();
     expect(testActions.upsertToast).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
@@ -117,7 +114,7 @@ it("wires local-ahead information for a non-core plugin without a failure badge"
     await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
       .toBe(classifyUpdateStatus(ahead).information[0]);
-    expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -390,7 +387,7 @@ for (const origin of ["startup", "event"] as const) {
     try {
       await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
       if (origin === "event") await act(async () => fake.availabilityChanged!({ payload: { items: [], errors: { app: "offline" } } }));
-      expect(host.querySelector('button[aria-label="Update"]')?.getAttribute("data-activity-state")).toBe("idle");
+      expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
       expect(host.querySelector('[role="alert"]')).toBeNull();
       expect(host.querySelector("details")?.open ?? false).toBe(false);
       await act(async () => fake.availabilityChanged!({ payload: snapshot }));
@@ -454,40 +451,39 @@ for (const kind of ["app", "plugin"] as const) {
 }
 
 
-it("keeps completed outcomes reachable after the offers disappear", async () => {
+it("hides the trigger when the last offer clears and keeps the completed outcome in Settings", async () => {
   const initial = { errors: {}, items: [snapshot.items[1]] };
   const installed: UpdateAvailabilitySnapshot = { errors: {}, items: [{ ...snapshot.items[1], installed: "2.0.0", state: "up_to_date", reason: "same_version" }] };
   fake.check.mockResolvedValueOnce(initial).mockResolvedValue(installed);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
     await act(async () => trigger.click());
-    const dialog = () => document.querySelector('[role="dialog"][aria-label="Updates"]')!;
-    await act(async () => dialog().querySelector<HTMLButtonElement>('[aria-label="Update all"]')!.click());
+    const dialog = () => document.querySelector('[role="dialog"][aria-label="Updates"]');
+    await act(async () => dialog()!.querySelector<HTMLButtonElement>('[aria-label="Update all"]')!.click());
     expect(fake.plugin).not.toHaveBeenCalled();
-    expect(dialog().querySelector('[aria-label="plugin update completed"]')).not.toBeNull();
-    await act(async () => trigger.click());
-    expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
-    await act(async () => trigger.click());
-    expect(dialog().querySelector('[aria-label="plugin update completed"]')).not.toBeNull();
-    expect(dialog().querySelector('progress')).toBeNull();
+    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+    expect(dialog()).toBeNull();
+    expect(host.querySelector('[aria-label="plugin update completed"]')).not.toBeNull();
+    expect(host.querySelector('progress')).toBeNull();
+
+    await act(async () => fake.availabilityChanged!({ payload: { errors: {}, items: [...installed.items, snapshot.items[2]] } }));
+    expect(host.querySelector('button[aria-label="Update"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(dialog()).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-it("presents the rendered frontend notes in the same entry and a short completion notice", async () => {
+it("keeps frontend release notes in Settings and sends the completion notice with the trigger hidden", async () => {
   fake.check.mockResolvedValue({ items: [], errors: {} });
   fake.summary = { releaseId: "frontend-v2.0.0", version: "2.0.0", notes: "Preserves drafts" };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
-    expect(trigger.getAttribute("aria-description")).toBe("Updates completed.");
-    await act(async () => trigger.click());
-    const dialog = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
-    expect(dialog.querySelector('[role="status"][aria-label="Interface updated"]')?.textContent).toContain("Preserves drafts");
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
+    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+    expect(host.querySelector('[role="status"][aria-label="Interface updated"]')?.textContent).toContain("Preserves drafts");
     expect(testActions.upsertToast).toHaveBeenCalledWith(expect.objectContaining({ id: "frontend-update-completed", body: "What’s new: Preserves drafts" }));
     expect(fake.install).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }

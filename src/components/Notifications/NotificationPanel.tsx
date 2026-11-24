@@ -226,14 +226,15 @@ export function NotificationPanel({
                   >
                     Resolved in tab.
                   </div>
+                ) : notif.answer_unconfirmed ? (
+                  <div role="status">Answer delivery unconfirmed.</div>
                 ) : notif.answer?.answered && !notif.answer_error && !notif.answer_pending ? (
                   isAnswerUndelivered(notif.answer) ? (
                     <div
                       data-testid="notification-answer-undelivered"
                       className="mt-2 text-[11px] text-[var(--ct-yellow)]"
                     >
-                      You answered: {notif.answer.answered} — it could not be delivered to
-                      the tab that asked.
+                      Delivery unconfirmed for “{notif.answer.answered}”.
                     </div>
                   ) : (
                     <div

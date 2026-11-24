@@ -15,6 +15,7 @@ import { createConnectBlockHost, type MessengerBridge } from "./connectBlockHost
 import { createPluginBlockHost } from "./pluginBlockHost";
 import { createSettingBlockHost } from "./settingBlockHost";
 import { renderChatCardMenu } from "../../components/Terminal/ChatCardMenu";
+import { renderAppearanceCard } from "../../components/Settings/AppearanceCard";
 
 function openPanel(panel: string) {
   window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel } }));
@@ -25,6 +26,7 @@ const telegram: MessengerBridge<TelegramBridgeRaw> = { store: telegramBridgeStor
 /** App-wide data services for chat blocks; tab scopes add Ask and Pin on top. */
 export const appChatBlockHost: ChatBlockHost = {
   renderMenu: renderChatCardMenu,
+  renderAppearance: renderAppearanceCard,
   plugins: createPluginBlockHost({
     get: getPluginSnapshotState,
     subscribe: subscribePluginSnapshotStore,

@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use codeterm_account::account_mesh::AccountMesh;
-use codeterm_neighbors::permissions::Permission;
+use codeterm_neighbors::permissions::{MachineAccess, Permission};
 use codeterm_service_core::ports::neighbors::{NeighborFuture, NeighborsPort};
 use codeterm_service_core::service::ExtensionsBuilder;
 use codeterm_service_core::service::ServiceContext;
@@ -41,6 +41,28 @@ fn register_extensions(builder: &mut ExtensionsBuilder) {
     builder.insert_late::<crate::service::neighbors::runtime::logout::LogoutKeyPorts>();
 }
 impl NeighborsPort for NeighborPortImpl {
+    fn neighbor_sandboxed_reply_scope<'a>(
+        &'a self,
+        caller: &'a TabCaller,
+        friendship: &'a str,
+    ) -> NeighborFuture<'a, Result<Option<String>, String>> {
+        let svc = self.svc();
+        Box::pin(async move {
+            Ok(svc
+                .neighbor_capability_permission_for(caller, false)
+                .await?
+                .filter(|(id, permission)| {
+                    id == friendship
+                        && permission.allowed
+                        && matches!(
+                            permission.machine_access,
+                            MachineAccess::ReadOnly | MachineAccess::Folder
+                        )
+                })
+                .map(|(_, permission)| permission.scope))
+        })
+    }
+
     fn account<'a>(&'a self) -> NeighborFuture<'a, Result<Arc<codeterm_account::Account>, String>> {
         let svc = self.svc();
         Box::pin(async move { svc.account().await })

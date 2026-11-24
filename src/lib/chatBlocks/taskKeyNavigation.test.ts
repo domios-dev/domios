@@ -6,6 +6,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { createMentionHost } from "./mentionHost";
 import { createValueFeed } from "./valueFeed";
 import type { Plan } from "../../components/Canvas/types";
+import { peerMentionTabs } from "../mentionSources/peerTabs";
 
 async function main() {
   let state = { tabs: { self: { id: "self", title: "Real name", tab_type: "Terminal", pty_id: null, cwd: "/repo", workspace_id: "ws", team_id: "own" } },
@@ -19,10 +20,17 @@ async function main() {
   let muxSubscriptions = 0;
   let planSubscriptions = 0;
   let muxReads = 0;
+  const peerTabId = "mesh:blackstar/vela";
+  const peerTabs = peerMentionTabs({
+    generals: [{ peerId: "blackstar", name: "BLACKSTAR", sessions: [], availability: "online" }],
+    peerWorkspaces: [{ peerId: "blackstar", workspace: { ...state.workspaces[0], id: "host-ws", name: "Host project" },
+      teams: [], tabs: [{ viewerId: peerTabId, tab: { ...state.tabs.self, id: "vela", title: "Vela" } }] }],
+  }, "blackstar");
   const host = createMentionHost({ mux: {
     getState: () => { muxReads++; return mux.getState(); },
     subscribe: (listener) => { muxSubscriptions++; const off = mux.subscribe(listener); return () => { muxSubscriptions--; off(); }; },
   }, plans: { get: feed.get, set: feed.set, subscribe: (listener) => { planSubscriptions++; const off = feed.subscribe(listener); return () => { planSubscriptions--; off(); }; } },
+    readPeerTab: (id) => peerTabs.get(id),
     readGraph: async (scope) => { reads++; assert.equal(scope.teamId, "own"); return { ...fixtureGraph(), nodes: blueprintDeleted ? [] : [fixtureNode({ id: "bp_real", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: "own" }, "Real Blueprint"), fixtureNode({ id: "bp_workspace", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: null }, "Workspace Blueprint")] }; },
     openPlan: (target) => opened.push(target), openTab: (ws, tab) => opened.push([ws, tab]), openBlueprint: (ws, team, id) => opened.push([ws, team, id]),
   });
@@ -36,6 +44,18 @@ async function main() {
   assert.deepEqual(opened.pop(), { planId: "pl_other", taskId: "task_pl_other", teamId: "other" });
   const tab = key("tab", "self");
   assert.equal(host.binding.read(tab)?.title, "Real name");
+  const peerTab = key("tab", peerTabId);
+  assert.equal(host.binding.read(peerTab)?.title, "Vela");
+  assert.equal(host.binding.read(peerTab)?.workspaceName, "Host project");
+  host.open(peerTab); assert.deepEqual(opened.pop(), ["host-ws", peerTabId]);
+  const peerComposerId = "mesh:blackstar/elgar";
+  state = { ...state, tabs: { ...state.tabs,
+    [peerComposerId]: { ...state.tabs.self, id: peerComposerId, remote_peer_id: "blackstar", remote_tab_id: "elgar" },
+    vela: { ...state.tabs.self, id: "vela", title: "Viewer Vela" },
+  } };
+  const ordinaryHostMention = JSON.stringify([peerComposerId, "tab", "vela"]);
+  assert.equal(host.binding.read(ordinaryHostMention)?.title, "Vela");
+  host.open(ordinaryHostMention); assert.deepEqual(opened.pop(), ["host-ws", peerTabId]);
   let notifications = 0;
   const offActivity = host.binding.subscribe(() => notifications++);
   const extraListeners = Array.from({ length: 100 }, () => host.binding.subscribe(() => {}));

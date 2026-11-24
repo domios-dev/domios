@@ -26,10 +26,22 @@ impl ProcessIdentity {
                 "browser process identity changed; SIGKILL refused",
             ));
         }
-        if unsafe { libc::kill(self.pid as i32, libc::SIGKILL) } < 0 {
+        let pid = self.pid as libc::pid_t;
+        let target = if unsafe { libc::getpgid(pid) } == pid {
+            -pid
+        } else {
+            pid
+        };
+        if unsafe { libc::kill(target, libc::SIGKILL) } < 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(())
+    }
+
+    pub(super) fn owns_process_group(&self, verified_pid: Option<u32>) -> bool {
+        verified_pid == Some(self.pid)
+            && process_birth(self.pid).is_ok_and(|birth| birth == self.birth)
+            && unsafe { libc::getpgid(self.pid as libc::pid_t) } == self.pid as libc::pid_t
     }
 }
 

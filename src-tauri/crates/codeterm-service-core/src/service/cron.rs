@@ -928,27 +928,29 @@ impl ServiceContext {
             .get_tab_owner_by_run(run_id)
             .map(|(j, p)| (j.to_string(), p.to_string()));
         if let Some((job_id, tab_id)) = owner {
+            let mux = self.mux.read();
+            let authority = self.run_watcher.cron_binding(&tab_id, &job_id, run_id);
+            let current_authority = authority.as_ref().filter(|owner| owner.matches(&mux));
             if caller_tab_id.is_some_and(|caller| {
                 caller != tab_id
                     || !binding_nonce.is_some_and(|nonce| {
-                        let mux = self.mux.read();
-                        self.run_watcher
-                            .cron_binding(&tab_id, &job_id, run_id)
-                            .is_some_and(|owner| {
-                                owner.nonce() == Some(nonce) && owner.matches(&mux)
-                            })
+                        current_authority.is_some_and(|owner| owner.nonce() == Some(nonce))
                     })
             }) {
                 return Err(format!(
                     "Only the owning Tab or a human caller may complete cron run {run_id}"
                 ));
             }
-            if self
-                .mux
-                .read()
-                .get_tab(&tab_id)
-                .is_some_and(|tab| tab.agent_type.is_some())
-            {
+            let authority =
+                current_authority.ok_or("Cron completion has no current launch witness")?;
+            let tab = mux.get_tab(&tab_id).ok_or("Cron completion tab absent")?;
+            let session_id = tab.agent_session_id.clone();
+            let run_cwd = tab.cwd.clone();
+            // A provider transcript can witness the final answer only after session binding.
+            let await_final_answer =
+                tab.is_chat_backend() || (tab.agent_type.is_some() && session_id.is_some());
+            drop(mux);
+            if await_final_answer {
                 self.run_watcher.request_cron_completion(
                     self,
                     &tab_id,
@@ -957,27 +959,15 @@ impl ServiceContext {
                 )?;
                 return Ok(None);
             }
-            let authority = self
-                .run_watcher
-                .cron_binding(&tab_id, &job_id, run_id)
-                .ok_or("Cron completion has no original launch witness")?;
-            let (session_id, run_cwd) = {
-                let mux = self.mux.read();
-                if !authority.matches(&mux) {
-                    return Err("Cron completion launch generation changed".into());
-                }
-                let tab = mux.get_tab(&tab_id).ok_or("Cron completion tab absent")?;
-                (tab.agent_session_id.clone(), tab.cwd.clone())
-            };
             let raw = authority
                 .pty_id()
-                .and_then(|pty| self.output_buf.lock().get_text(pty))
+                .and_then(|pty| self.output_buf.lock().get_full_text(pty))
                 .unwrap_or_default();
             let raw_clean = crate::pty::ansi::clean_terminal_output(&raw);
             let summary = summary.unwrap_or("(no summary provided)").to_string();
             let release = self.run_watcher.finish_cron_after_response(
                 self,
-                &authority,
+                authority,
                 summary.clone(),
                 &raw_clean,
                 session_id.as_deref(),

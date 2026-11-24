@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, withProviderBackgroundWork } from "./composerBackgroundWorkModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
+const roster = (running: Record<string, string>, kinds: Record<string, "shell" | "subagent"> = {}, unknown: Record<string, string> = {}) => ({
+  running, kinds, unknown, overflow: false, history_incomplete: false, history_initialized: true,
+});
 const now = Date.parse("2026-10-17T12:00:00.000Z");
 test("provider background commands keep their task kind and own-session identity", () => {
   const messages: NormalizedChatMessage[] = [{
@@ -12,21 +15,24 @@ test("provider background commands keep their task kind and own-session identity
     id: "shell-outcome", type: "tool_result", content: "", sourceSessionId: "own-session",
     toolId: "call", toolCallSourceId: "source", toolPairing: "exact", toolBackgroundTaskId: "shell",
   }];
-  const items = withProviderBackgroundWork([], { shell: "", child: "Inspect" }, "own-session", {}, messages);
+  const items = withProviderBackgroundWork([], roster({ shell: "", child: "Inspect" }, { shell: "shell", child: "subagent" }), "own-session", messages);
   assert.deepEqual(items.map(item => [item.kind, item.name]), [["shell", "fixture.mjs"], ["agent", "Inspect"]]);
   assert.equal(items[0].command, "node fixture.mjs");
   assert.equal(items[0].processId, undefined);
-  assert.equal(withProviderBackgroundWork([], { shell: "" }, "foreign-session", {}, messages)[0].kind, "agent");
+  const [noOwnCommand] = withProviderBackgroundWork([], roster({ shell: "" }, { shell: "shell" }), "foreign-session", messages);
+  assert.equal(noOwnCommand.kind, "shell");
+  assert.equal(noOwnCommand.command, undefined);
+  assert.equal(withProviderBackgroundWork([], roster({ shell: "" }), "own-session", messages)[0].kind, "unknown");
 });
 test("PTY background roster remains visible without runtime agent_activity rows and drains on completion", () => {
-  const items = withProviderBackgroundWork([], { child: "Inspect source" }, "own-session");
+  const items = withProviderBackgroundWork([], roster({ child: "Inspect source" }, { child: "subagent" }), "own-session");
   assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
   assert.equal(items[0].status, "running");
   assert.equal(items[0].elapsed, "");
   assert.equal(items[0].transcriptThreadId, undefined);
-  assert.equal(withProviderBackgroundWork(items, { child: "Inspect source" }, "own-session").length, 1);
-  assert.deepEqual(withProviderBackgroundWork([], {}, "own-session"), []);
-  assert.deepEqual(withProviderBackgroundWork([], { child: "Foreign" }), []);
+  assert.equal(withProviderBackgroundWork(items, roster({ child: "Inspect source" }), "own-session").length, 1);
+  assert.deepEqual(withProviderBackgroundWork([], roster({}), "own-session"), []);
+  assert.deepEqual(withProviderBackgroundWork([], roster({ child: "Foreign" })), []);
 });
 const agent = (id: string, ageMs: number, toolInput: Record<string, unknown>, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage => ({
   id,
@@ -139,19 +145,19 @@ test("deduplicates process identity while preserving distinct jobs and exact too
 });
 
 test("only live work makes a bubble; unknown work rides along beside it and ended work is never shown", () => {
-  const items = withProviderBackgroundWork([], { live: "Live task" }, "root", { dropped: "Dropped task" });
+  const items = withProviderBackgroundWork([], roster({ live: "Live task" }, {}, { dropped: "Dropped task" }), "root");
   assert.deepEqual(items.map(item => item.status), ["running", "unknown"]);
   assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
   assert.deepEqual(composerBackgroundWorkBubble(items)?.items.map(item => item.name), ["Live task", "Dropped task"]);
   assert.equal(composerBackgroundWorkBubble(items.slice(1)), null, "without running work there is no bubble at all");
 });
 
-test("unlabelled provider tasks read as numbered internal agents and keep their raw id aside", () => {
-  const items = withProviderBackgroundWork([], { bm76h90j0: "", a2: "Run the release gate", zz9: "  " }, "root");
+test("unlabelled provider tasks read as numbered sub-agents and keep their raw id aside", () => {
+  const items = withProviderBackgroundWork([], roster({ bm76h90j0: "", a2: "Run the release gate", zz9: "  " }, { a2: "subagent", bm76h90j0: "subagent", zz9: "subagent" }), "root");
   assert.deepEqual(items.map(item => [item.name, item.ordinal ?? null, item.rawId]), [
-    ["Internal agent", 1, "bm76h90j0"],
+    ["Sub-agent", 1, "bm76h90j0"],
     ["Run the release gate", null, "a2"],
-    ["Internal agent", 2, "zz9"],
+    ["Sub-agent", 2, "zz9"],
   ]);
 });
 

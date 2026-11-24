@@ -157,6 +157,7 @@ export function Titlebar({
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />
             <SettingsMenu onOpenSection={onOpenSettings} overflowActions={narrow ? overflowActions : undefined}
+              triggerRef={narrow ? analyticsButtonRef : undefined}
               afterGear={onOpenSettings ? <span data-first-run-allowed="true" style={{ display: "contents" }}><AccountTray locked={locked} onOpenPlans={() => { if (!locked) onOpenSettings("plans"); }} /></span> : undefined} />
           </>
         )}

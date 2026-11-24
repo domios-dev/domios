@@ -24,6 +24,13 @@ pub const MAX_TAB_TITLE_CHARS: usize = 64;
 pub const TAB_TITLE_ERROR: &str =
     "tab title must be one word of at most 64 characters with no whitespace or control characters; put descriptive text in description";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TabCloseCleanup {
+    Standard,
+    KeepPad,
+    KeepWorkerLane,
+}
+
 pub fn validate_tab_title(title: &str) -> Result<(), String> {
     if title.is_empty()
         || title.chars().count() > MAX_TAB_TITLE_CHARS
@@ -52,6 +59,7 @@ pub(crate) fn normalize_optional_tab_description(
 /// Prefix on every self-termination refusal so transports can classify it.
 pub const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
+mod cwd;
 mod ownership;
 mod remote_close;
 pub use remote_close::REMOTE_TAB_CLOSE_REFUSAL_PREFIX;
@@ -178,10 +186,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
-        self.finish_tab_close_with_pad(tab_id, true)
+        self.finish_tab_close_with_cleanup(tab_id, TabCloseCleanup::Standard)
     }
 
-    fn finish_tab_close_with_pad(&self, tab_id: &str, retire_pad: bool) -> Result<(), String> {
+    fn finish_tab_close_with_cleanup(
+        &self,
+        tab_id: &str,
+        cleanup: TabCloseCleanup,
+    ) -> Result<(), String> {
         if let Err(error) = self.settle_closed_live_transcript(tab_id, None) {
             log::warn!("[live-transcript] owner {tab_id} close settlement held: {error}");
         }
@@ -189,6 +201,7 @@ impl ServiceContext {
             log::warn!("[live-transcript] router {tab_id} close settlement held: {error}");
         }
         self.revoke_tab_credential(tab_id);
+        super::local_preview::pad_shares::revoke(self, tab_id);
         super::supporter_tab_state::forget_observations(tab_id);
         self.release_managed_tabs(tab_id);
         self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
@@ -198,14 +211,17 @@ impl ServiceContext {
         }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
-        let pad_result = if retire_pad {
+        let pad_result = if cleanup != TabCloseCleanup::KeepPad {
             self.revoke_agent_pad(tab_id)
         } else {
             Ok(())
         };
         self.orchestration().clear_dead_planner_binding(tab_id);
-        self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
-        self.settle_lanes_held_by_closed_tab(tab_id);
+        let owner_worker_close = cleanup == TabCloseCleanup::KeepWorkerLane;
+        self.flag_gone_tab(tab_id, epoch_ms(), owner_worker_close);
+        if !owner_worker_close {
+            self.settle_lanes_held_by_closed_tab(tab_id);
+        }
         self.prompt_detector.lock().remove_tab(tab_id);
         self.forget_permission_auto_confirm(tab_id);
         self.forget_directory_trust(tab_id);
@@ -309,7 +325,11 @@ impl ServiceContext {
                 lines.join("; ")
             ));
         }
-        self.close_tab(target_tab_id)?;
+        if caller_tab_id.is_none() {
+            self.close_tab_as_owner(&canon_target)?;
+        } else {
+            self.close_tab(target_tab_id)?;
+        }
         Ok(busy_worker_close_warnings(&canon_target, &assignments))
     }
 
@@ -376,34 +396,42 @@ impl ServiceContext {
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
-        self.close_tab_with_teardown_and_pad(
-            tab_id,
+        let tab_id = self
+            .mux
+            .read()
+            .resolve_tab_id(tab_id)
+            .unwrap_or_else(|| tab_id.to_string());
+        self.close_tab_with_teardown_and_cleanup(
+            &tab_id,
             reason,
-            validate,
+            |mux, id| {
+                validate(mux, id)?;
+                mux.reserve_tab_close(id)
+            },
             teardown,
             validate_commit,
-            true,
+            TabCloseCleanup::Standard,
         )
     }
 
-    pub(crate) fn close_tab_with_teardown_and_pad(
+    pub(crate) fn close_tab_with_teardown_and_cleanup(
         &self,
         tab_id: &str,
         reason: TabCloseReason,
-        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        reserve: impl FnOnce(
+            &mut crate::multiplexer::state::MultiplexerState,
+            &str,
+        ) -> Result<crate::multiplexer::state::TabCloseReservation, String>,
         teardown: impl FnOnce() -> Result<(), String>,
         validate_commit: impl FnOnce(
             &mut crate::multiplexer::state::MultiplexerState,
             &str,
         ) -> Result<(), String>,
-        retire_pad: bool,
+        cleanup: TabCloseCleanup,
     ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
-            let canonical_tab_id = mux
-                .resolve_tab_id(tab_id)
-                .unwrap_or_else(|| tab_id.to_string());
-            validate(&mux, &canonical_tab_id)?;
+            let canonical_tab_id = tab_id.to_string();
             self.remote_teams
                 .ensure_tab_lifecycle_available(&canonical_tab_id)?;
             let tab = mux.get_tab(&canonical_tab_id);
@@ -411,7 +439,7 @@ impl ServiceContext {
             let session_id = tab.and_then(|tab| tab.agent_session_id.clone());
             (
                 mux.get_focused_tab_id().map(str::to_string),
-                mux.reserve_tab_close(tab_id)?,
+                reserve(&mut mux, &canonical_tab_id)?,
                 provider_id,
                 canonical_tab_id,
                 session_id,
@@ -428,7 +456,9 @@ impl ServiceContext {
                 return Err(error);
             }
         };
-        if let Err(error) = teardown().and_then(|()| self.prepare_tab_close(tab_id, reason)) {
+        if let Err(error) =
+            teardown().and_then(|()| self.prepare_tab_close(&canonical_tab_id, reason))
+        {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
         }
@@ -483,11 +513,11 @@ impl ServiceContext {
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
-        self.finish_tab_close_with_pad(&canonical_tab_id, retire_pad)?;
+        self.finish_tab_close_with_cleanup(&canonical_tab_id, cleanup)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         self.retire_closed_tab_notifications(&canonical_tab_id);
-        self.release_bridge_threads(tab_id);
+        self.release_bridge_threads(&canonical_tab_id);
         session_persist::persist_session_after_close(self);
         self.emit_state_changed(MuxEmitCause::TabLifecycle);
         if pre_focus != post_focus {
@@ -634,32 +664,6 @@ impl ServiceContext {
             |selected| self.seed_pending_scrollback_before_link(tab_id, selected),
             |_, _| Ok(()),
         )
-    }
-
-    pub fn update_tab_cwd(&self, tab_id: &str, cwd: String) {
-        let changed = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id).is_some_and(|tab| {
-                let mapped = tab
-                    .shell_profile
-                    .as_ref()
-                    .filter(|profile| profile.wsl_distro.is_some() && cwd.starts_with('/'))
-                    .map(|profile| profile.host_cwd(&cwd))
-                    .transpose();
-                let Ok(mapped) = mapped else {
-                    return false;
-                };
-                let cwd = codeterm_paths::strip_verbatim_prefix(&mapped.unwrap_or(cwd));
-                if tab.cwd.as_deref() == Some(cwd.as_str()) {
-                    return false;
-                }
-                tab.cwd = Some(cwd);
-                true
-            })
-        };
-        if changed {
-            self.emit_state_changed(MuxEmitCause::Cwd);
-        }
     }
 
     pub fn clear_tab_restored_flag(&self, tab_id: &str) {

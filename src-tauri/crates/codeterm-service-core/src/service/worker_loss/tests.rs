@@ -117,6 +117,197 @@ fn worker_lost_events(
     events
 }
 
+fn restore_worker_without_nonce_report(busy: &BusyWorker) {
+    let svc = &busy.fx.service;
+    svc.plan_store
+        .edit_plan_fixture(&busy.plan_id, 4, |plan| {
+            let attempt = &mut plan.tasks[0].execution_attempts[0];
+            attempt.session_id = Some("worker-session".into());
+            attempt.session_binding_nonce = Some("reported-launch".into());
+            Ok(())
+        })
+        .unwrap();
+    let mut mux = svc.mux.write();
+    let tab = mux.get_tab_mut(&busy.worker).unwrap();
+    tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+        plan_id: Some(busy.plan_id.clone()),
+        task_id: Some(busy.task_id.clone()),
+        attempt_id: Some("attempt_lost".into()),
+        ..Default::default()
+    });
+    tab.agent_session_id = Some("worker-session".into());
+    tab.session_binding_nonce = Some("restored-launch".into());
+    tab.restored_from_snapshot = true;
+    assert!(tab.reported_session_binding_nonce.is_none());
+}
+
+#[tokio::test]
+async fn owner_close_worker_in_review_without_reported_nonce_keeps_lane() {
+    let busy = seed_busy_worker();
+    restore_worker_without_nonce_report(&busy);
+    let svc = &busy.fx.service;
+    svc.plan_store
+        .edit_plan_fixture(&busy.plan_id, 5, |plan| {
+            plan.tasks[0].status = TaskStatus::InReview;
+            Ok(())
+        })
+        .unwrap();
+    svc.plan_store
+        .record_task_attempt_report(
+            &busy.plan_id,
+            &busy.task_id,
+            &crate::plan::AgentRef::from_tab(&busy.worker),
+            "Reported work",
+            Some(codeterm_types::agent::ReportStatus::InReview),
+            6,
+        )
+        .unwrap();
+    let lane = std::path::Path::new(&busy.worktree);
+    git(
+        lane,
+        &[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Reported work",
+        ],
+    );
+    git(lane, &["branch", "lane/lost-work"]);
+    let mut receiver = svc.events.subscribe();
+
+    let refusal = svc
+        .close_tab_guarded(Some(&busy.orchestrator), &busy.worker, false)
+        .unwrap_err();
+    assert!(refusal.contains("has not reported its binding nonce"));
+    assert!(svc
+        .close_tab_as_owner_async(&busy.worker, false)
+        .await
+        .unwrap());
+
+    assert!(svc.mux.read().get_tab(&busy.worker).is_none());
+    let task = svc
+        .plan_store
+        .inspect_task_for_test(&busy.task_id)
+        .unwrap()
+        .task;
+    assert_eq!(task.status, TaskStatus::InReview);
+    assert!(task.assigned_tab_id.is_none());
+    assert_eq!(
+        task.status_label.as_deref(),
+        Some(crate::plan::reconcile::TAB_GONE_LABEL)
+    );
+    assert_eq!(task.lane.branch.as_deref(), Some("lane/lost-work"));
+    assert_eq!(
+        task.lane.worktree_path.as_deref(),
+        Some(busy.worktree.as_str())
+    );
+    assert!(task.execution_attempts[0].retired_at.is_some());
+    assert_eq!(
+        task.execution_attempts[0]
+            .report
+            .as_ref()
+            .unwrap()
+            .message
+            .as_deref(),
+        Some("Reported work")
+    );
+    git(lane, &["show-ref", "--verify", "refs/heads/lane/lost-work"]);
+    assert!(worker_lost_events(&mut receiver).is_empty());
+}
+
+#[tokio::test]
+async fn owner_close_worker_in_progress_confirms_and_keeps_respawn_available() {
+    let busy = seed_busy_worker();
+    restore_worker_without_nonce_report(&busy);
+    let svc = &busy.fx.service;
+    let mut receiver = svc.events.subscribe();
+
+    assert!(!svc
+        .close_tab_as_owner_async(&busy.worker, false)
+        .await
+        .unwrap());
+    assert!(svc.mux.read().get_tab(&busy.worker).is_some());
+    assert!(worker_lost_events(&mut receiver).is_empty());
+    assert!(svc
+        .close_tab_as_owner_async(&busy.worker, true)
+        .await
+        .unwrap());
+
+    assert!(svc.mux.read().get_tab(&busy.worker).is_none());
+    let task = svc
+        .plan_store
+        .inspect_task_for_test(&busy.task_id)
+        .unwrap()
+        .task;
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(
+        task.status_label.as_deref(),
+        Some(crate::plan::reconcile::TAB_GONE_LABEL)
+    );
+    let draft = svc
+        .plan_store
+        .build_task_respawn_draft(
+            &busy.plan_id,
+            &busy.task_id,
+            crate::service::plan::task_attempts::TaskRespawnRequest {
+                attempt_id: "attempt_lost".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(draft.cwd, busy.worktree);
+    assert!(draft.source_attempt.retired_at.is_some());
+    svc.retire_respawn_executor(&draft).unwrap();
+    let events = worker_lost_events(&mut receiver);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["cause"], "tab_gone");
+    assert_eq!(events[0]["lane"]["state"], "dirty");
+    let dirty_file = std::path::Path::new(&busy.worktree).join("uncommitted.txt");
+    assert_eq!(
+        std::fs::read_to_string(dirty_file).unwrap(),
+        "work in flight\n"
+    );
+}
+
+#[test]
+fn owner_close_worker_from_cli_retires_terminal_attempt_and_keeps_lane() {
+    for status in [TaskStatus::Done, TaskStatus::Cancelled] {
+        let busy = seed_busy_worker();
+        restore_worker_without_nonce_report(&busy);
+        let svc = &busy.fx.service;
+        svc.plan_store
+            .edit_plan_fixture(&busy.plan_id, 5, |plan| {
+                plan.tasks[0].status = status.clone();
+                Ok(())
+            })
+            .unwrap();
+
+        assert!(svc
+            .close_tab_guarded(None, &busy.worker, false)
+            .unwrap()
+            .is_empty());
+
+        assert!(svc.mux.read().get_tab(&busy.worker).is_none());
+        let task = svc
+            .plan_store
+            .inspect_task_for_test(&busy.task_id)
+            .unwrap()
+            .task;
+        assert_eq!(task.status, status);
+        assert!(task.execution_attempts[0].retired_at.is_some());
+        assert_eq!(task.lane.branch.as_deref(), Some("lane/lost-work"));
+        assert_eq!(
+            task.lane.worktree_path.as_deref(),
+            Some(busy.worktree.as_str())
+        );
+        assert!(Path::new(&busy.worktree).join("uncommitted.txt").is_file());
+    }
+}
+
 #[test]
 fn worker_tab_death_pushes_orchestrator_event() {
     let busy = seed_busy_worker();

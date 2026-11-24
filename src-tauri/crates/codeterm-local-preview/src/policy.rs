@@ -14,6 +14,7 @@ pub struct PreviewPolicy {
     referenced_uploads: Vec<PathBuf>,
     referenced_upload_denied: Vec<String>,
     own_pad: Option<PathBuf>,
+    exact_pad_read: Option<(PathBuf, PathBuf)>,
     agent_pads: Option<(PathBuf, PathBuf)>,
     pad_denied: Vec<String>,
     workspace: Option<PathBuf>,
@@ -81,6 +82,7 @@ impl PreviewPolicy {
             referenced_uploads: Vec::new(),
             referenced_upload_denied: Vec::new(),
             own_pad: None,
+            exact_pad_read: None,
             agent_pads: None,
             pad_denied: Vec::new(),
             workspace: None,
@@ -91,6 +93,19 @@ impl PreviewPolicy {
     pub fn with_reference_inventory(mut self, references: std::sync::Arc<HashSet<String>>) -> Self {
         self.references = references;
         self
+    }
+
+    pub fn with_exact_pad_read(mut self, pad: PathBuf, file: PathBuf) -> Self {
+        self.exact_pad_read = Some((pad, file));
+        self
+    }
+
+    pub fn allows_pad_file(&self, pad: &Path, requested: &Path, resolved: &Path) -> bool {
+        self.inside(pad, &self.pad_denied, requested, Some(resolved))
+            && !self
+                .pad_denied
+                .iter()
+                .any(|root| within(&denial_key(requested), root))
     }
 
     /// Admits the item paths of a canvas file this policy already authorized; every other rule,
@@ -117,6 +132,9 @@ impl PreviewPolicy {
         requested: &Path,
         canonical: Option<&Path>,
     ) -> Result<(), String> {
+        if self.exact_pad_read.is_some() {
+            return Err("Preview path is not writable".into());
+        }
         self.authorize(requested, canonical)?;
         let buckets = self.uploads.iter().chain(&self.referenced_uploads);
         let resolved = canonical
@@ -216,6 +234,9 @@ impl PreviewPolicy {
         requested: &Path,
         canonical: Option<&Path>,
     ) -> Result<(), String> {
+        if self.exact_pad_read.is_some() {
+            return self.authorize(requested, canonical);
+        }
         if let Some((root, canonical_root)) = &self.agent_pads {
             let requested_key = denial_key(requested);
             if matches!(
@@ -243,6 +264,19 @@ impl PreviewPolicy {
     }
 
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
+        if let Some((pad, file)) = &self.exact_pad_read {
+            let resolved = canonical
+                .map(Path::to_path_buf)
+                .or_else(|| requested.canonicalize().ok());
+            return if path_key(requested) == path_key(file)
+                && resolved.as_ref() == Some(file)
+                && self.allows_pad_file(pad, requested, file)
+            {
+                Ok(())
+            } else {
+                Err("Preview path is private".into())
+            };
+        }
         if self.referenced(requested) {
             let scoped = [
                 (&self.own_pad, &self.pad_denied),

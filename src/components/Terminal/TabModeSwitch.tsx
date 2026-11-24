@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { Segmented, type SegmentedOption } from "../shared/Segmented";
+import { useEffect, useState, useCallback, type KeyboardEvent } from "react";
+import { MessageSquare, Terminal } from "lucide-react";
 import { emitTabUiMode, type TabUiMode } from "../../lib/chatUiMode";
 import {
   listenCurrentTabUiMode,
@@ -9,18 +9,16 @@ import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabFieldsEqual, selectTab } from "../../store/multiplexer/selectors";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 
-const TERMINAL: SegmentedOption<TabUiMode> = { value: "terminal", label: "Terminal" };
-const CHAT: SegmentedOption<TabUiMode> = { value: "chat", label: "Chat" };
+const options = [
+  { mode: "chat", label: "Chat", Icon: MessageSquare },
+  { mode: "terminal", label: "Terminal", Icon: Terminal },
+] as const;
 
-/** Terminal | Chat switch for a tab. Plan navigation lives in workspace actions
- *  and the above-composer task strip, not as a third tab mode. */
 export function TabModeSwitch({
   tabId,
-  height,
   chatPty = true,
 }: {
   tabId: string;
-  height?: number;
   chatPty?: boolean;
 }) {
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
@@ -44,18 +42,49 @@ export function TabModeSwitch({
 
   if (!chatPty) return null;
 
+  const select = (next: TabUiMode) => {
+    setMode(next);
+    emitTabUiMode(tabId, next);
+  };
+  const onArrowKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.code)) return;
+    const next = mode === "chat" ? "terminal" : "chat";
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.querySelector<HTMLButtonElement>(`[data-value="${next}"]`)?.focus();
+    select(next);
+  };
+
   return (
-    <Segmented
+    <div
+      role="radiogroup"
+      aria-label="View"
       data-testid="tab-mode-switch"
       data-tab-id={tabId}
-      aria-label="Tab view"
-      value={mode}
-      options={[CHAT, TERMINAL]}
-      height={height}
-      onChange={(next) => {
-        setMode(next);
-        emitTabUiMode(tabId, next);
-      }}
-    />
+      className="ct-tab-view-switch"
+      onKeyDown={onArrowKey}
+    >
+      {options.map(({ mode: value, label, Icon }) => (
+        <button
+          key={value}
+          type="button"
+          role="radio"
+          aria-label={label}
+          aria-checked={mode === value}
+          tabIndex={mode === value ? 0 : -1}
+          title={label}
+          data-value={value}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            const button = event.currentTarget;
+            if (button.parentElement?.contains(document.activeElement)) button.focus();
+            select(value);
+          }}
+        >
+          <Icon size={13} aria-hidden="true" />
+        </button>
+      ))}
+    </div>
   );
 }

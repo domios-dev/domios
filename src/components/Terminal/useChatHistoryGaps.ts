@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { conversationEntries, CHAT_PAGE_SIZE, earlierMessageLabel } from "./chatPagingModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
@@ -6,6 +6,7 @@ import type { EnrichedChatEntry } from "./chatEnrichment";
 interface GapPage {
   rows: NormalizedChatMessage[];
   entries: EnrichedChatEntry[];
+  cwd?: string | null;
   revealed: number;
   next: NormalizedChatMessage | null;
 }
@@ -14,9 +15,15 @@ const EMPTY_PAGES = new Map<string, GapPage>();
 
 export function useChatHistoryGaps(windowKey: string,
   loadPage?: (message: NormalizedChatMessage, signal: AbortSignal) => Promise<NormalizedChatMessage[] | null>,
+  cwd?: string | null,
 ) {
   const [snapshot, setSnapshot] = useState({ key: windowKey, pages: new Map<string, GapPage>() });
-  const pages = snapshot.key === windowKey ? snapshot.pages : EMPTY_PAGES;
+  const pages = useMemo(() => {
+    if (snapshot.key !== windowKey) return EMPTY_PAGES;
+    if ([...snapshot.pages.values()].every(page => page.cwd === cwd)) return snapshot.pages;
+    return new Map([...snapshot.pages].map(([id, page]) => [id, page.cwd === cwd
+      ? page : { ...page, cwd, entries: conversationEntries(page.rows, undefined, cwd) }]));
+  }, [snapshot, windowKey, cwd]);
   const inFlight = useRef(new Map<string, AbortSignal>());
   const currentKey = useRef(windowKey);
   currentKey.current = windowKey;
@@ -49,7 +56,7 @@ export function useChatHistoryGaps(windowKey: string,
           consumed += before.before_offset - after.before_offset;
         }
         const merged = [...rows.filter(row => row !== next), ...page.rows];
-        page = { rows: merged, entries: conversationEntries(merged), revealed: page.revealed, next };
+        page = { rows: merged, cwd, entries: conversationEntries(merged, undefined, cwd), revealed: page.revealed, next };
       }
       const revealed = Math.min(target, page.entries.length);
       setSnapshot(current => ({ key: windowKey, pages: new Map(current.key === windowKey ? current.pages : [])

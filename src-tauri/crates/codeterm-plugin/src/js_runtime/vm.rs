@@ -2,6 +2,7 @@
 
 mod arguments;
 mod async_call;
+mod binary_digest;
 pub use async_call::spawn_blocking;
 pub(super) use async_call::{
     call_json_async, call_json_async_until, with_blocking_operation_interruptible,
@@ -188,6 +189,7 @@ pub struct PluginVm {
     plugin_id: String,
     runtime_identity: String,
     cli_binary: Option<String>,
+    binary_digest: binary_digest::BinaryDigestCache,
     bundle_dir: Option<std::path::PathBuf>,
     dictation_generation: std::sync::atomic::AtomicU64,
 }
@@ -366,6 +368,7 @@ impl PluginVm {
             plugin_id: plugin_id.to_string(),
             runtime_identity: uuid::Uuid::new_v4().simple().to_string(),
             cli_binary,
+            binary_digest: binary_digest::BinaryDigestCache::default(),
             bundle_dir: None,
             dictation_generation: std::sync::atomic::AtomicU64::new(0),
         })
@@ -397,7 +400,7 @@ impl PluginVm {
                     _ => None,
                 },
             )
-            .and_then(|path| crate::model_catalog::binary_fingerprint_path(&path))
+            .and_then(|path| self.binary_digest.digest(&path))
     }
 
     pub fn plugin_id(&self) -> &str {

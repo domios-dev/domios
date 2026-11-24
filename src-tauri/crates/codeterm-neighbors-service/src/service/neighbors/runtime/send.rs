@@ -1,5 +1,6 @@
 use super::authority::SendAuthority;
 use super::*;
+use codeterm_neighbors::permissions::MachineAccess;
 
 mod admission;
 
@@ -282,6 +283,14 @@ async fn prepare_outgoing_body(
             return Err(Error::ReplyTargetStopped);
         }
         if kind == Kind::Refusal && target.is_none() {
+            return Err(Error::ReplyTargetUnknown);
+        }
+        let requires_request = permission.machine_access == MachineAccess::ReadOnly
+            || (permission.machine_access == MachineAccess::Folder && in_reply_to.is_some());
+        if authority == SendAuthority::FriendshipGrant
+            && requires_request
+            && !target.is_some_and(|entry| matches!(entry.kind, Kind::Question | Kind::TabRequest))
+        {
             return Err(Error::ReplyTargetUnknown);
         }
     }

@@ -20,6 +20,8 @@ import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { reconcileTrackedChatMessages, sendTrackedChatMessage } from "./chatSendStatus";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { ComposerSendQueue } from "./composerQueueModel";
+import { CHAT_TOOL_SHOW_DELAY_MS } from "./chatTranscriptActivity";
+import { withChatToolClock } from "./chatTranscriptActivity.testSupport";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -165,6 +167,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   dispatch: (event: string, payload: unknown) => void;
   calls: string[];
   setWorking: (working: boolean) => void;
+  setManaged: (managed: Tab["managed"]) => void;
 }> {
   setAgentDescriptors([{ id: "lmstudio", agent_runtime: { goals: { actions: ["read"] } } }] as unknown as ProviderDescriptor[]);
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
@@ -233,6 +236,10 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
         tabStatuses: { ...state.tabStatuses, [tabId]: working ? "Working" : "Idle" } };
       store.notify();
     },
+    setManaged: managed => {
+      state = { ...state, tabs: { ...state.tabs, [tabId]: { ...state.tabs[tabId], managed } } };
+      store.notify();
+    },
     dispatch: (event, payload) => {
       for (const handler of listeners.get(event) ?? []) handler({ payload });
     },
@@ -249,18 +256,24 @@ test("composer feedback follows the durable queue and the written receipt until 
     queue: { items: [{ sendId: held.send_id, correlationId: held.correlationId!, version: 0, preview: "message" }],
       claimed: [], edits: [] } satisfies ComposerSendQueue as ComposerSendQueue,
   };
-  const { host, root, dispatch } = await renderChat(tabId, { state: "loaded", epoch: 3, last_turn_duration_ms: 12000 },
+  const { host, root, dispatch, setManaged } = await renderChat(tabId, { state: "loaded", epoch: 3, last_turn_duration_ms: 12000 },
     undefined, undefined, seed);
   try {
     await act(async () => { await reconcileTrackedChatMessages(tabId); });
     const status = host.querySelector(".ct-composer-status")!;
-    assert(status.textContent?.includes("Queued: 1"), "the durable queue supplies the count");
+    const queue = () => host.querySelector('button[aria-label="Queued: 1"]');
+    assert(queue()?.getAttribute("aria-haspopup") === "dialog", "the durable queue supplies the edit control");
     assert(!status.textContent?.includes("Last turn"), "held input suppresses stale timing");
+    await act(async () => setManaged({ manager_tab_id: "manager", manager_name: "Manager", manager_closed: false }));
+    assert(!host.querySelector('[data-testid="chat-composer"]'), "management hides the composer");
+    assert(queue()?.getAttribute("aria-haspopup") === "dialog", "management preserves access to the held message");
+    await act(async () => setManaged(undefined));
+    assert(host.querySelectorAll('button[aria-label="Queued: 1"]').length === 1, "the restored composer shows one queue control");
     seed.queue = { ...seed.queue, items: [], claimed: [held.send_id] };
     await act(async () => dispatch("chat-send-queue-changed", { tab_id: tabId }));
     assert(!status.textContent?.includes("Sending…"), "composer does not render a Sending row above the input");
     assert(!status.textContent?.includes("Last turn"), "claimed input suppresses stale timing");
-    assert(!status.textContent?.includes("Queued: 1"), "a claim removes the edit controls");
+    assert(!queue(), "a claim removes the edit controls");
     seed.queue = { ...seed.queue, claimed: [] };
     seed.statuses = [{ ...held, state: "written", pending_reason: undefined }];
     await act(async () => dispatch("chat-send-status", seed.statuses[0]));
@@ -655,7 +668,7 @@ test("a written prompt the agent refused while busy says so without offering Ret
 });
 
 for (const pty of [true, false]) {
-  test(`an own ${pty ? "queued" : "steered"} send keeps one row through delivery release and transcript handoff`, async () => {
+  test(`an own ${pty ? "queued" : "steered"} send keeps one row through delivery release and transcript handoff`, () => withChatToolClock(async (timers) => {
     const tabId = `turn-end-${pty}`;
     const at = Date.now();
     const record = (offset: number) => ({ kind: "jsonl" as const, incarnation: "own-file", record_start: offset, record_row: 0 });
@@ -681,6 +694,7 @@ for (const pty of [true, false]) {
     });
     try {
       await act(async () => addChatSend(tabId, { id: "turn-send", correlationId: "turn-send", content: "opaque-send", sentAtMs: at }));
+      if (!pty) await act(async () => timers.tick(CHAT_TOOL_SHOW_DELAY_MS));
       const bubble = host.querySelector('[data-message-id="turn-send"]');
       const toolRow = host.querySelector('[data-chat-window-row="turn-tool"]');
       assert(bubble && toolRow, "send and running tool render");
@@ -732,7 +746,7 @@ for (const pty of [true, false]) {
       assert(handoffPositions.every(index => index === handoffPositions[0]), "delivery and echo keep the same transcript slot without flicker");
       assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "settled delivery keeps the original DOM node");
     } finally { await act(async () => root.unmount()); host.remove(); }
-  });
+  }));
 }
 
 const degradedRuntime: AgentRuntimeState = { state: "degraded", epoch: 2, failureCode: "provider_refused",

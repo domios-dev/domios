@@ -16,4 +16,13 @@ for (const state of ["running", "succeeded", "failed"] as const) {
   assert.equal(model?.message, "opaque result");
   assert.equal(model?.canUpdate, state === "failed");
 }
-console.log("providerUpdateModel: 15 assertions passed");
+const updated = providerUpdateModel("Fixture Harness", {
+  ...status, detected_version: "1.2.4",
+  update_job: { tab_id: "utility", state: "succeeded", summary: "fixture CLI updated to 1.2.3" },
+});
+assert.equal(updated?.message, "Fixture Harness CLI updated to 1.2.3");
+const failed = providerUpdateModel("Fixture Harness", {
+  ...status, update_job: { tab_id: "utility", state: "failed", summary: "fixture CLI update: command failed" },
+});
+assert.equal(failed?.message, "Fixture Harness CLI update: command failed");
+console.log("providerUpdateModel: 17 assertions passed");

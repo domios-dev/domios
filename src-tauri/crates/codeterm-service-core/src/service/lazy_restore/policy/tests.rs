@@ -24,7 +24,7 @@ fn an_owned_pty_cannot_be_frozen_by_stale_idle_hook_state() {
 }
 
 #[test]
-fn idle_agents_ignore_recent_activity_and_general_workspace_start_decisions() {
+fn idle_agents_without_verified_binding_ignore_recent_activity() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some("fixture".into());
@@ -38,6 +38,27 @@ fn idle_agents_ignore_recent_activity_and_general_workspace_start_decisions() {
     tab.agent_type = None;
     assert_eq!(decision(tab, false, Start), Start);
     assert_eq!(decision(tab, false, Freeze), Freeze);
+}
+
+#[test]
+fn recent_verified_pty_sessions_start_and_cold_sessions_stay_asleep() {
+    use codeterm_pty::multiplexer::restore_policy::restore_on_boot;
+
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.agent_session_id = Some("saved-session".into());
+    tab.session_binding_nonce = Some("saved-nonce".into());
+    let recent = restore_on_boot(false, false, Some(90), 100, 10);
+    let cold = restore_on_boot(false, false, Some(89), 100, 10);
+
+    assert_eq!(decision(tab, false, recent), Freeze);
+    tab.reported_session_binding_nonce = Some("saved-nonce".into());
+    assert_eq!(decision(tab, false, recent), Start);
+    assert_eq!(decision(tab, false, cold), Freeze);
+    tab.restored_from_snapshot = true;
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
+    assert_eq!(decision(tab, false, recent), Freeze);
 }
 
 #[test]

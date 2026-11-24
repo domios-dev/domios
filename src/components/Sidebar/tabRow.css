@@ -1,5 +1,50 @@
 .sidebar-tab {
   overflow: clip;
+  scroll-margin-block-start: var(--ct-sidebar-sticky-header, 0px);
+}
+
+.sidebar-tab:is([data-tab-id], .sidebar-neighbor-concierge):not(:has(> .active-tab-pill)):hover {
+  background: var(--ct-sidebar-hover);
+}
+
+.sidebar-tab > .active-tab-pill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--ct-sidebar-selected);
+  pointer-events: none;
+  transition: transform var(--ct-duration-smooth) var(--ct-ease-out-expo), opacity var(--ct-duration-normal) ease;
+}
+
+.active-tab-pill::before {
+  position: absolute;
+  inset: 9px auto 9px 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ct-accent);
+  content: "";
+}
+
+.sidebar-tab-activation:focus-visible {
+  outline: none;
+}
+
+.sidebar-tab:has(> .sidebar-tab-activation:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--ct-accent) 70%, transparent);
+  outline-offset: -2px;
+}
+
+.sidebar-session-list,
+.sidebar-tab-tree-row,
+.sidebar-neighbors,
+.sidebar-team-member-list:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing) * 0.75);
+}
+
+.sidebar-general-section > .sidebar-session-list:not(:empty) {
+  padding-block-start: calc(var(--spacing) * 0.75);
 }
 
 /* The menu must contribute height even while hidden, so compact rows contain its hover target. */
@@ -46,7 +91,9 @@
 .sidebar-tab-body__sub {
   grid-column: 2;
   grid-row: 2;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -78,7 +125,7 @@
   height: 16px;
   margin-right: 2px;
   border: 0;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--ct-roundness, 1));
   padding: 0 3px;
   background: transparent;
   color: var(--ct-muted-fg);

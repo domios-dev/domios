@@ -40,6 +40,15 @@ pub(crate) fn install(app: &codeterm_client_shell::app_runtime::AppHandle) {
             log::warn!("[updater] generated user unit refresh failed: {error}");
         }
     });
+    #[cfg(target_os = "macos")]
+    {
+        let label = app.config().identifier.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = codeterm_client_shell::refresh_owned_macos_agent(&label) {
+                log::warn!("[autostart] generated LaunchAgent refresh failed: {error}");
+            }
+        });
+    }
     app.manage(Arc::new(
         super::native_client::update::UpdateOperation::default(),
     ));

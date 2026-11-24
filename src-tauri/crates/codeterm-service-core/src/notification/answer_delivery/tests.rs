@@ -17,6 +17,27 @@ const QUESTION: &str = "Which branch?";
 const CHOSEN: &str = "Rebase";
 const ASKING_TAB: &str = "tab-asking-7";
 
+#[test]
+fn an_interrupted_answer_becomes_unconfirmed_and_a_second_surface_cannot_replay_it() {
+    let (store, id) = asked_from(Some(ASKING_TAB));
+    store.lock().record_answer(&id, CHOSEN);
+    let calls = std::cell::Cell::new(0);
+    let write_once = |_: &str, _: MessageEnvelope, _: &str| {
+        calls.set(calls.get() + 1);
+        panic!("opaque handoff interruption");
+    };
+    assert_eq!(
+        deliver(&store, &id, write_once),
+        AnswerDeliveryOutcome::SubmitUnconfirmed
+    );
+    assert_eq!(
+        deliver(&store, &id, write_once),
+        AnswerDeliveryOutcome::SubmitUnconfirmed
+    );
+    assert_eq!(calls.get(), 1);
+    assert!(!store.lock().answer_slot(&id).unwrap().delivered);
+}
+
 fn choices(labels: &[&str]) -> Vec<NotificationAction> {
     adopt_caller_actions(
         answer_actions(&labels.iter().map(|l| l.to_string()).collect::<Vec<_>>())
@@ -51,11 +72,11 @@ struct Spy {
 }
 
 impl Spy {
-    fn accept(&self, to_tab: &str, envelope: MessageEnvelope, body: &str) -> Result<(), String> {
+    fn accept(&self, to_tab: &str, envelope: MessageEnvelope, body: &str) -> AnswerHandoff {
         self.calls
             .borrow_mut()
             .push((to_tab.to_string(), Messenger::from(envelope).wrap(body)));
-        Ok(())
+        AnswerHandoff::Confirmed
     }
 
     fn calls(&self) -> Vec<(String, String)> {
@@ -202,7 +223,9 @@ fn answer_delivery_failure_surfaces_as_not_delivered() {
     store.lock().record_answer(&id, CHOSEN);
 
     let refusal = "agent_unavailable: the tab has no PTY";
-    let outcome = deliver(&store, &id, |_, _, _| Err(refusal.to_string()));
+    let outcome = deliver(&store, &id, |_, _, _| {
+        AnswerHandoff::Refused(refusal.to_string())
+    });
 
     assert_eq!(outcome, AnswerDeliveryOutcome::Failed(refusal.to_string()));
     assert!(!outcome.reached_tab(), "a refused send is never delivered");

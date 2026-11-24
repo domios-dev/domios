@@ -1,3 +1,6 @@
+import { blendColor, hslToRgb, parseHex, rgbToHsl } from "./colors";
+import { contrastRatio } from "./themeCss";
+
 export const MACHINE_KINDS = {
   laptop: { label: "Laptop", word: "laptop" },
   desktop: { label: "Desktop PC", word: "desktop PC" },
@@ -41,4 +44,55 @@ export function cleanMachineName(name?: string | null, peerId?: string | null): 
 
 export function machineLabel(name: string, identity?: MachineIdentity | null, status?: string): string {
   return [cleanMachineName(name) ?? "Machine", MACHINE_KINDS[machineKind(identity?.kind)].word, status].filter(Boolean).join(", ");
+}
+
+const presetThemeNames = new Map([
+  ["github-dark", "GitHub Dark"],
+  ["github-light", "GitHub Light"],
+  ["dracula", "Dracula"],
+  ["catppuccin-mocha", "Catppuccin Mocha"],
+  ["one-dark", "One Dark"],
+  ["nord", "Nord"],
+  ["solarized-light", "Solarized Light"],
+  ["pip-boy", "Pip-Boy"],
+  ["paper-ink", "Paper & Ink"],
+]);
+
+export function presetThemeName(name: string): string {
+  return presetThemeNames.get(name) ?? name;
+}
+
+export function machineThemeName(name: string): string {
+  const preset = presetThemeNames.get(name);
+  if (preset) return preset;
+  if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(name)) return name;
+  return name.split(/[-_]/).map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
+}
+
+export function desaturateMachineColor(color: string, online: boolean): string {
+  if (online) return color;
+  const [hue, saturation, lightness] = rgbToHsl(...parseHex(color));
+  const channels = hslToRgb(hue, saturation * 0.35, lightness);
+  return `#${channels.map(channel => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export function machineGlyphColor(accent: string, background: string, foreground: string, tint = 0): string {
+  const contrast = (color: string) => contrastRatio(color, tint ? blendColor(background, color, tint) : background);
+  if (contrast(accent) >= 3) return accent;
+  const black = "#000000";
+  const white = "#ffffff";
+  const fallback = contrast(black) > contrast(white) ? black : white;
+  const toward = contrast(foreground) >= 3 ? foreground : fallback;
+  for (let percent = 5; percent < 100; percent += 5) {
+    const color = blendColor(accent, toward, percent / 100);
+    if (contrast(color) >= 3) return color;
+  }
+  return toward;
+}
+
+export function machineTileColors(accent: string, background: string, foreground: string, selected: boolean) {
+  const tint = selected ? 0.235 : 0.15;
+  const tone = machineGlyphColor(accent, background, foreground, tint);
+  const fill = blendColor(background, tone, tint);
+  return { tone, glyph: machineGlyphColor(tone, fill, foreground) };
 }

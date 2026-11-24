@@ -25,6 +25,7 @@ import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRun
 import { useNeighbors } from "./useNeighbors";
 import { clearNeighborCaches, lastKnownNeighborIdentity, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
+import { Button } from "../shared/Button";
 import { conciergeNeedsAttention, conciergeStatusLine, parseConciergeStatus } from "./useConciergeStatus";
 import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
 import { resetPausedFriends, setFriendPaused, usePausedFriends } from "./neighborPause";
@@ -35,7 +36,7 @@ import { RemoteNeighborSection } from "./RemoteNeighborSection";
 import { FriendRow } from "./FriendRow";
 import { neighborSidebarLine } from "./neighborSidebarLine";
 
-const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
+const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center";
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
 export function SidebarNeighborsSection(props: Parameters<typeof LocalNeighborsSection>[0]) {
@@ -68,6 +69,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
   const cached = useMemo(() => readNeighborCache(identity ?? (accountPending ? lastKnownNeighborIdentity() : null)), [identity, accountPending]);
   const listLoading = identity !== null && neighbors.list === null && neighbors.error === null;
   const loading = listLoading || (accountPending && cached !== null);
+  const listError = enabled ? neighbors.error : null;
   const shown: CachedNeighbors | null = neighbors.error ? null : neighbors.list ?? (loading ? cached : null);
   const friends: CachedFriend[] = shown?.friends ?? [];
   // A signed-in account with no record yet may have friends; its header holds the slot until the list answers.
@@ -103,7 +105,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
     return () => { live = false; stop?.(); };
   }, [conciergeClient]);
 
-  if (friends.length === 0 && !neighbors.error && !reserved) return null;
+  if (friends.length === 0 && !listError && !reserved) return null;
   const togglePaused = (friend: CachedFriend, paused: boolean) => setFriendPaused(conciergeClient, friend.friendship_id, !paused, paused,
     detail => publishNotice({ kind: "toast", severity: "Error", id: `neighbor-pause:${friend.friendship_id}`, title: paused ? "Could not enable" : "Could not disable", detail }));
   const text = touchMode ? pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"])
@@ -120,7 +122,10 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
       <span className="sidebar-structural-label truncate">Neighbors</span>
       {loading && <span className="sidebar-neighbors-loading" role="status" aria-label="Refreshing Neighbors"><ActivityDots size="small" tone="muted" active /></span>}
     </SidebarDisclosure>
-    {neighbors.error && <p role="status" className="sidebar-neighbors-off">Neighbors unavailable: {neighbors.error}</p>}
+    {listError && <div className="sidebar-neighbors-off">
+      <p role="status">{listError}</p>
+      <Button size="sm" loading={neighbors.refreshing} onClick={() => void neighbors.refresh()}>Retry</Button>
+    </div>}
     <div className="sidebar-neighbors-section__items mt-0.5 overflow-y-auto">
     {expanded && !enabled && <p role="status" className="sidebar-neighbors-off">Neighbors is off</p>}
     {expanded && <ul aria-label="Your Neighbors" className="sidebar-neighbors" data-off={enabled ? undefined : true}>{friends.map(friend => {
@@ -193,7 +198,7 @@ export function ConciergeRow({ tab, friendName, text, touchMode, subline, workin
           ? <AgentIcon providerId={tab.agent_type} className="text-[12px]" title={tab.agent_type} />
           : <Bot size={12} aria-hidden="true" />}</span>
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
-          <span className={`${text} block truncate min-w-0 ${active ? "font-medium text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)]"}`}>{label}</span>
+          <span className={`${text} block truncate min-w-0 ${active ? "font-semibold text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)]"}`}>{label}</span>
           {working && <span data-testid="concierge-working" role="img" aria-label={`${label} working`} className="inline-flex items-center shrink-0">
             <ActivityDots size="small" tone="muted" active /></span>}
         </span>

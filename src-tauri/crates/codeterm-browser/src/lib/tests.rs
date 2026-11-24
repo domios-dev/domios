@@ -70,3 +70,43 @@ async fn browser_host_without_runtime_tracks_viewport_and_has_no_page() {
     assert_eq!(host.viewport().dpr, 2.0);
     assert!(host.profiles().await.is_empty());
 }
+
+#[tokio::test]
+async fn browser_host_shutdown_refuses_a_late_open_before_launch() {
+    let root = tempfile::tempdir().unwrap();
+    let mut config = BrowserHostConfig::under_data_dir(root.path());
+    config.binary = Some(root.path().join("missing-browser"));
+    let host = BrowserHost::new(config);
+    host.shutdown().await;
+    let error = host
+        .open(OpenOptions {
+            profile: String::new(),
+            width: 1280.0,
+            height: 720.0,
+            dpr: 1.0,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error, "browser surface is closed");
+    assert!(!host.config.layout.root().exists());
+}
+
+#[tokio::test]
+async fn browser_host_reports_launch_error_with_its_reason() {
+    let root = tempfile::tempdir().unwrap();
+    let mut config = BrowserHostConfig::under_data_dir(root.path());
+    config.binary = Some(root.path().join("missing-browser"));
+    let host = BrowserHost::new(config);
+    assert_eq!(host.status(), BrowserStatus::Closed);
+    let reason = host
+        .open(OpenOptions {
+            profile: String::new(),
+            width: 1280.0,
+            height: 720.0,
+            dpr: 1.0,
+        })
+        .await
+        .unwrap_err();
+    assert!(!reason.is_empty());
+    assert_eq!(host.status(), BrowserStatus::Error(reason));
+}

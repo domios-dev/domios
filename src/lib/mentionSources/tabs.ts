@@ -2,33 +2,46 @@ import { canonicalMentionText } from "../../../packages/chat-ui/src/codeterm/can
 import { mentionMatch, type MentionSource } from "../composerMentions";
 import { cleanMachineName } from "../machineIdentity";
 import type { Tab, Workspace } from "../types";
+import { remoteViewerIdentity } from "../remoteTabPortal";
+import type { BrowsedWorkspace } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { mentionScopeForTab } from "./scope";
 
-export function tabMentionSource(read: () => { tabs: Record<string, Tab>; workspaces: readonly Workspace[] }): MentionSource {
+export function tabMentionSource(read: () => { tabs: Record<string, Tab>; workspaces: readonly Workspace[]; peerWorkspaces?: readonly BrowsedWorkspace[] }): MentionSource {
   return {
     id: "tabs", group: "Tabs",
     async search(query, { scope, signal }) {
       signal.throwIfAborted();
-      if (!scope.workspaceId) return [];
-      const { tabs, workspaces } = read();
-      return Object.values(tabs).filter((tab) => tab.tab_type === "Terminal").map((tab) => {
-        const workspace = workspaces.find((ws) => ws.id === tab.workspace_id || ws.tabs.includes(tab.id));
-        const proximity = tab.remote_peer_id ? 4 : scope.teamId && tab.team_id === scope.teamId ? 0
-          : workspace?.id !== scope.workspaceId ? 3 : tab.team_id && tab.team_id !== scope.teamId ? 2 : 1;
-        const group = proximity === 4 ? "Tabs · Mesh" : proximity === 3 ? "Tabs · Other workspaces" : proximity === 0 ? "Tabs · Team"
-          : tab.team_id && tab.team_id !== scope.teamId ? "Tabs · Other Teams" : "Tabs · Workspace";
-        const machineName = tab.remote_peer_id
-          ? cleanMachineName(tab.remote_peer_name, tab.remote_peer_id) ?? "Machine"
-          : undefined;
-        return {
+      if (!scope.workspaceId && !scope.peerId) return [];
+      const state = read();
+      const { tabs, workspaces, peerWorkspaces } = state;
+      return Object.values(tabs).flatMap((tab) => {
+        if (tab.tab_type !== "Terminal" || tab.hidden || tab.show_in_tabbar === false) return [];
+        const identity = remoteViewerIdentity(tab);
+        if (!identity && (tab.remote_peer_id || tab.id.startsWith("mesh:") || scope.peerId)) return [];
+        const target = mentionScopeForTab(state, tab.id, peerWorkspaces);
+        const crossMachine = (target.peerId ?? null) !== (scope.peerId ?? null);
+        const sameWorkspace = target.workspaceId != null && target.workspaceId === scope.workspaceId;
+        const otherTeam = target.teamId && target.teamId !== scope.teamId;
+        const proximity = crossMachine ? 4 : scope.teamId && target.teamId === scope.teamId ? 0
+          : !sameWorkspace ? 3 : otherTeam ? 2 : 1;
+        const group = crossMachine ? "Tabs · Mesh" : proximity === 3 ? "Tabs · Other workspaces" : proximity === 0 ? "Tabs · Team"
+          : otherTeam ? "Tabs · Other Teams" : "Tabs · Workspace";
+        const machineName = identity ? cleanMachineName(tab.remote_peer_name, identity.peerId) ?? "Machine" : undefined;
+        const workspaceName = target.peerId
+          ? peerWorkspaces?.find(ws => ws.peerId === target.peerId && ws.workspace.id === target.workspaceId)?.workspace.name
+          : workspaces.find(ws => ws.id === target.workspaceId)?.name;
+        const ids = identity && !crossMachine ? [tab.id, identity.remoteTabId] : [tab.id];
+        return [{
           kind: "tab" as const, id: `tabs:${tab.id}`, label: tab.title, group, providerId: tab.agent_type,
-          machine: tab.remote_peer_id && machineName ? { id: tab.remote_peer_id, name: machineName } : undefined,
-          description: [tab.role ?? (tab.agent_type ? "Agent" : "Shell"), tab.description, machineName ?? workspace?.name].filter(Boolean).join(" · "),
+          crossMachine,
+          machine: identity && crossMachine && machineName ? { id: identity.peerId, name: machineName } : undefined,
+          description: [tab.role ?? (tab.agent_type ? "Agent" : "Shell"), tab.description, machineName ?? workspaceName].filter(Boolean).join(" · "),
           insertText: canonicalMentionText("tab", tab.title, tab.id),
-          match: mentionMatch(query, [tab.id, tab.title, (tab.description ?? "").replace(/\bagent\b/gi, ""), (tab.role ?? "").replace(/\bagent\b/gi, "")]),
+          match: mentionMatch(query, [...ids, tab.title, (tab.description ?? "").replace(/\bagent\b/gi, ""), (tab.role ?? "").replace(/\bagent\b/gi, "")]),
           titlePrefix: !!query && tab.title.toLowerCase().startsWith(query.toLowerCase()),
-          exact: !!query && [tab.id, tab.title].some((value) => value.toLowerCase() === query.toLowerCase()),
+          exact: !!query && [...ids, tab.title].some((value) => value.toLowerCase() === query.toLowerCase()),
           proximity, agentOrder: tab.agent_type || tab.role ? 0 : 1,
-        };
+        }];
       });
     },
   };

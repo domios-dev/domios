@@ -195,7 +195,7 @@
 }
 
 .ct-msg-bead {
-  border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 35%, transparent);
+  border: 1px solid var(--ct-panel-edge);
   border-radius: 50%;
   height: 7px;
   left: 4.5px;
@@ -294,7 +294,7 @@
   border: 1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent);
   border-radius: 10px;
   bottom: 0.75rem;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.28);
+  box-shadow: var(--ct-shadow-md);
   color: var(--ct-fg, #c9d1d9);
   display: flex;
   font-size: 12px;

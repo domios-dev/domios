@@ -16,6 +16,12 @@ pub trait CommandPort: Send + Sync {
         None
     }
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
+    fn surface_tab_status(
+        &self,
+        _tab: &crate::multiplexer::types::Tab,
+    ) -> Option<(&'static str, Option<String>)> {
+        None
+    }
     /// The status-bearing snapshot, waiting for the state locks no later than
     /// `deadline`. `None` means a writer held them past the deadline.
     fn mux_snapshot_until(
@@ -293,15 +299,14 @@ pub fn dispatch_tab_summary_if_ready(
         .as_deref()
         .map(|selector| resolve_workspace_selector(&snapshot, selector))
         .transpose()?;
-    Ok(CommandResult::Json(serde_json::json!(
-        build_tab_summary_json(
-            &snapshot,
-            resolved_workspace.as_deref(),
-            caller_tab_id.as_deref(),
-            *focused_workspace,
-            *agents_only,
-        )
-    )))
+    Ok(tab_summary_result(
+        ctx,
+        &snapshot,
+        resolved_workspace.as_deref(),
+        caller_tab_id.as_deref(),
+        *focused_workspace,
+        *agents_only,
+    ))
 }
 
 pub fn resolve_workspace_selector(
@@ -482,15 +487,45 @@ fn cmd_tab_summary(
     let resolved_workspace = workspace_id
         .map(|selector| resolve_workspace_selector(&snapshot, selector))
         .transpose()?;
-    Ok(CommandResult::Json(serde_json::json!(
-        build_tab_summary_json(
-            &snapshot,
-            resolved_workspace.as_deref(),
-            caller_tab_id,
-            focused_workspace,
-            agents_only,
-        )
-    )))
+    Ok(tab_summary_result(
+        ctx,
+        &snapshot,
+        resolved_workspace.as_deref(),
+        caller_tab_id,
+        focused_workspace,
+        agents_only,
+    ))
+}
+
+fn tab_summary_result(
+    ctx: &dyn CommandPort,
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+    workspace_id: Option<&str>,
+    caller_tab_id: Option<&str>,
+    focused_workspace: bool,
+    agents_only: bool,
+) -> CommandResult {
+    let mut rows = build_tab_summary_json(
+        snapshot,
+        workspace_id,
+        caller_tab_id,
+        focused_workspace,
+        agents_only,
+    );
+    for row in &mut rows {
+        let Some(tab) = row["id"].as_str().and_then(|id| snapshot.tabs.get(id)) else {
+            continue;
+        };
+        if tab.surface().is_some() {
+            if let Some((status, reason)) = ctx.surface_tab_status(tab) {
+                row["status"] = serde_json::json!(status);
+                if let Some(reason) = reason {
+                    row["failure"] = serde_json::json!({ "reason": reason });
+                }
+            }
+        }
+    }
+    CommandResult::Json(serde_json::json!(rows))
 }
 
 fn cmd_tab_inspect(
