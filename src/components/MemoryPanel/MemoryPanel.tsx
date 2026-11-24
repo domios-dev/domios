@@ -20,6 +20,7 @@ import { UI_TEXT } from "../shared/design";
 import { Loader } from "../shared/Loader";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
 import "./memoryPanelChrome.css";
+import { memoryStatsSummary } from "./memoryStatsSummary";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
 
@@ -179,9 +180,11 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
         >
           <h1>Memory</h1>
           <span className="memory-panel-stats" data-testid="memory-stats-summary">
-            {(memStats ? memStats.total_entities + memStats.total_items : (snapshot.stats?.node_count ?? 0)).toLocaleString("en-US")} memories &middot;{" "}
-            {(memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)).toLocaleString("en-US")} connections &middot;{" "}
-            {(memStats?.total_vectors ?? 0).toLocaleString("en-US")} indexed
+            {memoryStatsSummary(
+              memStats ? memStats.total_entities + memStats.total_items : (snapshot.stats?.node_count ?? 0),
+              memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0),
+              memStats?.total_vectors ?? 0,
+            )}
           </span>
 
           <div className="memory-panel-tabs">
