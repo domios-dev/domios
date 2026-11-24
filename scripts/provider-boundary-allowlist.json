@@ -2703,34 +2703,6 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/signals.rs",
-      "token": "parity_claude_auth_probe_and_status",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/signals.rs",
-      "token": "parity_claude_background_work_and_fork_capabilities",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/signals.rs",
-      "token": "parity_claude_initialize_capability_declaration",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/signals.rs",
-      "token": "parity_claude_transcript_observations",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/usage_sources.rs",
       "token": "Claude",
       "count": 1,
@@ -10714,12 +10686,20 @@
       "reason": "Native provider-owned external instruction import fingerprint and prompt projection."
     },
     {
+      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/background_work.rs",
+      "reason": "Native Claude adapter parsing its own background task output layout."
+    },
+    {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
       "reason": "Provider-owned native/JavaScript parity proof on captured external instruction import fixtures."
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/input_attach.rs",
       "reason": "Provider-owned native/JavaScript parity proof that the provider declares bracketed-paste input attach."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/signals.rs",
+      "reason": "Claude-specific native/JavaScript parity fixtures for runtime observations and capabilities."
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/opencode/runtime.rs",
