@@ -95,9 +95,9 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
   const hidesThemeWallpaper = hasThemeWallpaper && look.wallpaper !== null;
   const exposesThemeWallpaper = hasThemeWallpaper && look.wallpaper === null && record.previous.wallpaper !== null;
   const appliedTime = record.applied_at === null ? "" : new Date(record.applied_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const stateText = state === "proposed" ? (peer ? `For ${name}` : "Proposal") : state === "applied"
-    ? `✓ Applied${peer ? ` to ${name}` : ""}${appliedTime ? ` · ${appliedTime}` : ""}`
-    : record.tweak ? "↶ Undone" : `↶ Undone · back to ${record.previous.theme.name}`;
+  const stateText = state === "proposed" ? (peer ? `For ${name}` : "Proposal")
+    : state === "undone" ? (record.tweak ? "↶ Undone" : `↶ Undone · back to ${record.previous.theme.name}`)
+    : record.can_undo ? `✓ Applied${peer ? ` to ${name}` : ""}${appliedTime ? ` · ${appliedTime}` : ""}` : "Replaced by a newer look";
   const themeWallpaperName = themeWallpaper?.pattern === "none" ? undefined
     : WALLPAPER_PATTERNS.find(pattern => pattern.id === themeWallpaper?.pattern)?.label
       ?? (themeWallpaper?.pattern === "svg" ? "SVG" : themeWallpaper?.pattern);
@@ -160,8 +160,10 @@ function AppearanceCard({ id, machine }: { id: string; machine: string }) {
         {record.tweak && <div className="ct-appearance-card__changes">
           {tweakChanges(record).map(change => <span key={change}>{change}</span>)}
         </div>}
-        {state === "applied" ? <Button variant="outline" aria-label={`Undo · back to ${record.previous.theme.name}`} disabled={busy || !record.can_undo} onClick={event => void run("undo", event.currentTarget)}>Undo</Button>
-          : !record.tweak && <Button variant={state === "undone" ? "outline" : "primary"} disabled={busy} onClick={event => void run("apply", event.currentTarget)}>{applyLabel}</Button>}
+        {state === "applied" && record.can_undo && <Button variant="outline" aria-label={`Undo · back to ${record.previous.theme.name}`}
+          disabled={busy} onClick={event => void run("undo", event.currentTarget)}>Undo</Button>}
+        {state !== "applied" && !record.tweak && <Button variant={state === "undone" ? "outline" : "primary"}
+          disabled={busy} onClick={event => void run("apply", event.currentTarget)}>{applyLabel}</Button>}
         <Button variant="ghost" onClick={openLab}><FlaskConical size={13} aria-hidden="true" /> Open in Lab</Button>
         <small className="ct-appearance-card__state" role="status">{stateText}</small>
       </footer>

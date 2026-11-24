@@ -192,7 +192,7 @@ it("counts staged changes and discards wallpaper without losing other controls",
   }
 });
 
-it("shows the applied receipt with named Undo and closes after undoing", async () => {
+it("keeps the applied receipt and named Undo available beyond eight seconds", async () => {
   const machine = { id: "fixture", name: "Desk" };
   const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };
   const nextTheme = { ...DEFAULT_THEME, name: "Evening" };
@@ -214,16 +214,21 @@ it("shows the applied receipt with named Undo and closes after undoing", async (
     await lab.render();
     expect(lab.button(undo)).toBeUndefined();
     await act(async () => [...lab.host.querySelectorAll("button")].find(button => button.textContent === nextTheme.name)!.click());
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await act(async () => lab.button("Apply")!.click());
     expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "local" }, receipt.id, "apply");
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(lab.close).not.toHaveBeenCalled();
     expect(lab.status()).toMatch(/^Applied · \d{2}:\d{2}$/);
     expect(lab.button(undo)?.disabled).toBe(false);
+    expect(lab.button("Dismiss applied appearance")?.disabled).toBe(false);
 
     await act(async () => lab.button(undo)!.click());
     expect(api.changeAppearance).toHaveBeenLastCalledWith({ machine: "local" }, receipt.id, "undo");
     expect(lab.close).toHaveBeenCalledWith(false);
     expect(lab.host.querySelector('[role="toolbar"]')).toBeNull();
   } finally {
+    vi.useRealTimers();
     await lab.cleanup();
   }
 });
@@ -393,6 +398,34 @@ it.each([
     await show();
     expect(host.textContent).toBe("Current look");
     expect(lab!.session).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("removes stale Undo from an appearance card when a newer look replaces it", async () => {
+  const machine = { id: "fixture", name: "Desk" };
+  const look: AppearanceLook = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };
+  const previous = { ...look, theme: { ...look.theme, name: "Earlier look" } };
+  const applied: AppearanceProposal = {
+    id: "older", machine, look, previous, rationale: "", state: "applied",
+    can_undo: true, applied_at: 1735689600, contrast: [],
+  };
+  api.readAppearanceProposal.mockResolvedValue(applied);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(renderAppearanceCard(applied.id, machine.id)));
+    expect(host.querySelector('button[aria-label="Undo · back to Earlier look"]')).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("test-appearance-change", {
+        detail: { receipt: { ...applied, id: "newer", previous: look } },
+      }));
+    });
+    expect(host.querySelector('footer [role="status"]')?.textContent).toBe("Replaced by a newer look");
+    expect([...host.querySelectorAll("footer button")].map(button => button.textContent?.trim())).toEqual(["Open in Lab"]);
   } finally {
     await act(async () => root.unmount());
     host.remove();
