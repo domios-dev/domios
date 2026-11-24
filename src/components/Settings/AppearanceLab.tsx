@@ -15,7 +15,7 @@ import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "
 import { cleanMachineName } from "../../lib/machineIdentity";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 import { appearanceLabChanges, type AppearanceLabCategory, type AppearanceLabChange } from "./AppearanceLabChanges";
-import { AppearanceLabDock, LAB_CATEGORIES } from "./AppearanceLabDock";
+import { AppearanceLabDock, LAB_CATEGORIES, type AppearanceLabPopover } from "./AppearanceLabDock";
 import type { AppearanceLabProjection } from "./AppearanceLabSession";
 import { ChatWallpaperPicker } from "./ChatWallpaperPicker";
 import { MachineAppearanceContext } from "../../lib/useMachineAppearance";
@@ -53,7 +53,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const wallpaperRevision = useRef(0);
   const [card, setCard] = useState<AppearanceLabCategory | undefined>(showWallpaperOwn ? "wallpaper" : "presets");
   const [collapsed, setCollapsed] = useState(false);
-  const [listOpen, setListOpen] = useState(false);
+  const [popover, setPopover] = useState<AppearanceLabPopover>();
   const [comparing, setComparing] = useState(false);
   const [justApplied, setJustApplied] = useState<AppearanceProposal>();
   const [busy, setBusy] = useState(false);
@@ -119,7 +119,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
     setOpenedProposal(undefined);
     setJustApplied(undefined);
     setComparing(false);
-    setListOpen(false);
+    if (popover === "changes") setPopover(undefined);
     setError("");
     setTarget(id === "local" ? LOCAL : { machine: id, peer: id });
   };
@@ -154,10 +154,13 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   };
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
+  const activePopover = justApplied || (popover === "changes" && !dirty) ? undefined : popover;
+  const popoverOpenRef = useRef(false);
+  popoverOpenRef.current = activePopover !== undefined;
   useBackDismissal(true, dismiss);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || popoverOpenRef.current) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       dismissRef.current();
@@ -170,7 +173,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
     else {
       setCard(category);
       setCollapsed(false);
-      setListOpen(false);
+      setPopover(undefined);
     }
   };
   const failures = contrast?.look === draft ? contrast?.checks.filter(check => check.ratio < check.floor) ?? [] : [];
@@ -197,7 +200,7 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
       const receipt = await changeAppearance(target, next.id, "apply");
       if (receipt.can_undo) {
         setJustApplied(receipt);
-        setListOpen(false);
+        setPopover(undefined);
       }
     } catch (failure) {
       clearAppearancePress(button);
@@ -262,124 +265,127 @@ export function AppearanceLab({ config, open, showWallpaperOwn, onProject, onClo
   const cardTitle = card === "shape" ? "Shape and depth" : selectedCategory?.label;
   const machineSelector = (
     <label className="ct-appearance-machine"><Monitor size={15} aria-hidden="true" />For:
-      <select aria-label="Appearance machine" value={target.peer ?? "local"} onChange={event => changeMachine(event.target.value)} disabled={busy}>
+      <select autoFocus aria-label="Appearance machine" value={target.peer ?? "local"} onChange={event => changeMachine(event.target.value)} disabled={busy}>
         <option value="local">{localName ? `This machine · ${localName}` : "This machine"}</option>
         {machineChoices.peers?.map(peer => <option key={peer.instance_id} value={peer.instance_id}>{accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine"}{peer.online ? "" : " · offline"}</option>)}
       </select>
     </label>
   );
+  const previewTag = projectedLook && !justApplied && <p className="ct-appearance-try__tag" role="status">
+    {comparing ? "Comparing · current look" : "● Previewing · not applied"}<span> · Esc to exit</span>
+  </p>;
+  const cardControls = (
+    <div id={cardId} className="ct-appearance-try__card" role="region" aria-label={cardTitle ?? "Appearance controls"} hidden={!visibleCard}>
+      <header>
+        <h2>{cardTitle}</h2>
+        <button type="button" aria-label="Collapse appearance card" onClick={() => dismissCard(true)}><Minus size={15} aria-hidden="true" /></button>
+        <button type="button" aria-label="Close appearance card" onClick={() => dismissCard(false)}><X size={15} aria-hidden="true" /></button>
+      </header>
+      {current && draft && !unavailable && visibleCard && <fieldset disabled={busy} className="ct-appearance-try__controls" aria-label="Appearance controls">
+        {visibleCard === "presets" && (
+          <SettingsCard title="Presets" headerRight={<small>{current.presets.length} looks</small>}>
+            <div className="ct-appearance-presets">
+              {current.presets.map(theme => (
+                <button type="button" key={theme.name} onClick={() => pickPreset(theme)} aria-pressed={draft.theme.name === theme.name}
+                  data-appearance-field="theme" style={{ background: theme.background, color: theme.foreground }}>
+                  <span aria-hidden="true">{[theme.foreground, theme.blue, theme.green, theme.yellow, theme.red].map((colour, index) => <i key={index} style={{ background: colour }} />)}</span>
+                  {theme.name}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="ct-appearance-lab__ask" disabled={!generalTab || busy} aria-expanded={ask}
+              onClick={() => setAsk(value => !value)}><Sparkles size={15} aria-hidden="true" /> Ask General for a look</button>
+            {ask && <form className="ct-appearance-ask" onSubmit={askGeneral}>
+              <input className="ct-field ct-field-prominent" aria-label="Describe the look" value={prompt} maxLength={500}
+                placeholder="Calm forest at night" onChange={event => setPrompt(event.target.value)} />
+              <button type="submit" disabled={!prompt.trim() || busy}>Send to General</button>
+            </form>}
+          </SettingsCard>
+        )}
+        {visibleCard === "palette" && (
+          <SettingsCard title="Palette" headerRight={<small>Contrast against the background</small>}>
+            {PALETTE_CONTROLS.map(({ key, label }) => {
+              const ratio = paletteContrast(draft.theme, key);
+              return <label key={key} className="ct-appearance-colour">
+                <input type="color" aria-label={label} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
+                <span>{label}</span><code>{draft.theme[key]}</code>
+                {ratio !== undefined && <output data-pass={ratio >= 4.5}>{ratio.toFixed(1)}:1 {ratio >= 4.5 ? "✓" : "✕"}</output>}
+              </label>;
+            })}
+            <details className="ct-appearance-terminal">
+              <summary>Terminal colours · {TERMINAL_COLOURS.length}</summary>
+              {TERMINAL_COLOURS.map(key => <label className="ct-appearance-colour" key={key}>
+                <input type="color" aria-label={key.replaceAll("_", " ")} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
+                <span>{key.replaceAll("_", " ")}</span><code>{draft.theme[key]}</code>
+              </label>)}
+            </details>
+            {failures.length > 0 && <ul className="ct-appearance-contrast" aria-label="Contrast problems">
+              {failures.map(failure => <li key={failure.pair}>
+                <span>{failure.pair} {failure.ratio.toFixed(2)}:1, needs {failure.floor}:1</span>
+                {failure.fix && <button type="button" onClick={() => setDraft(value => value && failure.fix ? applyContrastFix(value, failure.fix) : value)}
+                  aria-label={`Fix ${failure.pair}`}>Fix</button>}
+              </li>)}
+            </ul>}
+          </SettingsCard>
+        )}
+        {visibleCard === "wallpaper" && (
+          <ChatWallpaperPicker key={wallpaperVersion} config={config} showOwnInitially={showWallpaperOwn && wallpaperVersion === 0} stage={{
+            theme: draft.theme, wallpaper: draft.wallpaper, peerId: target.peer, ready: !busy,
+            discard: discardWallpaper,
+            ask: generalTab ? () => { setAsk(true); setCard("presets"); } : undefined,
+            update: wallpaper => {
+              if (wallpaperVersion === wallpaperRevision.current) setDraft(value => value && { ...value, wallpaper });
+            },
+          }} />
+        )}
+        {visibleCard === "shape" && (
+          <SettingsCard title="Shape and depth">
+            <label className="ct-appearance-knob">Corner roundness
+              <span><input type="range" data-appearance-field="appearance.roundness" min={0} max={1} step={0.05} value={tuning.roundness} onChange={event => editTuning({ roundness: event.target.valueAsNumber })} />
+                <span className="ct-appearance-ticks"><small>Square</small><small>Default</small></span>
+              </span><output>{tuning.roundness.toFixed(2)}</output>
+            </label>
+            <label className="ct-appearance-knob">Shadow strength
+              <input type="range" data-appearance-field="appearance.shadow_strength" min={0} max={1} step={0.05} value={tuning.shadow_strength} onChange={event => editTuning({ shadow_strength: event.target.valueAsNumber })} />
+              <output>{tuning.shadow_strength === 1 ? "Default" : tuning.shadow_strength.toFixed(2)}</output>
+            </label>
+            <label className="ct-appearance-knob">Border brightness
+              <input type="range" aria-label="Border brightness" data-appearance-field="appearance.border_strength" min={0} max={1} step={0.01} value={tuning.border_strength} onChange={event => editTuning({ border_strength: event.target.valueAsNumber })} />
+              <output>{Math.round(tuning.border_strength * 100)}%</output>
+            </label>
+          </SettingsCard>
+        )}
+        {visibleCard === "text" && (
+          <SettingsCard title="Text">
+            <div className="ct-appearance-knob">Interface text
+              <div className="ct-appearance-size" role="group" aria-label="Interface text">
+                <button type="button" aria-label="Decrease interface text size" data-appearance-field="appearance.font_size" disabled={tuning.font_size <= -1} onClick={() => editTuning({ font_size: tuning.font_size - 1 })}>A−</button>
+                <output>{13 + tuning.font_size} px</output>
+                <button type="button" aria-label="Increase interface text size" data-appearance-field="appearance.font_size" disabled={tuning.font_size >= 2} onClick={() => editTuning({ font_size: tuning.font_size + 1 })}>A+</button>
+                {tuning.font_size === 0 && <small>Default</small>}
+              </div>
+            </div>
+          </SettingsCard>
+        )}
+      </fieldset>}
+    </div>
+  );
   return (
     <section ref={lab} className="ct-appearance-lab ct-appearance-try" aria-label="Appearance Lab"
       data-card-open={visibleCard ? "" : undefined} data-applied={justApplied ? "" : undefined}>
-      {projectedLook && !justApplied && <p className="ct-appearance-try__tag" role="status">
-        {comparing ? "Comparing · current look" : "● Previewing · not applied"}<span> · Esc to exit</span>
-      </p>}
       {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}
       {error && <p role="alert" className="ct-appearance-try__notice ct-appearance-error">{error}</p>}
       {!draft && !unavailable && !error && <p className="ct-appearance-try__notice" role="status">Reading appearance…</p>}
       {collapsed && card && selectedCategory && !justApplied && <button type="button" className="ct-appearance-try__pill"
         onClick={() => selectCategory(card)}><selectedCategory.icon size={15} aria-hidden="true" />
         {selectedCategory.label} · {changes.filter(change => change.category === card).length} changes</button>}
-      <div id={cardId} className="ct-appearance-try__card" role="region" aria-label={cardTitle ?? "Appearance controls"} hidden={!visibleCard}>
-        <header>
-          <h2>{cardTitle}</h2>
-          <button type="button" aria-label="Collapse appearance card" onClick={() => dismissCard(true)}><Minus size={15} aria-hidden="true" /></button>
-          <button type="button" aria-label="Close appearance card" onClick={() => dismissCard(false)}><X size={15} aria-hidden="true" /></button>
-        </header>
-        {current && draft && !unavailable && visibleCard && <fieldset disabled={busy} className="ct-appearance-try__controls" aria-label="Appearance controls">
-          {visibleCard === "presets" && (
-            <SettingsCard title="Presets" headerRight={<small>{current.presets.length} looks</small>}>
-              <div className="ct-appearance-presets">
-                {current.presets.map(theme => (
-                  <button type="button" key={theme.name} onClick={() => pickPreset(theme)} aria-pressed={draft.theme.name === theme.name}
-                    data-appearance-field="theme" style={{ background: theme.background, color: theme.foreground }}>
-                    <span aria-hidden="true">{[theme.foreground, theme.blue, theme.green, theme.yellow, theme.red].map((colour, index) => <i key={index} style={{ background: colour }} />)}</span>
-                    {theme.name}
-                  </button>
-                ))}
-              </div>
-              <button type="button" className="ct-appearance-lab__ask" disabled={!generalTab || busy} aria-expanded={ask}
-                onClick={() => setAsk(value => !value)}><Sparkles size={15} aria-hidden="true" /> Ask General for a look</button>
-              {ask && <form className="ct-appearance-ask" onSubmit={askGeneral}>
-                <input className="ct-field ct-field-prominent" aria-label="Describe the look" value={prompt} maxLength={500}
-                  placeholder="Calm forest at night" onChange={event => setPrompt(event.target.value)} />
-                <button type="submit" disabled={!prompt.trim() || busy}>Send to General</button>
-              </form>}
-            </SettingsCard>
-          )}
-          {visibleCard === "palette" && (
-            <SettingsCard title="Palette" headerRight={<small>Contrast against the background</small>}>
-              {PALETTE_CONTROLS.map(({ key, label }) => {
-                const ratio = paletteContrast(draft.theme, key);
-                return <label key={key} className="ct-appearance-colour">
-                  <input type="color" aria-label={label} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
-                  <span>{label}</span><code>{draft.theme[key]}</code>
-                  {ratio !== undefined && <output data-pass={ratio >= 4.5}>{ratio.toFixed(1)}:1 {ratio >= 4.5 ? "✓" : "✕"}</output>}
-                </label>;
-              })}
-              <details className="ct-appearance-terminal">
-                <summary>Terminal colours · {TERMINAL_COLOURS.length}</summary>
-                {TERMINAL_COLOURS.map(key => <label className="ct-appearance-colour" key={key}>
-                  <input type="color" aria-label={key.replaceAll("_", " ")} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
-                  <span>{key.replaceAll("_", " ")}</span><code>{draft.theme[key]}</code>
-                </label>)}
-              </details>
-              {failures.length > 0 && <ul className="ct-appearance-contrast" aria-label="Contrast problems">
-                {failures.map(failure => <li key={failure.pair}>
-                  <span>{failure.pair} {failure.ratio.toFixed(2)}:1, needs {failure.floor}:1</span>
-                  {failure.fix && <button type="button" onClick={() => setDraft(value => value && failure.fix ? applyContrastFix(value, failure.fix) : value)}
-                    aria-label={`Fix ${failure.pair}`}>Fix</button>}
-                </li>)}
-              </ul>}
-            </SettingsCard>
-          )}
-          {visibleCard === "wallpaper" && (
-            <ChatWallpaperPicker key={wallpaperVersion} config={config} showOwnInitially={showWallpaperOwn && wallpaperVersion === 0} stage={{
-              theme: draft.theme, wallpaper: draft.wallpaper, peerId: target.peer, ready: !busy,
-              discard: discardWallpaper,
-              ask: generalTab ? () => { setAsk(true); setCard("presets"); } : undefined,
-              update: wallpaper => {
-                if (wallpaperVersion === wallpaperRevision.current) setDraft(value => value && { ...value, wallpaper });
-              },
-            }} />
-          )}
-          {visibleCard === "shape" && (
-            <SettingsCard title="Shape and depth">
-              <label className="ct-appearance-knob">Corner roundness
-                <span><input type="range" data-appearance-field="appearance.roundness" min={0} max={1} step={0.05} value={tuning.roundness} onChange={event => editTuning({ roundness: event.target.valueAsNumber })} />
-                  <span className="ct-appearance-ticks"><small>Square</small><small>Default</small></span>
-                </span><output>{tuning.roundness.toFixed(2)}</output>
-              </label>
-              <label className="ct-appearance-knob">Shadow strength
-                <input type="range" data-appearance-field="appearance.shadow_strength" min={0} max={1} step={0.05} value={tuning.shadow_strength} onChange={event => editTuning({ shadow_strength: event.target.valueAsNumber })} />
-                <output>{tuning.shadow_strength === 1 ? "Default" : tuning.shadow_strength.toFixed(2)}</output>
-              </label>
-              <label className="ct-appearance-knob">Border brightness
-                <input type="range" aria-label="Border brightness" data-appearance-field="appearance.border_strength" min={0} max={1} step={0.01} value={tuning.border_strength} onChange={event => editTuning({ border_strength: event.target.valueAsNumber })} />
-                <output>{Math.round(tuning.border_strength * 100)}%</output>
-              </label>
-            </SettingsCard>
-          )}
-          {visibleCard === "text" && (
-            <SettingsCard title="Text">
-              <div className="ct-appearance-knob">Interface text
-                <div className="ct-appearance-size" role="group" aria-label="Interface text">
-                  <button type="button" aria-label="Decrease interface text size" data-appearance-field="appearance.font_size" disabled={tuning.font_size <= -1} onClick={() => editTuning({ font_size: tuning.font_size - 1 })}>A−</button>
-                  <output>{13 + tuning.font_size} px</output>
-                  <button type="button" aria-label="Increase interface text size" data-appearance-field="appearance.font_size" disabled={tuning.font_size >= 2} onClick={() => editTuning({ font_size: tuning.font_size + 1 })}>A+</button>
-                  {tuning.font_size === 0 && <small>Default</small>}
-                </div>
-              </div>
-            </SettingsCard>
-          )}
-        </fieldset>}
-      </div>
-      <AppearanceLabDock cardId={cardId} category={visibleCard} changes={changes} listOpen={listOpen} busy={busy}
+      <AppearanceLabDock cardId={cardId} card={cardControls} previewTag={previewTag}
+        category={visibleCard} changes={changes} popover={activePopover} busy={busy}
         canApply={dirty && !busy && !comparing && !unavailable && failures.length === 0}
         comparing={comparing} applyLabel={remote ? `Apply to ${machine}` : "Apply"}
         appliedStatus={justApplied && <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
         undoLabel={dirty || unavailable ? undefined : undoLabel} machineSelector={machineSelector}
-        onCategory={selectCategory} onToggleList={() => setListOpen(value => !value)} onCompare={setComparing}
+        onCategory={selectCategory} onPopoverChange={setPopover} onCompare={setComparing}
         onRevert={revert} onDiscard={() => onClose(true)} onApply={button => void apply(button)} onUndo={() => void undo()}
         onBack={() => onClose(true)} onDismissApplied={() => onClose(false)} />
     </section>

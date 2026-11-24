@@ -23,6 +23,7 @@
     "clientId": "client",
     "sessionId": "session",
     "accountId": "account",
+    "since": 123,
     "path": "/file",
     "paths": [
       "/file"
@@ -890,7 +891,7 @@
     "usage_history": [
       [
         "GET",
-        "/api/usage/history?provider=provider&since=undefined&account_id=account"
+        "/api/usage/history?provider=provider&since=123&account_id=account"
       ]
     ],
     "usage_latest": [
