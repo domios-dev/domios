@@ -21,10 +21,6 @@ pub trait NeighborsExt {
     where
         F: FnOnce() -> R + Send + 'static,
         R: std::future::Future<Output = Result<(), String>> + Send + 'static;
-    fn drain_neighbor_stop_local_owned(
-        &self,
-        generation: u64,
-    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
 }
 
 impl NeighborsExt for ServiceContext {
@@ -75,9 +71,16 @@ impl NeighborsExt for ServiceContext {
         if !self.neighbor_stop_local_pending(generation) {
             return Ok(());
         }
+        let Some(account) = self.ext::<crate::service::account::AccountCell>().0.get() else {
+            return Ok(());
+        };
+        let Some(session) = account.session().await else {
+            return Ok(());
+        };
+        let uid = session.identity.uid;
         let service = self.clone();
         self.own_neighbor_stop_local(move || async move {
-            service.drain_neighbor_stop_local_owned(generation).await
+            drain_neighbor_stop_local_owned(&service, generation, &uid).await
         })
         .await
     }
@@ -102,34 +105,27 @@ impl NeighborsExt for ServiceContext {
             .await
             .map_err(|error| error.to_string())
     }
+}
 
-    async fn drain_neighbor_stop_local_owned(&self, generation: u64) -> Result<(), String> {
-        self.require_neighbor_generation(generation)?;
-        if *self.extensions.get_or_init(Pending::default).0.lock() != Some(generation) {
-            return Ok(());
-        }
-        let Some(account) = self
-            .ext::<crate::service::account::AccountCell>()
-            .0
-            .get()
-            .cloned()
-        else {
-            return Err("Neighbor OFF cleanup has no account".into());
-        };
-        let Some(session) = account.session().await else {
-            return Err("Neighbor OFF cleanup account is signed out".into());
-        };
-        self.require_neighbor_generation(generation)?;
-        let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
-        self.retire_local_neighbor_concierges(&metadata, &session.identity.uid, generation)
-            .await?;
-        self.require_neighbor_generation(generation)?;
-        let mut pending = self.extensions.get_or_init(Pending::default).0.lock();
-        if *pending == Some(generation) {
-            *pending = None;
-        }
-        Ok(())
+async fn drain_neighbor_stop_local_owned(
+    service: &ServiceContext,
+    generation: u64,
+    uid: &str,
+) -> Result<(), String> {
+    service.require_neighbor_generation(generation)?;
+    if !service.neighbor_stop_local_pending(generation) {
+        return Ok(());
     }
+    let metadata = Metadata::new(service.account_data_root()?, uid);
+    service
+        .retire_local_neighbor_concierges(&metadata, uid, generation)
+        .await?;
+    service.require_neighbor_generation(generation)?;
+    let mut pending = service.extensions.get_or_init(Pending::default).0.lock();
+    if *pending == Some(generation) {
+        *pending = None;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
