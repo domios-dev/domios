@@ -216,7 +216,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
         </div>
       {/* Tab content */}
       <div className="@container/memory relative flex-1 min-h-0">
-        {activeTab === "dreams" && <MemoryDreamsTab api={api} />}
+        {activeTab === "dreams" && <MemoryDreamsTab api={api} onViewInGraph={handleViewInGraph} />}
         {activeTab === "inspect" && inspectView === "list" && (
           <MemoryListTab
             api={api}
