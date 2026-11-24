@@ -314,15 +314,29 @@ pub async fn mesh_relay_to_peer(
             .map_err(|message| (StatusCode::FORBIDDEN, message))?;
     }
     let target = (req.target_instance_id.clone(), req.target_peer_id.clone());
+    let appearance_proposal =
+        crate::appearance_routes::authority::is_proposal_path(&req.method, &req.path);
     let (request_origin, client, peer_id, peer_name, peer_version) =
         crate::auth::off_runtime(&state, &headers, move |state, headers| {
             let ((primary, alternatives), peer_id, peer_name, peer_version) = {
                 let mesh = state.mesh.lock();
-                match &target {
+                let route = match &target {
                     (Some(id), None) => resolve_exact_relay_peer_route(&mesh, id)?,
                     (None, Some(target)) => resolve_relay_peer_route(&mesh, target)?,
                     _ => return Err((StatusCode::BAD_REQUEST, "Provide one relay target".into())),
+                };
+                if appearance_proposal && !mesh.paired_peers[&route.1].online {
+                    return Err((
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        serde_json::json!({
+                            "code": codeterm_mesh::contract::delivery::PEER_UNREACHABLE,
+                            "message": format!("{} is offline. Propose the look once it is online.", route.2),
+                            "bytes_written": false,
+                        })
+                        .to_string(),
+                    ));
                 }
+                route
             };
             let (request_origin, client) =
                 origin::signed_peer_client(state, headers, primary, alternatives)?;
@@ -832,15 +846,21 @@ async fn perform_relay_unredacted(
         }
         match authorization {
             PeerRelayAuthorization::Rejected => {
+                let message = if crate::appearance_routes::authority::is_appearance_path(&cmd.path)
+                {
+                    crate::appearance_routes::authority::FULL_ACCESS_REQUIRED.into()
+                } else {
+                    format!(
+                        "Peer not authorized to {} {} (access_level={:?})",
+                        cmd.method, cmd.path, access
+                    )
+                };
                 return Ok((
                     relay_failure(
                         StatusCode::FORBIDDEN.as_u16(),
                         codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
                         Some(false),
-                        format!(
-                            "Peer not authorized to {} {} (access_level={:?})",
-                            cmd.method, cmd.path, access
-                        ),
+                        message,
                     ),
                     true,
                 ));

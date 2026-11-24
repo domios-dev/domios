@@ -6,6 +6,7 @@ fn local_actor_narrowing_does_not_misreport_a_verified_remote_agent_as_unsigned(
         instance_id: "remote-peer".into(),
         tab_id: "remote-controller".into(),
         can_spawn: true,
+        general_main: false,
     });
     let error = resolve(agent).unwrap_err();
     assert_eq!(error.0, StatusCode::FORBIDDEN);
@@ -62,6 +63,7 @@ fn actor_scope_matrix_never_grants_a_remote_agent_local_or_owner_authority() {
         instance_id: "remote-machine".into(),
         tab_id: "remote-tab".into(),
         can_spawn: true,
+        general_main: false,
     };
     for (actor, local_scope, agent_scope) in [
         (RequestActor::Owner, true, true),

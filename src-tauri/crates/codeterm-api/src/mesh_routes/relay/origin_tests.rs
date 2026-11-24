@@ -20,6 +20,8 @@ use codeterm_service_core::{
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
+mod appearance;
+
 fn state(fixture: &ServiceFixture, id: &str) -> AppState {
     let state = crate::test_support::app_state(fixture);
     state.config.lock().api.token = Some("owner-secret".into());
@@ -699,6 +701,7 @@ fn single_pass_signed_mesh_auth_enforces_origin_agent_binding_and_replay() {
         instance_id: "source".into(),
         tab_id: "tab-1".into(),
         can_spawn: false,
+        general_main: false,
     };
     let agent_token = origin::sign(&source, AuthenticatedOrigin::Agent, Some(&claimed)).unwrap();
     let (peer_id, parsed_origin, agent) =
@@ -711,6 +714,7 @@ fn single_pass_signed_mesh_auth_enforces_origin_agent_binding_and_replay() {
         instance_id: "other".into(),
         tab_id: "tab-1".into(),
         can_spawn: false,
+        general_main: false,
     };
     let spoofed_token = origin::sign(&source, AuthenticatedOrigin::Agent, Some(&spoofed)).unwrap();
     assert_eq!(

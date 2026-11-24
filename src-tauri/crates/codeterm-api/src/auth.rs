@@ -11,6 +11,7 @@ mod actor;
 pub(crate) mod peer_grant;
 use peer_grant::PeerGrant;
 mod relay_agent;
+pub(crate) use relay_agent::is_bound_main;
 pub(crate) use relay_agent::{authenticated_agent, authenticated_agent_for_origin, remote_agent};
 mod credential_kind;
 pub(crate) mod remote;
@@ -784,7 +785,11 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                 );
                 (
                     StatusCode::FORBIDDEN,
-                    "Access denied by access level policy",
+                    if crate::appearance_routes::authority::is_appearance_path(&path) {
+                        crate::appearance_routes::authority::FULL_ACCESS_REQUIRED
+                    } else {
+                        "Access denied by access level policy"
+                    },
                 )
                     .into_response()
                     .into()

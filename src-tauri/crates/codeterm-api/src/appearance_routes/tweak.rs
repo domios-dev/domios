@@ -1,10 +1,10 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use axum::extract::rejection::JsonRejection;
-use codeterm_service_core::service::general_agent::session_contract::owns_main;
 use serde_json::json;
 
 use super::*;
+use crate::auth::CallerIdentity;
 
 pub(super) const MAX_TWEAK_BYTES: usize = 4096;
 
@@ -98,14 +98,7 @@ pub(super) fn revision(look: &AppearanceLook, active: Option<&str>) -> Result<St
 
 fn require_bound_main(state: &AppState, headers: &HeaderMap) -> Result<(), Refusal> {
     if let CallerIdentity::Tab(caller) = crate::auth::caller_identity(state, headers)? {
-        let mux = state.svc.mux.read();
-        if mux.get_tab(&caller.tab_id).is_some_and(|tab| {
-            tab.protected
-                && owns_main(&mux, tab)
-                && tab.neighbor_authority.is_none()
-                && tab.launch_session_authenticated()
-                && tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
-        }) {
+        if crate::auth::is_bound_main(state, &caller) {
             return Ok(());
         }
     }

@@ -32,6 +32,8 @@ pub struct AuthenticatedAgent {
     pub tab_id: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub can_spawn: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub general_main: bool,
 }
 
 pub fn verifying_key_from_b64(b64: &str) -> Result<VerifyingKey, String> {
