@@ -792,24 +792,30 @@ function AppInner() {
   const wallAsset = projected ? stagedWallpaper.asset ?? (wallpaper?.asset === appliedAppearance.look.wallpaper?.asset
     ? appliedAppearance.asset : undefined) : appliedAppearance.asset;
   const identityColor = machineAppearance.identity?.color;
+  const { background, foreground, chat_background: chatBackground } = stableTheme;
   const wallpaperStyle = useMemo(() => ({
-    "--ct-bg": stableTheme.background,
-    "--ct-fg": stableTheme.foreground,
-    ...wallpaperRenderStyle(stableTheme, wallpaper, isLightColor(stableTheme.background), wallAsset?.url, identityColor),
-  } as React.CSSProperties), [stableTheme, wallpaper, wallAsset?.url, identityColor]);
+    "--ct-bg": background,
+    "--ct-fg": foreground,
+    ...wallpaperRenderStyle({ foreground, chat_background: chatBackground }, wallpaper, isLightColor(background), wallAsset?.url, identityColor),
+  } as React.CSSProperties), [background, foreground, chatBackground, wallpaper, wallAsset?.url, identityColor]);
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
   useLayoutEffect(() => {
-    const isLight = isLightColor(stableTheme.background);
-    document.documentElement.style.colorScheme = isLight ? "light" : "dark";
-    document.documentElement.dataset.ctTheme = isLight ? "light" : "dark";
+    const root = document.documentElement;
     for (const [k, v] of Object.entries(themeStyles)) {
-      document.documentElement.style.setProperty(k, v);
+      if (root.style.getPropertyValue(k) !== v) root.style.setProperty(k, v);
     }
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", stableTheme.background);
+  }, [themeStyles]);
+  useLayoutEffect(() => {
+    const scheme = isLightColor(background) ? "light" : "dark";
+    document.documentElement.style.colorScheme = scheme;
+    document.documentElement.dataset.ctTheme = scheme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", background);
+  }, [background]);
+  useLayoutEffect(() => {
     document.documentElement.style.fontSize = `${stableFontConfig.size + 2 + (tuning?.font_size ?? 0)}px`;
-  }, [stableTheme.background, themeStyles, stableFontConfig.size, tuning?.font_size]);
+  }, [stableFontConfig.size, tuning?.font_size]);
   useEffect(() => {
     cacheThemeSnapshot(appliedAppearance.look.theme, appearanceLookStyle(appliedAppearance.look));
   }, [appliedAppearance.look]);
