@@ -36,3 +36,8 @@ it("places provider updates before and outside the complete composer group", asy
   expect(Boolean(notice.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   expect(composer.querySelector('textarea[aria-label="Draft"]')).not.toBeNull();
 });
+
+it("omits an update action with an empty notice", async () => {
+  await act(async () => root.render(<ProviderUpdateNotice model={{ key: "job", state: "failed", message: "  ", canUpdate: true }} onUpdate={vi.fn()} onDismiss={vi.fn()} />));
+  expect(host.childElementCount).toBe(0);
+});

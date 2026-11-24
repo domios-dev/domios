@@ -8,6 +8,7 @@ import { Button } from "../shared/Button";
 export function ProviderUpdateNotice({ model, onUpdate, onDismiss }: {
   model: ProviderUpdateModel; onUpdate: () => void; onDismiss: () => void;
 }) {
+  if (!model.message.trim()) return null;
   return <div role="group" aria-label="Provider CLI update" className="ct-ctx-bubble ct-provider-update">
     <Download size={13} aria-hidden="true" className="shrink-0" />
     <span role="status" className="ct-provider-update__message" aria-live="polite">{model.message}</span>

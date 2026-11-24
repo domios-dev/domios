@@ -9,6 +9,7 @@ import { DiffHunkLines, FilePathLabel, changedLines, useFileChangeRaw } from "./
 import { StatusGlyph, statusName } from "./ToolActivityStream";
 import { toolKindVisual } from "./toolKindVisual";
 import { toolDurationLabel } from "./toolDuration";
+import { ToolCallProgress } from "./ToolCallProgress";
 
 const QUIET = "var(--ct-muted-fg)";
 const RAIL = { color: QUIET, opacity: 0.6 };
@@ -24,11 +25,19 @@ interface RunFile {
   hunks: FileDiff["hunks"];
   status: ToolEvent["status"];
   durationMs?: number;
+  message: ToolEvent["message"];
+  detailsAvailable: boolean;
 }
 
 function runFiles(members: ToolEvent[]): RunFile[] {
-  return members.flatMap((member) =>
-    (member.fileDiffs ?? []).map((diff, index) => ({
+  return members.flatMap<RunFile>((member) => {
+    const diffs = member.fileDiffs ?? [];
+    if (!diffs.length) return [{
+      id: `${member.id}:0`, path: member.message.toolLocations?.[0]?.path ?? "",
+      additions: 0, deletions: 0, hunks: [], status: member.status, durationMs: member.durationMs,
+      message: member.message, detailsAvailable: false,
+    }];
+    return diffs.map((diff, index) => ({
       id: `${member.id}:${index}`,
       path: diff.path,
       movePath: diff.movePath,
@@ -38,7 +47,10 @@ function runFiles(members: ToolEvent[]): RunFile[] {
       hunks: diff.hunks,
       status: member.status,
       durationMs: member.durationMs,
-    })));
+      message: member.message,
+      detailsAvailable: true,
+    }));
+  });
 }
 
 function Counts({ additions, deletions, kind }: { additions: number; deletions: number; kind?: FileDiff["kind"] }) {
@@ -49,6 +61,7 @@ function Counts({ additions, deletions, kind }: { additions: number; deletions: 
 }
 
 function FileDetail({ file }: { file: RunFile }) {
+  if (!file.detailsAvailable) return <div className="px-1 font-mono text-[11px]" style={{ color: QUIET }}>Edit details unavailable</div>;
   return file.hunks.length === 0
     ? <div className="px-1 font-mono text-[11px]" style={{ color: QUIET }}>{file.kind === "delete" ? "File deleted" : "Empty file"}</div>
     : <div data-testid="edit-run-diff" className="overflow-x-auto rounded border py-0.5" style={{ borderColor: "var(--ct-border)", background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}>
@@ -76,6 +89,8 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
   const title = hasNonEdit ? "File changes" : `Edited ${distinctFileCount} ${distinctFileCount === 1 ? "file" : "files"}`;
   const visible = expanded || files.length <= COMMAND_TREE_CAP + 1 ? files.length : COMMAND_TREE_CAP;
   const hidden = files.length - visible;
+  const visibleFiles = hidden > 0 && event.liveEditRun
+    ? [...files.slice(0, visible - 1), files[files.length - 1]] : files.slice(0, visible);
   const openFile = host.openFileChange;
   const copyPaths = { label: "Copy paths", icon: <Copy size={14} aria-hidden />,
     onSelect: () => copyPlainText(files.map((file) => file.movePath ?? file.path).join("\n")) };
@@ -100,7 +115,7 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
         >
           <Glyph aria-hidden size={16} className="shrink-0" style={{ color: visual.color }} />
           <span data-testid="chat-edit-run-title" className="min-w-0 truncate text-[12.5px]" style={{ color: "var(--ct-fg)" }}>{title}</span>
-          <Counts additions={additions} deletions={deletions} />
+          {event.status !== "pending" && <Counts additions={additions} deletions={deletions} />}
           <span className="flex-1" />
         </button>
         <span className="ct-tool-status-slot">
@@ -112,27 +127,29 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
         <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} edited files`} onToggle={() => onToggle(!expanded)} />
       </div>
       <ol id={regionId} data-testid="chat-edit-run-files" aria-label={`${files.length} file changes`} className="m-0 min-w-0 list-none py-0.5 pb-1 pl-4 pr-2 font-mono text-[11.5px]">
-        {files.slice(0, visible).map((file, index) => {
+        {visibleFiles.map((file, index) => {
           const path = file.movePath ?? file.path;
           const open = openId === file.id;
+          const running = file.status === "pending" && file.message.toolStatus === "running";
+          const verb = running ? "Editing" : file.kind === "add" ? "Created" : file.kind === "delete" ? "Deleted" : "Edited";
           const FileGlyph = visual.glyph;
           return <li key={file.id} data-testid="chat-edit-run-file" className="group/file min-w-0">
             <div className="flex min-w-0 items-center">
               <button
                 type="button"
                 aria-expanded={open}
-                aria-label={`${open ? "Hide" : "Show"} diff for ${path}, change ${index + 1}`}
+                aria-label={`${open ? "Hide" : "Show"} diff for ${path || "this edit"}, change ${index + 1}`}
                 onClick={() => setOpenId(open ? null : file.id)}
                 className={`${LINE_CLASS} gap-2`}
               >
                 <FileGlyph aria-hidden size={14} className="shrink-0" style={{ color: visual.color }} />
-                <span title={path} className="min-w-0 truncate">{file.kind === "add" && <span style={{ color: QUIET }}>Created </span>}{file.kind === "delete" && <span style={{ color: QUIET }}>Deleted </span>}{file.kind !== "add" && file.kind !== "delete" && <span style={{ color: QUIET }}>Edited </span>}<FilePathLabel path={file.path} />{file.movePath && <> → <FilePathLabel path={file.movePath} /></>}</span>
-                <Counts additions={file.additions} deletions={file.deletions} kind={file.kind} />
-                {file.durationMs !== undefined && <span data-testid="edit-run-duration" aria-label={`Duration ${file.durationMs} milliseconds`} title={`${file.durationMs}ms`} className="shrink-0 font-mono text-[10.5px]" style={{ color: QUIET }}>{toolDurationLabel(file.durationMs)}</span>}
+                <span title={path || undefined} className="min-w-0 truncate"><span style={{ color: QUIET }}>{verb} </span>{path ? <FilePathLabel path={file.path} /> : "files"}{file.movePath && <> → <FilePathLabel path={file.movePath} /></>}</span>
+                {!running && file.detailsAvailable && <Counts additions={file.additions} deletions={file.deletions} kind={file.kind} />}
+                {running ? <ToolCallProgress message={file.message} /> : file.durationMs !== undefined && <span data-testid="edit-run-duration" aria-label={`Duration ${file.durationMs} milliseconds`} title={`${file.durationMs}ms`} className="shrink-0 font-mono text-[10.5px]" style={{ color: QUIET }}>{toolDurationLabel(file.durationMs)}</span>}
                 <span role="status" aria-label={statusName(file.status)} className="flex size-4 shrink-0 items-center justify-center" style={{ color: file.status === "success" ? "var(--ct-green)" : QUIET }}><StatusGlyph status={file.status} /></span>
                 <ChevronRight aria-hidden size={14} data-testid="edit-run-chevron" className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} style={{ color: QUIET }} />
               </button>
-              {openFile && <button
+              {openFile && path && <button
                 type="button"
                 aria-label={`View changes in ${path}`}
                 title="View changes"

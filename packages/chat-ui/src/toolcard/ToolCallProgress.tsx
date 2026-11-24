@@ -10,5 +10,5 @@ export function ToolCallProgress({message}: {message: NormalizedChatMessage}) {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [running]);
-  return <span role="timer" aria-label="Tool call progress">{toolCallProgress(message, now)}</span>;
+  return <span role="timer" aria-live="off" aria-label="Tool call progress" className="shrink-0 tabular-nums">{toolCallProgress(message, now)}</span>;
 }
