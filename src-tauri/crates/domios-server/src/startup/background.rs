@@ -16,6 +16,23 @@ pub(crate) fn start_background_tasks(
     }
     keepawake::start_supervisor(states.keepawake.clone(), service.ui.clone());
 
+    let service_for_retention = service.weak_self();
+    codeterm_service_core::async_runtime::spawn(async move {
+        let mut sweep = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+        sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            sweep.tick().await;
+            let Some(service) = service_for_retention.upgrade() else {
+                return;
+            };
+            let _ = codeterm_service_core::async_runtime::spawn_blocking(move || {
+                let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+                service.expire_notifications(now);
+            })
+            .await;
+        }
+    });
+
     // Mesh loop runs continuously; `mesh.enabled` is re-read each tick.
     {
         let mesh = states.mesh.clone();

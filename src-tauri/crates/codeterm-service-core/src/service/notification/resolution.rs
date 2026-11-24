@@ -1,6 +1,26 @@
 use super::*;
 
 impl ServiceContext {
+    pub fn expire_notifications(&self, now: u64) {
+        let Some(expired) = self
+            .notif
+            .try_lock()
+            .map(|mut store| store.expire_retained(now))
+        else {
+            return;
+        };
+        if expired.is_empty() {
+            return;
+        }
+        for (id, spent) in expired {
+            if let Some(question) = spent {
+                self.spend_on_channels(&id, &question);
+            }
+            self.notify_event("notification-cleared", serde_json::json!({"id": id}));
+        }
+        self.reconcile_notification_questions();
+    }
+
     pub fn clear_notifications(&self, id: Option<&str>) {
         let spent = self.notif.lock().clear_resolved(id);
         for (id, question) in spent {

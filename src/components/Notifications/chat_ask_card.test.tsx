@@ -265,7 +265,7 @@ async function run() {
   assert(failedView.querySelector('[role="alert"] details pre')?.textContent === "Tab unavailable", "chat exposes delivery failure");
   assert(Array.from(failedView.querySelectorAll<HTMLButtonElement>('[data-testid="chat-ask-choice"]')).every((button) => !button.disabled), "chat re-enables failed choices");
 
-  // A tap shows its label and locks every choice at once, before the record moves, and a repeat tap sends nothing.
+  // Once the store owns the tap, the card shows its label and locks the choices.
   await act(async () => root.render(<div />));
   const taps: Array<[string, string]> = [];
   const tapsOnce = (id: string, label: string) => { taps.push([id, label]); };
@@ -273,6 +273,7 @@ async function run() {
   assert(fresh.querySelector('[data-testid="chat-ask-body"]')?.textContent === ask().body, "the full question shows by default");
   const [first] = choiceButtons(fresh);
   await act(async () => first.click());
+  await renderCard(ask({ answer_pending: true }), tapsOnce);
   await act(async () => first.click());
   assert(taps.length === 1 && taps[0][0] === "ask-1" && taps[0][1] === FIRST_CHOICE, `one tap reaches the store once, got ${JSON.stringify(taps)}`);
   assert(fresh.querySelector('[data-testid="chat-ask-sending"]')?.textContent?.includes(FIRST_CHOICE), "the chosen label shows while sending");

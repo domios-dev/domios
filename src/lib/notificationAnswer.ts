@@ -18,17 +18,29 @@ export function isAnswerUndelivered(answer: NotificationAnswer): boolean {
 
 export type AnswerUpdate =
   | { pending: true }
+  | { unconfirmed: true; answered?: string }
   | { error: string }
   | { answered: string; delivered: boolean; error?: string };
 
 export function updateNotificationAnswer(notification: import("./types").Notification, update: AnswerUpdate) {
   if (!notification.answer || notification.answer.delivered) return notification;
-  if ("pending" in update) return { ...notification, answer_pending: true, answer_error: undefined };
-  if (!("answered" in update)) return { ...notification, answer_pending: false, answer_error: update.error };
+  if ("pending" in update) return { ...notification, answer_pending: true, answer_unconfirmed: false, answer_error: undefined };
+  if ("unconfirmed" in update) {
+    if (notification.answer_error) return notification;
+    return {
+      ...notification,
+      read: notification.read || Boolean(notification.answer.answered ?? update.answered),
+      answer_pending: false,
+      answer_unconfirmed: true,
+      answer: { ...notification.answer, answered: notification.answer.answered ?? update.answered ?? null },
+    };
+  }
+  if (!("answered" in update)) return { ...notification, answer_pending: false, answer_unconfirmed: false, answer_error: update.error };
   return {
     ...notification,
     read: true,
     answer_pending: false,
+    answer_unconfirmed: false,
     answer_error: update.delivered ? undefined : update.error ?? "The answer could not be delivered. Try again.",
     answer: {
       ...notification.answer,
