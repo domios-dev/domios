@@ -889,6 +889,7 @@ fn reply_failure_detail(reason: &RuntimeFailure) -> RuntimeTurnDetail {
         RuntimeFailure::ProcessExited { .. }
         | RuntimeFailure::PipeEof
         | RuntimeFailure::PipeFailure { .. }
+        | RuntimeFailure::SseEventTooLarge { .. }
         | RuntimeFailure::Superseded => RuntimeTurnDetail::Interrupted,
         _ => RuntimeTurnDetail::Failed,
     }

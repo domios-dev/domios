@@ -47,6 +47,11 @@ pub enum RuntimeFailure {
         stream: String,
         reason: String,
     },
+    #[serde(rename_all = "camelCase")]
+    SseEventTooLarge {
+        event_type: String,
+        limit_bytes: usize,
+    },
     InvalidFrame(String),
     ProtocolError {
         code: i64,
@@ -107,6 +112,9 @@ impl std::fmt::Display for RuntimeFailure {
             Self::PipeEof => formatter.write_str("Runtime connection closed"),
             Self::PipeFailure { stream, reason } => {
                 write!(formatter, "Runtime {stream} connection failed: {reason}")
+            }
+            Self::SseEventTooLarge { event_type, limit_bytes } => {
+                write!(formatter, "Runtime SSE event '{event_type}' exceeded the {limit_bytes}-byte limit")
             }
             Self::InvalidFrame(reason) => {
                 write!(formatter, "Runtime sent an invalid response: {reason}")
@@ -253,6 +261,7 @@ impl RuntimeFailure {
             | Self::ProcessExited { .. }
             | Self::PipeEof
             | Self::PipeFailure { .. }
+            | Self::SseEventTooLarge { .. }
             | Self::WrittenAwaitingEvidence => Code::ProcessUnavailable,
             Self::InvalidFrame(_) | Self::ProtocolError { .. } => Code::ProtocolError,
             Self::HookFailed(_) => Code::HookFailed,

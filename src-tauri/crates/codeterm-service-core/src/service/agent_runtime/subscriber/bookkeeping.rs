@@ -139,6 +139,7 @@ fn protocol(reason: &RuntimeFailure) -> bool {
         reason,
         RuntimeFailure::PipeEof
             | RuntimeFailure::PipeFailure { .. }
+            | RuntimeFailure::SseEventTooLarge { .. }
             | RuntimeFailure::ProcessExited { .. }
             | RuntimeFailure::InvalidFrame(_)
     )
