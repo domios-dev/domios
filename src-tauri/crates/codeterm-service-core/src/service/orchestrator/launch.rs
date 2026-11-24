@@ -323,15 +323,7 @@ pub fn launch_agent_in_background_with_invocation(
         let invocation = match resolved_invocation {
             Ok(invocation) => invocation,
             Err(error) => {
-                if account.validate(&svc, &tab_id).is_ok() {
-                    account.fail_if_current(
-                        &launch,
-                        &svc,
-                        LaunchFailure::StartupSupervision(error.clone()),
-                    );
-                } else {
-                    LAUNCH_REGISTRY.lock().finish(&launch);
-                }
+                account.fail_before_backend(&svc, &launch, &error);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -354,7 +346,7 @@ pub fn launch_agent_in_background_with_invocation(
                 }
             };
             if let Err(error) = account.validate(&svc, &tab_id) {
-                LAUNCH_REGISTRY.lock().finish(&launch);
+                account.fail_before_backend(&svc, &launch, &error);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
@@ -728,20 +720,19 @@ pub fn launch_agent_in_background_with_invocation(
             }
             // (#93 — keeps shell-level launch off the bracketed-paste path).
             let mut dispatched_authority = svc.user_send_authority(&tab_id).ok();
-            let first_launch = match launch.write_if_current(|| {
-                account.validate(&svc, &tab_id)?;
+            let Some(first_launch) = account.write_command(&svc, &launch, || {
                 if direct {
                     Ok(())
                 } else {
                     wrapped_launch_cmd.send(&svc, &pty_id)
                 }
-            }) {
-                Some(result) => result,
-                None => return,
+            }) else {
+                return;
             };
             let launch_result = match first_launch {
-                Err(error) if account.validate(&svc, &tab_id).is_err() => Err(error),
-                Err(error) => {
+                Err(LaunchFailure::LaunchWrite(error))
+                    if account.validate(&svc, &tab_id).is_ok() =>
+                {
                     match await_replacement_pty(
                         &svc,
                         &tab_id,
@@ -882,30 +873,31 @@ pub fn launch_agent_in_background_with_invocation(
                                 return;
                             }
                             dispatched_authority = svc.user_send_authority(&tab_id).ok();
-                            match launch.write_if_current(|| {
-                                account
-                                    .validate(&svc, &tab_id)
-                                    .and_then(|_| wrapped_launch_cmd.send(&svc, &pty_id))
+                            match account.write_command(&svc, &launch, || {
+                                wrapped_launch_cmd.send(&svc, &pty_id)
                             }) {
                                 Some(result) => result,
                                 None => return,
                             }
                         }
-                        None => Err(error),
+                        None => Err(LaunchFailure::LaunchWrite(error)),
                     }
                 }
                 result => result,
             };
-            if let Err(e) = launch_result {
+            if let Err(failure) = launch_result {
+                let error = failure.reason();
                 log::error!(
                     "launch_agent: launch_cmd failed for Tab {} (pty {}): {}",
                     tab_id,
                     pty_id,
-                    e
+                    error
                 );
-                let failure = LaunchFailure::LaunchWrite(e.to_string());
-                let error = failure.reason();
-                account.fail_if_current(&launch, &svc, failure);
+                if !direct && matches!(failure, LaunchFailure::LaunchAuthorityChanged(_)) {
+                    account.fail_undispatched_command(&svc, &launch, &error);
+                } else {
+                    account.fail_if_current(&launch, &svc, failure);
+                }
                 set_booting(&launch, false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));

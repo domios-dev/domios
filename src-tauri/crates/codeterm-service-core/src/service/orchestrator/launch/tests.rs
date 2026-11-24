@@ -8,6 +8,8 @@ mod draft_nudge;
 mod readiness_evidence;
 #[path = "tests/relaunch_supervision.rs"]
 mod relaunch_supervision;
+#[path = "tests/restore_authority.rs"]
+mod restore_authority;
 #[cfg(windows)]
 #[path = "tests/restore_cwd.rs"]
 mod restore_cwd;
