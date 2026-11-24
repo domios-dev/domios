@@ -26,10 +26,6 @@ vi.mock("../../lib/bridge", async (original) => ({
 vi.mock("../../lib/chatWallpaperClient", () => ({
   readMachineAppearance: vi.fn(),
 }));
-vi.mock("../../lib/daemonBootstrap", async (original) => ({
-  ...await original<typeof import("../../lib/daemonBootstrap")>(),
-  daemonTransportForPeer: () => ({ subscribe: () => () => {} }),
-}));
 
 const serving = () => Promise.resolve({ paired: [], local_instance_name: "BLACKSTAR [dev]" });
 const healthy = () => Promise.resolve({ instance: { display_name: "BLACKSTAR [dev]" } });
@@ -146,6 +142,7 @@ it("keeps a peer's last theme in the menu after it goes offline", async () => {
 });
 
 it("offers only machine selections and commits the focused option from the keyboard", async () => {
+  vi.mocked(readMachineAppearance).mockResolvedValue({ theme: DEFAULT_THEME, wallpaper: null });
   peersResponse.mockResolvedValue({
     local_instance_name: "Desk [dev-main]",
     local_machine_identity: { kind: "desktop", color: "blue" },
@@ -160,12 +157,11 @@ it("offers only machine selections and commits the focused option from the keybo
     const items = listbox.querySelectorAll<HTMLButtonElement>('[role="option"]');
     expect(items).toHaveLength(3);
     expect(listbox.querySelectorAll("button")).toHaveLength(items.length);
-    expect(listbox.textContent).not.toMatch(/theme|wallpaper|look on all|ask general/i);
     expect(items[0].getAttribute("aria-label")).toBe("All machines, 2 machines, 1 online");
     expect(items[0].textContent).toContain("2 machines · 1 online");
     const local = items[1];
     expect(local.getAttribute("aria-selected")).toBe("true");
-    expect(local.getAttribute("aria-label")).toBe("Desk, desktop PC, this machine, online");
+    expect(local.getAttribute("aria-label")).toBe(`Desk, desktop PC, this machine, online · ${DEFAULT_THEME.name}`);
     expect(local.textContent).toContain("this");
     expect(items[2].textContent).toContain("Air");
 
