@@ -116,3 +116,60 @@ async fn failed_owned_off_cleanup_keeps_pending_and_refuses_new_account_effects(
         .submit(Kind::Projection, || async { Ok(()) })
         .is_err());
 }
+
+#[tokio::test]
+async fn signed_out_off_cleanup_drains_before_the_first_empty_neighbor_list() {
+    use crate::service::neighbors::{
+        runtime::receiver::selection::tests::Credentials, NeighborCommand,
+    };
+    use codeterm_neighbors::state::Snapshot;
+
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
+    let service = &fixture.service;
+    let account = Arc::new(codeterm_account::Account::new(
+        Arc::new(codeterm_account::adapters::fake::Fake::default()),
+        Arc::new(Credentials),
+        std::time::Duration::from_secs(1),
+    ));
+    assert!(service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .set(account.clone())
+        .is_ok());
+    let generation = service.neighbor_history_generation();
+    service.queue_neighbor_stop_local();
+    service.wait_neighbor_stop_local(generation).await.unwrap();
+    assert!(service.neighbor_stop_local_pending(generation));
+    assert_eq!(
+        service.neighbor_reconciliation().require_readable(),
+        Err(Error::Revoked)
+    );
+
+    account.refresh().await.unwrap();
+    let session = account.session().await.unwrap();
+    let uid = &session.identity.uid;
+    let login = session.login_generation;
+    service.drain_neighbor_stop_local(generation).await.unwrap();
+    assert!(!service.neighbor_stop_local_pending(generation));
+    service
+        .select_neighbor_projection(uid, login)
+        .await
+        .unwrap();
+    let snapshot = Snapshot::parse(json!({
+        "schema_version": 1, "version": 1, "updated_at": 100, "access": "paid", "can_invite": true,
+        "friends": [], "incoming": [], "outgoing": [], "own_keys": [],
+        "referral_trial": {"state":"none","trial_end":null,"inviter_uid":null,"friend_request_id":null}
+    })).unwrap();
+    assert!(
+        service
+            .apply_neighbor_projection(uid, login, snapshot)
+            .await
+    );
+    let list = service
+        .neighbor_registry(NeighborCommand::List {})
+        .await
+        .unwrap();
+    assert_eq!(list["friends"], json!([]));
+    assert_eq!(list["can_invite"], true);
+}
