@@ -1,5 +1,6 @@
-import { Check, Contrast, LayoutGrid, Palette, RectangleHorizontal, Sparkles, Type, Undo2, X } from "lucide-react";
-import { useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { Check, ChevronDown, Contrast, LayoutGrid, Palette, RectangleHorizontal, Sparkles, TriangleAlert, Type, Undo2, X } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import type { ContrastCheck } from "../../lib/appearance";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import type { AppearanceLabCategory, AppearanceLabChange } from "./AppearanceLabChanges";
 
@@ -68,9 +69,71 @@ export function AppearanceLabCategories({
   </div>;
 }
 
+export interface ContrastIssue {
+  label: string;
+  ratio: number;
+  floor: number;
+  surfaces: string[];
+  fix: ContrastCheck["fix"];
+}
+
+// One entry per failing element, worst pair first, so a single bad colour reads as one issue.
+export function contrastIssues(failures: ContrastCheck[]): ContrastIssue[] {
+  const groups = new Map<string, ContrastCheck[]>();
+  for (const failure of failures) groups.set(failure.name, [...groups.get(failure.name) ?? [], failure]);
+  return [...groups.entries()].map(([name, checks]) => {
+    const worst = checks.reduce((low, check) => check.ratio < low.ratio ? check : low);
+    const prefix = `${name} on `;
+    return {
+      label: checks.length === 1 ? worst.pair : name,
+      ratio: worst.ratio,
+      floor: worst.floor,
+      surfaces: checks.length === 1 ? [] : checks.map(check => check.pair.startsWith(prefix) ? check.pair.slice(prefix.length) : check.pair),
+      fix: checks.find(check => check.fix)?.fix ?? null,
+    };
+  });
+}
+
+function ContrastSummary({ issues, id, busy, onFix, onFixAll }: {
+  issues: ContrastIssue[];
+  id: string;
+  busy: boolean;
+  onFix(fix: NonNullable<ContrastCheck["fix"]>): void;
+  onFixAll(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  const count = issues.length === 1 ? "1 contrast issue" : `${issues.length} contrast issues`;
+  useEffect(() => {
+    if (issues.length === 0) setOpen(false);
+  }, [issues.length]);
+  if (issues.length === 0) return null;
+  return <>
+    <button type="button" id={id} className="ct-appearance-try__contrast" aria-expanded={open} aria-controls={open ? listId : undefined}
+      onClick={() => setOpen(value => !value)}>
+      <TriangleAlert size={14} aria-hidden="true" /><span>{count}</span>
+      <ChevronDown size={13} aria-hidden="true" data-open={open || undefined} />
+    </button>
+    {open && <div id={listId} className="ct-appearance-contrast" role="group" aria-label="Contrast problems">
+      <ul>
+        {issues.map(issue => <li key={issue.label}>
+          <span>
+            <b>{issue.label}</b> {issue.ratio.toFixed(2)}:1 · needs {issue.floor}:1
+            {issue.surfaces.length > 0 && <small>on {issue.surfaces.join(", ")}</small>}
+          </span>
+          {issue.fix && <button type="button" disabled={busy} aria-label={`Fix ${issue.label}`}
+            onClick={() => issue.fix && onFix(issue.fix)}>Fix</button>}
+        </li>)}
+      </ul>
+      {issues.filter(issue => issue.fix).length > 1 && <button type="button" className="ct-appearance-contrast__all" disabled={busy}
+        onClick={onFixAll}>Fix all</button>}
+    </div>}
+  </>;
+}
+
 export function AppearanceLabActions({
   changes, changesTrigger, listOpen, focusChanges, busy, canApply, applyLabel, appliedStatus, undoLabel,
-  contrastFailureCount, onReviewContrast, onToggleList, onRevert, onDiscard, onApply, onUndo,
+  contrast, onFixContrast, onFixAllContrast, onToggleList, onRevert, onDiscard, onApply, onUndo,
 }: {
   changes: AppearanceLabChange[];
   changesTrigger: RefObject<HTMLButtonElement | null>;
@@ -81,8 +144,9 @@ export function AppearanceLabActions({
   applyLabel: string;
   appliedStatus?: ReactNode;
   undoLabel?: string;
-  contrastFailureCount: number;
-  onReviewContrast(): void;
+  contrast: ContrastIssue[];
+  onFixContrast(fix: NonNullable<ContrastCheck["fix"]>): void;
+  onFixAllContrast(): void;
   onToggleList(): void;
   onRevert(change: AppearanceLabChange): void;
   onDiscard(): void;
@@ -93,9 +157,7 @@ export function AppearanceLabActions({
   const changesId = useId();
   const contrastId = useId();
   return <footer className="ct-appearance-lab ct-appearance-try__footer" role="region" aria-label="Changes">
-    {contrastFailureCount > 0 && <button type="button" id={contrastId} className="ct-appearance-try__contrast" onClick={onReviewContrast}>
-      Review {contrastFailureCount === 1 ? "1 contrast issue" : `${contrastFailureCount} contrast issues`}
-    </button>}
+    <ContrastSummary issues={contrast} id={contrastId} busy={busy} onFix={onFixContrast} onFixAll={onFixAllContrast} />
     <div className="ct-appearance-try__actions">
       <div className="ct-appearance-changes__status" role="status" aria-live="polite" data-state={appliedStatus ? "applied" : undefined}>
         {appliedStatus
@@ -106,7 +168,7 @@ export function AppearanceLabActions({
       </div>
       {changes.length > 0 && <button type="button" className="ct-appearance-changes__discard" aria-label="Discard changes" disabled={busy} onClick={onDiscard}>Discard</button>}
       {changes.length > 0 && !appliedStatus && <button type="button" className="ct-appearance-primary ct-appearance-changes__apply" disabled={!canApply}
-        aria-describedby={contrastFailureCount > 0 ? contrastId : undefined}
+        aria-describedby={contrast.length > 0 ? contrastId : undefined}
         onClick={event => onApply(event.currentTarget)}><Check size={15} aria-hidden="true" /><span>{applyLabel}</span></button>}
       {undoLabel && <button type="button" className="ct-appearance-changes__undo" aria-label={undoLabel} disabled={busy} onClick={onUndo}>
         <Undo2 size={15} aria-hidden="true" /><span>{undoLabel}</span>

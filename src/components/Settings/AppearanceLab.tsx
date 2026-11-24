@@ -15,7 +15,7 @@ import { useAccountMachineNames, useMeshMachineChoices, useMeshPeerName } from "
 import { cleanMachineName } from "../../lib/machineIdentity";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 import { appearanceLabChanges, type AppearanceLabCategory, type AppearanceLabChange } from "./AppearanceLabChanges";
-import { AppearanceLabActions, AppearanceLabCategories, LAB_CATEGORIES } from "./AppearanceLabPanelControls";
+import { AppearanceLabActions, AppearanceLabCategories, LAB_CATEGORIES, contrastIssues } from "./AppearanceLabPanelControls";
 import { useAppearanceLabDismissal, type AppearanceLabProjection } from "./AppearanceLabSession";
 import type { AppearanceLabHostProps } from "./AppearanceLabHost";
 import { usePresence, type PresenceState } from "../Canvas/usePresence";
@@ -182,6 +182,9 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
     toggleMenu(false);
   };
   const failures = contrast?.look === draft ? contrast?.checks.filter(check => check.ratio < check.floor) ?? [] : [];
+  const issues = dirty ? contrastIssues(failures) : [];
+  const fixContrast = (fix: NonNullable<ContrastCheck["fix"]>) => setDraft(value => value && applyContrastFix(value, fix));
+  const fixAllContrast = () => setDraft(value => issues.reduce((look, issue) => look && issue.fix ? applyContrastFix(look, issue.fix) : look, value));
   const editTuning = (patch: Partial<AppearanceTuning>) => setDraft(value => {
     if (!value) return value;
     const next = { ...value.tuning ?? DEFAULT_APPEARANCE, ...patch };
@@ -307,20 +310,23 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
         )}
         {category === "palette" && (
           <SettingsCard title="Palette" headerRight={<small>Contrast against the background</small>}>
-            {failures.length > 0 && <ul className="ct-appearance-contrast" aria-label="Contrast problems">
-              {failures.map(failure => <li key={failure.pair}>
-                <span>{failure.pair} {failure.ratio.toFixed(2)}:1, needs {failure.floor}:1</span>
-                {failure.fix && <button type="button" onClick={() => setDraft(value => value && failure.fix ? applyContrastFix(value, failure.fix) : value)}
-                  aria-label={`Fix ${failure.pair}`}>Fix</button>}
-              </li>)}
-            </ul>}
             {PALETTE_CONTROLS.map(({ key, label }) => {
-              const ratio = paletteContrast(draft.theme, key);
-              return <label key={key} className="ct-appearance-colour">
-                <input type="color" aria-label={label} data-appearance-field={`theme.${key}`} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
-                <span>{label}</span><code>{draft.theme[key]}</code>
-                {ratio !== undefined && <output data-pass={ratio >= 4.5}>{ratio.toFixed(1)}:1 {ratio >= 4.5 ? "✓" : "✕"}</output>}
-              </label>;
+              const field = `theme.${key}`;
+              const failing = failures.filter(failure => failure.fix?.field === field);
+              const worst = failing.length ? failing.reduce((low, check) => check.ratio < low.ratio ? check : low) : undefined;
+              const ratio = worst?.ratio ?? paletteContrast(draft.theme, key);
+              const pass = worst ? false : ratio !== undefined && ratio >= 4.5;
+              const fix = worst?.fix;
+              return <div key={key} className="ct-appearance-colour">
+                <input type="color" id={`${controlsId}-${key}`} aria-label={label} data-appearance-field={field} value={draft.theme[key]} onChange={event => editTheme(key, event.target.value)} />
+                <label htmlFor={`${controlsId}-${key}`}>{label}</label><code>{draft.theme[key]}</code>
+                <span className="ct-appearance-colour__status">
+                  {ratio !== undefined && <output data-pass={pass}
+                    title={worst ? `${worst.pair} ${worst.ratio.toFixed(2)}:1, needs ${worst.floor}:1${failing.length > 1 ? ` · fails on ${failing.length} surfaces` : ""}` : undefined}>
+                    {ratio.toFixed(1)}:1{pass ? " ✓" : ""}</output>}
+                  {fix && <button type="button" aria-label={`Fix ${label}`} onClick={() => fixContrast(fix)}>Fix</button>}
+                </span>
+              </div>;
             })}
             <details className="ct-appearance-terminal">
               <summary>Terminal colours · {TERMINAL_COLOURS.length}</summary>
@@ -387,8 +393,7 @@ function AppearanceLab({ config, open, showWallpaperOwn, state, panelRef, onProj
           applyLabel={remote ? `Apply to ${machine}` : "Apply"}
           appliedStatus={justApplied && <span>Applied{appliedAt && <> · <time dateTime={appliedAt.toISOString()}>{APPLIED_TIME.format(appliedAt)}</time></>}</span>}
           undoLabel={dirty || unavailable ? undefined : undoLabel}
-          contrastFailureCount={dirty ? failures.length : 0}
-          onReviewContrast={() => selectCategory("palette")}
+          contrast={issues} onFixContrast={fixContrast} onFixAllContrast={fixAllContrast}
           onToggleList={() => { toggleMenu(false); setChangesExpanded(!showChanges); }}
           onRevert={revert} onDiscard={dismiss} onApply={button => void apply(button)} onUndo={() => void undo()} />}>
         {unavailable && <p className="ct-appearance-try__notice" role="status">Offline. No changes applied to {machine}.</p>}

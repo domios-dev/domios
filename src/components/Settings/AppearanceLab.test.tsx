@@ -245,9 +245,11 @@ it("explains blocked Apply and opens the existing wallpaper contrast fix", async
     await click([...lab.panel()!.querySelectorAll("button")].find(button => button.textContent === preset.name)!);
     expect(lab.projection()?.look.wallpaper).toEqual(look.wallpaper);
     expect(lab.button("Apply")?.disabled).toBe(true);
-    const review = lab.button("Review 1 contrast issue")!;
+    const review = lab.button("1 contrast issue")!;
     expect(lab.button("Apply")?.getAttribute("aria-describedby")).toBe(review.id);
+    expect(review.getAttribute("aria-expanded")).toBe("false");
     await click(review);
+    expect(review.getAttribute("aria-expanded")).toBe("true");
     await click(lab.panel()!.querySelector<HTMLButtonElement>('button[aria-label="Fix Text on wallpaper"]')!);
     expect(lab.projection()?.look.wallpaper?.fill_strength).toBe(0.25);
     expect(lab.status()).toBe("2 changes");

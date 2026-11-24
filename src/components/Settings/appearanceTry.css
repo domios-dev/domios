@@ -133,7 +133,19 @@ main:has(> .ct-appearance-try) {
   border-top: 1px solid var(--appearance-edge);
 }
 .ct-appearance-try__footer:not(:has(button, [data-state="applied"])) { padding: 0; border: 0; }
-.ct-appearance-lab button.ct-appearance-try__contrast { margin-bottom: 4px; }
+.ct-appearance-lab button.ct-appearance-try__contrast {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ct-red);
+  font-size: .8125rem;
+}
+.ct-appearance-try__contrast svg[data-open] { transform: rotate(180deg); }
 .ct-appearance-try__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .ct-appearance-try__actions [role="status"] button { white-space: nowrap; }
 .ct-appearance-try__actions .ct-appearance-changes__undo {
