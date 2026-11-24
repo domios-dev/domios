@@ -211,21 +211,21 @@ function MemoryDreamsTabImpl({ api }: Props) {
                 <>
                   <span>{diaryTotal} dream{diaryTotal === 1 ? "" : "s"} recorded</span>
                   {statusText && (
-                    <>
+                    <span className="inline-flex items-baseline gap-1.5">
                       <span aria-hidden="true">·</span>
                       <span>{statusText}</span>
-                    </>
+                    </span>
                   )}
                   {unfinishedInView && (
-                    <>
-                      <span className="opacity-30">·</span>
+                    <span className="inline-flex items-baseline gap-1.5">
+                      <span className="opacity-30" aria-hidden="true">·</span>
                       <span
                         data-testid="memory-dream-unfinished-flag"
                         style={{ color: "var(--ct-yellow)" }}
                       >
                         unfinished diaries in view need recovery
                       </span>
-                    </>
+                    </span>
                   )}
                 </>
               );
@@ -255,7 +255,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
         <Button
           variant="accent"
           data-testid="memory-dream-run-now"
-          className="col-start-1 row-start-2 justify-self-start gap-2 border-[color-mix(in_srgb,var(--ct-accent)_36%,transparent)]! @lg:col-start-3 @lg:row-start-1"
+          className="col-start-1 row-start-2 h-8! min-h-8! justify-self-start gap-2 rounded-[9px]! border-[color-mix(in_srgb,var(--ct-accent)_36%,transparent)]! px-3.5! py-0! text-[13px]! font-semibold! @lg:col-start-3 @lg:row-start-1"
           onClick={runNow}
           disabled={running || !!inflight}
         >
@@ -266,7 +266,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
             </>
           ) : (
             <>
-              <Play size={12} />
+              <Play size={13} aria-hidden="true" />
               Dream now
             </>
           )}
@@ -411,14 +411,14 @@ function RecentSessionsList({
         data-worker-status={w.status}
         data-run-label={run.label}
         title={run.reason ?? undefined}
-        className="grid cursor-pointer grid-cols-[7ch_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 px-3.5 py-2.5 text-xs hover:bg-[var(--ct-hover)] @lg:grid-cols-[13ch_23ch_minmax(0,1fr)]"
+        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 px-3.5 py-2.5 text-xs hover:bg-[var(--ct-hover)] @lg:grid-cols-[13ch_23ch_minmax(0,1fr)]"
       >
         <span
-          className="flex items-baseline gap-1.5"
+          className="flex items-center gap-1.5 whitespace-nowrap @lg:whitespace-normal"
           style={{ color: run.color }}
         >
-          <span aria-hidden="true" className="size-1.5 shrink-0 self-center rounded-full bg-current" />
-          <span className="wrap-anywhere">{w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}</span>
+          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-current" />
+          <span>{w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}</span>
         </span>
         <span className="text-[var(--ct-fg)] tabular-nums">
           {new Date(w.spawned_at).toLocaleString("en-US", {
@@ -428,7 +428,7 @@ function RecentSessionsList({
             minute: "2-digit",
           })}
         </span>
-        <div className="col-start-2 flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 text-[var(--ct-muted-fg)] @lg:col-start-3 @lg:col-end-4 @lg:row-start-1 @lg:flex-nowrap @lg:gap-x-3">
+        <div className="col-span-full flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 text-[var(--ct-muted-fg)] @lg:col-start-3 @lg:col-end-4 @lg:row-start-1 @lg:flex-nowrap @lg:gap-x-3">
           {w.model && (
             <>
               <span className="min-w-0 wrap-anywhere @lg:truncate @lg:font-mono" title={w.model}>{w.model}</span>
