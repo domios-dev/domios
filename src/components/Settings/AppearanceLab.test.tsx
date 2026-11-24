@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { act, useCallback } from "react";
 import { createRoot } from "react-dom/client";
@@ -99,8 +100,10 @@ it("documents each Lab and wallpaper control and stages one complete proposal", 
       slider.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(slider.valueAsNumber).toBe(0.72);
-    expect(project.mock.lastCall?.[0]?.look.tuning.border_strength).toBe(0.72);
-    expect(appearanceLookStyle(project.mock.lastCall?.[0]?.look)["--ct-panel-edge"]).toBe(themeToCSS(DEFAULT_THEME, 0.72)["--ct-panel-edge"]);
+    const projectedLook = project.mock.lastCall?.[0]?.look;
+    assert(projectedLook, "Expected the border brightness edit to project a look");
+    expect(projectedLook.tuning?.border_strength).toBe(0.72);
+    expect(appearanceLookStyle(projectedLook)["--ct-panel-edge"]).toBe(themeToCSS(DEFAULT_THEME, 0.72)["--ct-panel-edge"]);
     expect(host.querySelector('[role="img"][aria-label="Appearance preview"]')).toBeNull();
     const apply = [...host.querySelectorAll<HTMLButtonElement>('[role="region"][aria-label="Changes"] button')]
       .find(button => button.textContent === "Apply")!;
