@@ -500,6 +500,45 @@ async fn mesh_team_rpc_and_surface_close_require_a_local_caller() {
 }
 
 #[tokio::test]
+async fn workspace_rest_close_refuses_signed_peer_owner() {
+    initialize();
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.create_workspace("Disposable".into(), None).id;
+    let tab = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let source = state(&fixture, "source", 0);
+    let target = state(&fixture, "target", 0);
+    pair(&target, &source);
+    assert!(target.mesh.lock().set_peer_access(
+        "source",
+        AccessLevel::Custom(vec![codeterm_mesh::types::Permission::ManageWorkspaces,])
+    ));
+    let token = crown::sign_request_with_origin(
+        source
+            .mesh
+            .lock()
+            .ident
+            .identity
+            .private_key
+            .as_deref()
+            .unwrap(),
+        "source",
+        AuthenticatedOrigin::Owner,
+    )
+    .unwrap();
+    let (status, _) = request(
+        routes::create_router_with_frontend(target.clone(), None),
+        &token,
+        "POST",
+        &format!("/api/workspaces/{workspace}/close"),
+        json!({"force":true,"confirm":workspace}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(target.svc.mux.read().get_tab(&tab).is_some());
+}
+
+#[tokio::test]
 async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer_access() {
     initialize();
     install_rpc();

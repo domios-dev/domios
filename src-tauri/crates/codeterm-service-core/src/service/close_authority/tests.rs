@@ -39,3 +39,16 @@ fn owner_tab_reservation_refuses_a_workspace_move_and_a_stale_mesh_grant() {
     let valid = OwnerTabCloseScope::Workspace(destination);
     valid.reserve(&mut mux, &tab).unwrap();
 }
+
+#[test]
+fn team_close_snapshot_refuses_members_added_after_workspace_confirmation() {
+    let (mut mux, tab) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let team = "team";
+    mux.get_tab_mut(&tab).unwrap().team_id = Some(team.into());
+    let targets = TeamCloseSnapshot::capture(&mux, team, BTreeMap::new());
+    targets.validate(&mux, team).unwrap();
+    let added = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&added).unwrap().team_id = Some(team.into());
+    assert!(targets.validate(&mux, team).is_err());
+}

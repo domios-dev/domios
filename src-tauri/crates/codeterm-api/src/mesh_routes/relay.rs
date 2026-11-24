@@ -884,7 +884,13 @@ async fn perform_relay_unredacted(
             }
             PeerRelayAuthorization::TabClose { peer_id, tab_id } => {
                 return peer_authorization::close_tab_from_mesh_peer(
-                    state, peer_id, tab_id, &cmd.path, origin, agent,
+                    state,
+                    peer_id,
+                    tab_id,
+                    &cmd.path,
+                    origin,
+                    agent,
+                    grant.clone(),
                 )
                 .await
                 .map(|response| (response, false));

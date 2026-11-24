@@ -121,6 +121,7 @@ pub(super) async fn close_tab_from_mesh_peer(
     path: &str,
     origin: crate::auth::AuthenticatedOrigin,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    grant: crate::auth::peer_grant::PeerGrant,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let force = tab_close_force(path)?;
     let (peer_id, controller) = match (origin, agent) {
@@ -136,7 +137,7 @@ pub(super) async fn close_tab_from_mesh_peer(
         }
     };
     Ok(tab_close_relay_response(
-        crate::tab_routes::close_remote_tab(state, peer_id, controller, tab_id, force).await,
+        crate::tab_routes::close_remote_tab(state, peer_id, controller, tab_id, force, grant).await,
     ))
 }
 

@@ -503,6 +503,8 @@ pub struct CloseTabQuery {
 
 pub async fn close_tab(
     AxumState(state): AxumState<AppState>,
+    axum::Extension(identity): axum::Extension<crate::auth::CallerIdentity>,
+    grant: Option<axum::Extension<crate::auth::peer_grant::PeerGrant>>,
     headers: crate::auth::AgentHeaders,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<CloseTabQuery>,
@@ -510,18 +512,32 @@ pub async fn close_tab(
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
-    if let crate::auth::RequestActor::RemoteAgent(agent) = &headers.actor {
+    if let crate::auth::CallerIdentity::Peer { instance_id, .. } = identity {
+        let grant = grant.ok_or((
+            StatusCode::FORBIDDEN,
+            "Peer authorization is unavailable".into(),
+        ))?;
+        let controller = match &headers.actor {
+            crate::auth::RequestActor::RemoteAgent(agent) if agent.instance_id == instance_id => {
+                Some(agent.tab_id.as_str())
+            }
+            crate::auth::RequestActor::RemoteAgent(_) => {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Remote creator identity mismatch".into(),
+                ))
+            }
+            _ => None,
+        };
         return close_remote_tab(
             &state,
-            &agent.instance_id,
-            Some(&agent.tab_id),
+            &instance_id,
+            controller,
             &tab_id,
             query.force,
+            grant.0,
         )
         .await;
-    }
-    if let Some(peer_id) = crate::auth::caller_peer_id(&state, &headers) {
-        return close_remote_tab(&state, &peer_id, None, &tab_id, query.force).await;
     }
     let headers = crate::auth::ActorHeaders::authenticate(&state, (*headers).clone())?;
     if let Some(caller_tab_id) = caller_tab_header(&headers) {

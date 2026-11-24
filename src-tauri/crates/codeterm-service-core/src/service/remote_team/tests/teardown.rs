@@ -150,6 +150,39 @@ async fn unreachable_peer_retains_the_local_team_and_members_and_releases_its_pr
 }
 
 #[tokio::test]
+async fn workspace_team_close_refuses_remote_member_added_after_confirmation() {
+    use crate::service::close_authority::TeamCloseSnapshot;
+    let fixture = Fixture::new();
+    let peer = fixture.peer();
+    let snapshot = TeamCloseSnapshot::capture(
+        &fixture.origin.service.mux.read(),
+        &fixture.destination,
+        Default::default(),
+    );
+    let member = adopt(&fixture, &peer).await;
+    let error = fixture
+        .origin
+        .service
+        .finalize_remote_team_members_scoped(&member.team_id, true, Some(&snapshot))
+        .await
+        .unwrap_err();
+    assert!(error.contains("remote close targets changed"));
+    let data = fixture.origin.service.remote_teams.snapshot().unwrap();
+    assert!(!data.closing_teams.contains(&member.team_id));
+    assert_eq!(
+        data.members.get(&member_key("remote", &fixture.worker)),
+        Some(&member)
+    );
+    assert!(fixture
+        .remote
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.worker)
+        .is_some());
+}
+
+#[tokio::test]
 async fn lost_finalization_response_recovers_as_absent_without_closing_another_session() {
     let fixture = Fixture::new();
     let peer = fixture.peer();
