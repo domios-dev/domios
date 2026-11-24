@@ -175,7 +175,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
       data-memory-active-tab={activeTab}
     >
         <div
-          className={`memory-panel-header ${detailOpen ? "max-sm:hidden" : ""}`}
+          className={`memory-panel-header ${detailOpen ? "max-sm:!hidden" : ""}`}
         >
           <h1>Memory</h1>
           <span className="memory-panel-stats" data-testid="memory-stats-summary">

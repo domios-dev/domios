@@ -6,6 +6,7 @@
   gap: 14px;
   padding: 20px 28px 6px;
   color: var(--ct-fg);
+  line-height: 1.45;
 }
 
 .memory-panel-header h1 {
