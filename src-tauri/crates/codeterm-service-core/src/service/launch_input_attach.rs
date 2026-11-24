@@ -90,12 +90,9 @@ pub(crate) fn input_ready(
     }
 }
 
-pub(crate) fn input_not_attached_reason(tab_id: &str) -> String {
-    format!(
-        "the agent has not attached its input to the terminal or started its session yet; \
-         queued input stays held. Open the tab to check it, or run `domios agent restart --tab {tab_id}`"
-    )
-}
+const INPUT_NOT_ATTACHED: &str =
+    "the agent has not attached its input to the terminal or started its session yet; \
+     queued input stays held. Open the tab to check its startup.";
 
 #[derive(Debug, PartialEq, Eq)]
 enum AttachOutcome {
@@ -421,7 +418,7 @@ impl ServiceContext {
                 self.record_provisional_launch(
                     attempt,
                     BootStage::LaunchDeadlineElapsed,
-                    &input_not_attached_reason(&attempt.tab_id),
+                    INPUT_NOT_ATTACHED,
                 )
             },
             Instant::now() + timeout,

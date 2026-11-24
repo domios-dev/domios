@@ -166,7 +166,8 @@ fn initialize_with_continuing(
                         tab,
                         is_continuing,
                         restore_on_boot(
-                            general_workspace.as_deref() == Some(workspace.id.as_str()),
+                            tab.agent_type.is_none()
+                                && general_workspace.as_deref() == Some(workspace.id.as_str()),
                             tab.protected,
                             tab.last_active_at_ms,
                             now_ms,
