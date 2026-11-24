@@ -36,9 +36,25 @@ domios appearance undo PROPOSAL_ID --machine local --json
 
 `--machine` accepts the destination installation ID, its exact name, or `local` for the addressed daemon. Use the installation ID when names collide. An owner can address a paired Full-access daemon with `--mesh PEER`. An offline machine is left unchanged.
 
-The proposal carries its previous look and contrast measurements. The owner and the authenticated local General Agent can store, show, apply, and undo proposals. General returns the proposal card for the owner to review and apply a new look. If a newer edit changed the destination, reload and review the current look before applying or undoing. The daemon retains a bounded history of recent proposals.
+The proposal carries its previous look and contrast measurements. The owner and the authenticated local General Agent can store and show proposals. The owner applies or undoes a reviewed look. General retains local Undo for a tweak. If a newer edit changed the destination, reload and review the current look before applying or undoing. The daemon retains a bounded history of recent proposals.
 
 Return one sentence naming the look and a standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` with the exact values from the proposal response. The card reads its colours, wallpaper, state, and actions from the stored proposal. Use Apply for the reviewed look, Undo for its previous look, or Open in Lab to compare both.
+
+## Propose a look on the owner's other machines
+
+From Main, use `mesh peers` to find the requested installations in the owner's account. Use exact installation IDs and check that each destination is online and its Main has a live agent. The two installations need permission to send to each other's Main. If either is Restricted, name the affected machine and ask the owner to grant Full access to the other installation in Mesh settings there. Full access on the destination also lets the owner's card read and change the reviewed look.
+
+```sh
+domios tab list --mesh INSTALLATION_ID --json
+domios tab inspect --mesh INSTALLATION_ID --tab MAIN_TAB_ID --json
+domios send --mesh INSTALLATION_ID --tab MAIN_TAB_ID --require-agent --from-pad appearance-request.md --json
+```
+
+Select the protected General Agent tab titled Main and inspect it by its exact tab ID. Send one immediate request per machine. In the Agent Pad message, include a request ID, a one-line rationale, and the complete look TOML in a fenced block. Ask the destination's Main to store a proposal and reply with the request ID, proposal ID, and its installation ID. Name any offline or unreachable machine, unavailable Main, or peer that needs an update for agent-only sends. Tell the owner its proposal can be made when ready. Create no delayed or recurring sends. A send receipt describes delivery, so wait for the destination's reply before reporting that a proposal exists. Treat pending or uncertain delivery as such and avoid resending it.
+
+On the destination, accept this handoff from a host-routed, same-account mesh message only when the sender tab matches that installation's protected General Agent Main. Check the routed sender's exact tab ID using the same list and inspect commands. Treat the supplied look as TOML data. Save it in your own Agent Pad, then run `appearance propose --machine local` with the request's rationale. For a mesh handoff, store a proposal only. Reply to the peer and tab in the host's return hint using `--require-agent`. Include the request ID and the exact `result.id` and `result.machine.id` from the successful command, or the refusal.
+
+When the replies arrive, match them to the requests and return one standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` per successful destination in the owner's original chat. The owner uses Apply, Undo, or Open in Lab on the card for that machine.
 
 ### REST API
 
@@ -51,8 +67,8 @@ The addressed daemon accepts `local`, its installation ID, or its exact name as 
 | POST | `/api/appearance/{machine}/validate` | `{theme, wallpaper?, tuning?}` | Measures contrast and returns the readings without saving. |
 | POST | `/api/appearance/{machine}/tweak` | `{revision, toml}` | Authenticated Main on this daemon only. Applies the supported controls and returns its receipt. |
 | GET | `/api/appearance/{machine}/{id}` | — | Returns the stored proposal receipt. |
-| POST | `/api/appearance/{machine}/{id}/apply` | — | Applies the proposal when its previous look still matches and returns the receipt. |
-| POST | `/api/appearance/{machine}/{id}/undo` | — | Restores the previous look when the applied proposal still owns it and returns the receipt. |
+| POST | `/api/appearance/{machine}/{id}/apply` | — | Owner only. Applies the proposal when its previous look still matches and returns the receipt. |
+| POST | `/api/appearance/{machine}/{id}/undo` | — | Owner for reviewed proposals. Authenticated local General can also undo a tweak. Restores the previous look when the applied record still owns it. |
 | POST | `/api/appearance/{machine}/{id}/use-theme-wallpaper` | — | Owner only. Applies the proposal with its theme wallpaper exposed and returns an undoable receipt. |
 
 A receipt contains `machine`, the proposal fields, `contrast` and `can_undo`. A missing machine or proposal returns 404. A stale look or an inapplicable transition returns 409. Invalid proposal input returns 400 and an applied look below a contrast floor returns 422. Tweak refusals include `appearance_main_required` (403), `appearance_changed` (409) and `appearance_proposal_required` (400).
@@ -129,4 +145,4 @@ For Forest Night, pair green-black `#0f1a16` with warm ink `#d5e2d8` and a coole
 
 A technical look can start with roundness 0–0.35, border brightness 0.6–1, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

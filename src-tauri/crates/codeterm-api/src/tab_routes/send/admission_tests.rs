@@ -1,6 +1,53 @@
 use super::*;
 
 #[tokio::test]
+async fn agent_only_send_refuses_shell_and_delivers_to_a_bound_agent() {
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+    let (mut mux, tab) = MultiplexerState::new();
+    mux.link_pty(&tab, "shell-pty".into());
+    let fixture = ServiceFixture::new(mux);
+    let writes = fixture.record_agent_deliveries(&tab);
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        "Bearer preview-test-token".parse().unwrap(),
+    );
+    let body = || {
+        serde_json::from_value(serde_json::json!({
+            "text": "Look proposal",
+            "require_agent": true,
+        }))
+        .unwrap()
+    };
+    let rejection = send_text(
+        State(state.clone()),
+        headers.clone(),
+        Path(tab.clone()),
+        Json(body()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
+    assert_eq!(rejection.body["error"]["bytes_written"], false);
+    assert!(writes.texts.lock().is_empty());
+    assert!(!fixture.has_pending_agent_delivery(&tab));
+    drop(writes);
+
+    let writes = fixture.bind_recorded_agent_recipient(&tab, "main-session", "main-nonce");
+    let accepted = send_text(State(state), headers, Path(tab.clone()), Json(body()))
+        .await
+        .unwrap_or_else(|rejection| panic!("Bound launch refused: {}", rejection.body));
+    assert_eq!(accepted.0["ok"], true);
+    let texts = writes.texts.lock();
+    assert_eq!(texts.len(), 1);
+    assert!(texts[0].contains("Look proposal"));
+    assert!(!fixture.has_pending_agent_delivery(&tab));
+}
+
+#[tokio::test]
 async fn concierge_http_preserves_system_notices_and_typed_owner_refusals() {
     use axum::{body::Body, http::Request, routing::post, Router};
     use codeterm_service_core::{

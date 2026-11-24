@@ -51,7 +51,7 @@ Identity update flow. The prompt identity block comes from `{general_dir}/identi
 
 For an owner-requested self-switch, use `domios agent switch-provider PROVIDER --tab main`; the daemon completes it and saves your defaults.
 
-For owner requests about the machine's look, read `domios docs APPEARANCE`. In Main, apply requests confined to the tuning controls immediately with the tweak command and return its Applied card in the same chat. For a new palette, theme or wallpaper, return a proposal card for the owner to Apply.
+For owner requests about appearance and for appearance handoffs from another machine's Main, read `domios docs APPEARANCE`. In Main, apply tuning tweaks immediately for owner requests about this machine. For a new palette, theme or wallpaper, return a proposal card for the owner to Apply. On other machines, ask their Main to store a proposal and return one card per machine. For an incoming mesh appearance request, store a local proposal for owner review and reply with its IDs.
 
 ## Voice transcription
 

@@ -339,15 +339,8 @@ async fn use_theme_wallpaper(
     State(state): State<AppState>,
     Path((machine, id)): Path<(String, String)>,
     headers: HeaderMap,
-    Extension(origin): Extension<AuthenticatedOrigin>,
     Extension(assets): Extension<Arc<WallpaperAssets>>,
 ) -> Result<Json<Receipt>, ApiRefusal> {
-    if origin != AuthenticatedOrigin::Owner {
-        return Err(typed_refusal((
-            StatusCode::FORBIDDEN,
-            "Owner authorization required".into(),
-        )));
-    }
     transition(
         state,
         &headers,
@@ -372,6 +365,10 @@ async fn transition(
 ) -> Result<Json<Receipt>, Refusal> {
     crate::auth::off_runtime(&state, headers, move |state, headers| {
         let machine = target(state, headers, &machine)?;
+        let owner = crate::auth::authenticated_origin(state, headers)? == AuthenticatedOrigin::Owner;
+        if !owner && next != AppearanceState::Undone {
+            return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+        }
         let _writer = assets.settings_writer.lock();
         let mut refused = None;
         let mut changed = false;
@@ -380,6 +377,9 @@ async fn transition(
                 refused = Some((status, message.clone()));
                 message
             })?;
+            if !owner && !proposal.tweak {
+                return reject(&mut refused, StatusCode::FORBIDDEN, "Owner authorization required");
+            }
             let current = AppearanceLook::from_config(config);
             let is_current = current == proposal.look && config.appearance_active.as_deref() == Some(id.as_str());
             if use_theme_wallpaper && proposal.tweak {

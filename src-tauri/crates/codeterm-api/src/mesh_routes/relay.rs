@@ -228,13 +228,19 @@ fn recurrence_capability_refusal(peer_name: &str, version: Option<&str>) -> Stri
 }
 
 fn identify_supports_delayed_recurrence(identify: &serde_json::Value) -> bool {
+    identify_supports_feature(identify, "delayed_recurrence")
+}
+
+pub(crate) const REQUIRE_AGENT_SEND_FEATURE: &str = "mesh_send_require_agent";
+
+fn identify_supports_feature(identify: &serde_json::Value, name: &str) -> bool {
     identify
         .get("features")
         .and_then(serde_json::Value::as_array)
         .is_some_and(|features| {
             features
                 .iter()
-                .any(|feature| feature.as_str() == Some("delayed_recurrence"))
+                .any(|feature| feature.as_str() == Some(name))
         })
 }
 
@@ -340,6 +346,20 @@ pub async fn mesh_relay_to_peer(
             },
         })
     };
+    if is_tab_send(&req.method, &req.path) && req.body["require_agent"].as_bool() == Some(true) {
+        let identify = client.auth_get_json("/api/identify").await.ok();
+        if !identify
+            .as_ref()
+            .is_some_and(|identify| identify_supports_feature(identify, REQUIRE_AGENT_SEND_FEATURE))
+        {
+            return Ok(answered_by(relay_failure(
+                StatusCode::UPGRADE_REQUIRED.as_u16(),
+                "peer_lacks_agent_only_send",
+                Some(false),
+                format!("Cannot verify agent-only delivery on {peer_name}. Check that it is reachable and running an updated Domios."),
+            )));
+        }
+    }
     if is_recurring_delayed_relay(&req.method, &req.path, &req.body) {
         let identify = client.auth_get_json("/api/identify").await.ok();
         if let Some(refusal) = recurrence_capability_refusal_response(

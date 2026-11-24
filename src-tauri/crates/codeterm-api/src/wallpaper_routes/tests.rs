@@ -122,6 +122,11 @@ async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_al
 
     let apply = format!("{path}/{id}/apply");
     let undo = format!("{path}/{id}/undo");
+    let use_theme = format!("{path}/{id}/use-theme-wallpaper");
+    for action in [&apply, &undo, &use_theme] {
+        let response = json_call(&app, &general, "POST", action, json!(null)).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{action}");
+    }
     let response = json_call(&app, owner, "POST", &apply, json!(null)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let settings = fixture.temp.path().join("wallpaper-settings.toml");
@@ -138,7 +143,6 @@ async fn appearance_keeps_proposals_separate_from_the_applied_look_and_undoes_al
         codeterm_types::config::schema::ChatPattern::Space
     );
     assert_eq!(paper.fill_strength, Some(0.4));
-    let use_theme = format!("{path}/{id}/use-theme-wallpaper");
     let response = json_call(&app, &unprivileged, "POST", &use_theme, json!(null)).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let response = json_call(&app, owner, "POST", &use_theme, json!(null)).await;
@@ -346,7 +350,7 @@ opacity = 0.05
     assert_eq!(read().appearance_proposals.len(), 1);
 
     let undo = format!("{base}/{id}/undo");
-    let undone = json_call(&app, owner, "POST", &undo, json!(null)).await;
+    let undone = json_call(&app, &general, "POST", &undo, json!(null)).await;
     assert_eq!(undone.status(), StatusCode::OK);
     assert_eq!(appearance_json(undone).await["state"], "undone");
     let restored = read();
