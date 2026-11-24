@@ -10,9 +10,6 @@
 main:has(> .ct-appearance-try) {
   --appearance-panel-space: min(calc(clamp(360px, 43vw, 720px) + 20px), 55%);
 }
-main:has(> .ct-appearance-try) [data-appearance-lab-chat] {
-  right: var(--appearance-panel-space);
-}
 .plan-side-panel-layer.ct-appearance-try {
   left: auto;
   width: var(--appearance-panel-space);
@@ -176,10 +173,6 @@ main:has(> .ct-appearance-try) [data-appearance-lab-chat] {
 @media (max-width: 640px) {
   main:has(> .ct-appearance-try) {
     --appearance-panel-space: min(62%, 520px);
-  }
-  main:has(> .ct-appearance-try) [data-appearance-lab-chat] {
-    right: 0;
-    bottom: var(--appearance-panel-space);
   }
   .plan-side-panel-layer.ct-appearance-try {
     top: auto;
