@@ -230,6 +230,10 @@ evidence. Historical launches project unknown; only own-session append observati
 can establish running. Completion projects ended. The bounded roster is session-scoped;
 `background_work_guard` defaults false. When enabled, restart refuses live work,
 provider updates wait for a roster change event, and explicit force is reported.
+Launch observations may report `kind: "shell" | "subagent"`. A shell launch may
+also report `output_path` from its own authenticated session record. The owner
+can read a bounded text tail of that exact temporary log through the current
+binding, subject to secure preview checks. No plugin filesystem grant is added.
 
 A JS provider never sees the ~70-method Rust `AgentProvider` trait. It sees two
 surfaces:
@@ -657,8 +661,13 @@ It composes with `cliBinary` and `checkForUpdate()` (`--version` and npm registr
 `/<encoded npmPackage>/latest`). The host verifies the resolved binary belongs
 to that npm package or the declared standalone directory. Npm updates preserve
 the owning global prefix; standalone updates invoke that binary with the declared
-arguments. Other installation methods refuse without changing installers. This
-pure declaration adds no sandbox host functions or plugin filesystem grants.
+arguments. An optional `macosAppBundle` declares the owner's `bundleIdentifier`,
+Apple Developer ID `teamIdentifier`, exact bundle-relative `executablePaths` and
+`updateGuidance`. The host follows the selected CLI's symlinks and verifies the
+enclosing app's signature and resource seal. An app-owned CLI shows the app's
+update route without offering CLI installer commands or npm release versions.
+Unknown installations refuse without changing installers. This pure declaration
+adds no sandbox host functions or plugin filesystem grants.
 Updates require an explicit action and run in a visible utility tab. Completion
 reports `provider`, `operation`, `success`, `old_version`, `new_version`, `tab_id`,
 `exit_code` and `summary`; success requires the requested installed version.

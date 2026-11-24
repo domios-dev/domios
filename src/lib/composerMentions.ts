@@ -1,6 +1,7 @@
 export interface MentionScope {
   // The composer owns scope; active UI selection and machine-global defaults cannot widen it.
   tabId: string;
+  peerId?: string | null;
   workspaceId: string | null;
   projectPath: string | null;
   cwd?: string | null;
@@ -17,6 +18,7 @@ export interface ComposerMention {
   insertText: string;
   group: string;
   machine?: { id: string; name: string };
+  crossMachine?: boolean;
   match: number;
   exact?: boolean;
   titlePrefix?: boolean;
@@ -54,7 +56,8 @@ export function mentionMatch(query: string, values: readonly string[]): number {
   }));
 }
 function compareMentionTitles(a: ComposerMention, b: ComposerMention): number {
-  return Number(!!b.exact) - Number(!!a.exact)
+  return Number(!!a.crossMachine) - Number(!!b.crossMachine)
+    || Number(!!b.exact) - Number(!!a.exact)
     || Number(!!b.titlePrefix) - Number(!!a.titlePrefix)
     || Number(!!b.titleSubstring) - Number(!!a.titleSubstring);
 }

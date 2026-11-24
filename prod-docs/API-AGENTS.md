@@ -242,6 +242,7 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | GET | `/api/agents/providers/{id}/cli` | Read provider CLI status; `?refresh=true` re-observes its launch profiles. |
 | GET | `/api/agents/providers/{id}/model-usage` | Read provider model-group usage. |
 | GET | `/api/tabs/{id}/agent/runtime/background-processes` | Read attributed runtime background processes. |
+| GET | `/api/tabs/{id}/agent/background-work` | Read the provider task's attributed output preview using query parameters `sessionId`, `bindingNonce` and `taskId`. |
 | POST | `/api/agents/general/complete-first-run` | Complete General first-run setup. |
 | POST | `/api/agents/general/restart` | Restart the protected General Agent. |
 | POST | `/api/agents/general/sessions` | Create an independent General session. |
@@ -252,6 +253,7 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/capabilities/refresh` | Refresh this tab's provider capabilities. |
 | POST | `/api/tabs/{id}/agent/fork` | Fork an owned agent conversation. |
 | POST | `/api/tabs/{id}/agent/runtime/background-processes` | Stop an attributed runtime background process. |
+| POST | `/api/tabs/{id}/agent/background-work` | Ask the bound agent to stop a running provider task using `{sessionId, bindingNonce, taskId}`. Returns `pending`, `unconfirmed` or `written` as a JSON string. |
 | POST | `/api/tabs/{id}/agent/runtime/goal` | Set the bound runtime thread goal. |
 | POST | `/api/tabs/{id}/agent/runtime/questions/{item}/answer` | Answer an exact pending runtime question. |
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
@@ -260,4 +262,6 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 Account roster mutations use the latest roster `revision`. `operation.action` is `add`, `retryAdd`, `cancelAdd`, `signIn`, `cancelSignIn`, `check`, `remove`, `dismissRemovalNotice`, `rename`, `reorder`, `automaticSwitch`, `workspace`, or `resetWorkspace`; account actions carry `accountId`, rename adds `name`, reorder adds `position`, automatic switching adds `enabled`, workspace actions carry `workspaceId` (and `accountId` for selection), and dismissal adds `noticeId`. Pending sign-in operations also carry the matching `signInId`. Invalid changes return 400; forbidden callers return 403.
 
 Account selection and verification share `{providerId, accountId, previousAccountId, accountNamespace?, nonce, epoch?, revision, resumeWork?, turnId?}`. `accountNamespace` identifies the current credential namespace, not a caller-selected target home. Stale revisions or bindings refuse with 409. `resumeWork` defaults to false; true requires the exact failed-turn boundary and `turnId`, and is forbidden for verification. Accepted requests return a transition initially marked `waiting`; read the tab account status to observe its eventual result. Acceptance alone does not prove continuation. Refresh binding refusals also return 409; worker failures return 500. Bodies are limited to 16 KiB (refresh: 4 KiB), with unknown fields rejected. Credentials never appear in roster/status responses.
-<!-- revision: 83 -->
+Provider background-work actions require the owner or an authenticated peer. They return 403 for an unauthorized caller or 409 when an action is refused, including a stale session or binding. A successful stop request reports delivery state. Confirm task completion from the provider's background-work state.
+
+<!-- revision: 84 -->

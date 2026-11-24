@@ -8,6 +8,7 @@ import { accountRuntimeUsage, accountUsageSnapshot, ownRuntimeUsage, latestUsage
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
+import { scopedUsageArgs, useUsageMachine } from "../../hooks/usageMachine";
 import { usageForModel } from "../../lib/modelGroups";
 import type { ModelGroup } from "../../lib/types";
 import { classify } from "../../types/usage";
@@ -22,8 +23,9 @@ import { formatAge } from "../../lib/timeLabels";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { contextUsage, hasQuota, useClaimContext } from "./contextUsage";
 import { ContextUsageBubble } from "./ContextUsageBubble";
-import { QuotaReadingPill, QuotaResetPill, useQuotaResetTick } from "./ProfileLimitsBubble";
+import { QuotaReadingPill, QuotaResetPill, UnavailableLimitsBubble, useQuotaResetTick } from "./ProfileLimitsBubble";
 import { activeQuotaReset, quotaReading } from "./quotaModel";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
@@ -71,6 +73,8 @@ export function UsageBubble({
   profileAccountId = null,
   profileQuotaModelId = modelId,
 }: UsageBubbleProps) {
+  const peerId = useUsageMachine();
+  const sourceTabId = peerId ? parseCompositeTabId(tabId)?.remoteTabId : tabId;
   const { usage: modelUsage, refresh: refreshModelUsage } = useProviderModelUsageState(
     provider,
     trackingEnabled && modelId != null && !borrowedAccount,
@@ -82,15 +86,15 @@ export function UsageBubble({
     () => (hasGroupSpend(groupUsage) ? groupSpendSnapshot(provider, groupUsage, Date.now()) : null),
     [provider, groupUsage],
   );
-  const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
+  const { snapshot, error, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
   const { snapshot: profileSnapshot } = useUsageSnapshot({
     provider,
     accountId: profileAccountId,
     enabled: trackingEnabled && Boolean(profileAccountId) && !borrowedAccount,
   });
-  const runtime = borrowedAccount || balance ? null : ownRuntimeUsage(snapshot,tabId,threadId);
+  const runtime = borrowedAccount || balance ? null : ownRuntimeUsage(snapshot,sourceTabId,threadId);
   const active = balance ? groupSnapshot : borrowedAccount ? accountUsageSnapshot(snapshot)
-    : (!chatBackend && !snapshot?.runtime_usage ? groupSnapshot : null) ?? latestUsageSnapshot(snapshot, tabId, threadId);
+    : (!chatBackend && !snapshot?.runtime_usage ? groupSnapshot : null) ?? latestUsageSnapshot(snapshot, sourceTabId, threadId);
   // The reading whose account rows (credits, session resets) this popover shows; a borrowing tab shows the native tab's.
   const accountReading = borrowedAccount ? accountRuntimeUsage(snapshot) : runtime;
   const accountCreditsLabel = runtimeAccountCreditsLabel(accountReading?.account_credits);
@@ -106,11 +110,11 @@ export function UsageBubble({
     };
   }, []);
   const tokenSession = runtime && (runtime.billing_mode === "api" || (runtime.token_usage != null && !hasQuota(active))) ? runtime : null;
-  const resetModel = tabId ? resetCreditsForTab(tabId, uid, async (key, creditId) => {
+  const resetModel = tabId && !peerId ? resetCreditsForTab(tabId, uid, async (key, creditId) => {
     const result = await invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key,...(creditId ? {creditId} : {})}});
     try {
       await invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}});
-      const updated = await invoke<UsageSnapshot|null>("usage_latest", {provider,accountId:accountId ?? undefined});
+      const updated = await invoke<UsageSnapshot|null>("usage_latest", {provider,accountId:accountId ?? undefined, ...scopedUsageArgs(peerId)});
       await refetch();
       return {...result,remainingCount:ownRuntimeUsage(updated,tabId,threadId)?.resets?.availableCount ?? null};
     } catch {
@@ -127,7 +131,7 @@ export function UsageBubble({
   useQuotaResetTick(profileQuota ? null : profileReset?.resetsAt ?? null, resetNow);
   // A harness that reports its context fill but no quota (an ACP agent): the fill is the bubble value.
   const contextReading = contextUsage(context, runtime);
-  const contextMode = trackingEnabled && !balance && !profileQuota && !profileReset && contextReading != null && !hasQuota(active);
+  const contextMode = trackingEnabled && (!peerId || (!error && active != null)) && !balance && !profileQuota && !profileReset && contextReading != null && !hasQuota(active);
   useClaimContext(tabId, contextMode);
 
   if (profileQuota) {
@@ -148,10 +152,12 @@ export function UsageBubble({
     );
   }
 
-  if (!trackingEnabled || !active) return null;
+  if (!trackingEnabled) return null;
+  const unavailable = peerId ? <UnavailableLimitsBubble reason="Usage is unavailable on this machine." /> : null;
+  if (!active) return unavailable;
   const now = Date.now();
   const ageMs = now - active.captured_at;
-  if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return null;
+  if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return unavailable;
 
   const isStale = ageMs > STALE_MS;
   const spendLabel = active.spend_remaining_cents != null
@@ -217,7 +223,7 @@ export function UsageBubble({
         title={tokenSession ? runtimeTokenBreakdown(tokenSession) : undefined}
         onClick={(e) => {
           e.stopPropagation();
-          if (!open && runtime && tabId) {
+          if (!open && runtime && tabId && !peerId) {
             void invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}}).then(() => refetch()).catch((error: unknown) => {
               if (DEV_BUILD) console.debug("Background reset credits refresh failed", error);
             });

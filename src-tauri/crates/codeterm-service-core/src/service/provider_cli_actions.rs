@@ -117,39 +117,25 @@ pub fn launch_with_dispatch(
     dispatch: impl FnOnce(&ServiceContext, &str, &str) -> Result<(), String>,
 ) -> Result<CliLaunch, String> {
     let platform = crate::agent::provider::current_platform_tag();
-    let mut status =
-        super::provider_cli::provider_cli_status(&svc.provider_registry, provider, platform)?;
-    let updater_provider = svc.agent_registry.provider_arc(provider);
-    let capability = updater_provider
-        .as_ref()
-        .and_then(|p| p.provider_self_update_capability());
-    let explicit_update = matches!(operation, CliOperation::Update) && capability.is_some();
+    let self_update = svc
+        .agent_registry
+        .provider_arc(provider)
+        .and_then(|p| p.provider_self_update_capability())
+        .is_some();
+    let explicit_update = matches!(operation, CliOperation::Update) && self_update;
     let permit = if explicit_update {
         Some(update::reserve(provider)?)
     } else {
         None
     };
-    if let Some(capability) = capability.filter(|_| explicit_update) {
-        let binary = status.binary.as_deref().ok_or("CLI binary is unknown")?;
-        let path = match codeterm_plugin::js_runtime::probe_bin(binary).resolution {
-            codeterm_plugin::js_runtime::BinResolution::Found(path) => path,
-            _ => return Err("CLI executable cannot be resolved".into()),
-        };
-        let installation = codeterm_plugin::provider_self_update::detect_installation(
-            &capability,
-            &path,
-            platform,
-        )
-        .ok_or(
-            "Installation method is unknown or unsupported; update using its original installer",
-        )?;
-        status.updater = codeterm_plugin::provider_self_update::update_command(
-            &capability,
-            &path,
-            &installation,
-            platform,
-        );
-        status.resolved_path = Some(path);
+    let status = if self_update {
+        svc.provider_registry
+            .compute_cli_status(provider, platform)?
+    } else {
+        super::provider_cli::provider_cli_status(&svc.provider_registry, provider, platform)?
+    };
+    if explicit_update && status.resolved_path.is_none() {
+        return Err("CLI executable cannot be resolved".into());
     }
     let mut command = operation_command(&status, operation, platform)?;
     let mut target = None;

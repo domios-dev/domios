@@ -55,7 +55,7 @@
   background:
     radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--ct-yellow) 7%, transparent), transparent 60%),
     var(--ct-surface);
-  box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent), 0 1px 0 color-mix(in srgb, var(--ct-fg) 5%, transparent) inset;
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
   color: var(--ct-fg);
   transform-origin: var(--ct-menu-origin);
   animation: ct-rate-us-in 220ms var(--ct-ease-decel, ease-out) both;

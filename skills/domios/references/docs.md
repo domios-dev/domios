@@ -10,6 +10,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs NOTIFICATIONS` — Notification levels, per-level surfaces, sound, and push channels.
 - `domios docs INTEGRATIONS` — Messaging, hooks, transcription, and secret-backed integration settings.
 - `domios docs RUNTIME-CONFIG` — Runtime, UI, session, cron, and memory settings.
+- `domios docs APPEARANCE` — Per-machine looks, wallpaper, contrast checks, and proposal actions.
 - `domios docs API` — REST, socket, and CLI integration reference.
 - `domios docs API-TABS` — Tab and workspace REST contracts.
 - `domios docs API-CHAT` — Chat send, admission, transcript, and snapshot REST contracts.
@@ -58,4 +59,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs TEAM-FORMAT` — Agentic Team Protocol package format: forms, fields, roles and validation.
 - `domios docs TEAMS` — Starting, previewing, baking and sharing Team templates.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

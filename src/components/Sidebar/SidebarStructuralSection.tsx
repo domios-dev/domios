@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 
-/** A top-level sidebar section below General: one sticky collapsible header and its body. */
 export function SidebarStructuralSection({ label, ariaLabel, expanded, onToggle, testId, action, children, firstRunMuted = false }: {
   label: string;
   ariaLabel?: string;

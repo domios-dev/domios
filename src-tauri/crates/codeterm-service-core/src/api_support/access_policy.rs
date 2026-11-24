@@ -169,6 +169,9 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
         return None;
     }
     let scope = match (method, path) {
+        (&Method::GET | &Method::POST, path) if path.starts_with("/api/appearance/") => {
+            PeerScope::new(FullAccess, Host)
+        }
         (&Method::PATCH, "/api/config") => PeerScope::new(FullAccess, Host),
         (&Method::POST, "/api/mesh/rpc") => PeerScope::new(FullAccess, Host),
         (&Method::POST, "/api/mesh/announce") => PeerScope::new(Announce, Host),
@@ -240,7 +243,8 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                         | "shell-commands"
                         | "chat-send"
                         | "chat-send/queue"
-                        | "chat-send/dismissals",
+                        | "chat-send/dismissals"
+                        | "agent/background-work",
                     ) => ReadOutput,
                     (
                         &Method::GET,
@@ -269,7 +273,8 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                         | "attachments"
                         | "chat-send"
                         | "chat-send/queue"
-                        | "chat-send/dismissals",
+                        | "chat-send/dismissals"
+                        | "agent/background-work",
                     ) => SendInput,
                     (
                         &Method::POST,

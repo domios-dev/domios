@@ -235,6 +235,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 
 .ct-ctx-kind__label { color: var(--ct-fg); }
 @media (max-width: 760px) { .ct-ctx-kind__label { display: none; } }
+.ct-ctx-kind[data-kind="background"] .ct-ctx-kind__label { display: inline; }
 
 .ct-ctx[data-phone] .ct-ctx__strip[data-kind="delayed"] .ct-ctx-bubble:not(.ct-ctx-bubble--add) {
   width: 100%;

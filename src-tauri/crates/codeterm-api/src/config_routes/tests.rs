@@ -1,4 +1,67 @@
 use super::{api_listener_value, api_query_includes_listener, redact_rest_config};
+use axum::{
+    body::{to_bytes, Body},
+    http::{Request, StatusCode},
+    routing::patch,
+    Router,
+};
+use codeterm_service_core::{
+    multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+};
+use serde_json::json;
+use tower::ServiceExt;
+
+#[tokio::test]
+async fn config_patch_refuses_wallpaper_writes_and_points_to_dedicated_route() {
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let installed = json!({"background": {"pattern": "dots"}});
+    {
+        let mut config = state.config.lock();
+        config.api.token = Some("owner-secret".into());
+        config.chat_wallpaper = Some(serde_json::from_value(installed.clone()).unwrap());
+    }
+    let app = Router::new()
+        .route("/api/config", patch(super::patch_config_api))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::auth_middleware,
+        ))
+        .with_state(state.clone());
+    let replacement = json!({"background": {"pattern": "none"}});
+    for body in [
+        json!({"key": "chat_wallpaper", "value": replacement}),
+        json!({"key": "chat_wallpaper.background.pattern", "value": "none"}),
+        json!({"key": "chat_wallpaper", "value": null}),
+        json!({"chat_wallpaper": replacement}),
+        json!({"chat_wallpaper": null}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/config")
+                    .header("authorization", "Bearer owner-secret")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{body}");
+        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        let reply: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(reply["error"]["code"], "wallpaper_route_required");
+        assert_eq!(reply["error"]["method"], "PUT");
+        assert_eq!(reply["error"]["path"], "/api/chat-wallpaper");
+        assert_eq!(
+            serde_json::to_value(&state.config.lock().chat_wallpaper).unwrap(),
+            installed
+        );
+    }
+}
 
 #[test]
 fn rest_config_never_serializes_api_token() {

@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { BusyState } from "../shared/BusyState";
 import { RotateCw, TriangleAlert, X } from "lucide-react";
 import { AttachmentCapsule, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
 import {
+  CAPSULE_GAP,
   CAPSULE_LEAD,
   CAPSULE_TRAIL,
   capsuleSegments,
@@ -215,7 +216,10 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
         >
           {segments.map((segment) => ("text" in segment
             ? segment.text
-            : <PaintedCapsule key={segment.span.start} span={segment.span} capsule={segment.capsule} hovered={hover?.span.start === segment.span.start} upload={uploads.find(upload => upload.id === segment.capsule?.uploadId)} />))}
+            : <Fragment key={segment.span.start}>
+              <PaintedCapsule span={segment.span} capsule={segment.capsule} hovered={hover?.span.start === segment.span.start} upload={uploads.find(upload => upload.id === segment.capsule?.uploadId)} />
+              {segment.token.endsWith(CAPSULE_GAP) ? CAPSULE_GAP : null}
+            </Fragment>))}
           {value.endsWith("\n") ? " " : null}
         </div>
       )}

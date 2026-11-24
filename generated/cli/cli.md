@@ -539,6 +539,53 @@ Quit the exact local application after successful server cleanup and observed ex
 
 - `--exact`
 
+#### `domios appearance`
+
+Propose, review, apply and undo a machine's appearance
+
+#### `domios appearance apply`
+
+Apply a reviewed proposal on the selected machine
+
+- `<id>`
+- `--machine`
+
+#### `domios appearance current`
+
+Read the current look and available presets on one machine
+
+- `--machine`
+
+#### `domios appearance propose`
+
+Validate and store a complete look for review
+
+- `--from-pad` — TOML in your Agent Pad with [theme], [appearance] and wallpaper
+- `--machine`
+- `--rationale` — One-line colour-harmony rationale
+
+#### `domios appearance show`
+
+Read a stored proposal and its measured contrast
+
+- `<id>`
+- `--machine`
+
+#### `domios appearance tweak`
+
+Apply tuning controls immediately from this machine's bound General Main session
+
+- `--from-pad` — Tuning-only TOML in your Agent Pad
+- `--machine`
+- `--revision` — Revision returned by appearance current
+
+#### `domios appearance undo`
+
+Restore the look that was active before applying this proposal
+
+- `<id>`
+- `--machine`
+
 #### `domios blueprint`
 
 Cheap hash-gated watchers with closed-set routes
@@ -3617,6 +3664,8 @@ Send text to a tab (default: current tab)
 
 - `--actions` — Terminal actions to run after optional text, comma-separated. Keys: literal characters, enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--attach` — Share a relative file from the current tab's pad in the recipient's chat. Repeat to share several files
+- `--copy` — Put a snapshot of each attachment in the receiving tab's pad inbox
 - `--count` — Stop after this many delivered or skipped ticks
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--every` — Repeat delivery to this existing tab at an anchored interval (minimum 1m)
@@ -4578,6 +4627,21 @@ Re-read usage from the provider's own quota-free source (never spends quota)
 
 - `--account-id`
 - `--provider`
+
+#### `domios wallpaper`
+
+Per-machine chat wallpaper
+
+#### `domios wallpaper clear`
+
+Restore the active theme's wallpaper on this machine
+
+#### `domios wallpaper set`
+
+Apply a static SVG to this machine or submit an owner-requested General draft
+
+- `--from-pad` — Read the SVG from your current agent pad, or use - for stdin
+- `--request` — Single-use request ID supplied to the target machine's General Agent
 
 #### `domios web`
 

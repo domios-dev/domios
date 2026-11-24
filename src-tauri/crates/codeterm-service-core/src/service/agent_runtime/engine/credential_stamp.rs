@@ -34,7 +34,10 @@ pub(super) fn capture(
     Some(stamp_in(&home, &capability.credential_files))
 }
 
-pub(super) async fn changed(svc: &ServiceContext, session: &super::Session) -> bool {
+pub(in crate::service::agent_runtime) async fn changed(
+    svc: &ServiceContext,
+    session: &super::Session,
+) -> bool {
     let Some(previous) = session.credential_stamp.lock().clone() else {
         return false;
     };

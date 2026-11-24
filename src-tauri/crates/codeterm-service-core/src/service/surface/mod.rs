@@ -27,7 +27,9 @@ pub use stream_ops::SurfaceCallFailure;
 pub(crate) use transport::SurfaceTransport;
 
 use super::ServiceContext;
-use crate::multiplexer::types::TabBacking;
+use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::{Tab, TabBacking, TabCloseReason};
+use codeterm_browser::BrowserStatus;
 
 pub(crate) const SURFACE_NO_INPUT: &str = "surface_no_input";
 pub(crate) const SURFACE_NO_TEXT: &str = "surface_no_text";
@@ -44,10 +46,67 @@ pub(crate) fn builtin_runtimes() -> std::sync::Arc<SurfaceRuntimeRegistry> {
 }
 
 impl ServiceContext {
+    pub fn start_browser_orphan_sweep(&self) {
+        let runtimes = self.ext::<std::sync::Arc<SurfaceRuntimeRegistry>>().clone();
+        crate::async_runtime::spawn(async move { runtimes.sweep_browsers().await });
+    }
+
     pub fn tab_surface_input_refusal(&self, tab_id: &str) -> Option<String> {
         let mux = self.mux.read();
         let resolved = mux.resolve_tab_id(tab_id)?;
         surface_input_refusal(&mux.get_tab(&resolved)?.backing)
+    }
+
+    fn is_browser_surface(&self, tab: &Tab) -> bool {
+        let Some(backing) = tab.surface() else {
+            return false;
+        };
+        self.ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
+            .get(&backing.plugin_id)
+            .is_some_and(|declared| {
+                declared.iter().any(|decl| {
+                    decl.id == backing.surface_id
+                        && decl.stream_runtime() == Some(codeterm_surface::surface::BROWSER_RUNTIME)
+                })
+            })
+    }
+
+    pub(crate) fn browser_tab_status(&self, tab: &Tab) -> Option<BrowserStatus> {
+        self.is_browser_surface(tab).then(|| {
+            self.ext::<std::sync::Arc<SurfaceRuntimeRegistry>>()
+                .browser_status(&tab.id)
+        })
+    }
+
+    pub(crate) fn browser_tab_status_fields(
+        &self,
+        tab: &Tab,
+    ) -> Option<(&'static str, Option<String>)> {
+        Some(match self.browser_tab_status(tab)? {
+            BrowserStatus::Closed => ("closed", None),
+            BrowserStatus::Running => ("running", None),
+            BrowserStatus::Error(reason) => ("error", Some(reason)),
+        })
+    }
+
+    pub(crate) fn remove_owned_browser_tabs(
+        &self,
+        mux: &mut MultiplexerState,
+        owner: &str,
+    ) -> bool {
+        let mut removed = false;
+        for id in mux.get_children_ids(owner) {
+            if mux
+                .get_tab(&id)
+                .is_some_and(|tab| self.is_browser_surface(tab))
+            {
+                match mux.close_tab_with_reason(&id, TabCloseReason::AgentRunEnded) {
+                    Ok(_) => removed = true,
+                    Err(error) => log::debug!("[browser] owner exit close {id}: {error}"),
+                }
+            }
+        }
+        removed
     }
 }
 

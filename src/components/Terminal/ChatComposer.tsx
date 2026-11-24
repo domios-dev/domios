@@ -75,6 +75,7 @@ import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 import { useDictationDraft, useDictationSelection } from "./voice/dictationDraft";
 import { useLiveDictation } from "./voice/useLiveDictation";
+import { remoteDictationUnavailable } from "../../lib/transport/dictation";
 import { ExpandedDictationStatus } from "./voice/DictationStatus";
 import { createSpaceDictationHold, SPACE_DICTATION_POP_MS } from "./voice/spaceDictationHold";
 import { DICTATION_ACTION } from "../../lib/mentionSources/actions";
@@ -98,6 +99,11 @@ declare global {
 
 
 const NO_SUGGESTIONS: SlashCommandSuggestion[] = [];
+
+export function composerHint(hasCommands: boolean, phone: boolean): string {
+  if (phone) return hasCommands ? "Ask anything · @ tab · / command" : "Ask anything · @ tab";
+  return hasCommands ? "Ask anything · @ to mention a tab · / for commands" : "Ask anything · @ to mention a tab";
+}
 
 const SlashPicker = memo(function SlashPicker({
   suggestions,
@@ -258,7 +264,8 @@ function ChatComposerImpl({
     const tab = state.tabs[tabId];
     return JSON.stringify([tabId, tab?.pty_id, tab?.agent_session_id, tab?.session_binding_nonce]);
   }, [tabId]));
-  const dictation = useLiveDictation(tabId, dictationIdentity, isActive && !replacement && !liveLocked, {
+  const dictationUnavailable = remoteDictationUnavailable(tabId);
+  const dictation = useLiveDictation(tabId, dictationIdentity, isActive && !replacement && !liveLocked && !dictationUnavailable, {
     prepare(session) {
       const editor = textareaRef.current;
       if (!editor || editor.value !== displayInput) return false;
@@ -399,6 +406,7 @@ function ChatComposerImpl({
   const mentionPicker = useRef<ComposerMentionsHandle>(null);
   function pickMention(mention: ComposerMention, query: MentionQuery) {
     if (mention.id !== DICTATION_ACTION) { mentionTokens.insert(mention, query); return; }
+    if (dictationUnavailable) { flagComposerError(dictationUnavailable); return; }
     const editor = textareaRef.current;
     if (!editor || editor.value !== displayInput || dictation.active()) return;
     const draft = mentionTokens.draft;
@@ -784,7 +792,7 @@ function ChatComposerImpl({
               dictation.cancel();
               return;
             }
-            if (spaceHold.current?.onKeyDown({
+            if (!dictationUnavailable && spaceHold.current?.onKeyDown({
               code: e.code,
               repeat: e.repeat,
               shiftKey: e.shiftKey,
@@ -902,7 +910,7 @@ function ChatComposerImpl({
           onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionTokens.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
           placeholder={pendingPrompt
             ? "Answer the request above to continue."
-            : idlePlaceholder ?? "Message"}
+            : idlePlaceholder ?? composerHint(commands.length > 0, composerDevice === "phone")}
           enterKeyHint={composerDevice === "phone" ? "enter" : "send"}
           style={{
             color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",

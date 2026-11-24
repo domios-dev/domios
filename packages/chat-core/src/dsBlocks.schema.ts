@@ -1,4 +1,4 @@
-export const DS_KINDS = ["html", "page", "image", "document", "canvas", "guide", "plugin", "connect", "setting", "agent", "job", "checklist", "choice", "tasks"] as const;
+export const DS_KINDS = ["html", "page", "image", "document", "canvas", "guide", "plugin", "connect", "setting", "agent", "job", "checklist", "choice", "tasks", "appearance"] as const;
 export type DsKind = typeof DS_KINDS[number];
 export const DS_TASK_STATUSES = ["in_progress", "in_review", "blocked", "todo", "pending", "paused", "done", "cancelled"] as const;
 export type DsTaskStatus = typeof DS_TASK_STATUSES[number];
@@ -16,6 +16,7 @@ export type DsBlock =
   | { kind: "agent"; tab: string }
   | { kind: "job"; ref: string }
   | { kind: "choice"; options: string[] }
+  | { kind: "appearance"; id: string; machine: string }
   | { kind: "tasks"; plan: string; refs: string[]; statuses: DsTaskStatus[]; snapshot?: DsTaskSnapshot };
 
 const ASCII_SPACE = /[\t\n\f\r ]/;
@@ -70,7 +71,7 @@ function stringArray(value: string | undefined): string[] | null {
 
 const ALLOWED: Record<DsKind, readonly string[]> = {
   html: [], canvas: ["src", "view"], page: ["src"], document: ["src"], image: ["src", "sources"], guide: ["section"], plugin: ["id"],
-  connect: ["bridge"], setting: ["key"], agent: ["tab"], job: ["ref"], checklist: ["id"], choice: ["options"], tasks: ["plan", "refs", "statuses"],
+  connect: ["bridge"], setting: ["key"], agent: ["tab"], job: ["ref"], checklist: ["id"], choice: ["options"], tasks: ["plan", "refs", "statuses"], appearance: ["id", "machine"],
 };
 export function validateDsBlock(opening: DsOpening, body?: string): DsBlock | null {
   const { kind, attributes: a, selfClosing } = opening;
@@ -98,6 +99,8 @@ export function validateDsBlock(opening: DsOpening, body?: string): DsBlock | nu
     case "setting": return /^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z0-9_][A-Za-z0-9_-]{0,63}){1,7}$/.test(a.key ?? "") ? { kind, key: a.key } : null;
     case "agent": return /^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$/.test(a.tab ?? "") ? { kind, tab: a.tab } : null;
     case "job": return /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(a.ref ?? "") ? { kind, ref: a.ref } : null;
+    case "appearance": return /^[a-f0-9]{32}$/.test(id) && /^[A-Za-z0-9][A-Za-z0-9_. -]{0,127}$/.test(a.machine ?? "")
+      ? { kind, id, machine: a.machine } : null;
     case "choice": {
       const options = stringArray(a.options)?.map((label) => label.replace(/\s+/g, " ").trim());
       return options && options.length >= 2 && options.length <= 8 && options.every((label) => label.length > 0 && label.length <= 80)
@@ -145,6 +148,7 @@ export function serializeDsBlock(block: DsBlock): string {
     case "setting": attributes.key = block.key; break;
     case "agent": attributes.tab = block.tab; break;
     case "job": attributes.ref = block.ref; break;
+    case "appearance": attributes.id = block.id; attributes.machine = block.machine; break;
     case "choice": attributes.options = JSON.stringify(block.options); break;
     case "tasks": attributes.plan = block.plan; if (block.refs.length) attributes.refs = JSON.stringify(block.refs); if (block.statuses.length) attributes.statuses = JSON.stringify(block.statuses); break;
   }

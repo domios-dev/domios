@@ -30,7 +30,8 @@ function hexToRgb(hex: string): [number, number, number] {
 /** Convert [r,g,b] + alpha to rgba string. */
 function rgba(hex: string, alpha: number): string {
   const [r, g, b] = hexToRgb(hex);
-  return `rgba(${r},${g},${b},${alpha})`;
+  const opacity = /^#[a-f\d]{8}$/i.test(hex) ? parseInt(hex.slice(7), 16) / 255 : 1;
+  return `rgba(${r},${g},${b},${alpha * opacity})`;
 }
 
 interface ThemeColors {

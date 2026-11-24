@@ -52,21 +52,33 @@ const FOOTER_BUTTON = {
 } as const;
 
 /** The status-line identity for a tab, made switchable when its provider declares it. */
-export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: string }) {
-  const descriptor = useAgentDescriptor(tab.agent_type);
-  return descriptor?.accounts ? <AccountStatusLineModelPicker tab={tab} label={label} descriptor={descriptor} />
-    : <TabModelIdentity tab={tab} label={label} descriptor={descriptor} />;
+type TabPickerProps = { tab: Tab; label: string; triggerLabel?: string; unavailableModel?: string };
+
+export function TabStatusLineModelPicker(props: TabPickerProps) {
+  const descriptor = useAgentDescriptor(props.tab.agent_type);
+  return descriptor?.accounts ? <AccountStatusLineModelPicker {...props} descriptor={descriptor} />
+    : <TabModelIdentity {...props} descriptor={descriptor} />;
 }
 
-function AccountStatusLineModelPicker({ tab, label, descriptor }: { tab: Tab; label: string; descriptor: ProviderDescriptor }) {
-  const accounts = useTabAccounts(tab);
+function AccountStatusLineModelPicker(props: TabPickerProps & { descriptor: ProviderDescriptor }) {
+  const accounts = useTabAccounts(props.tab);
   const account = tabAccountIndicator(accounts.snapshot, accounts.currentAccountId);
-  return <TabModelIdentity tab={tab} label={label} descriptor={descriptor}
-    account={account} />;
+  return <TabModelIdentity {...props} account={account} />;
 }
 
-function TabModelIdentity({ tab, label, descriptor, account }: { tab: Tab; label: string; descriptor: ProviderDescriptor | undefined; account?: ProviderAccountRow | null }) {
+function TabModelIdentity({ tab, label, descriptor, account, triggerLabel, unavailableModel }: TabPickerProps & { descriptor: ProviderDescriptor | undefined; account?: ProviderAccountRow | null }) {
   const effort = tab.reasoning_effort_identity;
+  const unavailable = [...(tab.agent_runtime_state?.unavailableModels ?? []), ...(account?.unavailableModels ?? [])];
+  if (descriptor && (unavailable.length || unavailableModel)) {
+    const available_models = descriptor.available_models.map(model =>
+      unavailable.includes(model.id) || model.id === unavailableModel
+        ? { ...model, available: false, availability: "unavailable" as const }
+        : model);
+    if (unavailableModel && available_models.every(model => model.id !== unavailableModel)) {
+      available_models.push({ id: unavailableModel, display_name: unavailableModel, available: false, availability: "unavailable" });
+    }
+    descriptor = { ...descriptor, available_models };
+  }
   return (
     <StatusLineModelPicker
       tab={tab}
@@ -76,6 +88,7 @@ function TabModelIdentity({ tab, label, descriptor, account }: { tab: Tab; label
       runtimeIdentity={tab.agent_runtime_state}
       facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend" }}
       label={label}
+      triggerLabel={triggerLabel}
       account={account}
       modelCandidates={[tab.agent_session_model, tab.agent_provider_resolved_model, tab.agent_requested_model]}
       currentServiceTier={confirmedTabServiceTier(tab, descriptor)}
@@ -96,6 +109,7 @@ export function StatusLineModelPicker({
   descriptor,
   facts,
   label,
+  triggerLabel,
   account,
   modelCandidates,
   currentEffort,
@@ -113,6 +127,7 @@ export function StatusLineModelPicker({
   descriptor: ProviderDescriptor | undefined;
   facts: StatusLineTabFacts;
   label: string;
+  triggerLabel?: string;
   account?: ProviderAccountRow | null;
   modelCandidates: Array<string | null | undefined>;
   currentEffort: string | undefined;
@@ -253,13 +268,13 @@ export function StatusLineModelPicker({
         className="ct-status-identity"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`Change model, currently ${displayedLabel}${identity ? `, account ${identity}` : ""}`}
+        aria-label={triggerLabel ?? `Change model, currently ${displayedLabel}${identity ? `, account ${identity}` : ""}`}
         title={["Change model", accountTitle].filter(Boolean).join("\n")}
         data-testid="status-model-trigger"
         onClick={() => setOpen((value) => !value)}
       >
         {glyph}
-        <span className="ct-status-identity__text">{displayedLabel}</span>
+        <span className="ct-status-identity__text">{triggerLabel ?? displayedLabel}</span>
         {avatar}
         <ChevronDown size={12} strokeWidth={2.25} aria-hidden className="ct-status-identity__chevron" />
       </button>

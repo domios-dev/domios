@@ -199,6 +199,10 @@ impl ServiceContext {
         let local_runtime = !cloud && super::agent_runtime::engine::requested(self, &plugin_id);
         let router_owner =
             live_transcript::router_launch_owner(self, &spec, &plugin_id, local_runtime)?;
+        let config_model = config
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         if local_runtime {
             if let Some(metadata) = spec.chatbackend_launch.as_ref() {
                 super::spawn_capability::validate_runtime_launch_arguments(
@@ -416,6 +420,8 @@ impl ServiceContext {
                 tab.show_in_tabbar = !tab.hidden;
                 if let Some(launch) = launch {
                     stamp_chatbackend_launch_identity(tab, launch);
+                } else if local_runtime {
+                    tab.agent_requested_model = config_model;
                 }
                 tab.audience = spec.audience;
                 tab.role_profile = role_profile.clone();

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import type { Tab, TabStatus } from "../../lib/types";
-import { tabActivity } from "../../lib/tabActivity";
+import { idleBackgroundLabel, tabActivity } from "../../lib/tabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { AgentIcon } from "../AgentIcon";
 import { TerminalIcon } from "../Icons";
@@ -12,6 +12,7 @@ import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { RemoteTabIcon, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
 import { matchesSidebarMachine, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { effectiveTeamId } from "./workspaceTeamModel";
+import { SidebarSelectedRowContext, useSidebarSelectedRow } from "./sidebarSelectedRow";
 
 export interface CompactRailGroup {
   workspaceId: string;
@@ -51,14 +52,17 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
   hidden: boolean; onActivate: () => void; onPeek: (event: MouseEvent<HTMLButtonElement>) => void; onLeave: () => void;
 }) {
   const title = displayTitleForTab(tab);
+  const selectedRowRef = useSidebarSelectedRow<HTMLButtonElement>(tab.id, title, active);
   const activity = tabActivity(tab, status);
   const machine = useRemoteTabPresentation(tab, activity, observed);
   const firstRun = isFirstRunGeneralTab(tab);
   const icon = tab.agent_type ? <AgentIcon tab={tab} providerId={tab.agent_type} title={machine ? "" : undefined} className="text-[15px]" /> : <TerminalIcon size={14} />;
   const mark = <TabAttentionMark title={title} attention={attention ?? tabAttention(tab, status, [], active)} active={active} placement="compact" remote={Boolean(machine)} />;
   const activityKind = machine?.unavailable ? "idle" : activity.kind;
-  const backgroundActive = !machine?.unavailable && activityKind === "idle" && activity.backgroundTasks > 0;
+  const backgroundLabel = machine?.unavailable ? null : idleBackgroundLabel(activity);
+  const backgroundActive = Boolean(backgroundLabel);
   return <button
+    ref={selectedRowRef}
     type="button"
     hidden={hidden}
     data-first-run-allowed={firstRun || undefined}
@@ -70,7 +74,7 @@ function RailTab({ tab, observed, status, attention, active, touchMode, hidden, 
     data-background-work={backgroundActive ? "true" : undefined}
     data-touch-mode={touchMode || undefined}
     aria-current={active ? "page" : undefined}
-    aria-label={machine ? `Open tab ${title}, ${machine.label}` : `Open tab ${title}`}
+    aria-label={`Open tab ${title}${machine ? `, ${machine.label}` : ""}${backgroundLabel ? `, Idle, ${backgroundLabel}` : ""}`}
     onClick={observed?.cached ? undefined : onActivate}
     onMouseEnter={machine ? undefined : onPeek}
     onMouseLeave={machine ? undefined : onLeave}
@@ -127,9 +131,11 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
       {peek && matchesSidebarMachine(filter) && (
         <AnchoredPopover open anchor={{ x: peek.x, y: peek.y }} gap={0}>
           <div key={peek.tab.id} className="ct-compact-peek" data-testid="sidebar-compact-peek" onMouseEnter={hold} onMouseLeave={release}>
-            <TabItem tab={peek.tab} index={0} isActive={peek.active} onClick={() => activate(peek.workspaceId, peek.tab.id)}
-              onClose={() => undefined} canClose={false} workspaceId={peek.workspaceId} hasAgent={Boolean(peek.tab.agent_type)}
-              status={tabStatuses[peek.tab.id] ?? null} attention={attentionByTab[peek.tab.id]} />
+            <SidebarSelectedRowContext.Provider value={null}>
+              <TabItem tab={peek.tab} index={0} isActive={peek.active} onClick={() => activate(peek.workspaceId, peek.tab.id)}
+                onClose={() => undefined} canClose={false} workspaceId={peek.workspaceId} hasAgent={Boolean(peek.tab.agent_type)}
+                status={tabStatuses[peek.tab.id] ?? null} attention={attentionByTab[peek.tab.id]} />
+            </SidebarSelectedRowContext.Provider>
           </div>
         </AnchoredPopover>
       )}

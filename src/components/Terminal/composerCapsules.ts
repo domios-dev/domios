@@ -31,15 +31,16 @@ export const EMPTY_CAPSULES: CapsuleRegistry = Object.freeze({});
 export const LONG_PASTE_CHARS = 2000;
 export const LONG_PASTE_LINES = 40;
 
-// A token is a bidi isolate around the label: zero-width ends nobody types, and non-breaking spaces
-// reserve the icon slot (two figure + one no-break) and the trailing pad, so the painted capsule matches the text width.
+// The textarea reserves the icon, padding and gap widths and can wrap at the gap's zero-width space.
 const OPEN = "\u2068";
 const CLOSE = "\u2069";
 const PAD = "\u2007";
+export const CAPSULE_GAP = "\u2005\u200B";
 export const CAPSULE_LEAD = `${OPEN}${PAD}${PAD} `;
 export const CAPSULE_TRAIL = `\u00A0${CLOSE}`;
-const TOKEN = /\u2068\u2007\u2007\u00A0([^\u2068\u2069\n]+?)\u00A0\u2069/g;
+const TOKEN = /\u2068\u2007\u2007\u00A0([^\u2068\u2069\n]+?)\u00A0\u2069(?:\u2005\u200B)?/g;
 const LABEL_MAX = 32;
+const FILE_LABEL_MAX = 24;
 
 /** A label as the token spells it: spaces become no-break spaces so a capsule never wraps. */
 export function labelChars(label: string): string {
@@ -62,7 +63,7 @@ function labelOfToken(typed: string): string {
 }
 
 export function capsuleToken(label: string): string {
-  return `${CAPSULE_LEAD}${labelChars(typedLabel(label))}${CAPSULE_TRAIL}`;
+  return `${CAPSULE_LEAD}${labelChars(typedLabel(label))}${CAPSULE_TRAIL}${CAPSULE_GAP}`;
 }
 
 export function capsuleSpans(text: string): CapsuleSpan[] {
@@ -89,10 +90,10 @@ function baseName(path: string): string {
   return path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-function cleanLabel(label: string): string {
+function cleanLabel(label: string, maxLength = LABEL_MAX): string {
   const flat = label.replace(/[\u2068\u2069\u2007\u00A0\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-  if (flat.length <= LABEL_MAX) return flat;
-  return `${flat.slice(0, LABEL_MAX - 10)}…${flat.slice(-9)}`;
+  if (flat.length <= maxLength) return flat;
+  return `${flat.slice(0, maxLength - 10)}…${flat.slice(-9)}`;
 }
 
 function numberedLabel(registry: CapsuleRegistry, prefix: string, suffix = ""): string {
@@ -121,7 +122,7 @@ function generatedLabel(registry: CapsuleRegistry, request: CapsuleRequest): str
   if (request.kind === "video") return numberedLabel(registry, "video");
   if (request.kind === "text") return numberedLabel(registry, "text", request.lines ? linesSuffix(request.lines) : "");
   if (request.kind === "quote") return numberedLabel(registry, "quote", quoteDetail(request));
-  return cleanLabel(baseName(request.path)) || request.kind;
+  return cleanLabel(baseName(request.path), FILE_LABEL_MAX) || request.kind;
 }
 
 function uniqueLabel(registry: CapsuleRegistry, label: string): string {

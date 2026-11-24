@@ -2,6 +2,7 @@ import { createNoticePublisher } from "../../lib/notices";
 import { agentTabSelection, recordProductEvent } from "../../lib/productAnalytics";
 import { useContextCompactionObserver } from "../../components/Terminal/useContextCompactionObserver";
 import { tabCloseRejectionNotice } from "./tabCloseRejection";
+import { requestTabClose } from "./requestTabClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import {
   useCallback,
@@ -964,16 +965,18 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
 
   const closeTab = useCallback(
     (workspaceId: string, tabId: string) => {
-      const { workspaces } = stateRef.current;
-      const ws = workspaces.find((w) => w.id === workspaceId);
+      const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
       if (!ws?.tabs.includes(tabId)) return;
-      const remote = stateRef.current.tabs[tabId];
-      const isRemote = Boolean(remote?.remote_peer_id);
+      const isRemote = Boolean(stateRef.current.tabs[tabId]?.remote_peer_id);
+      const restoreTab = () => {
+        dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
+        if (isRemote) void requestRemoteRefresh();
+        else void restoreFromBackend();
+      };
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
-      // Refresh only after the close is acknowledged; on rejection the tab
-      // still lives, so drop its tombstone and restore from authoritative state.
-      guardedInvoke("mux_close_tab", { workspaceId, tabId })
-        .then(() => {
+      requestTabClose(guardedInvoke, workspaceId, tabId)
+        .then((closed) => {
+          if (!closed) return restoreTab();
           if (isRemote) {
             if (attachedRemoteTabsRef.current[tabId]) {
               const { [tabId]: _, ...remaining } = attachedRemoteTabsRef.current;
@@ -981,14 +984,11 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
               saveAttachedRemoteTabs(remaining);
             }
             void requestRemoteRefresh();
-          }
-          else refreshFromBackend();
+          } else refreshFromBackend();
         })
         .catch((error: unknown) => {
-          dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
           publishNotice(tabCloseRejectionNotice(error, workspaceId, tabId));
-          if (isRemote) void requestRemoteRefresh();
-          else void restoreFromBackend();
+          restoreTab();
         });
     },
     [refreshFromBackend, restoreFromBackend, requestRemoteRefresh, guardedInvoke, publishNotice],

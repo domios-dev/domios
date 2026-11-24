@@ -1169,6 +1169,7 @@ mod cursor;
 mod find_session;
 mod manifest_launch_template;
 mod model_groups;
+mod model_unavailable;
 mod opencode;
 mod opencode_usage_bounds;
 mod reasoning_efforts;

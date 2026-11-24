@@ -1,4 +1,4 @@
-import { backgroundWorkLabel, tabActivity, type TabActivity } from "../../lib/tabActivity";
+import { idleBackgroundLabel, tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
@@ -6,7 +6,7 @@ import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, 
 import { MultiplexerActionsContext, MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
-import { Globe, TriangleAlert } from "lucide-react";
+import { Globe, SquareTerminal, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
@@ -40,6 +40,7 @@ import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSide
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
+import { useSidebarSelectedRow } from "./sidebarSelectedRow";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { TabAttentionMark } from "./TabAttentionMark";
@@ -191,17 +192,16 @@ function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?
   );
 }
 
-function TabBackgroundActivity({ count, label }: { count: number; label: string }) {
-  if (count <= 0) return null;
+function TabBackgroundActivity({ label }: { label: string }) {
   return (
     <span
       data-testid="tab-background-activity"
       role="img"
       aria-label={label}
       title={label}
-      className="inline-flex items-center shrink-0"
+      className="inline-flex items-center shrink-0 text-[var(--ct-muted-fg)]"
     >
-      <ActivityDots size="small" tone="accent" rhythm="work" active />
+      <SquareTerminal size={12} aria-hidden="true" />
     </span>
   );
 }
@@ -342,14 +342,14 @@ function TabItemInner({
   const accessibleRowLabel = remoteLabel ?? accessibleTitle;
   const showActivityMarkers = !remoteStateLabel;
   const rowAttention = attention ?? tabAttention(tab, status, [], isActive);
-  const backgroundActive = Boolean(hasAgent) && tabState.kind === "idle" && tabState.backgroundTasks > 0;
-  const backgroundLabel = backgroundActive ? backgroundWorkLabel(tabState.backgroundTasks) : null;
+  const backgroundLabel = hasAgent && showActivityMarkers ? idleBackgroundLabel(tabState) : null;
+  const backgroundActive = Boolean(backgroundLabel);
   // A Team worker reads as name and role label; its description stays in the row's tooltip.
   const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
   const activityDescription = hasAgent && tabState.phase === "compacting"
     ? tabState.label
     : backgroundLabel
-      ? backgroundLabel
+      ? `Idle · ${backgroundLabel}`
       : labelledWorker ? null : description;
   const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: generalMachine ? accessibleTitle : roleShield });
   const isSubTab =
@@ -357,6 +357,7 @@ function TabItemInner({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const tabRef = useRef<HTMLDivElement>(null);
+  const selectedRowRef = useSidebarSelectedRow(tab.id, rowText.title, isActive, tabRef);
   const tabText = attachment
     ? pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[10.5px]", "text-xs", "text-sm"])
     : pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
@@ -464,7 +465,7 @@ function TabItemInner({
 
   return (
     <div
-      ref={tabRef}
+      ref={selectedRowRef}
       hidden={!wholeWorkspace && !wholeTeam && !matchesSidebarMachine(machineFilter, remote?.peerId)}
       role="group"
       aria-label={accessibleRowLabel}
@@ -483,7 +484,7 @@ function TabItemInner({
         ${attachment ? "sidebar-tab--attachment" : ""}
         ${touchMode ? (attachment ? "min-h-9 pl-5 pr-2 py-1" : "min-h-11 pl-5 pr-2 py-2") : attachment ? "pl-4 pr-4 py-0.5" : "pl-4 pr-4 py-1.5"}
         ${animClass}
-        ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+        ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed"}
       `}
     >
       {isActive && <ActiveTabPill />}
@@ -545,7 +546,7 @@ function TabItemInner({
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span
             data-testid="tab-title"
-            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${remoteStateLabel ? "text-[var(--ct-fg)]/60" : attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""} ${lockedDimClass(lock)}`}
+            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${remoteStateLabel ? "text-[var(--ct-fg)]/60" : attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-semibold" : ""} ${lockedDimClass(lock)}`}
             onDoubleClick={(e) => {
               if (readOnly || tab?.protected) return; // Main is unrenameable
               e.stopPropagation();
@@ -560,7 +561,7 @@ function TabItemInner({
           {showActivityMarkers && hasAgent && (
             tabState.active
               ? <TabWorkingActivity activity={tabState} label={tabState.label} />
-              : backgroundLabel && <TabBackgroundActivity count={tabState.backgroundTasks} label={backgroundLabel} />
+              : backgroundLabel && <TabBackgroundActivity label={backgroundLabel} />
           )}
           {showActivityMarkers && shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
@@ -613,9 +614,9 @@ function TabItemInner({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : backgroundLabel ?? tabState.status}`}
+        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : tabState.status}${backgroundLabel ? `, ${backgroundLabel}` : ""}`}
       >
-        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : backgroundLabel ?? tabState.status}
+        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : tabState.status}{backgroundLabel && `, ${backgroundLabel}`}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {checklistToggle && <ChecklistToggleButton toggle={checklistToggle} title={displayTitle} />}

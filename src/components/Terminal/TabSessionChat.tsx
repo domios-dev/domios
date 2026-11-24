@@ -9,6 +9,7 @@ import { accountNoticeRows } from "./accountNoticeRows";
 import { isConciergeTab, isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { ConciergeChatHint } from "../Neighbors/ConciergeChatHint";
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { ChatWallpaperBackdrop } from "./ChatWallpaperBackdrop";
 import { useTabLock } from "../billing/useTabLock";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
@@ -85,6 +86,7 @@ import { useTabActivity } from "../../lib/useTabActivity";
 import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
+import { useChatWorkspace } from "./useChatWorkspace";
 import { chatProjectionMonitor, chatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
@@ -175,7 +177,6 @@ function rowReports(own: readonly OutboundReportEntry[] | undefined, following: 
 }
 const NO_ASKS: readonly Notification[] = [];
 
-
 export function TabSessionChat(props: Props) {
   return parseCompositeTabId(props.tabId)
     ? <RemoteTabSessionChat {...props} />
@@ -227,8 +228,7 @@ function TabSessionChatBody({
   const remoteChat = useRemoteChatNotice(tabId, tab, deliverySends, remoteConnection);
   const tabLock = useTabLock(tab);
   const readOnly = isInputBlockedTab(tab, tabLock);
-  const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
-  const workspaceId = useMuxSelector(workspaceSelector);
+  const { workspaceId, cwd } = useChatWorkspace(tabId);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
@@ -302,6 +302,7 @@ function TabSessionChatBody({
   } = useChatSession({
     hostRows:hostAccountRows,
     tabId,
+    cwd,
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
@@ -905,6 +906,7 @@ function TabSessionChatBody({
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
+      data-appearance-surface
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       data-snapshot-ready={snapshotReady}
@@ -932,6 +934,7 @@ function TabSessionChatBody({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <ChatWallpaperBackdrop />
       <div className="relative flex-1 min-h-0">
       {signInState && signIn === "center" && (
         <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto p-4" data-testid="chat-sign-in">

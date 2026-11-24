@@ -1,10 +1,9 @@
 use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 
+mod neighbor_reply;
 mod tools;
-#[cfg(test)]
-use crate::cmd::inbound::NoInbound;
-use crate::cmd::inbound::{self, Inbound};
+use crate::cmd::inbound::{self, Inbound, NoInbound};
 use tools::{is_held_receipt, is_messages_check, launch_args, tool_args, tools, MESSAGES_CHECKED};
 
 const MAX_FRAME: u64 = 1024 * 1024;
@@ -52,6 +51,12 @@ pub fn serve(tab: &str, nonce: &str, mesh: Option<&str>) {
     {
         eprintln!("{reason}");
         std::process::exit(7);
+    }
+    if let Some(friendship) =
+        std::env::var_os(codeterm_plugin::agent_runtime::NEIGHBOR_REPLY_FRIENDSHIP_ENV)
+    {
+        neighbor_reply::serve(tab, nonce, &friendship);
+        return;
     }
     let token = crate::nonempty_env("CODETERM_API_TOKEN").unwrap_or_default();
     let task_bound = crate::nonempty_env("CODETERM_TASK_ID").is_some();
@@ -134,11 +139,38 @@ pub(super) fn protocol(
 }
 
 pub(super) fn protocol_with(
-    mut input: impl BufRead,
+    input: impl BufRead,
     output: &mut impl Write,
     token: &str,
     inbound: &mut impl Inbound,
     mut execute: impl FnMut(&[String]) -> Result<String, &'static str>,
+) -> std::io::Result<()> {
+    protocol_with_tools(input, output, token, inbound, tools, |call| {
+        if is_messages_check(&call.name, &call.arguments) {
+            return Ok(Ok(MESSAGES_CHECKED.into()));
+        }
+        let args = tool_args(&call.name, &call.arguments)?;
+        if !token.is_empty() && args.iter().any(|arg| arg.contains(token)) {
+            return Err("Credential material is not a tool argument");
+        }
+        if <crate::Cli as clap::Parser>::try_parse_from(
+            std::iter::once("domios".to_owned()).chain(args.clone()),
+        )
+        .is_err()
+        {
+            return Err("Invalid CLI tool arguments");
+        }
+        Ok(execute(&args))
+    })
+}
+
+fn protocol_with_tools<E: AsRef<str>>(
+    mut input: impl BufRead,
+    output: &mut impl Write,
+    token: &str,
+    inbound: &mut impl Inbound,
+    list: impl Fn() -> Vec<Value>,
+    mut invoke: impl FnMut(ToolCall) -> Result<Result<String, E>, &'static str>,
 ) -> std::io::Result<()> {
     loop {
         let mut line = String::new();
@@ -175,42 +207,20 @@ pub(super) fn protocol_with(
                 Some("initialize") => Ok(
                     json!({"protocolVersion":negotiated_version(request["params"]["protocolVersion"].as_str()),"capabilities":{"tools":{}},"serverInfo":{"name":"domios","version":env!("CARGO_PKG_VERSION")}}),
                 ),
-                Some("tools/list") => Ok(json!({"tools":tools()})),
+                Some("tools/list") => Ok(json!({"tools":list()})),
                 Some("tools/call") => {
-                    let call = serde_json::from_value::<ToolCall>(request["params"].clone());
-                    let checks_messages = call
-                        .as_ref()
-                        .is_ok_and(|call| is_messages_check(&call.name, &call.arguments));
-                    match call
+                    match serde_json::from_value::<ToolCall>(request["params"].clone())
                         .map_err(|_| "Invalid tool call")
-                        .and_then(|call| tool_args(&call.name, &call.arguments))
+                        .and_then(&mut invoke)
                     {
-                        Err(_) if checks_messages => {
+                        Ok(Ok(text)) => {
                             carries_messages = true;
-                            Ok(json!({"content":[{"type":"text","text":MESSAGES_CHECKED}]}))
+                            Ok(json!({"content":[{"type":"text","text":text}]}))
                         }
+                        Ok(Err(reason)) => Ok(
+                            json!({"isError":true,"content":[{"type":"text","text":reason.as_ref()}]}),
+                        ),
                         Err(reason) => Err((-32602, reason)),
-                        Ok(args) => {
-                            if !token.is_empty() && args.iter().any(|arg| arg.contains(token)) {
-                                Err((-32602, "Credential material is not a tool argument"))
-                            } else if <crate::Cli as clap::Parser>::try_parse_from(
-                                std::iter::once("domios".to_owned()).chain(args.clone()),
-                            )
-                            .is_err()
-                            {
-                                Err((-32602, "Invalid CLI tool arguments"))
-                            } else {
-                                match execute(&args) {
-                                    Ok(text) => {
-                                        carries_messages = true;
-                                        Ok(json!({"content":[{"type":"text","text":text}]}))
-                                    }
-                                    Err(reason) => Ok(
-                                        json!({"isError":true,"content":[{"type":"text","text":reason}]}),
-                                    ),
-                                }
-                            }
-                        }
                     }
                 }
                 _ => Err((-32601, "Method not available")),

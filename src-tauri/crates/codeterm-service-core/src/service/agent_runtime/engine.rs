@@ -23,6 +23,7 @@ use std::{
 
 mod accounts;
 mod credential_stamp;
+pub(super) use credential_stamp::changed as credentials_changed;
 mod retirement;
 use retirement::stop_session;
 pub use retirement::stop_switch_source_blocking;
@@ -610,6 +611,10 @@ pub async fn ensure_locked(
         }
     }
     crate::startup::boot_timing::mark(tab, None, "runtime_options_ready");
+    let launch_context = session.context.lock().clone();
+    let neighbor_reply = super::host_mcp::neighbor_reply(svc, provider, &launch_context)
+        .await
+        .map_err(RuntimeFailure::Refused)?;
     let mut force_respawn = false;
     let (process, initialized_ms) = loop {
         let old = session.process.lock().clone();
@@ -677,12 +682,16 @@ pub async fn ensure_locked(
             let owner = svc.clone();
             let provider_id = provider.to_string();
             let cli_context = session.context.lock().clone();
-            let restricted_cli = codeterm_plugin::js_runtime::spawn_blocking(move || {
-                super::cli_exception::prepare(&owner, &provider_id, &cli_context)
-            })
-            .await
-            .map_err(|_| RuntimeFailure::Superseded)?
-            .map_err(RuntimeFailure::Refused)?;
+            let restricted_cli = if neighbor_reply.is_some() {
+                None
+            } else {
+                codeterm_plugin::js_runtime::spawn_blocking(move || {
+                    super::cli_exception::prepare(&owner, &provider_id, &cli_context)
+                })
+                .await
+                .map_err(|_| RuntimeFailure::Superseded)?
+                .map_err(RuntimeFailure::Refused)?
+            };
             session.context.lock().restricted_cli = restricted_cli;
             let context = session.context.lock().clone();
             let restricted_cli = context.restricted_cli.is_some();
@@ -692,6 +701,7 @@ pub async fn ensure_locked(
             let provider_id = provider.to_string();
             let launch_nonce = context.binding_nonce.clone();
             let spawn_invocation = session.invocation.lock().clone();
+            let scoped_reply = neighbor_reply.clone();
             let switch_launch =
                 crate::service::messenger::switch_handoff::launch_authority(svc, tab);
             let (process, host_mcp, declared_bridges, stamp) =
@@ -721,6 +731,7 @@ pub async fn ensure_locked(
                         .ok_or_else(|| RuntimeFailure::SpawnFailed {
                             reason: "Runtime cwd missing".into(),
                         })?;
+                    resume::prepare_startup_credential(&owner, &context);
                     let mut env =
                         super::environment::compose(&owner, &target, &provider_id, &nonce)
                             .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
@@ -744,22 +755,15 @@ pub async fn ensure_locked(
                     {
                         return Err(RuntimeFailure::Superseded);
                     }
-                    let minted_local = super::host_mcp::minted_local(
-                        &env,
-                        &crate::service::tab_credentials::TabCaller {
-                            tab_id: target.clone(),
-                            binding_nonce: nonce.clone(),
-                        },
-                        |token| owner.identify_tab_credential(token),
-                    );
-                    let host_mcp = super::host_mcp::descriptor(
-                        capability.host_mcp.is_some(),
-                        minted_local,
+                    let host_mcp = super::host_mcp::prepare(
+                        &owner,
+                        capability.host_mcp.as_ref(),
+                        scoped_reply.as_ref(),
                         &target,
                         &nonce,
-                        crate::service::instance_env::instance_cli_binary_path(),
                         &env,
-                    );
+                    )
+                    .map_err(RuntimeFailure::Refused)?;
                     if let Some(authority) = &switch_launch {
                         authority
                             .validate(&owner)
@@ -877,25 +881,28 @@ pub async fn ensure_locked(
             "Restored runtime thread identity missing".into(),
         ));
     }
-    let operation = match fork {
-        Some((source_thread_id, turn_id)) => RuntimeOperation::ForkThread {
-            source_thread_id: source_thread_id.clone(),
-            turn_id: turn_id.clone(),
-        },
-        None => match context.thread_id.clone() {
-            Some(thread_id) => RuntimeOperation::ResumeThread {
-                thread_id,
-                instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
-                settings: context.settings.clone(),
-            },
-            None => RuntimeOperation::OpenThread {
-                instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
-                settings: context.settings.clone(),
-            },
-        },
-    };
+    let implicit = fork.is_none()
+        && context.thread_id.is_none()
+        && svc.mux.read().get_tab(tab).is_some_and(|tab| {
+            tab.agent_requested_model.is_none()
+                && tab.restorable_launch.requested_model.is_none()
+                && tab.agent_planned_model.is_none()
+                && !tab.restored_from_snapshot
+        })
+        && crate::config::provider_config_from(&svc.configuration(), provider)
+            .default_model
+            .is_none();
+    super::model_unavailable::apply_remembered(svc, session, implicit).await?;
+    let context = session.context.lock().clone();
+    let operation = resume::load_operation(&context, &config, neighbor_reply, fork)?;
+    let fallback = super::model_unavailable::Fallback::new(implicit);
     session.state.lock().pending_load_notice = None;
-    let result = resume::load(svc, provider, session, &process, operation).await?;
+    let result = super::model_unavailable::FALLBACK
+        .scope(
+            fallback.clone(),
+            resume::load(svc, provider, session, &process, operation),
+        )
+        .await?;
     let context = session.context.lock().clone();
     let (thread_id, settings, load_notice) = match (fork, result) {
         (
@@ -1077,7 +1084,9 @@ pub async fn ensure_locked(
     session
         .thread_loaded
         .store(true, std::sync::atomic::Ordering::Release);
-    super::bootstrap::submit(svc, session, &process).await?;
+    super::model_unavailable::FALLBACK
+        .scope(fallback, super::bootstrap::submit(svc, session, &process))
+        .await?;
     super::owned_context::inject_abort_note(svc, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);

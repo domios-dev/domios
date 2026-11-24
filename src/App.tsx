@@ -11,12 +11,12 @@ import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
-import { memo, useState, useEffect, useCallback, useMemo, useRef, type ComponentProps } from "react";
+import { memo, useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, type ComponentProps } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { buildTeamActions } from "./lib/teamActions";
 import { selectAiHelperTab } from "./lib/aiHelperFocus";
-import { getCurrentTabUiMode, resolveInitialTabUiMode } from "./lib/clientTabUiMode";
+import { getCurrentTabUiMode, resolveInitialTabUiMode, setClientTabUiMode } from "./lib/clientTabUiMode";
 import { tabChatCapable } from "./lib/chatUiMode";
 import { useComposerDraftGc } from "./lib/useComposerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
@@ -24,6 +24,7 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
 import { NewSessionPickerHost } from "./components/Terminal/NewSessionPickerHost";
 import { TabContent } from "./components/Terminal/TabContent";
+import { ChatWallpaperContext, useChatWallpaperAssetLease } from "./components/Terminal/ChatWallpaperBackdrop";
 import { LiveTranscriptHost } from "./components/Terminal/LiveTranscriptPanel";
 import { useLiveTranscriptHost } from "./components/Terminal/useLiveTranscriptPanel";
 import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
@@ -40,7 +41,8 @@ import type { MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { PluginConsentDialog } from "./components/Extensions/PluginConsentDialog";
 import { PluginView } from "./components/Extensions/PluginView";
 import { ANALYTICS_PLUGIN_ID, isAnalyticsAvailable } from "./components/Titlebar/analyticsTrayLogic";
-import { usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
+import { ensurePluginSnapshot, usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
+import { useBackDismissal } from "./lib/backDismissal";
 import { pluginViewBelongsToActiveTab, pluginViewScope, type PluginViewScope } from "./components/Extensions/pluginViewScope";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
@@ -60,6 +62,7 @@ import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { PageDataProvider } from "./hooks/PageDataProvider";
 import { useConfig } from "./hooks/useConfig";
+import { useAppearanceMotion } from "./hooks/useAppearanceMotion";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
@@ -87,7 +90,13 @@ import { openNotificationCenter } from "./components/Notifications/openNotificat
 import { paletteTabTargets } from "./components/CommandPalette/paletteTabs";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
-import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
+import { cacheThemeSnapshot, isLightColor } from "./lib/themeCss";
+import { MachineAppearanceContext, useMachineAppearance, useWallpaperAssetResult } from "./lib/useMachineAppearance";
+import { wallpaperRenderStyle } from "./lib/chatWallpaper";
+import { appearanceLookKey, appearanceLookStyle } from "./lib/appearance";
+import { OPEN_APPEARANCE, type OpenAppearance } from "./lib/appearanceClient";
+import { generalAgentTab } from "./lib/generalAgent";
+import { useAppearanceLabSession } from "./components/Settings/AppearanceLabSession";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
@@ -103,6 +112,7 @@ import { neighborsEnabled } from "./components/Neighbors/neighborsSwitch";
 const EMPTY_LEVELS: AgentLevelChoice[] = [];
 
 const SettingsPanel = deferredComponent(async () => ({ default: (await import("./components/Settings/SettingsPanel")).SettingsPanel }));
+const AppearanceLab = deferredComponent(async () => ({ default: (await import("./components/Settings/AppearanceLab")).AppearanceLab }));
 const MemoryPanel = deferredComponent(async () => ({ default: (await import("./components/MemoryPanel/MemoryPanel")).MemoryPanel }));
 const MeshPanel = deferredComponent(async () => ({ default: (await import("./components/MeshPanel/MeshPanel")).MeshPanel }));
 const NeighborsView = deferredComponent(async () => ({ default: (await import("./components/Neighbors/NeighborsView")).NeighborsView }));
@@ -125,11 +135,12 @@ function jsonEquals<T>(a: T, b: T): boolean {
 }
 
 function useStableJsonValue<T>(value: T): T {
-  const ref = useRef(value);
-  if (!jsonEquals(ref.current, value)) {
-    ref.current = value;
+  const ref = useRef({ input: value, stable: value });
+  if (!Object.is(ref.current.input, value)) {
+    const stable = jsonEquals(ref.current.stable, value) ? ref.current.stable : value;
+    ref.current = { input: value, stable };
   }
-  return ref.current;
+  return ref.current.stable;
 }
 
 const selectWholeState = (state: ExtendedState) => state;
@@ -164,67 +175,99 @@ function AppInner() {
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const backendState = useMuxSelector(selectWholeState, appShellStateEqual);
   const transcriptOwner = useLiveTranscriptHost()?.ownerId;
-  const { config, updateConfig, theme, loading: configLoading } = useConfig();
+  const { config, updateConfig, ready: configReady, loading: configLoading } = useConfig();
+  const machineAppearance = useMachineAppearance(config, configReady);
+  const nextWallpaperAsset = useWallpaperAssetResult(machineAppearance.peerId,
+    machineAppearance.ready ? machineAppearance.appearance.wallpaper?.asset : undefined);
+  const appliedAppearance = useAppearanceMotion(machineAppearance, nextWallpaperAsset);
+  useChatWallpaperAssetLease(appliedAppearance.asset);
   const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
   const state = firstRunSelection(locked, backendState);
   const interfaceReady = !configLoading && (initialRouteReady(state.generation) || state.storageUnavailable);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const { providers: firstRunProviders, loading: firstRunProvidersLoading, error: firstRunProvidersError } = useAgentProviders();
-  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
+  const { navigationReady, mainView: savedMainView, setMainView, openSettingsView, closeSettingsView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
   const mainView = locked ? "workspace" : savedMainView;
   const automationOpener = useRef<HTMLElement | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
-  const [settingsSection, setSettingsSection] = useState<SettingsLinkId | undefined>(undefined);
+  const [settingsVisit, setSettingsVisit] = useState<{ id: number; section?: SettingsLinkId; guide?: GuideRequest } | null>(null);
   const [firstRunSettings, setFirstRunSettings] = useState(false);
-  const [requestedGuide, setRequestedGuide] = useState<GuideRequest | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
-  const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
   const [mountedNeighbors, setMountedNeighbors] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
-  const [mountedAnalytics, setMountedAnalytics] = useState(false);
   useEffect(() => {
-    if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
     if (mainView === "neighbors") setMountedNeighbors(true);
     if (mainView === "extensions") setMountedExtensions(true);
-    if (mainView === "analytics") setMountedAnalytics(true);
   }, [mainView]);
   const analyticsButtonRef = useRef<HTMLButtonElement>(null);
   const { snapshot: pluginSnapshot, hasLoaded: pluginSnapshotLoaded } = usePluginSnapshotStore();
   const analyticsAvailable = isAnalyticsAvailable(pluginSnapshot.plugins);
   useEffect(() => {
+    const controller = new AbortController();
+    void ensurePluginSnapshot({ background: true, signal: controller.signal }).catch(() => {});
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
     if (pluginSnapshotLoaded && !analyticsAvailable) {
       setMainView((cur) => (cur === "analytics" ? "workspace" : cur));
     }
-  }, [analyticsAvailable, pluginSnapshotLoaded]);
+  }, [analyticsAvailable, pluginSnapshotLoaded, setMainView]);
   const closeAnalytics = useCallback(() => {
     setMainView((cur) => (cur === "analytics" ? "workspace" : cur));
     analyticsButtonRef.current?.focus();
-  }, []);
-  const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
-    setMainView((cur) => {
-      const wasOpen = cur === "settings";
-      const open = typeof next === "function" ? next(wasOpen) : next;
-      return open ? "settings" : "workspace";
-    });
-  }, []);
-  const openAgentsSettings = useCallback(() => {
-    setSettingsSection("agents");
-    setSettingsOpen(true);
-  }, [setSettingsOpen]);
-  const openGuide = (sectionId: string) => {
-    setRequestedGuide(guideRequest(sectionId));
-    setSettingsSection("guide");
-    setSettingsOpen(true);
-  };
+  }, [setMainView]);
+  useBackDismissal(mainView === "analytics" && analyticsAvailable, closeAnalytics);
+  const activeViewTab = state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? undefined : undefined;
+  const lab = useAppearanceLabSession(mainView === "workspace" && !pluginViewId && !automationWorkspaceId && !workspaceMapWorkspaceId, activeViewTab, machineAppearance.peerId);
+  const enterLab = useCallback((showWallpaper = false, proposal?: OpenAppearance) => {
+    if (lockedRef.current) return;
+    const main = generalAgentTab(state);
+    if (!main) return;
+    const origin = !proposal ? "settings" : state.active_workspace_id && activeViewTab
+      ? { workspaceId: state.active_workspace_id, tabId: activeViewTab } : undefined;
+    lab.enter({ main, previousTab: activeViewTab, machine: machineAppearance.peerId, origin, proposal, showWallpaper });
+    setClientTabUiMode(main.tabId, "chat");
+    setAutomationWorkspaceId(null);
+    setWorkspaceMapWorkspaceId(null);
+    canvasFocusStore.close();
+    cronSelectionStore.close();
+    setMainView("workspace");
+    closeSidebarOnMobile();
+    window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: main }));
+  }, [state, activeViewTab, machineAppearance.peerId, lab.enter, setAutomationWorkspaceId, setWorkspaceMapWorkspaceId, setMainView, closeSidebarOnMobile]);
+  const openSettings = useCallback((section?: SettingsLinkId, guide?: GuideRequest) => {
+    if (lockedRef.current) return;
+    if (section === "appearance-lab" || section === "chat-wallpaper") {
+      enterLab(section === "chat-wallpaper");
+      return;
+    }
+    lab.close();
+    setSettingsVisit((visit) => ({ id: (visit?.id ?? 0) + 1, section, guide }));
+    openSettingsView();
+  }, [openSettingsView, enterLab, lab.close]);
+  const exitLab = useCallback((returnToOrigin: boolean) => {
+    const origin = lab.session?.origin;
+    lab.close();
+    if (!returnToOrigin || !origin) return;
+    if (origin === "settings") openSettings("general");
+    else window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: origin }));
+  }, [lab.session?.origin, lab.close, openSettings]);
+  const openAgentsSettings = useCallback(() => openSettings("agents"), [openSettings]);
+  const openGuide = (sectionId: string) => openSettings("guide", guideRequest(sectionId));
+  useEffect(() => {
+    const open = (event: Event) => enterLab(false, (event as CustomEvent<OpenAppearance>).detail);
+    window.addEventListener(OPEN_APPEARANCE, open);
+    return () => window.removeEventListener(OPEN_APPEARANCE, open);
+  }, [enterLab]);
   const setMemoryOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "memory";
@@ -247,11 +290,15 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const stableTheme = useStableJsonValue(theme);
+  const projection = lab.projection;
+  const projected = projection && (!projection.committed || appearanceLookKey(projection.look) !== appearanceLookKey(appliedAppearance.look))
+    ? projection : undefined;
+  const { theme: stableTheme, tuning } = projected?.look ?? appliedAppearance.look;
+  const stagedWallpaper = useWallpaperAssetResult(projected?.peer, projected?.look.wallpaper?.asset);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
-  const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
+  const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size + (tuning?.font_size ?? 0));
   useNotificationSound(
     Boolean(config.notifications?.sound),
     config.notifications?.agent_levels ?? EMPTY_LEVELS,
@@ -415,8 +462,7 @@ function AppInner() {
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
-        setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
-        setSettingsOpen(true);
+        openSettings(panel.slice("settings:".length) as SettingsLinkId);
       } else if (panel === "mesh") {
         setMeshInventoryRequest(request => request + 1);
         setMeshOpen(true);
@@ -435,7 +481,7 @@ function AppInner() {
     };
     window.addEventListener("codeterm:open-panel", onOpenPanel);
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
-  }, [closeSidebarOnMobile, setExtensionsOpen, setMeshOpen]);
+  }, [closeSidebarOnMobile, openSettings, setExtensionsOpen, setMainView, setMeshOpen, setNeighborChat]);
 
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
@@ -467,7 +513,6 @@ function AppInner() {
     navigationStore.clear();
   }, []);
 
-  const closeSettings = useCallback(() => { setSettingsSection(undefined); setSettingsOpen(false); }, [setSettingsOpen]);
   const closeMemory = useCallback(() => { setMemoryOpen(false); setMemoryInitial(undefined); }, [setMemoryOpen]);
   const closeMesh = useCallback(() => setMeshOpen(false), [setMeshOpen]);
   const closeCanvasFocus = useCallback(() => canvasFocusStore.close(), []);
@@ -503,9 +548,13 @@ function AppInner() {
     }
   }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
   const toggleAnalytics = useCallback(() => {
+    if (mainView === "analytics") {
+      closeAnalytics();
+      return;
+    }
     closePluginView();
-    setMainView((cur) => (cur === "analytics" ? "workspace" : "analytics"));
-  }, [closePluginView]);
+    setMainView("analytics");
+  }, [closeAnalytics, closePluginView, mainView, setMainView]);
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
     const tab = current.tabs[tabId];
@@ -632,11 +681,6 @@ function AppInner() {
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
     await createWorkspace(basename, folder);
   }, [pickFolder, createWorkspace]);
-  const openSettings = useCallback((section?: SettingsLinkId) => {
-    if (lockedRef.current) return;
-    setSettingsSection(section);
-    setSettingsOpen(true);
-  }, [setSettingsOpen]);
   const showRevokedSignIn = useCallback(() => openSettings("account"), [openSettings]);
   useSessionRevocationScreen(showRevokedSignIn);
   const showBell = config.notifications?.show_bell !== false;
@@ -742,11 +786,20 @@ function AppInner() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);
+  const themeStyles = useMemo(() => appearanceLookStyle({ theme: stableTheme, tuning }), [stableTheme, tuning]);
+  const wallpaper = (projected?.look ?? appliedAppearance.look).wallpaper ?? undefined;
+  const wallAsset = projected ? stagedWallpaper.asset ?? (wallpaper?.asset === appliedAppearance.look.wallpaper?.asset
+    ? appliedAppearance.asset : undefined) : appliedAppearance.asset;
+  const identityColor = machineAppearance.identity?.color;
+  const wallpaperStyle = useMemo(() => ({
+    "--ct-bg": stableTheme.background,
+    "--ct-fg": stableTheme.foreground,
+    ...wallpaperRenderStyle(stableTheme, wallpaper, isLightColor(stableTheme.background), wallAsset?.url, identityColor),
+  } as React.CSSProperties), [stableTheme, wallpaper, wallAsset?.url, identityColor]);
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const isLight = isLightColor(stableTheme.background);
     document.documentElement.style.colorScheme = isLight ? "light" : "dark";
     document.documentElement.dataset.ctTheme = isLight ? "light" : "dark";
@@ -754,19 +807,24 @@ function AppInner() {
       document.documentElement.style.setProperty(k, v);
     }
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", stableTheme.background);
-    cacheThemeSnapshot(stableTheme);
-    document.documentElement.style.fontSize = `${stableFontConfig.size + 2}px`;
-  }, [stableTheme.background, themeStyles, stableFontConfig.size]);
+    document.documentElement.style.fontSize = `${stableFontConfig.size + 2 + (tuning?.font_size ?? 0)}px`;
+  }, [stableTheme.background, themeStyles, stableFontConfig.size, tuning?.font_size]);
+  useEffect(() => {
+    cacheThemeSnapshot(appliedAppearance.look.theme, appearanceLookStyle(appliedAppearance.look));
+  }, [appliedAppearance.look]);
 
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <ChatBlockHostProvider value={appChatBlockHost}>
+    <MachineAppearanceContext.Provider value={machineAppearance}>
+    <ChatWallpaperContext.Provider value={wallpaperStyle}>
     <PluginConsentDialog />
     <div
-      className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
+      className={`ct-appearance-content relative isolate flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
+      data-appearance-staged={projected && !projected.committed ? "" : undefined}
       style={{
         ...themeStyles,
-        backgroundColor: stableTheme.background,
+        ...(projected ? wallpaperStyle : undefined),
         color: stableTheme.foreground,
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
@@ -776,6 +834,7 @@ function AppInner() {
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
+      <div className="ct-appearance-base" aria-hidden="true" />
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
@@ -785,10 +844,10 @@ function AppInner() {
         showSidebarToggle={phoneViewport || !sidebarOpen || sidebarRailCollapsed}
         onNewTab={handleNewTab}
         theme={stableTheme}
-        onOpenSettings={(section) => { if (locked) return; setSettingsSection(section); setSettingsOpen(true); }}
+        onOpenSettings={openSettings}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         analyticsOpen={mainView === "analytics"}
-        onToggleAnalytics={toggleAnalytics}
+        onToggleAnalytics={analyticsAvailable ? toggleAnalytics : undefined}
         analyticsButtonRef={analyticsButtonRef}
         notifications={state.notifications}
         notificationsLoaded={state.notificationsLoaded ?? false}
@@ -849,7 +908,7 @@ function AppInner() {
         <NewSessionPickerHost firstRunActive={locked} agentsConfig={config.agents} />
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+        <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden" data-appearance-lab={lab.session ? "" : undefined}>
           {locked ? (configLoading ? <Loader label="Loading settings" deferred={false} />
             : firstRunSettings ? <SettingsPanel config={config} onUpdateConfig={updateConfig} initialSection="general" onClose={() => setFirstRunSettings(false)} />
             : <FirstRunGeneralPicker providers={firstRunProviders} providersLoading={firstRunProvidersLoading} providersError={firstRunProvidersError} home={state.active_workspace_id && state.focused_tab_id
@@ -858,22 +917,18 @@ function AppInner() {
               <Loader label="Restoring workspace" deferred={false} />
             </DeferredPresence>
           ) : <>
-          {/* All panels stay mounted — switching mainView only changes visibility.
-              Unmounting the workspace would tear down xterm + re-run get_tab_text
-              on return, blocking the main thread with MB of escape codes. */}
-          {mountedSettings && (
-            <div
-              className="absolute inset-0"
-              style={viewLayerStyle(mainView === "settings")}
-              aria-hidden={mainView !== "settings"}
-              inert={mainView !== "settings" || undefined}
-            >
+          {/* Keep the workspace mounted so returning does not replay xterm history. */}
+          {mainView === "settings" && (
+            <div className="absolute inset-0" style={viewLayerStyle(true)}>
               <SettingsPanel
+                key={settingsVisit?.id}
                 config={config}
                 onUpdateConfig={updateConfig}
-                onClose={closeSettings}
-                initialSection={settingsSection}
-                guideRequest={requestedGuide}
+                onClose={closeSettingsView}
+                initialSection={settingsVisit?.section}
+                guideRequest={settingsVisit?.guide}
+                onOpenAppearance={enterLab}
+                restoreNavigation={settingsVisit === null}
               />
             </div>
           )}
@@ -940,19 +995,16 @@ function AppInner() {
               />
             </div>
           )}
-          {mountedAnalytics && analyticsAvailable && (
+          {mainView === "analytics" && analyticsAvailable && (
             <div
               data-testid="analytics-view"
               className="absolute inset-0 flex flex-col"
-              style={viewLayerStyle(mainView === "analytics")}
-              aria-hidden={mainView !== "analytics"}
-              inert={mainView !== "analytics" || undefined}
+              style={viewLayerStyle(true)}
             >
               <div className="relative min-h-0 flex-1">
                 <PluginView
                   pluginId={ANALYTICS_PLUGIN_ID}
                   api={stableApiConfig}
-                  active={mainView === "analytics"}
                   focusOnActive
                   kpiNotices
                   onClose={closeAnalytics}
@@ -1029,6 +1081,7 @@ function AppInner() {
               <div
                 key={tabId}
                 className="absolute inset-0"
+                data-appearance-lab-chat={lab.session && isVisible ? "" : undefined}
                 inert={!isVisible || !!automationWorkspaceId || undefined}
                 style={{
                   zIndex: isVisible ? 1 : 0,
@@ -1060,6 +1113,8 @@ function AppInner() {
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
           <PlanSidePanelHost api={stableApiConfig} onOpenCanvas={handleNavigateToTab} />
+          {lab.session && <AppearanceLab key={lab.session.proposal?.proposal ?? "try-it"} config={config}
+            open={lab.session.proposal} showWallpaperOwn={lab.session.showWallpaper} onProject={lab.project} onClose={exitLab} />}
           </>}
         </main>
         </div>
@@ -1079,6 +1134,8 @@ function AppInner() {
       <UpdateProgressLayer />
       <FreeLimitPlansModal />
     </div>
+    </ChatWallpaperContext.Provider>
+    </MachineAppearanceContext.Provider>
     </ChatBlockHostProvider>
     </GuideNavigationProvider>
   );

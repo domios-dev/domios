@@ -1,7 +1,7 @@
 import { parseCompositeTabId } from "../remoteTabTransport";
 import { PeerTabRelayError } from "../remoteChatState";
 import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "../childTranscript";
-import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "../backgroundProcesses";
+import { backgroundProcessesSuffix, providerBackgroundOutputSuffix, type BackgroundProcessAuthority, type ProviderBackgroundWorkTarget } from "../backgroundProcesses";
 import type { ShellCommandSnapshot } from "@codeterm/chat-core";
 import type { ChatStartResult, ChatBackfillResult } from "../../components/Terminal/chatSessionAuthority";
 import type { ChatResumeResult } from "../../components/Terminal/chatResume";
@@ -30,7 +30,8 @@ function hasPeerTarget(args: Args): boolean {
 }
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
-async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
+export async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
+    if (!peer.trim()) throw new Error("An exact peer installation id is required");
     const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } }>("POST", "/api/mesh/relay-to", {
         target_instance_id: peer, method, path, body,
     });
@@ -69,6 +70,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         agent_runtime_child_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${childHistorySuffix(s(a,"threadId"), a.request as ChildTranscriptAuthority & {cursor?:string})}`),
         agent_runtime_background_processes: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${backgroundProcessesSuffix(a.request as BackgroundProcessAuthority)}`),
         agent_runtime_stop_background_process: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/background-processes`, a.request),
+        agent_provider_background_output: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${providerBackgroundOutputSuffix(a.request as ProviderBackgroundWorkTarget)}`),
+        agent_provider_ask_stop_background_work: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/background-work`, a.request),
         session_binding_state: (a: Args) => clientFor(a).json<SessionBindingFact>("GET", `/api/tabs/${enc(s(a, "tabId"))}/session/binding-state`),
         rebind_tab_session: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/session/rebind`, {
             session_id: s(a, "sessionId"),
@@ -102,7 +105,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         }),
         mux_set_active_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/select`),
         mux_set_active_tab_and_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/select`),
-        mux_close_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/close`),
+        mux_close_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/close${a.force === true ? "?force=true" : ""}`),
         mux_reopen_closed_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
             index: a.index,
         }),

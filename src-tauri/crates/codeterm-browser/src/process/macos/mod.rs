@@ -296,7 +296,12 @@ async fn supervise(
         result = events.exited(pid) => result,
         _ = kill_requested => {
             if model.graceful_deadline() == TerminationAction::ForceTerminate {
-                application.app.forceTerminate();
+                let group_owned = application.identity.as_ref().is_some_and(|identity| {
+                    identity.owns_process_group(application.verified_pid())
+                });
+                if !group_owned || application.sigkill().is_err() {
+                    application.app.forceTerminate();
+                }
             }
             match tokio::time::timeout(FORCE_TERMINATE_DEADLINE, events.exited(pid)).await {
                 Ok(result) => result,

@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { cleanMachineName, machineLabel } from "../../lib/machineIdentity";
+import type { CSSProperties, ReactNode } from "react";
+import { cleanMachineName, machineColor, machineLabel, UNKNOWN_MACHINE, type MachineIdentity } from "../../lib/machineIdentity";
 import { REMOTE_CHAT_COPY, remoteMachineName } from "../../lib/remoteChatState";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { asleepDuration } from "../../lib/tabSleep";
@@ -68,12 +68,23 @@ export function RemoteTabIcon({ machine, children }: { machine: RemotePresentati
   </CursorTooltip>;
 }
 
-export function TeamRunMachine({ peerId, fallbackName }: { peerId?: string; fallbackName?: string | null }) {
+export function useTeamMachine(peerId?: string, fallbackName?: string | null) {
   const resolved = useMeshPeerName(peerId);
   const identity = useMeshMachineIdentity(peerId, Boolean(peerId));
-  const name = peerId ? resolved ?? cleanMachineName(fallbackName, peerId) : undefined;
-  return name ? <div className="col-span-full flex min-w-0 items-center gap-1 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
-    <MachineGlyph {...identity} />
-    <span className="min-w-0 truncate" title={name}>Runs on {name}</span>
-  </div> : null;
+  return peerId
+    ? { name: resolved ?? cleanMachineName(fallbackName, peerId) ?? "Remote machine", identity: identity ?? UNKNOWN_MACHINE }
+    : { name: "This machine" };
+}
+
+export function TeamMachinePill({ id, name, identity }: { id: string; name: string; identity?: MachineIdentity }) {
+  return <span
+    id={id}
+    className="ct-neutral-badge sidebar-team-machine-pill"
+    data-remote={identity ? "true" : undefined}
+    title={name}
+    style={identity ? { "--ct-plan-tone": `var(--ct-machine-${machineColor(identity.color)})` } as CSSProperties : undefined}
+  >
+    {identity && <MachineGlyph {...identity} />}
+    <span className="sidebar-team-machine-pill__label min-w-0 truncate">{name}</span>
+  </span>;
 }

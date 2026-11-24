@@ -345,6 +345,47 @@ fn test_resolve_theme_applies_builtin() {
 }
 
 #[test]
+fn theme_resolution_keeps_an_explicit_chat_background() {
+    let mut config: AppConfig =
+        toml::from_str("[theme]\nname = 'github-light'\n[theme.chat_background]\npattern = 'none'")
+            .unwrap();
+    resolve_theme(&mut config);
+    assert_eq!(config.theme.background, "#f6f8fa");
+    assert_eq!(
+        config.theme.chat_background.unwrap().pattern,
+        schema::ChatPattern::None
+    );
+}
+
+#[test]
+fn chat_wallpaper_is_preserved_by_unrelated_config_saves() {
+    use crate::schema::{ChatBackground, ChatPattern, ChatWallpaper};
+
+    let stale = AppConfig::default();
+    let live = AppConfig {
+        chat_wallpaper: Some(ChatWallpaper {
+            background: ChatBackground {
+                pattern: ChatPattern::Space,
+                ..Default::default()
+            },
+            asset: None,
+            asset_label: None,
+            palette: None,
+            fill: None,
+            fill_strength: None,
+        }),
+        ..stale.clone()
+    };
+    let state = parking_lot::Mutex::new(live.clone());
+    let applied = save_config_and_apply_with(&state, stale, |saved| {
+        assert_eq!(saved.chat_wallpaper, live.chat_wallpaper);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(applied.chat_wallpaper, live.chat_wallpaper);
+}
+
+#[test]
 fn test_save_and_load_config() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");

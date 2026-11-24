@@ -167,14 +167,28 @@ pub async fn tab_focus(
 
 pub async fn tab_close(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: crate::auth::AgentHeaders,
     Path((_workspace_id, tab_id)): Path<(String, String)>,
+    Query(query): Query<crate::tab_routes::CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    state
-        .svc
-        .close_tab_async(&tab_id)
-        .await
-        .map_err(crate::tab_routes::map_close_error)?;
+    if matches!(headers.actor, crate::auth::RequestActor::Owner) {
+        let closed = state
+            .svc
+            .close_tab_as_owner_async(&tab_id, query.force)
+            .await
+            .map_err(crate::tab_routes::map_close_error)?;
+        if !closed {
+            return Ok(Json(
+                serde_json::json!({"ok": false, "confirmation_required": true}),
+            ));
+        }
+    } else {
+        state
+            .svc
+            .close_tab_async(&tab_id)
+            .await
+            .map_err(crate::tab_routes::map_close_error)?;
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

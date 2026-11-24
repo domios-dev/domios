@@ -313,6 +313,29 @@ pub fn sandbox(
     sandbox_with_preference(svc, context).map(|value| value.map(|(policy, _)| policy))
 }
 
+fn supports_sandbox(policy: &ExecutionSandboxPolicy) -> bool {
+    matches!(
+        (&policy.intent, policy.runtime_mode.as_deref()),
+        (ExecutionIntent::Mutating, Some("workspace-write"))
+            | (
+                ExecutionIntent::ReadOnly,
+                Some("read-only-with-writable-roots")
+            )
+    )
+}
+
+fn transport_supported_on(platform: &str) -> bool {
+    platform == "windows"
+}
+
+pub(super) fn supports_transport(
+    platform: &str,
+    capability: Option<&RestrictedCliCapability>,
+    policy: &ExecutionSandboxPolicy,
+) -> bool {
+    transport_supported_on(platform) && capability.is_some() && supports_sandbox(policy)
+}
+
 fn sandbox_with_preference(
     svc: &ServiceContext,
     context: &RuntimeContext,
@@ -339,14 +362,7 @@ fn sandbox_with_preference(
         .execution_sandbox
         .as_ref()
         .ok_or(DENIED)?;
-    if !matches!(
-        (&policy.intent, policy.runtime_mode.as_deref()),
-        (ExecutionIntent::Mutating, Some("workspace-write"))
-            | (
-                ExecutionIntent::ReadOnly,
-                Some("read-only-with-writable-roots")
-            )
-    ) {
+    if !supports_sandbox(policy) {
         return Ok(None);
     }
     crate::service::execution_sandbox::validate_runtime_settings(
@@ -394,7 +410,7 @@ pub(super) fn prepare(
     provider: &str,
     context: &RuntimeContext,
 ) -> Result<Option<RestrictedCliPolicy>, String> {
-    if !cfg!(windows) {
+    if !transport_supported_on(crate::agent::provider::current_platform_tag()) {
         return Ok(None);
     }
     let Some(metadata_directory) = metadata_directory(svc, provider)? else {
@@ -482,7 +498,7 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     verify_files(policy)
 }
 
-fn binding_matches(policy: &RestrictedCliPolicy, context: &RuntimeContext) -> bool {
+pub(super) fn binding_matches(policy: &RestrictedCliPolicy, context: &RuntimeContext) -> bool {
     policy.epoch == context.epoch
         && policy.tab_id == context.tab_id
         && policy.binding_nonce == context.binding_nonce

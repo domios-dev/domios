@@ -1,6 +1,9 @@
 import type { MuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { Tab } from "../types";
-const TAB_FIELDS: readonly (keyof Tab)[] = ["id", "title", "description", "role", "team_id", "workspace_id", "cwd", "agent_type", "tab_type", "backing", "remote_peer_id", "remote_peer_name"];
+const TAB_FIELDS: readonly (keyof Tab)[] = [
+  "id", "title", "description", "role", "team_id", "workspace_id", "cwd", "agent_type", "tab_type", "backing",
+  "remote_peer_id", "remote_peer_name", "remote_tab_id", "remote_team_id", "hidden", "show_in_tabbar",
+];
 export function watchMentionState(store: Pick<MuxStateStore, "getState" | "subscribe">, changed: () => void, activity = false): () => void {
   let previous = store.getState();
   return store.subscribe(() => {

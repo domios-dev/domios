@@ -31,6 +31,14 @@ impl PlanDatabase {
         &self,
         tab: &str,
     ) -> Result<Vec<(String, String)>, PlanError> {
+        self.unclosed_attempt_bindings_with_terminal(tab, false)
+    }
+
+    pub(in crate::service_plan) fn unclosed_attempt_bindings_with_terminal(
+        &self,
+        tab: &str,
+        include_terminal: bool,
+    ) -> Result<Vec<(String, String)>, PlanError> {
         if tab.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -39,13 +47,15 @@ impl PlanDatabase {
         let mut statement=connection.prepare_cached(
             "SELECT p.id,json_extract(t.row_json,'$.id')
              FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
-             WHERE p.status='active' AND t.status IN ('pending','in_progress','in_review','blocked','paused')
+             WHERE p.status='active' AND (?2 OR t.status IN ('pending','in_progress','in_review','blocked','paused'))
                AND EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=p.id AND a.task_id=t.task_id
                    AND a.executor_tab_id=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL)
              ORDER BY p.updated_at DESC,p.id,t.position"
         ).map_err(db_error)?;
         let rows = statement
-            .query_map([tab], |row| Ok((column(row, 0)?, column(row, 1)?)))
+            .query_map(params![tab, include_terminal], |row| {
+                Ok((column(row, 0)?, column(row, 1)?))
+            })
             .map_err(db_error)?;
         rows.collect::<Result<_, _>>().map_err(db_error)
     }

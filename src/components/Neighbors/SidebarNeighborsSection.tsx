@@ -35,7 +35,7 @@ import { RemoteNeighborSection } from "./RemoteNeighborSection";
 import { FriendRow } from "./FriendRow";
 import { neighborSidebarLine } from "./neighborSidebarLine";
 
-const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
+const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center";
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
 export function SidebarNeighborsSection(props: Parameters<typeof LocalNeighborsSection>[0]) {
@@ -193,7 +193,7 @@ export function ConciergeRow({ tab, friendName, text, touchMode, subline, workin
           ? <AgentIcon providerId={tab.agent_type} className="text-[12px]" title={tab.agent_type} />
           : <Bot size={12} aria-hidden="true" />}</span>
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
-          <span className={`${text} block truncate min-w-0 ${active ? "font-medium text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)]"}`}>{label}</span>
+          <span className={`${text} block truncate min-w-0 ${active ? "font-semibold text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)]"}`}>{label}</span>
           {working && <span data-testid="concierge-working" role="img" aria-label={`${label} working`} className="inline-flex items-center shrink-0">
             <ActivityDots size="small" tone="muted" active /></span>}
         </span>

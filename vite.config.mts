@@ -13,28 +13,43 @@ const { resolveBuildIdentity, isDevelopmentFrontendBuild } = require("./scripts/
 };
 const htmlTailwindRuntime = readFileSync(require.resolve("@tailwindcss/browser"), "utf-8");
 
-function buildIdentityAsset(buildHash: string): Plugin {
+const retireDevelopmentWorker = `
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", event => {
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window" });
+    await self.registration.unregister();
+    await Promise.allSettled(windows.map(client => client.navigate(client.url)));
+  })());
+});
+`;
+
+function buildMetadata(buildHash: string, devFrontend: boolean): Plugin {
   return {
-    name: "codeterm-build-identity",
+    name: "codeterm-build-metadata",
     generateBundle() {
       this.emitFile({
         type: "asset",
         fileName: "build-identity.json",
         source: `${JSON.stringify({ buildHash })}\n`,
       });
+      if (devFrontend) {
+        this.emitFile({ type: "asset", fileName: "sw.js", source: retireDevelopmentWorker });
+      }
     },
   };
 }
 
 export default defineConfig(({ command }) => {
   const buildHash = resolveBuildIdentity();
+  const devFrontend = isDevelopmentFrontendBuild(command, process.env);
   return {
     // AND from the daemon's /web mount (web mirror) without path rewrites.
     base: "./",
     define: {
       __APP_VERSION__: JSON.stringify(tauriConf.version),
       __BUILD_HASH__: JSON.stringify(buildHash),
-      __CODETERM_DEV__: JSON.stringify(isDevelopmentFrontendBuild(command, process.env)),
+      __CODETERM_DEV__: JSON.stringify(devFrontend),
       __CODETERM_HTML_TAILWIND_RUNTIME__: JSON.stringify(htmlTailwindRuntime),
     },
     plugins: [
@@ -43,9 +58,10 @@ export default defineConfig(({ command }) => {
       { name: "dev-no-react-perf-track", apply: "serve", transformIndexHtml: () => [{ tag: "script", children: "console.timeStamp = undefined;", injectTo: "head-prepend" }] },
       react(),
       tailwindcss(),
-      buildIdentityAsset(buildHash),
+      buildMetadata(buildHash, devFrontend),
       // injectManifest: explicit SW keeps /api/* network-only passthrough auditable.
       VitePWA({
+        disable: devFrontend,
         strategies: "injectManifest",
         srcDir: "src",
         filename: "sw.ts",

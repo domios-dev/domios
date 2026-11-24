@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 pub mod canvas_watch;
 pub(crate) mod model_copies;
+pub(super) mod pad_shares;
 pub mod reference_inventory;
+pub use pad_shares::PadAttachments;
 
 use crate::service::local_preview::html_preview::{
     check_local_preview_files_guarded, read_local_preview_file_guarded, LocalPreviewFile,
@@ -142,6 +144,17 @@ pub fn read(
         path,
         kind,
     )
+}
+
+pub fn read_owner_share(
+    svc: &super::ServiceContext,
+    tab_id: &str,
+    configured: &[String],
+    path: &str,
+    kind: &str,
+    canvas: Option<&str>,
+) -> Result<Option<LocalPreviewFile>, String> {
+    pad_shares::read(svc, tab_id, configured, path, kind, canvas)
 }
 
 /// Reads an item of a `<ds-canvas src>` file: the tab must reference the canvas, and the item

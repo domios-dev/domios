@@ -1,7 +1,67 @@
 use super::*;
 
+pub(super) fn load_operation(
+    context: &RuntimeContext,
+    config: &Value,
+    neighbor_reply: Option<super::super::host_mcp::NeighborReply>,
+    fork: Option<&(String, String)>,
+) -> Result<RuntimeOperation, RuntimeFailure> {
+    let instructions = match neighbor_reply {
+        Some(reply)
+            if context
+                .host_mcp
+                .as_ref()
+                .is_some_and(RuntimeHostMcp::is_neighbor_reply) =>
+        {
+            reply.instructions
+        }
+        Some(_) => return Err(RuntimeFailure::Superseded),
+        None => config["systemPrompt"].as_str().unwrap_or_default().into(),
+    };
+    Ok(match fork {
+        Some((source_thread_id, turn_id)) => RuntimeOperation::ForkThread {
+            source_thread_id: source_thread_id.clone(),
+            turn_id: turn_id.clone(),
+        },
+        None => match context.thread_id.clone() {
+            Some(thread_id) => RuntimeOperation::ResumeThread {
+                thread_id,
+                instructions,
+                settings: context.settings.clone(),
+            },
+            None => RuntimeOperation::OpenThread {
+                instructions,
+                settings: context.settings.clone(),
+            },
+        },
+    })
+}
+
 fn unused(config: &Value, thread: &str) -> bool {
     config["unusedThreadId"].as_str() == Some(thread)
+}
+
+pub(super) fn prepare_startup_credential(svc: &ServiceContext, context: &RuntimeContext) {
+    let Some(thread) = context.thread_id.as_deref() else {
+        return;
+    };
+    let mux = svc.mux.read();
+    if mux.get_tab(&context.tab_id).is_some_and(|tab| {
+        tab.session_binding_nonce.as_deref() == Some(&context.binding_nonce)
+            && tab.agent_session_id.as_deref() == Some(thread)
+            && tab
+                .agent_runtime_config
+                .as_ref()
+                .is_some_and(|config| unused(config, thread))
+    }) {
+        svc.start_unused_runtime_thread_credential(
+            crate::service::tab_credentials::TabCaller {
+                tab_id: context.tab_id.clone(),
+                binding_nonce: context.binding_nonce.clone(),
+            },
+            thread,
+        );
+    }
 }
 
 pub(super) async fn before_turn(
@@ -99,6 +159,7 @@ pub(crate) async fn load(
         {
             return result;
         }
+        svc.settle_unused_runtime_thread_credential(tab, None);
         tab.agent_session_id = None;
         tab.agent_session_name = None;
         tab.restored_from_snapshot = false;

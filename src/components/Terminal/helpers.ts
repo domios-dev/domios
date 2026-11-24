@@ -23,7 +23,7 @@ export function buildXtermTheme(theme?: ThemeConfig) {
       magenta: "#bc8cff",
       cyan: "#39d353",
       white: "#c9d1d9",
-      brightBlack: "#484f58",
+      brightBlack: "#545d67",
       brightRed: "#ffa198",
       brightGreen: "#56d364",
       brightYellow: "#e3b341",

@@ -10,6 +10,7 @@ export interface ProviderAccountRow {
   name?: string;
   identity?: string;
   plan?: string;
+  unavailableModels?: string[];
   status: "ready" | "signedOut" | "signingIn" | "exhausted" | "removing" | "checking" | "probeFailed" | "unknown";
   probeFailureReason?: string;
   removalNotice?: { id: string; kind: "inUse" };

@@ -2355,6 +2355,192 @@
       ]
     },
     {
+      "name": "appearance",
+      "about": "Propose, review, apply and undo a machine's appearance",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "apply",
+          "about": "Apply a reviewed proposal on the selected machine",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "current",
+          "about": "Read the current look and available presets on one machine",
+          "aliases": [],
+          "args": [
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "propose",
+          "about": "Validate and store a complete look for review",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "TOML in your Agent Pad with [theme], [appearance] and wallpaper",
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "rationale",
+              "positional": false,
+              "required": true,
+              "value_name": "RATIONALE",
+              "possible_values": [],
+              "default": null,
+              "help": "One-line colour-harmony rationale",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Read a stored proposal and its measured contrast",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "tweak",
+          "about": "Apply tuning controls immediately from this machine's bound General Main session",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Tuning-only TOML in your Agent Pad",
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "revision",
+              "positional": false,
+              "required": true,
+              "value_name": "REVISION",
+              "possible_values": [],
+              "default": null,
+              "help": "Revision returned by appearance current",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "undo",
+          "about": "Restore the look that was active before applying this proposal",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": "local",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "blueprint",
       "about": "Cheap hash-gated watchers with closed-set routes",
       "aliases": [],
@@ -16772,6 +16958,26 @@
           "aliases": []
         },
         {
+          "name": "attach",
+          "positional": false,
+          "required": false,
+          "value_name": "PATH",
+          "possible_values": [],
+          "default": null,
+          "help": "Share a relative file from the current tab's pad in the recipient's chat. Repeat to share several files",
+          "aliases": []
+        },
+        {
+          "name": "copy",
+          "positional": false,
+          "required": false,
+          "value_name": "COPY",
+          "possible_values": [],
+          "default": null,
+          "help": "Put a snapshot of each attachment in the receiving tab's pad inbox",
+          "aliases": []
+        },
+        {
           "name": "count",
           "positional": false,
           "required": false,
@@ -20890,6 +21096,49 @@
               "possible_values": [],
               "default": "claude",
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "wallpaper",
+      "about": "Per-machine chat wallpaper",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "clear",
+          "about": "Restore the active theme's wallpaper on this machine",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "set",
+          "about": "Apply a static SVG to this machine or submit an owner-requested General draft",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Read the SVG from your current agent pad, or use - for stdin",
+              "aliases": []
+            },
+            {
+              "name": "request",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Single-use request ID supplied to the target machine's General Agent",
               "aliases": []
             }
           ],

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { machineLabel, type MachineIdentity } from "../../lib/machineIdentity";
 import { MachineGlyph } from "./MachineGlyph";
 
@@ -6,6 +7,7 @@ interface MachineRowProps {
   identity?: MachineIdentity;
   status: string;
   local?: boolean;
+  trailing?: ReactNode;
 }
 
 export function machineRowLabel({ name, identity, status, local }: MachineRowProps) {
@@ -27,10 +29,11 @@ export function MachineStatus({ status }: Pick<MachineRowProps, "status">) {
   </span>;
 }
 
-export function MachinePickerRow({ name, identity, status, local }: MachineRowProps) {
+export function MachinePickerRow({ name, identity, status, local, trailing }: MachineRowProps) {
   return <span className="flex min-w-0 flex-1 items-center gap-2">
     <MachineGlyph {...identity} size="mark-15" />
     <span className="min-w-0 flex-1 truncate">{name}</span>
+    {trailing}
     <span className="flex w-24 shrink-0 items-center justify-end">
       {local ? <MachineThisBadge /> : <MachineStatus status={status} />}
     </span>

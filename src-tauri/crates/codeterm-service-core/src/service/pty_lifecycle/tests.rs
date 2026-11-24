@@ -359,6 +359,54 @@ fn abrupt_pty_death_preserves_live_provider_sessions_for_restore() {
 }
 
 #[test]
+fn abrupt_pty_death_closes_browser_while_retaining_the_agent_tab() {
+    use crate::multiplexer::types::{SurfaceBacking, TabBacking};
+    use codeterm_plugin::surfaces::{SurfaceDecl, SurfaceRegistryHandle, SurfaceRenderer};
+
+    let (fixture, owner, generation) = role_pty_fixture(AgentRole::Worker);
+    let registry = fixture.service.ext::<SurfaceRegistryHandle>();
+    registry.register(
+        "fixture",
+        std::sync::Arc::new(vec![SurfaceDecl {
+            id: "page".into(),
+            title: "Browser".into(),
+            renderer: SurfaceRenderer::Stream,
+            runtime: Some(codeterm_surface::surface::BROWSER_RUNTIME.into()),
+            agent_bound: true,
+            restore: Default::default(),
+            chrome: None,
+            icon: None,
+            agent_verbs: Vec::new(),
+            state_invalidation: false,
+        }]),
+    );
+    let browser = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+        let browser = mux.create_tab(&workspace).unwrap();
+        mux.get_tab_mut(&owner).unwrap().agent_type = Some("fixture-agent".into());
+        let tab = mux.get_tab_mut(&browser).unwrap();
+        tab.parent_tab_id = Some(owner.clone());
+        tab.backing = TabBacking::Surface(SurfaceBacking {
+            plugin_id: "fixture".into(),
+            surface_id: "page".into(),
+            instance_id: "fixture-page".into(),
+            owner_label: true,
+            resume_url: None,
+            resume_profile: None,
+        });
+        browser
+    };
+    assert_eq!(
+        super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None),
+        super::PtyDeathOutcome::PreservedForRecovery,
+    );
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_tab(&owner).is_some());
+    assert!(mux.get_tab(&browser).is_none());
+}
+
+#[test]
 fn in_session_agent_death_without_shutdown_still_prunes_role_tabs() {
     for role in [AgentRole::Worker, AgentRole::Manager] {
         let (fixture, tab, generation) = role_pty_fixture(role);

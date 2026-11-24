@@ -96,6 +96,50 @@ fn host_mcp_accepts_only_empty_or_exact_context_descriptor() {
 }
 
 #[test]
+fn neighbor_reply_mcp_config_requires_exact_host_descriptor_on_fresh_and_resumed_threads() {
+    let mut cap = capability();
+    cap.host_mcp = Some(RuntimeHostMcpDeclaration {
+        param: NEIGHBOR_REPLY_MCP_PARAM.into(),
+        methods: vec!["thread/start".into(), "thread/resume".into()],
+    });
+    let mut ctx = context();
+    let server = ctx.host_mcp.as_mut().unwrap();
+    server.name = NEIGHBOR_REPLY_MCP_NAME.into();
+    server.env =
+        std::collections::BTreeMap::from([("CODETERM_SOCKET_PATH".into(), "opaque-socket".into())]);
+    let config = json!({"config":{(NEIGHBOR_REPLY_CONFIG_KEY):{"command":server.command, "args":server.args,
+        "env":server.env,"env_vars":["CODETERM_API_TOKEN"],"required":true,
+        "enabled_tools":["reply"],"tools":{"reply":{"approval_mode":"approve"}}}}});
+    for method in ["thread/start", "thread/resume"] {
+        assert!(validate(&cap, &ctx, method, &config).is_ok());
+        let mut shadowed = config.clone();
+        shadowed["config"][format!("{NEIGHBOR_REPLY_CONFIG_KEY}.command")] = json!("other");
+        assert!(validate(&cap, &ctx, method, &shadowed).is_err());
+        let mut broadened = config.clone();
+        broadened["config"][NEIGHBOR_REPLY_CONFIG_KEY]["env_vars"] =
+            json!(["CODETERM_OWNER_TOKEN"]);
+        assert!(validate(&cap, &ctx, method, &broadened).is_err());
+        let mut server_wide = config.clone();
+        server_wide["config"][NEIGHBOR_REPLY_CONFIG_KEY]["default_tools_approval_mode"] =
+            json!("approve");
+        assert!(validate(&cap, &ctx, method, &server_wide).is_err());
+        let mut extra_tool = config.clone();
+        extra_tool["config"][NEIGHBOR_REPLY_CONFIG_KEY]["tools"]["other"] =
+            json!({"approval_mode":"approve"});
+        assert!(validate(&cap, &ctx, method, &extra_tool).is_err());
+        let mut missing_approval = config.clone();
+        missing_approval["config"][NEIGHBOR_REPLY_CONFIG_KEY]
+            .as_object_mut()
+            .unwrap()
+            .remove("tools");
+        assert!(validate(&cap, &ctx, method, &missing_approval).is_err());
+        assert!(validate(&cap, &ctx, method, &json!({})).is_err());
+    }
+    assert!(validate(&cap, &ctx, "turn/start", &config).is_err());
+    assert!(validate(&cap, &RuntimeContext::default(), "thread/resume", &config).is_err());
+}
+
+#[test]
 fn host_mcp_manifest_refuses_undeclared_duplicate_and_invalid_methods() {
     let mut cap = capability();
     assert!(cap.validate_declaration().is_ok());

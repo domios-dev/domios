@@ -1,7 +1,21 @@
 use super::*;
 
 #[test]
-fn reply_hint_quotes_numeric_leading_hex_arguments_after_validation() {
+fn named_file_guidance_precedes_the_direct_linked_reply() {
+    let fragment = "opaque-source-fragment-84c";
+    let executable = "opaque-executable-91e";
+    let friendship = "1a".repeat(32);
+    let message = "9b".repeat(16);
+    let hint = direct_reply_hint(executable, &friendship, &message, fragment);
+    let reply = hint.strip_prefix(fragment).unwrap();
+    assert!(!reply.contains(fragment));
+    assert!(reply.contains(&format!(
+        "{executable} account neighbors send '{friendship}' --kind answer --in-reply-to '{message}'"
+    )));
+}
+
+#[test]
+fn neighbor_reply_hint_quotes_numeric_leading_hex_arguments_after_validation() {
     let friendship = "1a".repeat(32);
     let message_id = "9b".repeat(16);
     let mut envelope = MessageEnvelope {
@@ -15,7 +29,7 @@ fn reply_hint_quotes_numeric_leading_hex_arguments_after_validation() {
     };
     let hint = reply_hint(&envelope).unwrap();
     assert!(hint.contains(&format!(
-        "domios account neighbors send '{friendship}' --kind answer --in-reply-to '{message_id}' --from-pad -"
+        "domios account neighbors send '{friendship}' --kind answer --in-reply-to '{message_id}' --from-pad 'neighbor-reply-{message_id}.txt'"
     )));
     envelope.from_neighbor = Some(format!("{friendship}'"));
     assert!(reply_hint(&envelope).is_none());

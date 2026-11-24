@@ -1,7 +1,7 @@
 import { createNoticePublisher } from "../../lib/notices";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
-import { ArrowDownToLine, CheckCircle2, CircleAlert, LoaderCircle } from "lucide-react";
+import { ArrowDownToLine, CircleAlert, LoaderCircle } from "lucide-react";
 import { useUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useUpdate, type UpdatePhase } from "../../hooks/useUpdate";
 import { useMultiplexer } from "../../store/multiplexer/context";
@@ -81,12 +81,15 @@ export function UpdateTray() {
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
-  useEffect(() => {
-    if (open) panel.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-  }, [open]);
   const indicator = updateIndicator(update.rows, { busy: update.busy, checking: update.checking,
-    failed: Boolean(update.error), completed: Boolean(update.frontendRelease) });
-  const { offers, active, state: activityState } = indicator;
+    failed: Boolean(update.error), appStaged: update.appStaged });
+  const { offers, active, visible, state: activityState } = indicator;
+  useEffect(() => {
+    if (!visible) setOpen(false);
+    else if (open) panel.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [open, visible]);
+  if (!visible) return null;
+
   const failed = activityState === "failed";
   const appPhase = app.installing ? appPhaseDescription(app.phase) : null;
   const downloadPercent = !failed && app.installing && app.phase === "downloading"
@@ -94,9 +97,7 @@ export function UpdateTray() {
   const activityDescription = !failed && !update.checking && appPhase
     ? `${appPhase}${downloadPercent === null ? "" : ` ${downloadPercent}% downloaded.`}` : indicator.description;
   const triggerTone = failed ? "bg-[var(--ct-surface)] text-[var(--ct-red)]"
-    : active || offers ? "bg-[var(--ct-accent)] text-[var(--ct-on-accent)]"
-      : activityState === "completed" ? "bg-[var(--ct-surface)] text-[var(--ct-green)]"
-        : "bg-[var(--ct-surface)] text-[var(--ct-muted-fg)]";
+    : "bg-[var(--ct-accent)] text-[var(--ct-on-accent)]";
   return <>
     <button ref={trigger} type="button" data-testid="settings-update-action" aria-label="Update" aria-description={activityDescription}
       aria-haspopup="dialog" aria-expanded={open} aria-busy={active} data-activity-state={activityState}
@@ -105,8 +106,7 @@ export function UpdateTray() {
       {downloadPercent !== null ? <DownloadProgress value={downloadPercent} />
         : failed ? <CircleAlert size={15} aria-hidden="true" />
           : active ? <LoaderCircle size={15} aria-hidden="true" className="motion-safe:animate-spin" />
-            : activityState === "completed" ? <CheckCircle2 size={15} aria-hidden="true" />
-              : <ArrowDownToLine size={15} aria-hidden="true" />}
+            : <ArrowDownToLine size={15} aria-hidden="true" />}
     </button>
     <AnchoredPopover open={open} anchor={trigger} placement="bottom-end" onClose={app.blocking ? undefined : close}>
       <div id="update-tray-dialog" ref={panel} role="dialog" aria-label="Updates" className="w-[400px] max-w-[calc(100vw-24px)] max-h-[min(640px,80vh)] overflow-y-auto">

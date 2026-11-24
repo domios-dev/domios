@@ -597,6 +597,70 @@ pub enum ThemeAction {
 }
 
 #[derive(Subcommand)]
+pub enum WallpaperAction {
+    /// Apply a static SVG to this machine or submit an owner-requested General draft
+    Set {
+        /// Read the SVG from your current agent pad, or use - for stdin
+        #[arg(long, value_name = "PATH")]
+        from_pad: String,
+        /// Single-use request ID supplied to the target machine's General Agent
+        #[arg(long, value_name = "ID")]
+        request: Option<uuid::Uuid>,
+    },
+    /// Restore the active theme's wallpaper on this machine
+    Clear,
+}
+
+#[derive(Subcommand)]
+pub enum AppearanceAction {
+    /// Read the current look and available presets on one machine
+    Current {
+        #[arg(long, default_value = "local")]
+        machine: String,
+    },
+    /// Apply tuning controls immediately from this machine's bound General Main session
+    Tweak {
+        #[arg(long, default_value = "local")]
+        machine: String,
+        /// Revision returned by appearance current
+        #[arg(long)]
+        revision: String,
+        /// Tuning-only TOML in your Agent Pad
+        #[arg(long, value_name = "PATH")]
+        from_pad: String,
+    },
+    /// Validate and store a complete look for review
+    Propose {
+        #[arg(long, default_value = "local")]
+        machine: String,
+        /// TOML in your Agent Pad with [theme], [appearance] and wallpaper
+        #[arg(long, value_name = "PATH")]
+        from_pad: String,
+        /// One-line colour-harmony rationale
+        #[arg(long)]
+        rationale: String,
+    },
+    /// Read a stored proposal and its measured contrast
+    Show {
+        id: String,
+        #[arg(long, default_value = "local")]
+        machine: String,
+    },
+    /// Apply a reviewed proposal on the selected machine
+    Apply {
+        id: String,
+        #[arg(long, default_value = "local")]
+        machine: String,
+    },
+    /// Restore the look that was active before applying this proposal
+    Undo {
+        id: String,
+        #[arg(long, default_value = "local")]
+        machine: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum BridgeAction {
     /// Start or restart messaging bridge (Telegram, etc.)
     Restart,
