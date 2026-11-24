@@ -19,6 +19,9 @@ socket2 = "0.6"
 tokio = { version = "1", features = ["process", "rt", "time", "io-util", "macros"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1.8"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -31,6 +34,7 @@ windows-sys = { version = "0.61", features = ["Win32_System_RestartManager", "Wi
 test-support = []
 
 [dev-dependencies]
+plist = "1.8"
 tempfile = "3"
 
 [lints]
