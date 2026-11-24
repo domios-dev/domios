@@ -22,7 +22,7 @@
   --ct-menu-row-radius: calc(9px * var(--ct-roundness, 1));
   min-width: 11rem;
   padding: 5px;
-  border: 1px solid var(--ct-decorative-edge, color-mix(in srgb, var(--ct-fg) 9%, transparent));
+  border: 1px solid var(--ct-decorative-edge, var(--ct-panel-edge));
   border-radius: calc(14px * var(--ct-roundness, 1));
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);
@@ -258,7 +258,7 @@
 .ct-menu-head {
   margin: 0 0 4px;
   padding-bottom: 4px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  border-bottom: 1px solid var(--ct-panel-edge);
 }
 
 .ct-menu-identity {

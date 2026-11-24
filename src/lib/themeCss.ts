@@ -5,6 +5,8 @@ import { chatBackgroundToCSS } from "./chatBackgroundCss";
 const THEME_CACHE_KEY = "codeterm-theme-v1";
 const THEME_VARS_CACHE_KEY = "codeterm-theme-css-v1";
 
+export const DEFAULT_BORDER_STRENGTH = 0.25;
+
 function luminance(hex: string): number {
   const [r, g, b] = parseHex(hex).map(channel => {
     const value = channel / 255;
@@ -66,10 +68,20 @@ export const DEFAULT_THEME: ThemeConfig = {
   bright_white: "#f0f6fc",
 };
 
-export function themeToCSS(theme: ThemeConfig): Record<string, string> {
+export function themeToCSS(theme: ThemeConfig, borderStrength = DEFAULT_BORDER_STRENGTH): Record<string, string> {
   const isLight = isLightColor(theme.background);
   const syntax = syntaxColors(theme, isLight);
   const chromeBg = deriveColor(theme.background, 8);
+  const semanticEdgeBase = blendColor(theme.background, theme.bright_black, 0.38);
+  const definedEdge = blendColor(semanticEdgeBase, theme.foreground, 0.32);
+  const towardDefault = Math.min(1, borderStrength / DEFAULT_BORDER_STRENGTH);
+  const towardDefined = Math.max(0, (borderStrength - DEFAULT_BORDER_STRENGTH) / (1 - DEFAULT_BORDER_STRENGTH));
+  const borderOpacity = 0.08 * towardDefault * (1 - towardDefined) + towardDefined;
+  const borderInk = blendColor(theme.foreground, definedEdge, towardDefined === 0 ? 0 : towardDefined / borderOpacity);
+  const borderWithOpacity = (opacity: number) => opacity === 1
+    ? borderInk
+    : `${borderInk}${Math.round(opacity * 255).toString(16).padStart(2, "0")}`;
+  const border = borderWithOpacity(borderOpacity);
   return {
     "--ct-bg": theme.background,
     "--ct-fg": theme.foreground,
@@ -78,11 +90,9 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-chat-backdrop": chatBackgroundToCSS(theme, isLight),
     "--ct-sidebar-bg": chromeBg,
     "--ct-titlebar-bg": deriveColor(theme.background, 4),
-    "--ct-tray-divider": isLight
-      ? blendColor(chromeBg, theme.bright_black, 0.34)
-      : blendColor(chromeBg, theme.bright_white, 0.58),
+    "--ct-tray-divider": border,
     "--ct-on-accent": contrastTextColor(theme.blue),
-    "--ct-border": blendColor(theme.background, theme.bright_black, 0.38),
+    "--ct-border": border,
     "--ct-hover": deriveColor(theme.background, 14),
     "--ct-active": deriveColor(theme.background, 22),
     "--ct-surface": deriveColor(theme.background, 10),
@@ -90,8 +100,12 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-bg-hover": deriveColor(theme.background, 14),
     "--ct-bg-active": deriveColor(theme.background, 22),
     "--ct-bg-selected": blendColor(theme.background, theme.blue, 0.22),
-    "--ct-border-subtle": blendColor(theme.background, theme.bright_black, 0.2),
-    "--ct-border-default": blendColor(theme.background, theme.bright_black, 0.38),
+    "--ct-border-subtle": borderWithOpacity(borderOpacity * 0.65),
+    "--ct-border-default": border,
+    "--ct-panel-edge": border,
+    "--ct-decorative-edge": border,
+    "--ct-input-border": border,
+    "--ct-semantic-edge-base": semanticEdgeBase,
     "--ct-muted": theme.bright_black,
     "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
     "--ct-control-border": theme.foreground,

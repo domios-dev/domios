@@ -5,9 +5,7 @@ mod chat_wallpaper;
 mod digests;
 mod theme_palette;
 
-pub use appearance::{
-    AppearanceEdges, AppearanceLook, AppearanceProposal, AppearanceState, AppearanceTuning,
-};
+pub use appearance::{AppearanceLook, AppearanceProposal, AppearanceState, AppearanceTuning};
 pub use chat_background::{ChatBackground, ChatGradient, ChatGradientKind, ChatIcon, ChatPattern};
 pub use chat_wallpaper::{
     wallpaper_asset_format, ChatWallpaper, WallpaperFill, WallpaperFillMode, WallpaperFillPreset,

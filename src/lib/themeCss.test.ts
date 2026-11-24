@@ -1,6 +1,7 @@
 import { Window } from "happy-dom";
 import {
   cacheThemeSnapshot,
+  DEFAULT_BORDER_STRENGTH,
   DEFAULT_THEME,
   isLightColor,
   readCachedTheme,
@@ -46,6 +47,30 @@ console.log("themeCss tests");
 
 for (const theme of [lightTheme, DEFAULT_THEME]) {
   assert(`${theme.name}: the chat has no backdrop by default`, themeToCSS(theme)["--ct-chat-backdrop"] === "none");
+}
+
+for (const theme of [lightTheme, DEFAULT_THEME]) {
+  const semanticBase = blendColor(theme.background, theme.bright_black, 0.38);
+  const definedEdge = blendColor(semanticBase, theme.foreground, 0.32);
+  const edgeTokens = ["--ct-border", "--ct-border-default", "--ct-panel-edge", "--ct-decorative-edge", "--ct-input-border", "--ct-tray-divider"];
+  const anchors = [
+    [0, `${theme.foreground}00`, `${theme.foreground}00`],
+    [DEFAULT_BORDER_STRENGTH, `${theme.foreground}14`, `${theme.foreground}0d`],
+    [1, definedEdge, `${definedEdge}a6`],
+  ] as const;
+  for (const [strength, edge, subtle] of anchors) {
+    const vars = themeToCSS(theme, strength);
+    assert(`${theme.name}: border strength ${strength} drives each neutral edge`,
+      edgeTokens.every(token => vars[token] === edge) && vars["--ct-border-subtle"] === subtle);
+    assert(`${theme.name}: border strength ${strength} preserves semantic and accessibility colors`,
+      vars["--ct-accent"] === theme.blue && vars["--ct-err"] === theme.red
+        && vars["--ct-control-border"] === theme.foreground && vars["--ct-semantic-edge-base"] === semanticBase);
+  }
+  assert(`${theme.name}: an unset strength uses 25% on the slider`,
+    DEFAULT_BORDER_STRENGTH === 0.25 && themeToCSS(theme)["--ct-panel-edge"] === anchors[1][1]);
+  assert(`${theme.name}: intermediate values produce intermediate outlines`,
+    themeToCSS(theme, 0.125)["--ct-panel-edge"] === `${theme.foreground}0a`
+      && themeToCSS(theme, 0.625)["--ct-panel-edge"].endsWith("8a"));
 }
 
 for (const [theme, opacity] of [[lightTheme, 3.5], [DEFAULT_THEME, 2.8]] as const) {
@@ -155,16 +180,18 @@ for (const [theme, opacity] of [[lightTheme, 0.06], [DEFAULT_THEME, 0.085]] as c
   const { document } = window;
   const root = document.documentElement;
   root.dataset.ctTheme = isLightColor(DEFAULT_THEME.background) ? "light" : "dark";
+  const vars = themeToCSS(DEFAULT_THEME);
+  for (const [token, value] of Object.entries(vars)) root.style.setProperty(token, value);
   const tokens = document.createElement("style");
   tokens.textContent = readFileSync("src/styles/tokens.css", "utf8");
   document.head.append(tokens);
 
   const expectedDarkShadows = {
     "--ct-shadow-sm": "0 1px 2px rgb(0 0 0/.20), 0 1px 3px rgb(0 0 0/.10)",
-    "--ct-shadow-md": "0 1px 3px rgb(0 0 0/.20), 0 3px 10px rgb(0 0 0/.13), 0 0 0 1px rgb(255 255 255/.04)",
-    "--ct-shadow-lg": "0 3px 6px rgb(0 0 0/.20), 0 8px 24px rgb(0 0 0/.16), 0 0 0 1px rgb(255 255 255/.06)",
-    "--ct-shadow-xl": "0 6px 12px rgb(0 0 0/.23), 0 16px 44px rgb(0 0 0/.20), 0 0 0 1px rgb(255 255 255/.06)",
-    "--ct-shadow-capsule": "0 2px 6px rgb(0 0 0/.16), 0 8px 22px rgb(0 0 0/.13), 0 0 0 1px rgb(255 255 255/.06)",
+    "--ct-shadow-md": `0 1px 3px rgb(0 0 0/.20), 0 3px 10px rgb(0 0 0/.13), 0 0 0 1px ${vars["--ct-border-subtle"]}`,
+    "--ct-shadow-lg": `0 3px 6px rgb(0 0 0/.20), 0 8px 24px rgb(0 0 0/.16), 0 0 0 1px ${vars["--ct-border-subtle"]}`,
+    "--ct-shadow-xl": `0 6px 12px rgb(0 0 0/.23), 0 16px 44px rgb(0 0 0/.20), 0 0 0 1px ${vars["--ct-border-subtle"]}`,
+    "--ct-shadow-capsule": `0 2px 6px rgb(0 0 0/.16), 0 8px 22px rgb(0 0 0/.13), 0 0 0 1px ${vars["--ct-panel-edge"]}`,
   };
   const computed = window.getComputedStyle(root);
   for (const [token, expected] of Object.entries(expectedDarkShadows)) {

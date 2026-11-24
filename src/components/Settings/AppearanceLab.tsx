@@ -278,12 +278,10 @@ export function AppearanceLab({ config, open, showWallpaperOwn, back, headingId,
                 <input type="range" data-appearance-field="appearance.shadow_strength" min={0} max={1} step={0.05} value={tuning.shadow_strength} onChange={event => editTuning({ shadow_strength: event.target.valueAsNumber })} />
                 <output>{tuning.shadow_strength === 1 ? "Default" : tuning.shadow_strength.toFixed(2)}</output>
               </label>
-              <div className="ct-appearance-knob">Edges
-                <div role="group" aria-label="Edges" className="ct-appearance-segment">
-                  <button type="button" data-appearance-field="appearance.edges" aria-pressed={tuning.edges === "subtle"} onClick={() => editTuning({ edges: "subtle" })}>Subtle</button>
-                  <button type="button" data-appearance-field="appearance.edges" aria-pressed={tuning.edges === "defined"} onClick={() => editTuning({ edges: "defined" })}>Defined</button>
-                </div>
-              </div>
+              <label className="ct-appearance-knob">Border brightness
+                <input type="range" aria-label="Border brightness" data-appearance-field="appearance.border_strength" min={0} max={1} step={0.01} value={tuning.border_strength} onChange={event => editTuning({ border_strength: event.target.valueAsNumber })} />
+                <output>{Math.round(tuning.border_strength * 100)}%</output>
+              </label>
             </SettingsCard>
             <SettingsCard title="Text">
               <div className="ct-appearance-knob">Interface text

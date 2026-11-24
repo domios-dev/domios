@@ -3,7 +3,7 @@ import type { ChatWallpaper } from "../../gen/ChatWallpaper";
 import type { AppearanceTuning } from "../../gen/AppearanceTuning";
 import type { ThemeConfig } from "./types";
 import { blendColor } from "./colors";
-import { contrastRatio, themeToCSS } from "./themeCss";
+import { contrastRatio, DEFAULT_BORDER_STRENGTH, themeToCSS } from "./themeCss";
 
 export type { AppearanceTuning } from "../../gen/AppearanceTuning";
 
@@ -57,7 +57,7 @@ export interface AppearanceProposal {
 }
 
 export const DEFAULT_APPEARANCE: AppearanceTuning = {
-  roundness: 1, shadow_strength: 1, edges: "subtle", font_size: 0,
+  roundness: 1, shadow_strength: 1, border_strength: DEFAULT_BORDER_STRENGTH, font_size: 0,
 };
 
 export const PALETTE_CONTROLS = [
@@ -87,16 +87,12 @@ export function appearanceTokens(tuning?: AppearanceTuning | null): Record<strin
   return {
     "--ct-roundness": String(value.roundness),
     "--ct-shadow-strength": String(value.shadow_strength),
-    "--ct-decorative-edge": value.edges === "defined"
-      ? "color-mix(in srgb, var(--ct-fg) 32%, var(--ct-border-default))" : "initial",
-    "--ct-accessible-edge": tuning ? "var(--ct-control-border)" : "initial",
-    "--ct-focus-edge": tuning ? "var(--ct-accent)" : "initial",
     "--ct-ui-font-offset": `${value.font_size}px`,
   };
 }
 
 export function appearancePreviewStyle(look: AppearanceLook): CSSProperties {
-  return { ...themeToCSS(look.theme), ...appearanceTokens(look.tuning) } as CSSProperties;
+  return { ...themeToCSS(look.theme, look.tuning?.border_strength), ...appearanceTokens(look.tuning) } as CSSProperties;
 }
 
 export function applyContrastFix(look: AppearanceLook, fix: NonNullable<ContrastCheck["fix"]>): AppearanceLook {

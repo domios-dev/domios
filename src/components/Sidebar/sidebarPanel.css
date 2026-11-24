@@ -106,7 +106,7 @@
 .sidebar-workspace-machine-section + .sidebar-workspace-machine-section {
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  border-top: 1px solid var(--ct-panel-edge);
 }
 
 .sidebar-workspace-machine-heading {
@@ -205,7 +205,7 @@
 
 .ct-compact-rail__group + .ct-compact-rail__group {
   padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  border-top: 1px solid var(--ct-panel-edge);
 }
 
 .ct-compact-rail__label {
@@ -294,7 +294,7 @@
 .ct-compact-peek {
   width: 15rem;
   padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  border: 1px solid var(--ct-panel-edge);
   border-radius: calc(14px * var(--ct-roundness, 1));
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-lg);

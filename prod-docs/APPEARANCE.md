@@ -4,7 +4,7 @@ Open Settings › General › Appearance Lab to preview a palette, wallpaper, an
 
 ## Apply small adjustments immediately
 
-When the owner asks for weaker wallpaper, a softer background fill, less roundness, different shadows or edges, or bigger text, use `appearance tweak`. Read the latest look and take its `revision` from the response. Write only the requested controls to a TOML file in your Agent Pad and apply it on the same machine.
+When the owner asks for weaker wallpaper, a softer background fill, less roundness, different shadows, brighter or dimmer borders, or bigger text, use `appearance tweak`. Read the latest look and take its `revision` from the response. Write only the requested controls to a TOML file in your Agent Pad and apply it on the same machine.
 
 ```sh
 domios appearance current --machine local --json
@@ -18,7 +18,7 @@ For example, a request to lower the pattern intensity to 5% uses this file.
 opacity = 0.05
 ```
 
-The tweak accepts `chat_wallpaper.background.opacity`, `chat_wallpaper.fill_strength`, and the four `appearance` tuning fields in the table below. Wallpaper controls apply to an existing machine wallpaper. For a softer fill send `fill_strength` under `[chat_wallpaper]`. For a fainter pattern send `opacity` under `[chat_wallpaper.background]`. Based on the current look, choose the control for the visible background the owner describes. A palette, theme name, wallpaper pattern, SVG or asset belongs in a proposal.
+The tweak accepts `chat_wallpaper.background.opacity`, `chat_wallpaper.fill_strength`, and the four `appearance` tuning fields in the table below. Wallpaper controls apply to an existing machine wallpaper. For a softer fill send `fill_strength` under `[chat_wallpaper]`. For a fainter pattern send `opacity` under `[chat_wallpaper.background]`. Based on the current look, choose the control for the visible background the owner describes. For brighter or dimmer borders, raise or lower `border_strength` under `[appearance]`, using 0.25 when there is no saved tuning. A palette, theme name, wallpaper pattern, SVG or asset belongs in a proposal.
 
 Only the authenticated Main session on the destination can apply a tweak. A stale revision returns `appearance_changed`. Read the latest look before choosing new values. The same contrast floors apply to tweaks. If a fix would change additional controls or the palette, return a proposal for the owner to review.
 
@@ -67,7 +67,7 @@ Start with the full `look.theme` returned by `appearance current`. Copy it into 
 | Terminal colours | `theme.cursor`, `theme.selection`, `theme.black`, `theme.magenta`, `theme.cyan`, `theme.white`, `theme.bright_red`, `theme.bright_green`, `theme.bright_yellow`, `theme.bright_blue`, `theme.bright_magenta`, `theme.bright_cyan`, `theme.bright_white` |
 | Corners | `appearance.roundness`, 0 (square) to 1 (default) |
 | Shadows | `appearance.shadow_strength`, 0 (flat) to 1 (default) |
-| Edges | `appearance.edges`, `subtle` (default) or `defined` |
+| Border brightness | `appearance.border_strength`, 0 to 1 (default 0.25). The Lab previews it under Shape and depth. Focus, accent and error indicators keep their contrast |
 | Font size | `appearance.font_size`, integer from −1 to +2 px relative to the base UI size (default 0) |
 | Wallpaper pattern | `chat_wallpaper.background.pattern`. Choices are `none`, `dots`, `domios`, `doodles` (Agents), `space`, `math`, `botanical`, `retro`, `geometry`, `sketch`, `circuits`, `grid`, `icon`, `svg`, and `image` |
 | Wallpaper icon | `chat_wallpaper.background.icon`, `cat`, `diamond`, or `star` with `pattern = "icon"` |
@@ -112,6 +112,6 @@ Choose ink lines for a calm texture. Use a gradient from the accent's harmony fa
 
 For Forest Night, pair green-black `#0f1a16` with warm ink `#d5e2d8` and a cooler teal accent `#62c3a2`. Use moss green for success and a soft coral for errors. For Warm Retro, try brown-black `#1d1612`, parchment `#f1e2cf`, and amber `#f0a347`. For Deep Ocean, try navy `#0b1622`, fog ink `#cfdcea`, and sky blue `#55b2ff`. For Paper & Ink, pair warm paper `#f7f4ee` with ink `#22201c` and deep blue `#2f5fb3`. Measure the entire look, including derived surfaces and wallpaper, before proposing.
 
-A technical look can start with roundness 0–0.35, defined edges, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
+A technical look can start with roundness 0–0.35, border brightness 0.6–1, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
