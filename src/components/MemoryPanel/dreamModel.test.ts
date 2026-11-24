@@ -104,3 +104,25 @@ assert.equal(dreamHeatmap(liveNights, at).flatMap((cell) => cell.nights).length,
 console.log("✓ dream stage labels, configured schedule, and active diary exclusion");
 
 assert.equal(nightState(undefined, worker("cancelled", { status: "done", execution_end: { kind: "cancelled" }, finalization: { state: "pending" } })), "stopped", "cancellation is execution evidence even before finalization");
+
+const { stoppedDreamCopy } = await import("./dreamModel");
+assert.deepEqual(stoppedDreamCopy(worker("zero", { execution_end: { kind: "cancelled" }, stage: "read_memories", done_at: at })), { headline: "This night didn't run.", reason: "Stopped by you" });
+assert.equal(stoppedDreamCopy(worker("no-stage", { execution_end: { kind: "cancelled" } })).headline, "This night didn't run.");
+assert.deepEqual(stoppedDreamCopy(worker("partial", { execution_end: { kind: "cancelled" }, stage: "bridge_islands" })), { headline: "This night didn't finish.", reason: "Stopped by you" });
+assert.equal(stoppedDreamCopy(worker("reason-only", { report: "worker cancelled" })).reason, "Stopped by you");
+const housekeepingWorker = worker("housekeeping", {
+  diary_id: "own-diary", touched_nodes: ["own-diary", "project_dreams"],
+  node_actions: { "own-diary": "linked", project_dreams: "linked" },
+  created_edges: [{ from: "own-diary", to: "project_dreams", relation: "belongs_to" }],
+});
+assert.deepEqual(dreamRunData(housekeepingWorker), { ids: [], edges: [], actions: [], hasConstellation: false, hasItems: false });
+const housekeepingNight = dreamNights([entry("own-diary", "<insight>No graph changes.</insight><log>ORPHANS: bridged=1</log>")], [housekeepingWorker])[0];
+assert.equal(housekeepingNight.counters.links, 0);
+assert.equal(dreamTotals([housekeepingNight], at).links, 0);
+const mixedWorker = { ...housekeepingWorker, touched_nodes: ["own-diary", "project_dreams", "a", "b"],
+  node_actions: { ...housekeepingWorker.node_actions, a: "linked" as const, b: "linked" as const },
+  created_edges: [...housekeepingWorker.created_edges!, { from: "a", to: "b", relation: "uses" }] };
+assert.deepEqual(dreamRunData(mixedWorker).ids, ["a", "b"]);
+assert.equal(dreamRunData(mixedWorker).edges.length, 1);
+assert.equal(dreamNights([entry("own-diary")], [mixedWorker])[0].counters.links, 1);
+console.log("✓ stopped human copy and diary-only housekeeping fallback/count exclusion");

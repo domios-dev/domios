@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
 import { DreamChips, DreamDate, dreamInsight } from "./DreamCard";
 import { DreamConstellation } from "./DreamConstellation";
-import { DREAM_STAGES, dreamRunData, type DreamNight } from "./dreamModel";
+import { DREAM_STAGES, dreamRunData, stoppedDreamCopy, type DreamNight } from "./dreamModel";
 import { useDreamLabels } from "./useDreamDetail";
 
 const ACTION_LABELS = { linked: "Linked", merged: "Merged", archived: "Archived", reweighted: "Re-weighted" };
@@ -34,7 +34,7 @@ export function DreamDetail({ night, api, onClose, onLog, onRun, onViewInGraph }
     </div>
     {night.state === "stopped" ? <>
       <div className="dream-row dream-learned"><span className="dream-dot dream-red" />This night stopped.</div>
-      <p className="dream-muted">{insight}</p>
+      <p className="dream-muted">{stoppedDreamCopy(night.worker).reason}</p>
       <dl className="dream-kv">
         <div><dt>Status</dt><dd>{night.worker?.execution_end?.kind === "cancelled" ? "Cancelled" : night.worker?.status}</dd></div>
         {night.worker?.model && <div><dt>Model</dt><dd>{night.worker.model}</dd></div>}
