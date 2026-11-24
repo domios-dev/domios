@@ -366,11 +366,18 @@ impl MemStore for PostgresMemStore {
     fn graph_create_entity(&self, _ctx: &WriteContext, e: &Entity) -> Result<(), String> {
         self.transaction(|tx| pg_graph::entity_in(tx, e))
     }
-    fn graph_relate(&self, _ctx: &WriteContext, r: &Relation) -> Result<(), String> {
+    fn graph_introduce_topic(
+        &self,
+        _ctx: &WriteContext,
+        options: codeterm_mem_store::graph::IntroduceTopicOptions,
+    ) -> Result<codeterm_mem_store::graph::IntroduceTopicReport, String> {
+        self.transaction(|tx| pg_graph::introduce_topic(tx, &options))
+    }
+    fn graph_relate(&self, _ctx: &WriteContext, r: &Relation) -> Result<bool, String> {
         self.transaction(|tx| pg_graph::insert_in(tx, r, true))
     }
     fn graph_insert_relation(&self, _ctx: &WriteContext, r: &Relation) -> Result<(), String> {
-        self.transaction(|tx| pg_graph::insert_in(tx, r, false))
+        self.transaction(|tx| pg_graph::insert_in(tx, r, false).map(|_| ()))
     }
     fn graph_related(
         &self,

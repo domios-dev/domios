@@ -22,6 +22,14 @@ pub(super) fn dispatch(
 ) -> Result<serde_json::Value, JsonRpcError> {
     match rest {
         "create" => create(params, svc),
+        "introduce_topic" => {
+            let options = parse_params(params)?;
+            let result = svc
+                .mem
+                .graph_introduce_topic(options)
+                .map_err(internal_error)?;
+            serde_json::to_value(result).map_err(|error| internal_error(error.to_string()))
+        }
         "relate" => relate(params, svc),
         "related" => related(params, svc),
         "invalidate" => invalidate(params, svc),

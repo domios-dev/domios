@@ -3,7 +3,9 @@ use crate::{
         calibration::stale::StaleParams,
         merge::{KindRestore, MergeError, MergeRequest},
     },
-    store, MemManager,
+    store,
+    workers::{CreatedEdge, NodeAction},
+    MemManager,
 };
 impl MemManager {
     pub fn backend(&self) -> &dyn crate::backend::MemStore {
@@ -29,8 +31,26 @@ impl MemManager {
         cap: u32,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<serde_json::Value, MergeError> {
-        self.store
-            .merge_items(&Self::write_context(), req, actor, cap, now)
+        let result = self
+            .store
+            .merge_items(&Self::write_context(), req, actor, cap, now)?;
+        let (from, to, relation) = if req.conflict {
+            (req.keeper, req.lesser, "supersedes")
+        } else {
+            (req.lesser, req.keeper, "merged_into")
+        };
+        self.record_run_mutation(
+            &[
+                (req.keeper.into(), NodeAction::Merged),
+                (req.lesser.into(), NodeAction::Merged),
+            ],
+            &[CreatedEdge {
+                from: from.into(),
+                to: to.into(),
+                relation: relation.into(),
+            }],
+        );
+        Ok(result)
     }
     pub fn restore_kind(
         &self,
@@ -48,8 +68,11 @@ impl MemManager {
         reason: &str,
         actor: &str,
     ) -> Result<serde_json::Value, MergeError> {
-        self.store
-            .archive(&Self::write_context(), id, reason, actor)
+        let result = self
+            .store
+            .archive(&Self::write_context(), id, reason, actor)?;
+        self.record_run_mutation(&[(id.into(), NodeAction::Archived)], &[]);
+        Ok(result)
     }
     pub fn is_pinned(&self, id: &str) -> Result<bool, String> {
         self.store.is_pinned(id)

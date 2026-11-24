@@ -240,6 +240,9 @@ impl MemManager {
         self.guard_commit()?;
         let body_changed = patch.body.is_some() || patch.title.is_some();
         let updated = { self.store.update(&Self::write_context(), id, &patch)? };
+        if updated && patch.importance.is_some() {
+            self.record_run_mutation(&[(id.into(), crate::workers::NodeAction::Reweighted)], &[]);
+        }
         if updated && body_changed {
             self.refresh_embedding(id);
         }
