@@ -1,7 +1,5 @@
 use axum::http::{HeaderMap, StatusCode};
 use codeterm_service_core::mesh::crown::{verify_request_claims, AuthenticatedAgent};
-use codeterm_service_core::service::general_agent::session_contract::owns_main;
-use codeterm_service_core::service::tab_credentials::TabCaller;
 
 use super::{authenticated_origin, AuthenticatedOrigin, RequestActor};
 use crate::routes::AppState;
@@ -48,19 +46,6 @@ fn bearer_token(headers: &HeaderMap) -> &str {
         .unwrap_or_default()
 }
 
-pub(crate) fn is_bound_main(state: &AppState, caller: &TabCaller) -> bool {
-    let mux = state.svc.mux.read();
-    mux.get_tab(&caller.tab_id).is_some_and(|tab| {
-        tab.protected
-            && owns_main(&mux, tab)
-            && tab.team_id.is_none()
-            && tab.parent_tab_id.is_none()
-            && tab.neighbor_authority.is_none()
-            && tab.launch_session_authenticated()
-            && tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
-    })
-}
-
 fn tab_credential_agent(
     state: &AppState,
     token: &str,
@@ -103,6 +88,6 @@ fn signed_agent_for_origin(
     }
     let (keys, _) = super::mesh_keys(state);
     verify_request_claims(token, &keys)
-        .map(|claims| claims.agent.filter(|_| claims.appearance_store.is_none()))
+        .map(|claims| claims.agent)
         .map_err(|error| (StatusCode::FORBIDDEN, error))
 }

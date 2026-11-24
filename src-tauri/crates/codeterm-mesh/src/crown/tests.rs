@@ -68,47 +68,6 @@ fn relay_agent_identity_and_delegation_are_signed() {
 }
 
 #[test]
-fn appearance_store_scope_is_signed_and_unavailable_to_ordinary_peer_auth() {
-    let (key, public) = generate_peer_keypair();
-    let keys = std::collections::HashMap::from([("source".into(), public)]);
-    let agent = AuthenticatedAgent {
-        instance_id: "source".into(),
-        tab_id: "main".into(),
-        can_spawn: false,
-    };
-    let scope = AppearanceStoreScope::new(
-        "destination",
-        "POST",
-        "/api/appearance/local",
-        &serde_json::json!({"rationale": "Look"}),
-    )
-    .unwrap();
-    let token = sign_appearance_store(&key, &agent, scope.clone()).unwrap();
-    assert_eq!(
-        verify_request_claims(&token, &keys)
-            .unwrap()
-            .appearance_store,
-        Some(scope)
-    );
-    assert!(verify_signed_request(&token, &keys).is_err());
-
-    let (payload, signature) = token.split_once('.').unwrap();
-    let mut forged: serde_json::Value =
-        serde_json::from_slice(&B64.decode(payload).unwrap()).unwrap();
-    forged["appearance_store"]["destination"] = serde_json::json!("different");
-    let forged = B64.encode(serde_json::to_vec(&forged).unwrap());
-    assert!(verify_request_claims(&format!("{forged}.{signature}"), &keys).is_err());
-
-    let ordinary =
-        sign_request_with_agent(&key, "source", AuthenticatedOrigin::Agent, Some(&agent)).unwrap();
-    assert!(verify_request_claims(&ordinary, &keys)
-        .unwrap()
-        .appearance_store
-        .is_none());
-    assert_eq!(verify_signed_request(&ordinary, &keys).unwrap(), "source");
-}
-
-#[test]
 fn test_peer_sign_verify_roundtrip() {
     let (priv_key, pub_key) = generate_peer_keypair();
     let token = sign_request(&priv_key, "peer-abc").unwrap();

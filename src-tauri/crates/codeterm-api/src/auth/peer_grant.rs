@@ -41,10 +41,6 @@ impl PeerGrant {
         &self.access
     }
 
-    pub(crate) fn peer_id(&self) -> &str {
-        &self.peer_id
-    }
-
     pub(crate) fn current(&self, mesh: &MeshManager) -> bool {
         mesh.traffic_open(&self.peer_id)
             && mesh.peer_grant_epoch(&self.peer_id) == self.grant_epoch

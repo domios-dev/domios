@@ -213,10 +213,8 @@ impl MeshManager {
             return Err(format!("Replay detected: nonce {} already used", nonce));
         }
         self.seen_nonces.insert(nonce, now);
-        self.seen_nonces.retain(|_, &mut ts| {
-            now.saturating_sub(ts)
-                <= crown::SIGNED_REQUEST_MAX_AGE_SECS + crown::SIGNED_REQUEST_CLOCK_SKEW_SECS
-        });
+        self.seen_nonces
+            .retain(|_, &mut ts| now.saturating_sub(ts) <= 310);
         Ok(())
     }
 

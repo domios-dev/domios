@@ -1,10 +1,10 @@
-use crate::{routes::AppState, wallpaper_routes::WallpaperAssets};
+use crate::routes::AppState;
 use axum::{
     extract::State as AxumState,
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     Extension, Json,
 };
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 mod caller;
 mod capability;
@@ -26,7 +26,6 @@ pub use sync::mesh_sync;
 use sync::{sync_input_for_access, sync_output_for_access};
 
 pub(super) use origin::authenticate_signed_mesh_request;
-pub(crate) use origin::AdmittedAppearanceStore;
 
 /// Verify relay sender: must be paired. Paired = trusted.
 pub(super) fn check_mesh_relay_auth(
@@ -315,39 +314,19 @@ pub async fn mesh_relay_to_peer(
             .map_err(|message| (StatusCode::FORBIDDEN, message))?;
     }
     let target = (req.target_instance_id.clone(), req.target_peer_id.clone());
-    let appearance_proposal =
-        crate::appearance_routes::authority::proposal_machine(&req.method, &req.path).is_some();
-    let (request_origin, client, peer_id, peer_name, peer_version, req) =
+    let (request_origin, client, peer_id, peer_name, peer_version) =
         crate::auth::off_runtime(&state, &headers, move |state, headers| {
             let ((primary, alternatives), peer_id, peer_name, peer_version) = {
                 let mesh = state.mesh.lock();
-                let route = match &target {
+                match &target {
                     (Some(id), None) => resolve_exact_relay_peer_route(&mesh, id)?,
                     (None, Some(target)) => resolve_relay_peer_route(&mesh, target)?,
                     _ => return Err((StatusCode::BAD_REQUEST, "Provide one relay target".into())),
-                };
-                if appearance_proposal && !mesh.paired_peers[&route.1].online {
-                    return Err((
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        serde_json::json!({
-                            "code": codeterm_mesh::contract::delivery::PEER_UNREACHABLE,
-                            "message": format!("{} is offline. Propose the look once it is online.", route.2),
-                            "bytes_written": false,
-                        })
-                        .to_string(),
-                    ));
                 }
-                route
             };
-            let scope = appearance_proposal
-                .then(|| codeterm_mesh::crown::AppearanceStoreScope::new(
-                    &peer_id, &req.method, &req.path, &req.body,
-                ))
-                .transpose()
-                .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
             let (request_origin, client) =
-                origin::signed_peer_client(state, headers, primary, alternatives, scope)?;
-            Ok((request_origin, client, peer_id, peer_name, peer_version, req))
+                origin::signed_peer_client(state, headers, primary, alternatives)?;
+            Ok((request_origin, client, peer_id, peer_name, peer_version))
         })
         .await?;
     let actor =
@@ -490,21 +469,11 @@ pub async fn mesh_relay_to_peer(
 pub async fn mesh_relay(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Extension(wallpaper): Extension<Arc<WallpaperAssets>>,
     Json(cmd): Json<codeterm_service_core::mesh::types::RelayCommand>,
 ) -> Result<Json<codeterm_service_core::mesh::types::RelayResponse>, (StatusCode, String)> {
-    let (admission, cmd) = crate::auth::off_runtime(&state, &headers, move |state, headers| {
-        Ok((origin::authenticate_relay(state, headers, Some(&cmd))?, cmd))
-    })
-    .await?;
-    let (sender_id, origin, agent) = match admission {
-        origin::RelayAdmission::Ordinary(identity) => identity,
-        origin::RelayAdmission::AppearanceStore(admission) => {
-            return store_appearance_relay(state, wallpaper, admission)
-                .await
-                .map(Json);
-        }
-    };
+    let (sender_id, origin, agent) =
+        crate::auth::off_runtime(&state, &headers, origin::authenticate_signed_mesh_request)
+            .await?;
 
     let Some(delivery_id) = cmd
         .delivery_id
@@ -583,29 +552,6 @@ pub async fn mesh_relay(
         super::send_dedupe::MeshDeliveryDedupe::global().forget(&key);
     }
     Ok(Json(response))
-}
-
-async fn store_appearance_relay(
-    state: AppState,
-    wallpaper: Arc<WallpaperAssets>,
-    admission: AdmittedAppearanceStore,
-) -> Result<codeterm_mesh::types::RelayResponse, (StatusCode, String)> {
-    let result = tokio::task::spawn_blocking(move || {
-        crate::appearance_routes::store_relay(&state, &wallpaper, admission)
-    })
-    .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let (status, mut data) = match result {
-        Ok(data) => (StatusCode::OK, data),
-        Err((status, Json(data))) => (status, data),
-    };
-    crate::peer_redaction::redact_for_peer(&mut data);
-    Ok(codeterm_mesh::types::RelayResponse {
-        ok: status.is_success(),
-        status: status.as_u16(),
-        error: (!status.is_success()).then(|| relay_error_summary(status.as_u16(), &data)),
-        data: Some(data),
-    })
 }
 
 /// A retry-safe, definitively-not-delivered response for a saturated dedupe
@@ -886,21 +832,15 @@ async fn perform_relay_unredacted(
         }
         match authorization {
             PeerRelayAuthorization::Rejected => {
-                let message = if crate::appearance_routes::authority::is_appearance_path(&cmd.path)
-                {
-                    crate::appearance_routes::authority::FULL_ACCESS_REQUIRED.into()
-                } else {
-                    format!(
-                        "Peer not authorized to {} {} (access_level={:?})",
-                        cmd.method, cmd.path, access
-                    )
-                };
                 return Ok((
                     relay_failure(
                         StatusCode::FORBIDDEN.as_u16(),
                         codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
                         Some(false),
-                        message,
+                        format!(
+                            "Peer not authorized to {} {} (access_level={:?})",
+                            cmd.method, cmd.path, access
+                        ),
                     ),
                     true,
                 ));

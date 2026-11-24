@@ -128,8 +128,6 @@ pub enum AppearanceState {
 pub struct AppearanceProposal {
     pub id: String,
     pub rationale: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub proposed_by_installation: Option<String>,
     #[serde(default)]
     pub tweak: bool,
     pub look: AppearanceLook,

@@ -11,7 +11,6 @@ mod actor;
 pub(crate) mod peer_grant;
 use peer_grant::PeerGrant;
 mod relay_agent;
-pub(crate) use relay_agent::is_bound_main;
 pub(crate) use relay_agent::{authenticated_agent, authenticated_agent_for_origin, remote_agent};
 mod credential_kind;
 pub(crate) mod remote;
@@ -240,13 +239,12 @@ pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
 }
 
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
-    authenticate_caller(state, auth_header, false).map(|(identity, _, _)| identity)
+    authenticate_caller(state, auth_header).map(|(identity, _, _)| identity)
 }
 
 fn authenticate_caller(
     state: &AppState,
     auth_header: &str,
-    allow_scoped_relay: bool,
 ) -> Result<(CallerIdentity, AuthenticatedOrigin, Option<PeerGrant>), ()> {
     let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
     if token.is_empty() {
@@ -288,7 +286,6 @@ fn authenticate_caller(
     let (known_keys, own_id) = mesh_keys(state);
 
     match codeterm_service_core::mesh::crown::verify_request_claims(token, &known_keys) {
-        Ok(claims) if claims.appearance_store.is_some() && !allow_scoped_relay => Err(()),
         Ok(claims) if claims.from_instance_id == own_id => {
             let identity = if claims.origin.owner_trusted() {
                 CallerIdentity::Local
@@ -313,9 +310,6 @@ fn authenticate_caller(
                 return Err(());
             }
             let grant = PeerGrant::capture(&mesh, &sender_id).ok_or(())?;
-            if claims.appearance_store.is_some() {
-                return Ok((CallerIdentity::Relayed, claims.origin, Some(grant)));
-            }
             let access_level = grant.access().clone();
             let relay_protocol_version = peer.relay_protocol_version;
             Ok((
@@ -387,7 +381,7 @@ pub(crate) fn authenticated_request(
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    authenticate_caller(state, auth, false)
+    authenticate_caller(state, auth)
         .map(|(identity, origin, _)| (identity, origin))
         .map_err(|()| (StatusCode::UNAUTHORIZED, "Invalid or missing token".into()))
 }
@@ -688,11 +682,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .unwrap_or("")
         .to_string();
 
-    let authenticated = authenticate_caller(
-        &state,
-        &auth,
-        method == Method::POST && path == "/api/mesh/relay",
-    );
+    let authenticated = authenticate_caller(&state, &auth);
     if let Ok((_, origin, grant)) = &authenticated {
         req.extensions_mut().insert(*origin);
         if let Some(grant) = grant {
@@ -794,11 +784,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                 );
                 (
                     StatusCode::FORBIDDEN,
-                    if crate::appearance_routes::authority::is_appearance_path(&path) {
-                        crate::appearance_routes::authority::FULL_ACCESS_REQUIRED
-                    } else {
-                        "Access denied by access level policy"
-                    },
+                    "Access denied by access level policy",
                 )
                     .into_response()
                     .into()

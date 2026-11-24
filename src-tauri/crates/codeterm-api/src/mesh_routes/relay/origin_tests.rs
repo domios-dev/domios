@@ -20,9 +20,6 @@ use codeterm_service_core::{
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
-#[path = "origin_tests/appearance.rs"]
-mod appearance;
-
 fn state(fixture: &ServiceFixture, id: &str) -> AppState {
     let state = crate::test_support::app_state(fixture);
     state.config.lock().api.token = Some("owner-secret".into());

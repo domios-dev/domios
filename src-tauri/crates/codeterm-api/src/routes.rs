@@ -84,7 +84,6 @@ pub(super) fn create_router_with_preview_admission(
     preview_check_admission: std::sync::Arc<super::local_preview_routes::Admission>,
 ) -> Router {
     state.svc.install_live_transcript_capture();
-    let wallpaper_assets = super::wallpaper_routes::assets();
     let router = Router::new()
         .route(
             "/api/tabs/{id}/preview/prepare",
@@ -268,7 +267,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .merge(plan_routes::router::router())
         .route("/api/app/restart", post(network_routes::restart_app))
-        .merge(super::wallpaper_routes::routes(wallpaper_assets.clone()))
+        .merge(super::wallpaper_routes::routes())
         .route(
             "/api/notifications",
             get(notification_routes::list_notifications)
@@ -675,11 +674,9 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/mesh/enabled", post(mesh_routes::mesh_set_enabled))
         .route(
             "/api/mesh/relay",
-            post(mesh_routes::mesh_relay)
-                .layer(axum::extract::DefaultBodyLimit::max(
-                    super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,
-                ))
-                .layer(axum::Extension(wallpaper_assets)),
+            post(mesh_routes::mesh_relay).layer(axum::extract::DefaultBodyLimit::max(
+                super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,
+            )),
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(

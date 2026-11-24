@@ -34,21 +34,15 @@ domios appearance apply PROPOSAL_ID --machine local --json
 domios appearance undo PROPOSAL_ID --machine local --json
 ```
 
-`--machine` accepts the destination installation ID, its exact name, or `local` for the addressed daemon. Use installation IDs to distinguish machines with the same name.
+`--machine` accepts the destination installation ID, its exact name, or `local` for the addressed daemon. Use the installation ID when names collide. An owner can address a paired Full-access daemon with `--mesh PEER`. An offline machine is left unchanged.
 
-When the owner asks General to change the look on other machines, run `mesh peers` and propose once per requested online machine. From authenticated General Main, target each paired installation signed in to the same account. The destination must grant the originating installation Full mesh access. If the peer is Restricted, tell the owner which destination's Mesh settings need Full access.
+The proposal carries its previous look and contrast measurements. The owner and the authenticated local General Agent can store, show, apply, and undo proposals. General returns the proposal card for the owner to review and apply a new look. If a newer edit changed the destination, reload and review the current look before applying or undoing. The daemon retains a bounded history of recent proposals.
 
-```sh
-domios appearance propose --mesh INSTALLATION_ID --machine local --from-pad look.toml --rationale "Analogous greens around a quiet dark base" --json
-```
-
-Return one standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` per successful proposal in the same chat. Copy `result.id` and `result.machine.id` from each response. The owner taps Apply on the card for that machine, then can use Undo or Open in Lab. Name every offline machine in the reply and say its proposal can be made once it is online. Proposals are sent immediately with no offline queue.
-
-The proposal carries its previous look and contrast measurements. If a newer edit changed the destination, reload and review the current look before applying or undoing. Each originating installation can keep up to three pending General proposals per destination. A new proposal can replace an older pending proposal from the same installation. If the destination's history is full and no entry can be replaced, the owner can create the next proposal in Appearance Lab.
+Return one sentence naming the look and a standalone `<ds-appearance id="PROPOSAL_ID" machine="INSTALLATION_ID" />` with the exact values from the proposal response. The card reads its colours, wallpaper, state, and actions from the stored proposal. Use Apply for the reviewed look, Undo for its previous look, or Open in Lab to compare both.
 
 ### REST API
 
-The addressed daemon accepts `local`, its installation ID, or its exact name as `machine`. The local owner and an owner relaying through a Full-access peer can use the reviewed-look routes. Authenticated General Main can inspect and store proposals locally, and can store proposals through the same-account mesh as described above.
+The addressed daemon accepts `local`, its installation ID, or its exact name as `machine`. The local owner, an owner relaying through a Full-access peer, and the authenticated local General session can use the proposal routes. The table marks routes with their own authorization rules.
 
 | Method | Path | Body | Response or effect |
 |--------|------|------|--------------------|
@@ -57,8 +51,8 @@ The addressed daemon accepts `local`, its installation ID, or its exact name as 
 | POST | `/api/appearance/{machine}/validate` | `{theme, wallpaper?, tuning?}` | Measures contrast and returns the readings without saving. |
 | POST | `/api/appearance/{machine}/tweak` | `{revision, toml}` | Authenticated Main on this daemon only. Applies the supported controls and returns its receipt. |
 | GET | `/api/appearance/{machine}/{id}` | — | Returns the stored proposal receipt. |
-| POST | `/api/appearance/{machine}/{id}/apply` | — | Owner only. Applies the proposal when its previous look still matches and returns the receipt. |
-| POST | `/api/appearance/{machine}/{id}/undo` | — | Owner only. Restores the previous look when the applied proposal still owns it and returns the receipt. |
+| POST | `/api/appearance/{machine}/{id}/apply` | — | Applies the proposal when its previous look still matches and returns the receipt. |
+| POST | `/api/appearance/{machine}/{id}/undo` | — | Restores the previous look when the applied proposal still owns it and returns the receipt. |
 | POST | `/api/appearance/{machine}/{id}/use-theme-wallpaper` | — | Owner only. Applies the proposal with its theme wallpaper exposed and returns an undoable receipt. |
 
 A receipt contains `machine`, the proposal fields, `contrast` and `can_undo`. A missing machine or proposal returns 404. A stale look or an inapplicable transition returns 409. Invalid proposal input returns 400 and an applied look below a contrast floor returns 422. Tweak refusals include `appearance_main_required` (403), `appearance_changed` (409) and `appearance_proposal_required` (400).
@@ -135,4 +129,4 @@ For Forest Night, pair green-black `#0f1a16` with warm ink `#d5e2d8` and a coole
 
 A technical look can start with roundness 0–0.35, border brightness 0.6–1, and shadows 0.3–0.6. A softer look can keep default roundness and gentle depth. For easier reading, start with font size +1. Keep the current palette and tuning when the request targets a single control.
 
-<!-- revision: 10 -->
+<!-- revision: 8 -->

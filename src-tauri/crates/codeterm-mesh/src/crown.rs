@@ -8,7 +8,6 @@ use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 const B64: base64::engine::general_purpose::GeneralPurpose =
     base64::engine::general_purpose::STANDARD;
@@ -35,33 +34,6 @@ pub struct AuthenticatedAgent {
     pub can_spawn: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AppearanceStoreScope {
-    destination: String,
-    method: String,
-    path: String,
-    body_sha256: [u8; 32],
-}
-
-impl AppearanceStoreScope {
-    pub fn new(
-        destination: &str,
-        method: &str,
-        path: &str,
-        body: &serde_json::Value,
-    ) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            destination: destination.into(),
-            method: method.into(),
-            path: path.into(),
-            body_sha256: Sha256::digest(serde_json::to_vec(body)?).into(),
-        })
-    }
-}
-
-pub const SIGNED_REQUEST_MAX_AGE_SECS: u64 = 300;
-pub const SIGNED_REQUEST_CLOCK_SKEW_SECS: u64 = 30;
-
 pub fn verifying_key_from_b64(b64: &str) -> Result<VerifyingKey, String> {
     let bytes = B64.decode(b64).map_err(|e| e.to_string())?;
     if bytes.len() != 32 {
@@ -82,8 +54,6 @@ pub struct SignedRequest {
     pub origin: AuthenticatedOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<AuthenticatedAgent>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub appearance_store: Option<AppearanceStoreScope>,
     pub timestamp: u64,
     /// Nonce to prevent replay (UUID).
     pub nonce: String,
@@ -137,30 +107,6 @@ pub fn sign_request_with_agent(
     origin: AuthenticatedOrigin,
     agent: Option<&AuthenticatedAgent>,
 ) -> Result<String, String> {
-    sign_claims(private_key_b64, instance_id, origin, agent, None)
-}
-
-pub fn sign_appearance_store(
-    private_key_b64: &str,
-    agent: &AuthenticatedAgent,
-    scope: AppearanceStoreScope,
-) -> Result<String, String> {
-    sign_claims(
-        private_key_b64,
-        &agent.instance_id,
-        AuthenticatedOrigin::Agent,
-        Some(agent),
-        Some(scope),
-    )
-}
-
-fn sign_claims(
-    private_key_b64: &str,
-    instance_id: &str,
-    origin: AuthenticatedOrigin,
-    agent: Option<&AuthenticatedAgent>,
-    appearance_store: Option<AppearanceStoreScope>,
-) -> Result<String, String> {
     let key_bytes = B64.decode(private_key_b64).map_err(|e| e.to_string())?;
     if key_bytes.len() != 32 {
         return Err("Invalid private key length".to_string());
@@ -178,7 +124,6 @@ fn sign_claims(
         from_instance_id: instance_id.to_string(),
         origin,
         agent: agent.cloned(),
-        appearance_store,
         timestamp: now,
         nonce: uuid::Uuid::new_v4().to_string(),
     };
@@ -196,11 +141,7 @@ pub fn verify_signed_request(
     token: &str,
     known_keys: &std::collections::HashMap<String, String>,
 ) -> Result<String, String> {
-    let claims = verify_request_claims(token, known_keys)?;
-    if claims.appearance_store.is_some() {
-        return Err("Scoped appearance credential requires relay ingress".into());
-    }
-    Ok(claims.from_instance_id)
+    verify_request_claims(token, known_keys).map(|claims| claims.from_instance_id)
 }
 
 pub fn verify_request_claims(
@@ -223,10 +164,10 @@ pub fn verify_request_claims(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    if now.saturating_sub(req.timestamp) > SIGNED_REQUEST_MAX_AGE_SECS {
+    if now.saturating_sub(req.timestamp) > 300 {
         return Err("Request expired".to_string());
     }
-    if req.timestamp.saturating_sub(now) > SIGNED_REQUEST_CLOCK_SKEW_SECS {
+    if req.timestamp.saturating_sub(now) > 30 {
         return Err("Request timestamp too far in the future".to_string());
     }
 

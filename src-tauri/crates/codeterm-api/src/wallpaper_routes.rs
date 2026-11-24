@@ -25,7 +25,7 @@ pub(super) type Refusal = (StatusCode, &'static str);
 mod draft;
 mod look;
 
-pub struct WallpaperAssets {
+pub(super) struct WallpaperAssets {
     store: WallpaperStore,
     upload_slot: Arc<Semaphore>,
     read_slots: Arc<Semaphore>,
@@ -34,27 +34,22 @@ pub struct WallpaperAssets {
     draft: parking_lot::Mutex<Option<draft::Draft>>,
 }
 
-pub(super) fn assets() -> Arc<WallpaperAssets> {
-    WallpaperAssets::new(
+pub(super) fn routes() -> Router<AppState> {
+    with_store(
         WallpaperStore::new(codeterm_service_core::paths::data_dir_path()),
         codeterm_service_core::paths::config_path(),
     )
 }
 
-impl WallpaperAssets {
-    pub(super) fn new(store: WallpaperStore, config_path: Result<PathBuf, String>) -> Arc<Self> {
-        Arc::new(Self {
-            store,
-            upload_slot: Arc::new(Semaphore::new(1)),
-            read_slots: Arc::new(Semaphore::new(4)),
-            settings_writer: parking_lot::Mutex::new(()),
-            config_path,
-            draft: Default::default(),
-        })
-    }
-}
-
-pub(super) fn routes(assets: Arc<WallpaperAssets>) -> Router<AppState> {
+fn with_store(store: WallpaperStore, config_path: Result<PathBuf, String>) -> Router<AppState> {
+    let assets = Arc::new(WallpaperAssets {
+        store,
+        upload_slot: Arc::new(Semaphore::new(1)),
+        read_slots: Arc::new(Semaphore::new(4)),
+        settings_writer: parking_lot::Mutex::new(()),
+        config_path,
+        draft: Default::default(),
+    });
     Router::new()
         .route(
             "/api/serve-file",
