@@ -42,9 +42,20 @@ impl ServiceContext {
         tab_id: &str,
         confirmed: bool,
     ) -> Result<bool, String> {
+        self.close_tab_as_owner_async_checked(tab_id, confirmed, || Ok(()))
+            .await
+    }
+
+    pub async fn close_tab_as_owner_async_checked(
+        &self,
+        tab_id: &str,
+        confirmed: bool,
+        check: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) -> Result<bool, String> {
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         crate::service::blocking::run(move || {
+            check()?;
             let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
             if !confirmed
                 && !svc

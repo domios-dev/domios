@@ -338,6 +338,89 @@ async fn relayed_agent_cannot_change_mesh_administration_state() {
 }
 
 #[tokio::test]
+async fn registered_tab_close_routes_refuse_unscoped_peer_access() {
+    initialize();
+    let (mux, source_tab) = MultiplexerState::new();
+    let source_fixture = ServiceFixture::new(mux);
+    let source = state(&source_fixture, "source", 0);
+    let (mut mux, initial) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&initial).unwrap();
+    let tab = mux.create_tab(&workspace).unwrap();
+    let target_fixture = ServiceFixture::new(mux);
+    let target = state(&target_fixture, "target", 0);
+    pair(&target, &source);
+    let app = routes::create_router_with_frontend(target.clone(), None);
+    let paths = [
+        format!("/api/workspaces/{workspace}/tabs/{tab}/close"),
+        format!("/api/tabs/{tab}/close"),
+    ];
+    for access in [
+        AccessLevel::Full,
+        AccessLevel::Custom(vec![codeterm_mesh::types::Permission::Admin]),
+    ] {
+        assert!(target.mesh.lock().set_peer_access("source", access));
+        for path in &paths {
+            for agent in [false, true] {
+                let token = || {
+                    if agent {
+                        return signed_agent(&source, "source", &source_tab);
+                    }
+                    crown::sign_request_with_origin(
+                        source
+                            .mesh
+                            .lock()
+                            .ident
+                            .identity
+                            .private_key
+                            .as_deref()
+                            .unwrap(),
+                        "source",
+                        AuthenticatedOrigin::Owner,
+                    )
+                    .unwrap()
+                };
+                let (direct, _) = request(app.clone(), &token(), "POST", path, Value::Null).await;
+                assert_eq!(direct, StatusCode::FORBIDDEN, "{path} agent={agent}");
+                let (relay, data) = request(
+                    app.clone(),
+                    &token(),
+                    "POST",
+                    "/api/mesh/relay",
+                    json!({"method":"POST","path":path,"body":null}),
+                )
+                .await;
+                assert_eq!(relay, StatusCode::OK, "{path} agent={agent}: {data}");
+                assert_eq!(data["status"], 403, "{path} agent={agent}: {data}");
+                assert!(target.svc.mux.read().get_tab(&tab).is_some());
+            }
+        }
+    }
+    let local_agent = target
+        .svc
+        .frontend_pty_env(Some(&initial))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let (agent, _) = request(app.clone(), &local_agent, "POST", &paths[0], Value::Null).await;
+    assert_eq!(agent, StatusCode::FORBIDDEN);
+    assert!(target.svc.mux.read().get_tab(&tab).is_some());
+
+    let (mismatch, _) = request(
+        app.clone(),
+        "owner-secret",
+        "POST",
+        &format!("/api/workspaces/wrong-workspace/tabs/{tab}/close"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(mismatch, StatusCode::NOT_FOUND);
+    assert!(target.svc.mux.read().get_tab(&tab).is_some());
+    let (local, result) = request(app, "owner-secret", "POST", &paths[0], Value::Null).await;
+    assert_eq!(local, StatusCode::OK, "{result}");
+    assert!(target.svc.mux.read().get_tab(&tab).is_none());
+}
+
+#[tokio::test]
 async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer_access() {
     initialize();
     install_rpc();

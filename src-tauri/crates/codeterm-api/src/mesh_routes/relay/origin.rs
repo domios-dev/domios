@@ -1,9 +1,17 @@
 use axum::http::{HeaderMap, StatusCode};
 
 use crate::{
-    auth::{AuthenticatedOrigin, CallerIdentity},
+    auth::{peer_grant::PeerGrant, AuthenticatedOrigin, CallerIdentity},
     routes::AppState,
 };
+
+#[derive(Debug)]
+pub(crate) struct SignedMeshRequest {
+    pub peer_id: String,
+    pub origin: AuthenticatedOrigin,
+    pub agent: Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    pub grant: Option<PeerGrant>,
+}
 
 #[cfg(test)]
 pub(super) fn peer_client(
@@ -57,14 +65,7 @@ fn signed_token_for_local_caller(
 pub(crate) fn authenticate_signed_mesh_request(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<
-    (
-        String,
-        AuthenticatedOrigin,
-        Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
-    ),
-    (StatusCode, String),
-> {
+) -> Result<SignedMeshRequest, (StatusCode, String)> {
     let auth = headers
         .get("authorization")
         .and_then(|value| value.to_str().ok())
@@ -82,10 +83,15 @@ pub(crate) fn authenticate_signed_mesh_request(
         let agent = (claims.origin == AuthenticatedOrigin::Agent)
             .then_some(claims.agent)
             .flatten();
-        return Ok(("local".to_string(), claims.origin, agent));
+        return Ok(SignedMeshRequest {
+            peer_id: "local".into(),
+            origin: claims.origin,
+            agent,
+            grant: None,
+        });
     }
     let peer_id = claims.from_instance_id;
-    {
+    let grant = {
         let mut mesh = state.mesh.lock();
         let Some(peer) = mesh.paired_peers.get(&peer_id) else {
             return Err((
@@ -110,19 +116,25 @@ pub(crate) fn authenticate_signed_mesh_request(
                 "Invalid or unknown signature".to_string(),
             ));
         }
-        if crate::auth::peer_grant::PeerGrant::capture(&mesh, &peer_id).is_none() {
+        let Some(grant) = PeerGrant::capture(&mesh, &peer_id) else {
             return Err((
                 StatusCode::UNAUTHORIZED,
                 "Invalid or unknown signature".to_string(),
             ));
-        }
+        };
         mesh.check_and_record_nonce_id(claims.nonce)
             .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
-    }
+        grant
+    };
     let agent = (claims.origin == AuthenticatedOrigin::Agent)
         .then_some(claims.agent)
         .flatten();
-    Ok((peer_id, claims.origin, agent))
+    Ok(SignedMeshRequest {
+        peer_id,
+        origin: claims.origin,
+        agent,
+        grant: Some(grant),
+    })
 }
 
 pub(super) fn loopback_request(

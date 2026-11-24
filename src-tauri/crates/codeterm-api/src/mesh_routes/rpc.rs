@@ -123,11 +123,16 @@ pub async fn mesh_rpc(
         super::relay::authenticate_signed_mesh_request,
     )
     .await;
-    let (peer, origin, agent) = match authenticated {
+    let super::relay::SignedMeshRequest {
+        peer_id,
+        origin,
+        agent,
+        ..
+    } = match authenticated {
         Ok(authenticated) => authenticated,
         Err((_, message)) => return Json(authority_refusal(message)),
     };
-    Json(handle_mesh_rpc(&state, request, origin, agent.as_ref(), move || Ok(peer)).await)
+    Json(handle_mesh_rpc(&state, request, origin, agent.as_ref(), move || Ok(peer_id)).await)
 }
 
 fn authority_refusal(message: String) -> MeshRpcResponse {
