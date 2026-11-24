@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
+import { useUsageMachine } from "../../hooks/usageMachine";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { formatAge } from "../../lib/timeLabels";
 import { classify } from "../../types/usage";
 import type { ModelGroup } from "../../lib/types";
@@ -135,6 +137,7 @@ export interface TabUsageSession { provider: string; accountId?: string | null; 
 
 /** Nothing readable for the account: pushed quota or observed reset when present, else the session's reported context or a dash that says why. */
 export function UnavailableLimitsBubble({ reason, session }: { reason: string; session?: TabUsageSession }) {
+  const peerId = useUsageMachine();
   const { snapshot } = useUsageSnapshot({ provider: session?.provider ?? "", accountId: session?.accountId, enabled: session !== undefined });
   const { snapshot: profileSnapshot } = useUsageSnapshot({
     provider: session?.provider ?? "",
@@ -145,7 +148,8 @@ export function UnavailableLimitsBubble({ reason, session }: { reason: string; s
   const pushedQuota = quotaReading(profileSnapshot);
   const quotaReset = activeQuotaReset(profileSnapshot, now);
   useQuotaResetTick(pushedQuota ? null : quotaReset?.resetsAt ?? null, now);
-  const runtime = ownRuntimeUsage(snapshot, session?.tabId, session?.threadId);
+  const sourceTabId = peerId ? parseCompositeTabId(session?.tabId)?.remoteTabId : session?.tabId;
+  const runtime = ownRuntimeUsage(snapshot, sourceTabId, session?.threadId);
   const usage = session && !pushedQuota && !quotaReset ? contextUsage(session.context, runtime) : null;
   useClaimContext(session?.tabId, usage !== null);
   if (pushedQuota) {
@@ -180,14 +184,15 @@ export function UnavailableLimitsBubble({ reason, session }: { reason: string; s
 
 /** Account quota the provider plugin reads for this profile; reads follow the mount and the session's activity, never a timer. */
 export function QuotaBubble({ provider, accountId, trackingEnabled, session }: { provider: string; accountId: string; trackingEnabled: boolean; session?: TabUsageSession }) {
-  const { snapshot, error, refresh } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
+  const peerId = useUsageMachine();
+  const { snapshot, error, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
   const lastRequested = useRef<number | null>(null);
   const reportedContext = contextMeter(session?.context)?.used ?? null;
   useEffect(() => {
-    if (!trackingEnabled || !quotaReadDue(lastRequested.current, Date.now())) return;
+    if (!trackingEnabled || peerId || !quotaReadDue(lastRequested.current, Date.now())) return;
     lastRequested.current = Date.now();
     void refresh();
-  }, [trackingEnabled, reportedContext, refresh]);
+  }, [trackingEnabled, peerId, reportedContext, refresh]);
   const now = Date.now();
   const reading = trackingEnabled ? quotaReading(snapshot) : null;
   const quotaReset = trackingEnabled ? activeQuotaReset(snapshot, now) : null;
@@ -196,27 +201,28 @@ export function QuotaBubble({ provider, accountId, trackingEnabled, session }: {
   const failure = balanceFailure(snapshot, error, "Usage limits are unavailable");
   if (reading) {
     return <QuotaReadingPill reading={reading} failure={failure} capturedAt={snapshot?.captured_at}
-      modelId={session?.modelId} modelGroups={session?.modelGroups} reset={quotaReset} onRefresh={() => void refresh()} />;
+      modelId={session?.modelId} modelGroups={session?.modelGroups} reset={quotaReset} onRefresh={() => void (peerId ? refetch() : refresh())} />;
   }
   if (quotaReset) {
     return <QuotaResetPill title={`${session?.label ?? provider} quota`} reset={quotaReset} note={failure ?? undefined} now={now} />;
   }
-  return <UnavailableLimitsBubble reason={failure ?? "Usage limits have not been read yet"} session={session} />;
+  return <UnavailableLimitsBubble reason={failure ?? (peerId ? "Usage is unavailable on this machine." : "Usage limits have not been read yet")} session={peerId ? undefined : session} />;
 }
 
 /** A balance the provider plugin reads for this profile; reads are requested, never polled. */
 export function BalanceBubble({ provider, accountId, trackingEnabled }: { provider: string; accountId: string; trackingEnabled: boolean }) {
-  const { snapshot, error, refresh } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
+  const peerId = useUsageMachine();
+  const { snapshot, error, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
   const requested = useRef(false);
   const needsRead = balanceNeedsRead(snapshot, Date.now());
   useEffect(() => {
-    if (!trackingEnabled || requested.current || !needsRead) return;
+    if (!trackingEnabled || peerId || requested.current || !needsRead) return;
     requested.current = true;
     void refresh();
-  }, [trackingEnabled, needsRead, refresh]);
+  }, [trackingEnabled, peerId, needsRead, refresh]);
   if (!trackingEnabled) return null;
   const reading = balanceReading(snapshot);
-  const failure = balanceFailure(snapshot, error);
+  const failure = balanceFailure(snapshot, error) ?? (peerId && !reading ? "Usage is unavailable on this machine." : null);
   const text = reading ? balanceLabel(reading) : failure ? "balance ?" : "balance …";
   const staleCause = reading && failure ? `, last read failed: ${failure}` : "";
   const label = reading ? `balance ${text}${reading.available ? "" : ", insufficient"}${staleCause}` : failure ? `balance unavailable: ${failure}` : "balance not read yet";
@@ -227,7 +233,7 @@ export function BalanceBubble({ provider, accountId, trackingEnabled }: { provid
       {reading && failure ? <p className="ct-usage-detail">Last read failed: {failure}</p> : null}
       <div className="ct-usage-foot">
         <span>{snapshot?.captured_at !== undefined ? `last updated ${formatAge(snapshot.captured_at, Date.now())}` : "not read yet"}</span>
-        <button type="button" className="link" onClick={() => void refresh()}>Refresh</button>
+        <button type="button" className="link" onClick={() => void (peerId ? refetch() : refresh())}>Refresh</button>
       </div>
     </LimitsPill>
   );

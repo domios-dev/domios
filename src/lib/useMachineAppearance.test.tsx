@@ -7,6 +7,7 @@ import { setWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
 import type { AppConfig } from "./types";
 import type { MachineAppearance } from "./chatWallpaperClient";
 import type { AppearanceCommit } from "./appearanceClient";
+import { bindAppearancePress, indicateAppearancePress } from "./appearanceMotion";
 import { useAppearanceMotion } from "../hooks/useAppearanceMotion";
 
 const { read, subscribe, listenCommit } = vi.hoisted(() => ({
@@ -51,6 +52,8 @@ it("keeps the newest requested machine when older responses arrive later", async
 it("applies a config update and an explicit machine switch inside one transition each", async () => {
   const base = { theme: DEFAULT_THEME, wallpaper: null, tuning: null };
   const theme = { ...DEFAULT_THEME, name: "External theme", background: "#101a23" };
+  const { background, ...colors } = theme;
+  const reorderedTheme = { background, ...colors };
   const peerWallpaper = { background: { pattern: "dots" as const } };
   const peerLook = { ...base, theme, wallpaper: peerWallpaper };
   read.mockImplementation(async (id: string) => id === "different" ? peerLook : base);
@@ -76,6 +79,7 @@ it("applies a config update and an explicit machine switch inside one transition
     const { look } = useAppearanceMotion(selected);
     return <div className="ct-chat-surface">
       <output data-appearance-proposal="proposal">{look.theme.name} · {look.wallpaper?.background.pattern ?? "none"}</output>
+      <button type="button" aria-label="Apply" />
     </div>;
   }
   try {
@@ -104,38 +108,53 @@ it("applies a config update and an explicit machine switch inside one transition
       expect(rootNode.textContent).toBe("External theme · none");
       transitions[0].finish();
     });
-    await act(async () => receive("config-changed", { theme: { ...theme } }));
+    await act(async () => receive("config-changed", { theme: reorderedTheme }));
     expect(start).toHaveBeenCalledTimes(1);
 
-    await act(async () => setWorkspaceBrowseTarget({ id: "different", name: "Different" }, { x: 28, y: 90 }));
+    const applyButton = rootNode.querySelector("button")!;
+    vi.spyOn(applyButton, "getBoundingClientRect").mockReturnValue(new DOMRect(116, 120, 80, 28));
+    const nextWallpaper = { background: { pattern: "space" as const } };
+    indicateAppearancePress(applyButton);
+    bindAppearancePress(applyButton, "proposal", { ...base, theme, wallpaper: nextWallpaper }, "initial");
+    await act(async () => receive("config-changed", { theme: reorderedTheme, chat_wallpaper: nextWallpaper }));
     expect(start).toHaveBeenCalledTimes(2);
-    expect(origin()).toBe("28px 90px");
+    expect(origin()).toBe("156px 134px");
     expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(false);
-    expect(rootNode.textContent).toBe("External theme · none");
     await act(async () => {
       transitions[1].update();
-      expect(rootNode.textContent).toBe("External theme · dots");
+      expect(rootNode.textContent).toBe("External theme · space");
       transitions[1].finish();
     });
 
+    await act(async () => setWorkspaceBrowseTarget({ id: "different", name: "Different" }, { x: 28, y: 90 }));
+    expect(start).toHaveBeenCalledTimes(3);
+    expect(origin()).toBe("28px 90px");
+    expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(false);
+    expect(rootNode.textContent).toBe("External theme · space");
+    await act(async () => {
+      transitions[2].update();
+      expect(rootNode.textContent).toBe("External theme · dots");
+      transitions[2].finish();
+    });
+
     await act(async () => setWorkspaceBrowseTarget({ id: "same", name: "Same look" }));
-    expect(start).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(3);
     await act(async () => setWorkspaceBrowseTarget(null, { x: 30, y: 20 }));
-    expect(start).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(3);
     await act(async () => setWorkspaceBrowseTarget({ id: "different", name: "Different" }));
-    expect(start).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(3);
 
     const preferences = window.matchMedia("(prefers-reduced-motion: reduce)");
     motionPreferences.mockReturnValue({ ...preferences, matches: true });
     await act(async () => setWorkspaceBrowseTarget(null, { x: 30, y: 20 }));
-    expect(start).toHaveBeenCalledTimes(3);
+    expect(start).toHaveBeenCalledTimes(4);
     expect(motion()).toBe("fade");
 
     await act(async () => {
-      transitions[2].update();
+      transitions[3].update();
       window.dispatchEvent(new Event("codeterm-peer-switch-reset"));
     });
-    expect(transitions[2].skip).toHaveBeenCalledTimes(1);
+    expect(transitions[3].skip).toHaveBeenCalledTimes(1);
     expect(motion()).toBeUndefined();
     expect(rootNode.textContent).toBe(`${DEFAULT_THEME.name} · none`);
   } finally {

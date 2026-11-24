@@ -206,6 +206,7 @@ export function SettingsPanel({
 
   const headerTitle = routeTitle(top);
   const jobsPage = top.kind === "section" && top.id === "jobs";
+  const appearancePage = top.kind === "appearance-lab";
 
   return (
     <div
@@ -220,7 +221,7 @@ export function SettingsPanel({
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
         {jobsPage ? (
           <h2 id={SETTINGS_TITLE_ID} className="sr-only" data-testid="settings-header-title">{headerTitle}</h2>
-        ) : (
+        ) : !appearancePage && (
           <div className="ct-jobs-header ct-settings-head">
             {parent
               ? <BackPill label={routeTitle(parent)} onBack={back} testId="settings-back" />
@@ -233,7 +234,7 @@ export function SettingsPanel({
 
         {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
-          <div ref={body} className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
+          <div ref={body} className={appearancePage ? "flex-1 overflow-y-auto" : "flex-1 overflow-y-auto px-5 py-5"} data-testid="settings-body">
             {top.kind === "root" && (
               <div role="navigation" aria-label="Settings sections" className="ct-settings-nav">
                 {SETTINGS_SECTIONS.map((s) => {
@@ -260,9 +261,11 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "account" && <AccountTab focusCard={top.card} />}
             {top.kind === "section" && top.id === "mesh" && <MeshSettings />}
-            {top.kind === "appearance-lab" && <SettingsPage title="Appearance Lab">
-              <AppearanceLab config={localConfig} open={appearanceRequest} showWallpaperOwn={top.showOwn} onNavigate={onClose} />
-            </SettingsPage>}
+            {top.kind === "appearance-lab" && <AppearanceLab
+              config={localConfig} open={appearanceRequest} showWallpaperOwn={top.showOwn} headingId={SETTINGS_TITLE_ID}
+              back={<BackPill label={parent ? routeTitle(parent) : undefined} onBack={back} testId="settings-back" />}
+              onNavigate={onClose}
+            />}
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">

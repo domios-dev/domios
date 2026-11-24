@@ -127,6 +127,7 @@ it("offers only machine selections and commits the focused option from the keybo
     expect(items).toHaveLength(3);
     expect(listbox.querySelectorAll("button")).toHaveLength(items.length);
     expect(listbox.textContent).not.toMatch(/theme|wallpaper|look on all|ask general/i);
+    expect(items[0].getAttribute("aria-label")).toBe("All machines, 2 machines, 1 online");
     expect(items[0].textContent).toContain("2 machines · 1 online");
     const local = items[1];
     expect(local.getAttribute("aria-selected")).toBe("true");

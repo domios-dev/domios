@@ -142,6 +142,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     : local.name;
   const identity = target ? identities.machine_identities?.[target.id] : local.identity;
   const onlineCount = 1 + peers.filter(peer => peer.online).length;
+  const machineCount = `${peers.length + 1} ${peers.length ? "machines" : "machine"}`;
 
   function select(selection: Parameters<typeof setSidebarMachineFilter>[0], option: HTMLButtonElement, animate = true) {
     const bounds = option.getBoundingClientRect();
@@ -184,8 +185,9 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           className="ct-menu ct-menu--opaque ct-machine-list"
         >
           <button type="button" role="option" tabIndex={-1} data-testid="peer-picker-all" aria-selected={all}
+            aria-label={`All machines, ${machineCount}, ${onlineCount} online`}
             onClick={event => select("all", event.currentTarget)} className="ct-machine-option ct-machine-option--all">
-            <span className="ct-machine-constellation" aria-hidden="true"
+            <span className="ct-machine-constellation" aria-hidden="true" data-single={peers.length === 0 || undefined}
               style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peers.length + 1))}, minmax(0, 1fr))` }}>
               {[{ id: "local", identity: local.identity, online: true }, ...peers.map(peer => ({
                 id: peer.instance_id, identity: identities.machine_identities?.[peer.instance_id], online: peer.online,
@@ -193,7 +195,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             </span>
             <span className="ct-machine-option__copy">
               <span>All machines</span>
-              <span className="ct-machine-option__status">{peers.length + 1} {peers.length ? "machines" : "machine"} · {onlineCount} online</span>
+              <span className="ct-machine-option__status">{machineCount} · {onlineCount} online</span>
             </span>
             {all && <Check size={16} className="ct-machine-option__check" aria-hidden="true" />}
           </button>

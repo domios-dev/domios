@@ -96,7 +96,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions, obser
   const openWorkspaceAutomation = useCallback(() => openAutomation?.(workspaceId), [openAutomation, workspaceId]);
 
   return (
-    <div data-testid="workspace-detail" data-workspace-id={workspaceId} role="region" aria-label={`${workspace.name} workspace contents`}>
+    <div className="sidebar-workspace-detail" data-testid="workspace-detail" data-workspace-id={workspaceId} role="region" aria-label={`${workspace.name} workspace contents`}>
       <WorkspaceItem
         workspace={workspace}
         isActive={isActiveVisual}

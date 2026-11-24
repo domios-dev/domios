@@ -86,11 +86,11 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
   }
 
   async function persist(next: ChatWallpaper | null, expected?: ChatWallpaper) {
-    setEdit({ base: installed, value: next });
     if (stage) {
       stage(next);
       return;
     }
+    setEdit({ base: installed, value: next });
     await saveWallpaper(peerId, next, expected);
     project?.(next);
   }
@@ -118,8 +118,8 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
   const displayedTheme = light === themeIsLight ? theme : light ? lightTheme : DEFAULT_THEME;
   const mark = <span className="ct-wallpaper-tile__check" aria-hidden="true"><Check size={13} /></span>;
   const draft = (value: ChatWallpaper) => {
-    setEdit({ base: installed, value });
-    stage?.(value);
+    if (stage) stage(value);
+    else setEdit({ base: installed, value });
   };
   const change = (value: ChatWallpaper) => void run(() => persist(value));
   const restoreTheme = () => void run(async () => {
@@ -220,7 +220,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
           </form>)}
         </>}
         {(!showOwn || custom) && <WallpaperControls wallpaper={active} light={themeIsLight} disabled={!ready || busy}
-          onDraft={draft} onChange={change} onReset={() => change({ ...active, palette: undefined, fill: undefined, fill_strength: undefined,
+          onDraft={draft} onChange={change} onReset={stage ? undefined : () => change({ ...active, palette: undefined, fill: undefined, fill_strength: undefined,
             background: { pattern: active.background.pattern, icon: active.background.icon, svg: active.background.svg } })} />}
         {error && !showOwn && <p className="ct-wallpaper-error" role="alert">{error.reason}</p>}
       </div>

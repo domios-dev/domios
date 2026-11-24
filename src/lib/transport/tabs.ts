@@ -30,7 +30,8 @@ function hasPeerTarget(args: Args): boolean {
 }
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
-async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
+export async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
+    if (!peer.trim()) throw new Error("An exact peer installation id is required");
     const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } }>("POST", "/api/mesh/relay-to", {
         target_instance_id: peer, method, path, body,
     });

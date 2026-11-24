@@ -2143,6 +2143,10 @@ web_watch_pidfile() {
   echo "/tmp/codeterm-web-watch${CT_SUFFIX}.pid"
 }
 
+web_watch_status_file() {
+  echo "$CT_DATA_DIR/.dev-frontend-status.json"
+}
+
 dev_static_pidfile() {
   echo "/tmp/codeterm-dev-static${CT_SUFFIX}.pid"
 }
@@ -2195,13 +2199,17 @@ kill_orphan_web_watchers() {
   root="$(pwd -P)"
   while read -r pid command; do
     [[ "$pid" =~ ^[0-9]+$ ]] || continue
-    [[ "$command" == *" build "* && "$command" == *" --watch "* ]] || continue
-    [[ "$command" == *"--outDir $(dev_frontend_dir)"* ]] || continue
+    if [[ "$command" == *"$root/scripts/dev-frontend-watch.mjs "* ]]; then
+      [[ "$command" == *" $(web_watch_status_file)" ]] || continue
+    else
+      [[ "$command" == *" build "* && "$command" == *" --watch "* ]] || continue
+      [[ "$command" == *"--outDir $(dev_frontend_dir)"* ]] || continue
+    fi
     cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
     if [ "$cwd" = "$root" ]; then
       kill_process_tree "$pid"
     fi
-  done < <(ps -eo pid=,args= 2>/dev/null | grep -F -- "$root/node_modules/vite/bin/vite.js" || true)
+  done < <(ps -eo pid=,args= 2>/dev/null | grep -F -e "$root/node_modules/vite/bin/vite.js" -e "$root/scripts/dev-frontend-watch.mjs" || true)
 }
 
 kill_orphan_dev_static_servers() {
@@ -2263,18 +2271,19 @@ build_dev_frontend() {
 # The static server serves dist/ during the watcher's first rebuild, so the watcher overwrites in place.
 start_web_watch() {
   kill_web_watch || true
+  rm -f "$(web_watch_status_file)"
   if [ "${CODETERM_DEV_WATCH:-1}" = 0 ]; then
     echo "Web bundle watcher disabled; serving the provenance-validated frontend unchanged."
     return 0
   fi
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
-  local vite_entry="node_modules/vite/bin/vite.js"
+  local watcher="$PWD/scripts/dev-frontend-watch.mjs"
   local pid shell_pid spawn_status
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
       CODETERM_FRONTEND_DEV=1 run_outside_tab_job --background "$(web_watch_pidfile)" "$log" \
-        node "$(pwd -P)/$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)"
+        node "$watcher" "$(dev_frontend_dir)" "$(web_watch_status_file)"
       spawn_status=$?
       set -e
       [ "$spawn_status" -eq 0 ] || return "$spawn_status"
@@ -2282,7 +2291,7 @@ start_web_watch() {
       return
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$(pwd -P)/$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$watcher" "$(dev_frontend_dir)" "$(web_watch_status_file)" </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2303,11 +2312,14 @@ start_web_watch() {
 start_dev_static_server() {
   kill_dev_static_server || true
   local log="/tmp/codeterm-dev-static${CT_SUFFIX}.log"
-  local pid shell_pid spawn_status
+  local pid shell_pid spawn_status watch_status=
+  if [ "${CODETERM_DEV_WATCH:-1}" != 0 ]; then
+    watch_status="$(web_watch_status_file)"
+  fi
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" run_outside_tab_job --background "$(dev_static_pidfile)" "$log" \
+      CODETERM_DEV_WATCH_STATUS="$watch_status" CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" run_outside_tab_job --background "$(dev_static_pidfile)" "$log" \
         node "$(pwd -P)/scripts/dev-static-server.mjs"
       spawn_status=$?
       set -e
@@ -2316,7 +2328,7 @@ start_dev_static_server() {
       return
       ;;
     *)
-      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_WATCH_STATUS="$watch_status" CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!

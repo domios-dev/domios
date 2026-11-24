@@ -4,6 +4,9 @@ import { expect, it, vi } from "vitest";
 import type { Notification, Tab } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
+import { resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import type { MeshPeersResponse } from "../../lib/types";
 
 const fakes = vi.hoisted(() => ({ reconnect: vi.fn(async () => {}) }));
 vi.mock("./tabSessionActions", async (importOriginal) => ({
@@ -21,12 +24,11 @@ vi.mock("./DocumentsPanel", () => ({ DocumentsButton: () => null }));
 vi.mock("./ChangesPanel", () => ({ ChangesButton: () => null }));
 vi.mock("./TabModeSwitch", () => ({ TabModeSwitch: () => null }));
 vi.mock("../Extensions/PluginBubbles", () => ({ PluginBubbles: () => null }));
-vi.mock("../Usage/UsageBubble", () => ({ UsageBubble: () => null }));
 
 import { TabTopBar, type HeaderTabMenu } from "./TabTopBar";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function Harness({ chat = true, locked = false, chatCapable = false }: { chat?: boolean; locked?: boolean; chatCapable?: boolean }) {
+function Harness({ chat = true, locked = false, chatCapable = false, usageTabId }: { chat?: boolean; locked?: boolean; chatCapable?: boolean; usageTabId?: string }) {
   const [toasts, setToasts] = useState<Notification[]>([]);
   const actions = {
     upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
@@ -40,10 +42,46 @@ function Harness({ chat = true, locked = false, chatCapable = false }: { chat?: 
     context: { status: null, descriptor: null, descriptors: [], activity: null, orchestrators: [] },
   };
   return <MultiplexerActionsContext.Provider value={actions}>
-    <TabTopBar tabId="tab-a" cwd={null} showSwitch={chatCapable} workspaceId="workspace-a" tabMenu={tabMenu} isActive />
+    <TabTopBar tabId={usageTabId ?? "tab-a"} cwd={null} showSwitch={chatCapable} workspaceId="workspace-a" tabMenu={tabMenu} isActive
+      usageVisible={Boolean(usageTabId)}
+      usageSource={usageTabId ? { kind: "meter", provider: "claude", trackingProvider: "claude", borrowedAccount: false } : undefined} />
     <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
   </MultiplexerActionsContext.Provider>;
 }
+
+it("reads usage on the displayed machine and drops it when that peer goes offline", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const latest = vi.fn((scope: unknown) => ({ provider: "claude", account_id: null,
+    session_pct: scope === "fixture-dev" ? 31 : 73, parsed_ok: true, captured_at: Date.now() }));
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>) => (cmd === "usage_latest" ? latest(args?.peerId) : null) as T);
+  const peer = (online: boolean) => ({ local_instance_name: "Local", paired: [
+    { instance_id: "fixture-dev", instance_name: "Remote", online },
+  ] }) as MeshPeersResponse;
+  try {
+    await act(async () => root.render(<Harness usageTabId="tab-a" />));
+    expect(host.querySelector('button[aria-label="usage session 73%"]')).not.toBeNull();
+    await act(async () => {
+      updateRemoteChatPeers(peer(true));
+      root.render(<Harness usageTabId="mesh:fixture-dev/tab-a" />);
+    });
+    expect(host.querySelector('button[aria-label="usage session 31%"]')).not.toBeNull();
+    await act(async () => updateRemoteChatPeers(peer(false)));
+    expect(host.querySelector('button[aria-label^="usage limits unavailable"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="usage session 31%"]')).toBeNull();
+    expect(latest.mock.calls).toEqual([[null], ["fixture-dev"]]);
+    await act(async () => root.render(<Harness usageTabId="tab-a" />));
+    expect(host.querySelector('button[aria-label="usage session 73%"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    resetRemoteChatStatus();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+    host.remove();
+  }
+});
 
 it("shows header action failures in a retryable toast without an inline alert", async () => {
   fakes.reconnect.mockReset().mockRejectedValueOnce(new Error("opaque reconnect failure"));

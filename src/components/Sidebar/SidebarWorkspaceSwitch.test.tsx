@@ -155,6 +155,42 @@ const detailActions = {
 } satisfies SidebarWorkspaceDetailActions;
 const row = (host: Element, tabId: string) => host.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
 
+function mockSelectionIntersections() {
+  const observers: SelectionObserver[] = [];
+  class SelectionObserver {
+    readonly targets = new Set<Element>();
+    constructor(readonly callback: IntersectionObserverCallback, readonly options: IntersectionObserverInit) {
+      observers.push(this);
+    }
+    observe = vi.fn((target: Element) => this.targets.add(target));
+    unobserve = (target: Element) => this.targets.delete(target);
+    takeRecords = () => [];
+    disconnect = () => this.targets.clear();
+    emit(target: Element, top: number, height = 28) {
+      const bottom = top + height;
+      const insetTop = -Number.parseFloat(this.options.rootMargin ?? "0");
+      const isIntersecting = height > 0 && top <= 99 && bottom >= insetTop;
+      return act(async () => this.callback([{
+        target, isIntersecting, rootBounds: new DOMRect(0, insetTop, 200, 99 - insetTop),
+        boundingClientRect: new DOMRect(0, top, 150, height),
+      } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+    }
+  }
+  vi.stubGlobal("IntersectionObserver", SelectionObserver);
+  return {
+    observed: () => observers.flatMap(observer => [...observer.targets]),
+    observerFor: (element: Element) => {
+      const observer = observers.find(candidate => candidate.targets.has(element));
+      expect(observer).toBeDefined();
+      return observer!;
+    },
+  };
+}
+
+function selectionCue(host: HTMLElement) {
+  return host.querySelector<HTMLButtonElement>('button[aria-label^="Show selected tab,"]');
+}
+
 it("draws a Team's sections and members in the first frame while its Team record and plan are still unread, and keeps those rows when they arrive", async () => {
   const tabs = [manager("lead", "late"), worker("hand", "late")];
   const workspace = workspaceOf("late", tabs);
@@ -287,6 +323,118 @@ it("selecting Team tabs retains General, Utilities and both rows of workspace ca
   } finally { width.mockRestore(); }
 });
 
+it("reveals the off-screen selected Team row at either edge without activating or focusing it", async () => {
+  const intersections = mockSelectionIntersections();
+  const tabs = [manager("Ada", "home"), worker("Morse", "home")];
+  const { host } = await mountSidebar([workspaceOf("home", tabs)], tabs, "home");
+  const morse = row(host, "Morse")!;
+  const activate = morse.querySelector<HTMLButtonElement>('button[aria-label="Open tab Morse"]')!;
+  await act(async () => activate.click());
+  expect(intersections.observed()).toHaveLength(1);
+  expect(intersections.observed()[0]).toBe(morse);
+  const observer = intersections.observerFor(morse);
+  const viewport = host.querySelector<HTMLElement>(".ct-sidebar-content")!;
+  expect(observer.options.root).toBe(viewport);
+  expect(observer.options.threshold).toEqual([0, 1]);
+  const scrollIntoView = vi.fn();
+  morse.scrollIntoView = scrollIntoView;
+  const selectedState = mux.state;
+
+  await observer.emit(morse, 100);
+  const below = selectionCue(host)!;
+  expect(below.getAttribute("aria-label")).toBe("Show selected tab, Morse, below");
+  expect(below.textContent).toContain("Morse↓");
+  expect(scrollIntoView).not.toHaveBeenCalled();
+  await act(async () => below.click());
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest", behavior: "smooth" });
+  expect(mux.state).toBe(selectedState);
+  expect(activate.getAttribute("aria-current")).toBe("page");
+  expect(document.activeElement).not.toBe(activate);
+  await observer.emit(morse, 99);
+  expect(selectionCue(host)).toBeNull();
+
+  await observer.emit(morse, -28);
+  const above = selectionCue(host)!;
+  expect(above.getAttribute("aria-label")).toBe("Show selected tab, Morse, above");
+  expect(above.textContent).toContain("↑Morse");
+  await act(async () => above.click());
+  expect(scrollIntoView).toHaveBeenCalledTimes(2);
+  await observer.emit(morse, -27);
+  expect(selectionCue(host)).toBeNull();
+
+  viewport.scrollTop = 200;
+  await observer.emit(morse, -28);
+  expect(selectionCue(host)?.getAttribute("aria-label")).toBe("Show selected tab, Morse, above");
+  await act(async () => {
+    viewport.scrollTop = 0;
+    viewport.dispatchEvent(new Event("scroll"));
+  });
+  expect(observer.observe).toHaveBeenCalledTimes(2);
+  await observer.emit(morse, 172);
+  expect(selectionCue(host)?.getAttribute("aria-label")).toBe("Show selected tab, Morse, below");
+
+  const ada = row(host, "Ada")!;
+  await act(async () => ada.querySelector<HTMLButtonElement>('button[aria-label="Open tab Ada"]')!.click());
+  expect(intersections.observed()).toHaveLength(1);
+  expect(intersections.observed()[0]).toBe(ada);
+  await observer.emit(morse, 100);
+  expect(selectionCue(host)).toBeNull();
+});
+
+it("clears the cue when the selected Team row is collapsed and reveals instantly with reduced motion", async () => {
+  const intersections = mockSelectionIntersections();
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(prefers-reduced-motion: reduce)",
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
+  const tabs = [worker("Morse", "home")];
+  const { host } = await mountSidebar([workspaceOf("home", tabs)], tabs, "home");
+  const morse = row(host, "Morse")!;
+  await act(async () => morse.querySelector<HTMLButtonElement>('button[aria-label="Open tab Morse"]')!.click());
+  await intersections.observerFor(morse).emit(morse, -28);
+  const scrollIntoView = vi.fn();
+  morse.scrollIntoView = scrollIntoView;
+  await act(async () => selectionCue(host)!.click());
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest", behavior: "auto" });
+
+  const collapse = host.querySelector<HTMLButtonElement>('[aria-label="WORKERS 1"]')!;
+  await act(async () => collapse.click());
+  expect(collapse.getAttribute("aria-expanded")).toBe("false");
+  expect(row(host, "Morse")).toBeNull();
+  expect(intersections.observed()).toEqual([]);
+  expect(selectionCue(host)).toBeNull();
+  expect(mux.state.activeTabIds).toEqual({ home: "Morse" });
+});
+
+it("replaces a keyboard cue with focus on the row once it is visible below the sticky header", async () => {
+  const intersections = mockSelectionIntersections();
+  const tabs = [worker("Morse", "home")];
+  const { host } = await mountSidebar([workspaceOf("home", tabs)], tabs, "home");
+  const header = host.querySelector(".sidebar-workspace-detail-header")!;
+  Object.defineProperty(header, "offsetHeight", { value: 24 });
+  const morse = row(host, "Morse")!;
+  const activation = morse.querySelector<HTMLButtonElement>('button[aria-label="Open tab Morse"]')!;
+  await act(async () => activation.click());
+  const observer = intersections.observerFor(morse);
+  const scrollIntoView = vi.fn();
+  morse.scrollIntoView = scrollIntoView;
+  const selectedState = mux.state;
+
+  await observer.emit(morse, -4);
+  const cue = selectionCue(host)!;
+  expect(cue.getAttribute("aria-label")).toBe("Show selected tab, Morse, above");
+  cue.focus();
+  await act(async () => cue.click());
+  expect(scrollIntoView).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(cue);
+
+  await observer.emit(morse, -3);
+  expect(selectionCue(host)).toBeNull();
+  expect(document.activeElement).toBe(activation);
+  expect(mux.state).toBe(selectedState);
+});
+
 it.each([null, "owned-pty"])("selecting a failed tab never restarts it or changes its activity and height-bearing content (pty=%s)", async ptyId => {
   const tabs = [manager("Faraday", "home"), worker("Cxauthor", "home")].map(tab => ({
     ...tab, boot_stage: "spawn_failed" as const, boot_failure_reason: "opaque launch failure", pty_id: ptyId,
@@ -327,6 +475,7 @@ it.each([null, "owned-pty"])("selecting a failed tab never restarts it or change
 });
 
 it("keeps one workspace switcher and falls back to one visible workspace when filtering", async () => {
+  const intersections = mockSelectionIntersections();
   vi.stubGlobal("__CODETERM_DEV__", false);
   vi.stubGlobal("__APP_VERSION__", "test");
   const here = [worker("local-worker", "Local home")];
@@ -347,10 +496,21 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   const cards = () => [...host.querySelectorAll('[data-testid="workspace-card"]')];
   expect(cards()).toHaveLength(1);
   expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Local home workspace contents"]);
+  const selected = row(host, "local-worker")!;
+  await act(async () => selected.querySelector<HTMLButtonElement>('button[aria-label="Open tab local-worker"]')!.click());
+  await intersections.observerFor(selected).emit(selected, 100);
+  expect(selectionCue(host)).not.toBeNull();
 
   await act(async () => setSidebarMachineFilter("all"));
   expect(cards()).toHaveLength(2);
   expect(detail()).toHaveLength(1);
+  const peerWorkspace = host.querySelector<HTMLButtonElement>('button[aria-label="Select workspace Peer home"]')!;
+  await act(async () => peerWorkspace.click());
+  expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Peer home workspace contents"]);
+  expect(intersections.observed()).toEqual([]);
+  expect(selectionCue(host)).toBeNull();
+  expect(mux.state.activeTabIds).toEqual({ "Local home": "local-worker" });
+
   await act(async () => setSidebarMachineFilter({ id: "blackstar", name: "BLACKSTAR" }));
   expect(host.querySelector('[data-testid="workspace-card-grid"]')).toBe(grid);
   expect(detail().map(node => node.getAttribute("aria-label"))).toEqual(["Peer home workspace contents"]);
@@ -372,6 +532,39 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   expect(actions.getAttribute("aria-expanded")).toBe("true");
 
   expect(row(host, "local-worker")).toBeNull();
+  expect(mux.state.activeTabIds).toEqual({ "Local home": "local-worker" });
+  expect(intersections.observed()).toEqual([]);
+  expect(selectionCue(host)).toBeNull();
+});
+
+it("clears an off-screen General cue when filtering hides the selected row in place", async () => {
+  const intersections = mockSelectionIntersections();
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const main = member("main", "general", { protected: true, role: "Manager", role_profile: "general_agent" });
+  setMux([{ ...workspaceOf("general", [main]), protected: true }], [main], "general");
+  mux.state = { ...mux.state, activeTabIds: { general: main.id } };
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    browse: null,
+    generals: [{ peerId: "peer", name: "Desk", availability: "online", sessions: [{ viewerId: "mesh:peer/main", tab: main }] }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+  const selected = row(host, main.id)!;
+  await intersections.observerFor(selected).emit(selected, -28);
+  expect(selectionCue(host)).not.toBeNull();
+
+  await act(async () => setSidebarMachineFilter({ id: "peer", name: "Desk" }));
+  expect(row(host, main.id)).toBe(selected);
+  expect(selected.hidden).toBe(true);
+  expect(intersections.observed()).toEqual([]);
+  expect(selectionCue(host)).toBeNull();
+
+  await act(async () => setSidebarMachineFilter("local"));
+  expect(intersections.observed()).toHaveLength(1);
+  expect(intersections.observed()[0]).toBe(selected);
+  await intersections.observerFor(selected).emit(selected, 100);
+  expect(selectionCue(host)?.getAttribute("aria-label")).toBe("Show selected tab, main, below");
+  expect(mux.state.activeTabIds).toEqual({ general: main.id });
 });
 
 it("wires the selected peer's authoritative Team summary into the real sidebar card", async () => {
