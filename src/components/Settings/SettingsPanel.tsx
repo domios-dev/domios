@@ -59,6 +59,7 @@ interface SettingsPanelProps {
   initialSection?: SettingsLinkId;
   guideRequest?: GuideRequest;
   onOpenAppearance?: (showWallpaper?: boolean) => void;
+  focusAppearance?: boolean;
   restoreNavigation?: boolean;
 }
 
@@ -91,6 +92,7 @@ export function SettingsPanel({
   initialSection,
   guideRequest,
   onOpenAppearance,
+  focusAppearance,
   restoreNavigation,
 }: SettingsPanelProps) {
   const [stack, setStack] = useSettingsNavigation(initialSection, guideRequest, restoreNavigation);
@@ -278,7 +280,7 @@ export function SettingsPanel({
                 <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
 
                 <SettingsCard icon={<Palette size={16} />} title="Appearance" description="Theme and wallpaper for this machine"
-                  headerRight={onOpenAppearance && <button type="button" className="ct-settings-link" onClick={() => onOpenAppearance()}>Open Appearance Lab ›</button>}>
+                  headerRight={onOpenAppearance && <button type="button" autoFocus={focusAppearance} className="ct-settings-link" onClick={() => onOpenAppearance()}>Open Appearance Lab ›</button>}>
                   {onOpenAppearance && <AppearanceLabUndo key={machineAppearance?.peerId ?? "local"} peer={machineAppearance?.peerId} />}
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
