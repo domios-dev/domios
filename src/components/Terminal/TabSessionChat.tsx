@@ -126,7 +126,6 @@ import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
 import { awaitsTranscriptEcho, deliveryPresentation, deliverySendForRow, queuedBehindTurn, undeliveredSends } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, setChatSendDraft, updateChatSendContent, useChatSendSnapshot } from "./chatSendStore";
-import { ComposerQueueTray } from "./ComposerQueueTray";
 import { composerSendFeedback } from "./composerQueueModel";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -1139,7 +1138,6 @@ function TabSessionChatBody({
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
           recovery={showRemoteState || (readOnly && !isConciergeTab(tab)) || launchedFailure ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />
-        <ComposerQueueTray key={tabId} tabId={tabId} items={sendFeedback.items} editable={!readOnly && !showRemoteState} />
         {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
@@ -1177,6 +1175,8 @@ function TabSessionChatBody({
           pluginError={!remoteChat.peerId && !runtimeUnavailable && effectiveChatBackend ? error : null}
           sessionIntent={sessionIntent}
           contextSlot={contextSlot}
+          queueItems={sendFeedback.items}
+          queueEditable={!readOnly && !showRemoteState}
           onWillSendMessage={willSendMessage}
           addOptimistic={addOptimistic}
           updateOptimistic={updateOptimistic}

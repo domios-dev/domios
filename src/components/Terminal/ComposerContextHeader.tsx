@@ -28,6 +28,8 @@ import { useBackgroundProcessChipVisibility } from "./useBackgroundProcessChipVi
 import { composerBackgroundWorkBubble, isRunningWork, SUBAGENT_NAME } from "./composerBackgroundWorkModel";
 import { backgroundProcessLabel } from "../../lib/tabActivity";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { ComposerQueueTray } from "./ComposerQueueTray";
+import type { QueuedSendItem } from "./composerQueueModel";
 
 export type ContextKind = "blueprints" | "crons" | "delayed" | "goal" | "background";
 
@@ -46,6 +48,9 @@ interface ComposerContextHeaderProps {
   draftActive?: boolean;
   adapter?: AutomationGraphAdapter;
   jobActionAdapter?: JobsActionAdapter;
+  /** Queued sends render in this row, never between the model picker and the input. */
+  queueItems?: readonly QueuedSendItem[];
+  queueEditable?: boolean;
 }
 
 type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
@@ -153,7 +158,7 @@ function PlannedContextHeader(props: ComposerContextHeaderProps) {
   return <ContextHeaderBody {...props} plan={plan.activity ? plan : null} />;
 }
 
-function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, delayed: queue, heartbeats = [], onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
+function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, delayed: queue, heartbeats = [], onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan, queueItems = [], queueEditable = false }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
   const delayedModel = composerDelayedModel(queue, Date.now());
   const delayed = delayedModel.chips;
   const [heartbeatId, setHeartbeatId] = useState<string | null>(null);
@@ -231,7 +236,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const open = requested && kinds.includes(requested) ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
-  const hasContext = hasGoal || hasPluginError || plan !== null || kinds.length > 0 || heartbeats.length > 0;
+  const hasContext = hasGoal || hasPluginError || plan !== null || kinds.length > 0 || heartbeats.length > 0 || queueItems.length > 0;
   if (!hasContext && !backgroundWork.stopWarning) return null;
 
   const toggle = (kind: ContextKind) => {
@@ -411,8 +416,11 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
       {hasContext && <div className="ct-ctx__head ct-ctx__compact">
-        {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
+        {queueItems.length > 0 && !(hasGoal || hasPluginError || plan !== null || kinds.length > 0 || heartbeats.length > 0)
+          ? null
+          : phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
         {!phone && linkedChips}
+        {queueItems.length > 0 && <ComposerQueueTray key={tabId} tabId={tabId} items={queueItems} editable={queueEditable} inline />}
       </div>}
       {phone && linkedChips}
       {heartbeat && <SystemHeartbeatDetail message={heartbeat} busy={false} onClose={() => setHeartbeatId(null)} />}

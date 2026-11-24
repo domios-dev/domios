@@ -38,6 +38,7 @@ import {
   type SlashCommandSuggestion,
 } from "../../lib/slashCommands";
 import type { PendingPrompt } from "../../lib/types";
+import type { QueuedSendItem } from "./composerQueueModel";
 import { createPortal } from "react-dom";
 import { ComposerContextHeader } from "./ComposerContextHeader";
 import { DelayedMessageModal, type DelayedModalTarget } from "./DelayedMessageModal";
@@ -202,6 +203,8 @@ function ChatComposerImpl({
   contextSlot = null,
   isActive = true,
   sendUnavailableReason,
+  queueItems,
+  queueEditable = false,
 }: {
   tabId: string;
   tabProvider: string | null;
@@ -231,6 +234,8 @@ function ChatComposerImpl({
   sessionIntent?: ChatSessionIntent | null;
   /** Element above the status line that hosts the context header. */
   contextSlot?: HTMLElement | null;
+  queueItems?: readonly QueuedSendItem[];
+  queueEditable?: boolean;
 }) {
   recordComposerRender(tabId);
   const transcript = useLiveTranscriptHost();
@@ -938,6 +943,8 @@ function ChatComposerImpl({
           onDeleteDelayed={deleteDelayed}
           onScheduleDelayed={openScheduleModal}
           draftActive={input.length > 0}
+          queueItems={queueItems}
+          queueEditable={queueEditable}
         />,
         contextSlot,
       )}
@@ -1007,6 +1014,8 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.pluginError === b.pluginError
   && a.sessionIntent === b.sessionIntent
   && a.contextSlot === b.contextSlot
+  && a.queueItems === b.queueItems
+  && a.queueEditable === b.queueEditable
   && a.isActive === b.isActive
   && a.sendUnavailableReason === b.sendUnavailableReason
 );
