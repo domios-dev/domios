@@ -37,17 +37,20 @@ export function useSettingsConfig(
   const [errorState, setErrorState] = useState<{ peerId: string; error: unknown } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const generationRef = useRef(0);
+  const requestVersionRef = useRef(0);
   const loadedRef = useRef<LoadedRemoteConfig | null>(null);
   loadedRef.current = loaded;
 
   useEffect(() => {
     const generation = ++generationRef.current;
+    requestVersionRef.current++;
     if (!peerId) return;
     let active = true;
     const read = () => {
+      const requestVersion = ++requestVersionRef.current;
       void invoke<AppConfig>("get_config", { peerId })
         .then((next) => {
-          if (!active || generationRef.current !== generation) return;
+          if (!active || generationRef.current !== generation || requestVersion !== requestVersionRef.current) return;
           if (!next) throw new Error("Config is unavailable");
           const snapshot = { peerId, config: next, generation };
           loadedRef.current = snapshot;
@@ -55,7 +58,7 @@ export function useSettingsConfig(
           setErrorState(null);
         })
         .catch((reason: unknown) => {
-          if (!active || generationRef.current !== generation) return;
+          if (!active || generationRef.current !== generation || requestVersion !== requestVersionRef.current) return;
           setErrorState({ peerId, error: reason });
         });
     };
@@ -66,6 +69,7 @@ export function useSettingsConfig(
     return () => {
       active = false;
       generationRef.current++;
+      requestVersionRef.current++;
       stopRail();
     };
   }, [peerId, attempt]);
@@ -79,8 +83,13 @@ export function useSettingsConfig(
       if (!peerId || !current || current.peerId !== peerId || current.generation !== generationRef.current) {
         throw new Error("Config is not ready for this machine");
       }
+      const requestVersion = ++requestVersionRef.current;
       await invoke("update_config", { config: next, peerId });
-      if (loadedRef.current?.peerId === peerId && loadedRef.current.generation === current.generation) {
+      if (
+        loadedRef.current?.peerId === peerId
+        && loadedRef.current.generation === current.generation
+        && requestVersion === requestVersionRef.current
+      ) {
         const snapshot = { peerId, config: next, generation: current.generation };
         loadedRef.current = snapshot;
         setLoaded(snapshot);

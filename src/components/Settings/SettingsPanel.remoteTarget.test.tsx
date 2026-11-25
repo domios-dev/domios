@@ -11,6 +11,7 @@ const fixture = vi.hoisted(() => ({
   localJson: vi.fn(),
   peerRequest: vi.fn(),
   peerJson: vi.fn(),
+  peerRailListeners: new Map<string, Set<(event: { type: string }) => void>>(),
   autostartGet: vi.fn(async () => true),
   autostartSet: vi.fn(async () => {}),
   openFolder: vi.fn(async () => {}),
@@ -48,7 +49,17 @@ vi.mock("../../lib/daemonBootstrap", async (original) => ({
   }),
 }));
 vi.mock("../../lib/peerEventRail", () => ({
-  peerEventRail: { observe: () => () => {} },
+  peerEventRail: {
+    observe: (peerId: string, listener: (event: { type: string }) => void) => {
+      const set = fixture.peerRailListeners.get(peerId) ?? new Set();
+      set.add(listener);
+      fixture.peerRailListeners.set(peerId, set);
+      return () => {
+        set.delete(listener);
+        if (!set.size) fixture.peerRailListeners.delete(peerId);
+      };
+    },
+  },
 }));
 vi.mock("../../lib/productAnalytics", () => ({ recordProductEvent: vi.fn(async () => {}) }));
 vi.mock("../../store/multiplexer/hooks", () => ({
@@ -160,6 +171,7 @@ beforeEach(() => {
     updater: { ...defaultConfig().updater, auto_update_provider_clis: true },
   });
   remoteConfigError = null;
+  fixture.peerRailListeners.clear();
   onLocalUpdate = vi.fn(async () => {});
   fixture.autostartGet.mockReset().mockResolvedValue(true);
   fixture.autostartSet.mockReset().mockResolvedValue(undefined);
@@ -438,5 +450,139 @@ describe("Settings remote target routing", () => {
     expect(onLocalUpdate.mock.calls[0][0].general_agent.agent_provider).toBe("claude");
     expect(fixture.invoke).toHaveBeenCalledWith("restart_general_agent", undefined);
     expect(fixture.invoke).not.toHaveBeenCalledWith("update_config", expect.anything());
+  });
+
+  it("ignores out-of-order remote get_config reads so an older response cannot overwrite a newer one", async () => {
+    setWorkspaceBrowseTarget(REMOTE_PEER);
+    const reads: Array<{ resolve: (cfg: AppConfig) => void }> = [];
+    const baseImpl = fixture.invoke.getMockImplementation()!;
+    fixture.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_config") {
+        return await new Promise<AppConfig>((resolve) => { reads.push({ resolve }); });
+      }
+      return baseImpl(command, args);
+    });
+
+    await renderSettings("general");
+    expect(reads).toHaveLength(1);
+
+    // Trigger a newer relayed read while the initial get_config is still in flight.
+    await act(async () => {
+      for (const listener of fixture.peerRailListeners.get("r161") ?? []) listener({ type: "config-changed" });
+    });
+    expect(reads).toHaveLength(2);
+
+    const newer = makeConfig({
+      font: { ...defaultConfig().font, family: "newer-remote-font", ligatures: true },
+      memory: { ...defaultConfig().memory, librarian_enabled: false },
+    });
+    const stale = makeConfig({
+      font: { ...defaultConfig().font, family: "stale-remote-font", ligatures: true },
+      memory: { ...defaultConfig().memory, librarian_enabled: true },
+    });
+
+    // Newer read arrives first, then older read arrives second.
+    await act(async () => reads[1].resolve(newer));
+    await flush();
+    await act(async () => reads[0].resolve(stale));
+    await flush();
+
+    const fontInput = host.querySelector<HTMLInputElement>('[data-testid="settings-font-family-input"]');
+    expect(fontInput?.value).toBe("newer-remote-font");
+    const librarian = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Enable Librarian (background skill vectorizer)"]');
+    expect(librarian?.getAttribute("aria-checked")).toBe("false");
+
+    // Next edit sends the newer config's keys, never reverting to the stale read.
+    const ligatures = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Ligatures"]');
+    await act(async () => ligatures!.click());
+    await flush();
+    const lastWrite = fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").at(-1)?.[1] as { config: AppConfig };
+    expect(lastWrite.config.font.family).toBe("newer-remote-font");
+    expect(lastWrite.config.memory.librarian_enabled).toBe(false);
+    expect(lastWrite.config.font.ligatures).toBe(false);
+  });
+
+  it("ignores a stale PATCH completion after a newer read or newer write so keys are never silently reverted", async () => {
+    setWorkspaceBrowseTarget(REMOTE_PEER);
+    const writes: Array<{ config: AppConfig; resolve: () => void }> = [];
+    const baseImpl = fixture.invoke.getMockImplementation()!;
+    fixture.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "update_config") {
+        return await new Promise<{ ok: true }>((resolve) => {
+          writes.push({ config: structuredClone(args?.config as AppConfig), resolve: () => resolve({ ok: true }) });
+        });
+      }
+      return baseImpl(command, args);
+    });
+
+    await renderSettings("general");
+
+    // Issue PATCH W1 (held pending).
+    const librarian = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Enable Librarian (background skill vectorizer)"]');
+    await act(async () => librarian!.click());
+    expect(writes).toHaveLength(1);
+
+    // While W1 is in flight, a newer peer config-changed read arrives with a concurrent change on another key.
+    remoteConfig = makeConfig({
+      font: { ...defaultConfig().font, family: "concurrent-peer-font", ligatures: true },
+      memory: { ...defaultConfig().memory, librarian_enabled: false },
+    });
+    await act(async () => {
+      for (const listener of fixture.peerRailListeners.get("r161") ?? []) listener({ type: "config-changed" });
+    });
+    await flush();
+
+    // Now stale W1 resolves AFTER the newer read: it must not roll back draft/loaded config.
+    await act(async () => writes[0].resolve());
+    await flush();
+
+    const fontInput = host.querySelector<HTMLInputElement>('[data-testid="settings-font-family-input"]');
+    expect(fontInput?.value).toBe("concurrent-peer-font");
+
+    // Next edit (W2) must preserve concurrent-peer-font rather than reverting to W1's stale snapshot.
+    const ligatures = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Ligatures"]');
+    await act(async () => ligatures!.click());
+    expect(writes).toHaveLength(2);
+    expect(writes[1].config.font.family).toBe("concurrent-peer-font");
+    expect(writes[1].config.font.ligatures).toBe(false);
+
+    // Also prove back-to-back out-of-order writes (W3 resolves before W2) keep W3.
+    const copyOnSelect = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Copy on select"]');
+    await act(async () => copyOnSelect!.click());
+    expect(writes).toHaveLength(3);
+    await act(async () => writes[2].resolve());
+    await flush();
+    await act(async () => writes[1].resolve());
+    await flush();
+    expect(copyOnSelect?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("surfaces save failures instead of swallowing them and reverts the unpersisted draft", async () => {
+    setWorkspaceBrowseTarget(REMOTE_PEER);
+    let failWrite = true;
+    const baseImpl = fixture.invoke.getMockImplementation()!;
+    fixture.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "update_config" && failWrite) throw new Error("peer refused config write");
+      return baseImpl(command, args);
+    });
+
+    await renderSettings("general");
+    const librarian = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Enable Librarian (background skill vectorizer)"]');
+    expect(librarian?.getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => librarian!.click());
+    await flush();
+
+    const notice = host.querySelector('[data-testid="settings-save-error"]');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain("BLACKSTAR #1");
+    expect(librarian?.getAttribute("aria-checked")).toBe("true");
+
+    // A subsequent successful save clears the error notice and persists the change.
+    failWrite = false;
+    await act(async () => librarian!.click());
+    await flush();
+    expect(host.querySelector('[data-testid="settings-save-error"]')).toBeNull();
+    expect(librarian?.getAttribute("aria-checked")).toBe("false");
   });
 });
