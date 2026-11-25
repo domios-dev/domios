@@ -6,7 +6,9 @@ import type { AgentProvider } from "@codeterm/plugin-sdk";
 const sandbox = { module: { exports: {} as { default: AgentProvider } }, exports: {}, host: {} };
 vm.runInNewContext(readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), sandbox);
 const parse = sandbox.module.exports.default.parseBackgroundWork!;
+const parseCalls = sandbox.module.exports.default.parseBackgroundToolCalls!;
 const parseBackgroundWork = (value: unknown): ReturnType<typeof parse> => JSON.parse(JSON.stringify(parse(value)));
+const parseBackgroundToolCalls = (value: unknown): ReturnType<typeof parseCalls> => JSON.parse(JSON.stringify(parseCalls(value)));
 assert.deepEqual(parseBackgroundWork({toolUseResult:{backgroundTaskId:"shell"}}),[{id:"shell",state:"running",kind:"shell"}]);
 assert.deepEqual(parseBackgroundWork({toolUseResult:{agentId:"agent",status:"async_launched"}}),[{id:"agent",state:"running",kind:"subagent"}]);
 assert.deepEqual(parseBackgroundWork({type:"user",isMeta:true,message:{content:"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),[{id:"shell",state:"completed"}]);
@@ -30,9 +32,11 @@ assert.deepEqual(rows.flatMap(parseBackgroundWork), [
   {id:"orphan-a",state:"killed"}, {id:"orphan-b",state:"killed"},
   {id:"live",state:"running",kind:"shell"},
   {id:"opaque-stopped",state:"running",kind:"shell",tool_use_id:"opaque-start",output_path:String.raw`C:\Fixture\Temp\claude\opaque-project\opaque-own\tasks\opaque-stopped.output`},
-  {id:"opaque-named-call",state:"tool_call",kind:"shell",label:"opaque-cmd 900"},
   {id:"opaque-named",state:"running",kind:"shell",tool_use_id:"opaque-named-call"},
   {id:"opaque-stopped",state:"killed",kind:"shell",label:"opaque-c"},
+]);
+assert.deepEqual(rows.flatMap(parseBackgroundToolCalls), [
+  {id:"opaque-named-call",label:"opaque-cmd 900",kind:"shell"},
 ]);
 const stop = rows[rows.length - 1] as Record<string, unknown>;
 const result = stop.toolUseResult as Record<string, unknown>;

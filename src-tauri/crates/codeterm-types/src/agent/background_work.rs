@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use ts_rs::TS;
 
 const LIMIT: usize = 256;
@@ -20,6 +20,14 @@ pub struct BackgroundWorkObservation {
     #[ts(optional)]
     pub output_path: Option<String>,
 }
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct BackgroundToolCall {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<BackgroundWorkKind>,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundWorkKind {
@@ -33,7 +41,6 @@ pub enum BackgroundWorkState {
     #[default]
     Unknown,
     SessionBoundary,
-    ToolCall,
     Completed,
     Killed,
     Failed,
@@ -57,55 +64,14 @@ pub struct BackgroundRoster {
     #[serde(skip)]
     #[ts(skip)]
     output_paths: BTreeMap<String, String>,
-    #[serde(skip)]
-    #[ts(skip)]
-    tool_labels: BTreeMap<String, String>,
-    #[serde(skip)]
-    #[ts(skip)]
-    tool_label_order: VecDeque<String>,
 }
 impl BackgroundRoster {
-    pub fn visible_eq(&self, other: &Self) -> bool {
-        self.running == other.running
-            && self.unknown == other.unknown
-            && self.ended == other.ended
-            && self.kinds == other.kinds
-            && self.overflow == other.overflow
-            && self.history_incomplete == other.history_incomplete
-            && self.history_initialized == other.history_initialized
-            && self.output_paths == other.output_paths
-    }
-
-    fn record_tool_label(&mut self, id: &str, label: &str) {
-        let trimmed = label.trim();
-        if id.is_empty() || id.len() > 256 || trimmed.is_empty() {
-            return;
-        }
-        let value: String = trimmed.chars().take(256).collect();
-        if !self.tool_labels.contains_key(id) {
-            if self.tool_labels.len() >= LIMIT {
-                if let Some(oldest) = self.tool_label_order.pop_front() {
-                    self.tool_labels.remove(&oldest);
-                }
-            }
-            self.tool_label_order.push_back(id.to_owned());
-        }
-        self.tool_labels.insert(id.to_owned(), value);
-    }
-
-    fn resolve_label(&self, observation: &BackgroundWorkObservation, fallback: &str) -> String {
+    fn resolve_label(observation: &BackgroundWorkObservation, fallback: &str) -> String {
         let candidate = observation
             .label
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty())
-            .or_else(|| {
-                observation
-                    .tool_use_id
-                    .as_deref()
-                    .and_then(|id| self.tool_labels.get(id))
-                    .map(String::as_str)
-            })
             .or_else(|| {
                 let trimmed = fallback.trim();
                 (!trimmed.is_empty()).then_some(trimmed)
@@ -149,16 +115,11 @@ impl BackgroundRoster {
             self.invalidate();
             return;
         }
-        if observation.state == BackgroundWorkState::ToolCall {
-            let tool_label = observation.label.as_deref().unwrap_or(label);
-            self.record_tool_label(&observation.id, tool_label);
-            return;
-        }
         if observation.id.is_empty() || observation.id.len() > 256 {
             self.overflow = true;
             return;
         }
-        let resolved_label = self.resolve_label(observation, label);
+        let resolved_label = Self::resolve_label(observation, label);
         match observation.state {
             BackgroundWorkState::Running => {
                 if self.completed.contains(&observation.id)

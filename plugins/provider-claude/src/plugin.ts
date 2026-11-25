@@ -25,7 +25,7 @@ import { manifest } from "./shared";
 
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
 import { accountIdentity, authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
-import { parseBackgroundWork } from "./backgroundWork";
+import { parseBackgroundToolCalls, parseBackgroundWork } from "./backgroundWork";
 import { detectClaudeLaunchSession } from "./launchSession";
 import { fetchClaudeUsage, parseFetchedClaudeUsage, usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";
 import { ClaudeEntry, aiTitleFromEntry, ClaudeToolUseResult, claudeSessionFilePath, editedTextFilePath, extractSetModelFamily, familyFromModelId, isValidClaudeSessionMessage, validateEntry } from "./session";
@@ -145,6 +145,7 @@ const plugin = {
   accountIdentity,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,
+  parseBackgroundToolCalls,
   reasoningEffortLaunchArgsForModel,
   modelCatalogueSeed: manifestModels,
   parseAuthStatus,
@@ -828,10 +829,11 @@ function* parseSessionDelta(chunk: SessionRecordInput): HostIoSteps<{messages: u
     stampRows(previousRow);
     previousRow = row;
     const emitObservations = () => {
-      const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
-      if (!observations && !background.length) return false;
+      const observations = parseSessionObservations(v), background = parseBackgroundWork(v), toolCalls = parseBackgroundToolCalls(v);
+      if (!observations && !background.length && !toolCalls.length) return false;
       out.push({role:"system",blocks:[],ts:null,uuid:null,
         provider_observations:observations, background_work:background,
+        ...(toolCalls.length ? { background_tool_calls: toolCalls } : {}),
         provider_session_id:typeof v.sessionId === "string" ? v.sessionId : null});
       return true;
     };
@@ -1011,11 +1013,13 @@ function* parseSessionDelta(chunk: SessionRecordInput): HostIoSteps<{messages: u
       timelineMarker = { kind: "context_compaction" };
     }
     const context = parseContextUsage(v);
+    const backgroundToolCalls = parseBackgroundToolCalls(v);
     out.push({
       ...(context ? { context_usage: context } : {}),
       provider_observations: parseSessionObservations(v),
       provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
       background_work: parseBackgroundWork(v),
+      ...(backgroundToolCalls.length ? { background_tool_calls: backgroundToolCalls } : {}),
       role: role,
       blocks: blocks,
       ts: ts,

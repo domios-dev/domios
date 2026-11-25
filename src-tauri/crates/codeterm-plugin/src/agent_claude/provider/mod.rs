@@ -101,6 +101,12 @@ impl AgentProvider for ClaudeProvider {
     ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
         background_work::parse(record)
     }
+    fn parse_background_tool_calls(
+        &self,
+        record: &serde_json::Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundToolCall> {
+        background_work::parse_tool_calls(record)
+    }
     fn reasoning_effort_launch_args_for_model(
         &self,
         model: Option<&str>,
