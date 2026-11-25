@@ -143,6 +143,7 @@ async fn launch_shared(
             return Err(error);
         }
     };
+    let startup_targets = collect_startup_page_targets(&client).await;
     let mut exit = process.exit_watch();
     let mut closed = client.closed();
     let monitor = client.clone();
@@ -158,7 +159,19 @@ async fn launch_shared(
         binary: Some(located.binary),
         profile,
         dir: profile_dir,
+        startup_targets: Mutex::new(startup_targets),
     })
+}
+
+pub(crate) async fn collect_startup_page_targets(client: &CdpClient) -> Vec<String> {
+    let Ok(result) = client.send("Target.getTargets", json!({})).await else {
+        return Vec::new();
+    };
+    parse_targets(&result)
+        .into_iter()
+        .filter(|target| target.kind == "page" && !target.url.starts_with("devtools://"))
+        .map(|target| target.target_id)
+        .collect()
 }
 
 pub(crate) async fn from_lease(
@@ -168,7 +181,9 @@ pub(crate) async fn from_lease(
 ) -> Result<Runtime, String> {
     let browser = lease.browser.clone();
     let (page, window_id) = prepare(&browser.client, Some(viewport)).await?;
-    lease.target_id = Some(page.target_id().to_string());
+    lease
+        .bind_target(page.target_id().to_string(), page.session_id().to_string())
+        .await;
     let screencast = ScreencastDriver::spawn(page.clone(), frames);
     Ok(Runtime {
         mode: BrowserMode::Launched {

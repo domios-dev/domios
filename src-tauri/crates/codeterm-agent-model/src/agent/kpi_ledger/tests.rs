@@ -453,3 +453,138 @@ fn aggregate_by_plan_counts_only_message_payloads_as_bytes() {
 
     cleanup(&db);
 }
+
+#[test]
+fn output_tokens_for_tab_and_provider_model_rollup_cache_stay_exact() {
+    let db = temp_db();
+    let ledger = KpiLedger::open_at(&db).unwrap();
+
+    assert_eq!(ledger.output_tokens_for_tab("tab-a").unwrap(), None);
+    assert!(ledger
+        .aggregate_token_usage_by_provider_model()
+        .unwrap()
+        .is_empty());
+    assert_eq!(ledger.provider_model_reads(), 1);
+
+    // Non-token writes must not invalidate the cached provider/model spend read.
+    ledger
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 128))
+        .unwrap();
+    assert!(ledger
+        .aggregate_token_usage_by_provider_model()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        ledger.provider_model_reads(),
+        1,
+        "non-token writes keep provider/model cache warm"
+    );
+
+    let first = KpiEventInput {
+        model: Some("claude-opus-4-8".into()),
+        tokens: Some(TokenCounts {
+            input: 1_000,
+            uncached_input: 400,
+            output: 120,
+        }),
+        dedup_key: Some("usage:resp-1".into()),
+        ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 1_120)
+    };
+    ledger.insert(&first).unwrap();
+
+    // Growing usage on the same dedup_key exercises the ON CONFLICT DO UPDATE trigger path.
+    let updated = KpiEventInput {
+        tokens: Some(TokenCounts {
+            input: 1_500,
+            uncached_input: 550,
+            output: 200,
+        }),
+        ..first.clone()
+    };
+    ledger.insert(&updated).unwrap();
+
+    // Separate None vs Some("") model buckets for the same provider.
+    ledger
+        .insert(&KpiEventInput {
+            model: None,
+            tokens: Some(TokenCounts {
+                input: 300,
+                uncached_input: 100,
+                output: 50,
+            }),
+            dedup_key: Some("usage:resp-null".into()),
+            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 350)
+        })
+        .unwrap();
+    ledger
+        .insert(&KpiEventInput {
+            model: Some(String::new()),
+            tokens: Some(TokenCounts {
+                input: 200,
+                uncached_input: 80,
+                output: 30,
+            }),
+            dedup_key: Some("usage:resp-empty".into()),
+            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-b", 230)
+        })
+        .unwrap();
+
+    assert_eq!(ledger.output_tokens_for_tab("tab-a").unwrap(), Some(250));
+    assert_eq!(ledger.output_tokens_for_tab("tab-b").unwrap(), Some(30));
+    assert_eq!(ledger.output_tokens_for_tab("tab-missing").unwrap(), None);
+
+    let agg = ledger.aggregate_token_usage_by_provider_model().unwrap();
+    assert_eq!(ledger.provider_model_reads(), 2);
+    assert_eq!(agg.len(), 3);
+    assert_eq!(
+        agg[0],
+        ProviderModelUsage {
+            provider: "claude".into(),
+            model: Some("claude-opus-4-8".into()),
+            turns: 1,
+            input_tokens: 1_500,
+            uncached_input_tokens: 550,
+            output_tokens: 200,
+        }
+    );
+    assert_eq!(
+        agg[1],
+        ProviderModelUsage {
+            provider: "claude".into(),
+            model: None,
+            turns: 1,
+            input_tokens: 300,
+            uncached_input_tokens: 100,
+            output_tokens: 50,
+        }
+    );
+    assert_eq!(
+        agg[2],
+        ProviderModelUsage {
+            provider: "claude".into(),
+            model: Some(String::new()),
+            turns: 1,
+            input_tokens: 200,
+            uncached_input_tokens: 80,
+            output_tokens: 30,
+        }
+    );
+
+    // Repeat read hits cache without another SQLite read.
+    assert_eq!(
+        ledger.aggregate_token_usage_by_provider_model().unwrap(),
+        agg
+    );
+    assert_eq!(ledger.provider_model_reads(), 2);
+
+    // Reopening from disk preserves the trigger-maintained rollup table.
+    drop(ledger);
+    let reopened = KpiLedger::open_at(&db).unwrap();
+    assert_eq!(
+        reopened.aggregate_token_usage_by_provider_model().unwrap(),
+        agg
+    );
+    assert_eq!(reopened.output_tokens_for_tab("tab-a").unwrap(), Some(250));
+
+    cleanup(&db);
+}

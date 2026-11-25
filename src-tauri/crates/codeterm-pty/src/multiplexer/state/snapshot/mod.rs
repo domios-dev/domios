@@ -255,18 +255,44 @@ impl MultiplexerState {
             }
         }
 
-        let workspaces = self
-            .live_workspace_tabs()
+        let live_workspaces = self.live_workspace_tabs();
+        let mut included_ids: HashSet<String> = live_workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter())
+            .filter(|tab_id| {
+                !self
+                    .tabs
+                    .get(*tab_id)
+                    .map(|tab| tab.hidden || tab.skip_snapshot)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        loop {
+            let current = included_ids.clone();
+            included_ids.retain(|tab_id| {
+                let Some(tab) = self.tabs.get(tab_id) else {
+                    return true;
+                };
+                if !tab.closes_with_owner() {
+                    return true;
+                }
+                tab.parent_tab_id
+                    .as_deref()
+                    .is_none_or(|owner| owner != tab_id.as_str() && current.contains(owner))
+            });
+            if included_ids.len() == current.len() {
+                break;
+            }
+        }
+
+        let workspaces = live_workspaces
             .iter()
             .map(|ws| {
                 let tabs: Vec<TabSnapshot> = ws
                     .tabs
                     .iter()
-                    .filter(|tab_id| {
-                        let tab = self.tabs.get(*tab_id);
-                        !tab.map(|tab| tab.hidden || tab.skip_snapshot)
-                            .unwrap_or(false)
-                    })
+                    .filter(|tab_id| included_ids.contains(*tab_id))
                     .map(|tab_id| TabSnapshot {
                         last_opened_at_ms: self
                             .tabs
@@ -393,6 +419,7 @@ impl MultiplexerState {
                 codeterm_entitlements::enforcing(),
             ),
         };
+        let _ = state.prune_orphaned_surfaces();
         state.backfill_creation_order();
         state
     }
@@ -492,8 +519,29 @@ impl MultiplexerState {
             }
         }
 
-        // A parent that neither survived nor restored must not leave a dangling
-        // hierarchy edge on the tabs added here.
+        // Drop merged owner-bound surfaces whose owner neither survived nor restored;
+        // non-surface tabs only drop the dangling hierarchy edge.
+        loop {
+            let orphaned_surfaces: Vec<String> = merged_tab_ids
+                .iter()
+                .filter(|tab_id| {
+                    self.tabs.get(*tab_id).is_some_and(|tab| {
+                        tab.closes_with_owner()
+                            && tab.parent_tab_id.as_deref().is_some_and(|owner| {
+                                owner == tab_id.as_str() || !self.tabs.contains_key(owner)
+                            })
+                    })
+                })
+                .cloned()
+                .collect();
+            if orphaned_surfaces.is_empty() {
+                break;
+            }
+            for surface_id in orphaned_surfaces {
+                let _ = self.force_remove_surface_tab(&surface_id);
+                report.tabs_added = report.tabs_added.saturating_sub(1);
+            }
+        }
         for tab_id in &merged_tab_ids {
             let parent_alive = self
                 .tabs

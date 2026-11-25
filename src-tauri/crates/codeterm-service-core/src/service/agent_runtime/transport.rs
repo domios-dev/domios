@@ -627,6 +627,18 @@ pub(crate) fn launch_with_boundary(
     launch_with_fork(svc, provider, tab, config, fork, boundary, cron_owner)
 }
 
+pub(crate) fn allows_login_pending(tab: &crate::multiplexer::types::Tab) -> bool {
+    !(tab
+        .report_target_mesh_peer
+        .as_deref()
+        .is_some_and(|peer| !peer.is_empty())
+        && tab.task_binding.is_some())
+}
+
+pub fn is_sign_in_required_launch_error(error: &str) -> bool {
+    error.contains(&RuntimeFailure::SignInRequired.to_string())
+}
+
 fn launch_with_fork(
     svc: &ServiceContext,
     provider: &str,
@@ -701,7 +713,13 @@ fn launch_with_fork(
         })
     }
     .or_else(|error| match fork {
-        None if cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read())) => {
+        None if cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read()))
+            && svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .is_some_and(allows_login_pending) =>
+        {
             engine::login_pending_session(svc, tab, error)
         }
         None => Err(error),

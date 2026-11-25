@@ -972,8 +972,8 @@ mod retention;
 mod storage_adapter;
 
 pub use storage_adapter::{
-    orphan_teams, project_live_snapshot, project_snapshot, prune_orphan_teams, LiveDeskProjection,
-    StorageDeskAdapter,
+    orphan_teams, project_live_snapshot, project_snapshot, prune_orphan_surfaces,
+    prune_orphan_teams, LiveDeskProjection, StorageDeskAdapter,
 };
 
 #[cfg(test)]

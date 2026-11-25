@@ -33,7 +33,7 @@ fn status_changes(before: &Value, after: &Value) -> Option<Map<String, Value>> {
     let mut changes = Map::new();
     for (id, tab) in new_tabs {
         let old_tab = old_tabs.get(id)?;
-        if !equal_except(old_tab, tab, &["agent_state"]) {
+        if !equal_except(old_tab, tab, &["agent_state", "last_active_at_ms"]) {
             return None;
         }
         let old_status = before

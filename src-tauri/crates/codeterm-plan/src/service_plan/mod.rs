@@ -20,7 +20,7 @@ pub mod digest_rules;
 pub mod element_queries;
 mod export_projection;
 pub mod external_refs;
-pub use export_projection::PlanExportEncoder;
+pub use export_projection::{BoundedPlanExportLimits, PlanExportEncoder};
 pub mod gates;
 pub mod handoff;
 pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;

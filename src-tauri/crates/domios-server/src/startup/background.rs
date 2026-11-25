@@ -33,50 +33,109 @@ pub(crate) fn start_background_tasks(
         }
     });
 
-    // Mesh loop runs continuously; `mesh.enabled` is re-read each tick.
+    // Mesh health probes on a 15s cadence and wakes immediately on mesh re-enable or connectivity changes.
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
         let ui = service.ui.clone();
+        let events = service.events.clone();
         codeterm_util::named_thread::spawn("mesh-health", move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .expect("Failed to create mesh health runtime");
             rt.block_on(async {
+                use std::time::Duration;
+                const PROBE_INTERVAL: Duration = Duration::from_secs(15);
                 let mut last_sync_secs: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
+                let mut gate_changes = mesh.lock().gate_watch();
+                let mut last_enable_gen = mesh.lock().mesh_enable_generation();
+                let mut network = events.subscribe();
+                let probe_tick = tokio::time::sleep(PROBE_INTERVAL);
+                tokio::pin!(probe_tick);
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                    if !cfg.lock().mesh.enabled {
-                        // Offline: skip peer polling/cleanup; peers timeout naturally.
-                        continue;
-                    }
+                    let only_offline = tokio::select! {
+                        changed = gate_changes.changed() => {
+                            if changed.is_err() {
+                                return;
+                            }
+                            gate_changes.borrow_and_update();
+                            let enabled = cfg.lock().mesh.enabled;
+                            if !enabled {
+                                last_sync_secs.clear();
+                                continue;
+                            }
+                            let enable_gen = mesh.lock().mesh_enable_generation();
+                            if enable_gen == last_enable_gen {
+                                continue;
+                            }
+                            last_enable_gen = enable_gen;
+                            last_sync_secs.clear();
+                            probe_tick.as_mut().reset(tokio::time::Instant::now() + PROBE_INTERVAL);
+                            false
+                        }
+                        changed = mesh_connectivity_changed(&mut network) => {
+                            if changed.is_err() {
+                                return;
+                            }
+                            if !cfg.lock().mesh.enabled {
+                                last_sync_secs.clear();
+                                continue;
+                            }
+                            let has_offline = mesh.lock().paired_peers.values().any(|peer| !peer.online);
+                            if !has_offline {
+                                continue;
+                            }
+                            probe_tick.as_mut().reset(tokio::time::Instant::now() + PROBE_INTERVAL);
+                            true
+                        }
+                        _ = &mut probe_tick => {
+                            probe_tick.as_mut().reset(tokio::time::Instant::now() + PROBE_INTERVAL);
+                            if !cfg.lock().mesh.enabled {
+                                last_sync_secs.clear();
+                                continue;
+                            }
+                            last_enable_gen = mesh.lock().mesh_enable_generation();
+                            false
+                        }
+                    };
                     let peers: Vec<_> = mesh
                         .lock()
                         .paired_peers
                         .values()
                         .map(|peer| (peer.instance_id.clone(), peer.online))
                         .collect();
+                    let paired_ids: std::collections::HashSet<_> =
+                        peers.iter().map(|(id, _)| id.clone()).collect();
+                    let mut probes = tokio::task::JoinSet::new();
+                    for (peer_id, was_online) in peers {
+                        if only_offline && was_online {
+                            continue;
+                        }
+                        let probe_mesh = mesh.clone();
+                        let last_sync = last_sync_secs.get(&peer_id).copied();
+                        probes.spawn(async move {
+                            let now = probe_mesh.lock().now();
+                            let outcome =
+                                mesh::health::check_peer(&probe_mesh, &peer_id, last_sync).await;
+                            (peer_id, was_online, now, outcome)
+                        });
+                    }
                     let mut changed = false;
-                    for (peer_id, was_online) in &peers {
-                        let now = mesh.lock().now();
-                        if let Some(online) = mesh::health::check_peer(
-                            &mesh,
-                            peer_id,
-                            last_sync_secs.get(peer_id).copied(),
-                        )
-                        .await
-                        {
-                            last_sync_secs.insert(peer_id.clone(), now);
-                            changed = true;
-                            if online && !was_online && mesh.lock().has_unacked_announce(peer_id) {
-                                let _ = mesh::broadcast_announce(&mesh, Some(peer_id)).await;
-                            }
+                    while let Some(result) = probes.join_next().await {
+                        let Ok((peer_id, was_online, now, Some(online))) = result else {
+                            continue;
+                        };
+                        last_sync_secs.insert(peer_id.clone(), now);
+                        changed = true;
+                        let needs_announce = online
+                            && !was_online
+                            && mesh.lock().has_unacked_announce(&peer_id);
+                        if needs_announce {
+                            let _ = mesh::broadcast_announce(&mesh, Some(&peer_id)).await;
                         }
                     }
-                    let paired_ids: std::collections::HashSet<_> =
-                        peers.into_iter().map(|(id, _)| id).collect();
                     last_sync_secs.retain(|id, _| paired_ids.contains(id));
                     if changed {
                         ui.emit("mesh-state-changed", serde_json::Value::Null);
@@ -274,6 +333,28 @@ pub(crate) fn start_background_tasks(
                 std::thread::sleep(std::time::Duration::from_secs(60));
             }
         });
+    }
+}
+
+async fn mesh_connectivity_changed(
+    events: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
+) -> Result<(), ()> {
+    use codeterm_neighbors_service::service::account_mesh::reconcile::CONNECTIVITY_CHANGED;
+    loop {
+        match events.recv().await {
+            Ok(event)
+                if matches!(
+                    event.event,
+                    codeterm_events::SystemEvent::Generic { ref event_type, .. }
+                        if event_type == CONNECTIVITY_CHANGED
+                ) =>
+            {
+                return Ok(());
+            }
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return Ok(()),
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Err(()),
+        }
     }
 }
 

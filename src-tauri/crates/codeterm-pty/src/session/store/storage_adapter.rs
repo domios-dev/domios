@@ -31,6 +31,10 @@ impl LiveDeskProjection {
     pub fn has_omissions(&self) -> bool {
         !self.omitted_tabs.is_empty()
     }
+
+    pub fn omitted_tabs(&self) -> &HashSet<String> {
+        &self.omitted_tabs
+    }
 }
 
 impl StorageDeskAdapter {
@@ -421,6 +425,78 @@ pub fn orphan_teams(snapshot: &SessionSnapshot) -> Vec<(String, String)> {
         .collect();
     orphans.sort_unstable();
     orphans
+}
+
+fn first_leaf_node(node: &SplitNodeSnapshot) -> Option<&SplitNodeSnapshot> {
+    match node {
+        SplitNodeSnapshot::Leaf { .. } => Some(node),
+        SplitNodeSnapshot::Split { children, .. } => children.iter().find_map(first_leaf_node),
+    }
+}
+
+fn leaf_tab_id(node: &SplitNodeSnapshot) -> Option<&str> {
+    match first_leaf_node(node)? {
+        SplitNodeSnapshot::Leaf { tab_id, .. } => Some(tab_id.as_str()),
+        SplitNodeSnapshot::Split { .. } => None,
+    }
+}
+
+fn leaf_surface_owner(node: &SplitNodeSnapshot) -> Option<(&str, &str)> {
+    match first_leaf_node(node)? {
+        SplitNodeSnapshot::Leaf {
+            tab_id,
+            parent_tab_id: Some(owner),
+            surface: Some(_),
+            ..
+        } => Some((tab_id.as_str(), owner.as_str())),
+        _ => None,
+    }
+}
+
+/// Drop owner-bound surface tabs whose owner is absent from the snapshot.
+/// Standalone surfaces (`parent_tab_id == None`) and surfaces with live owners stay intact.
+pub fn prune_orphan_surfaces(snapshot: &mut SessionSnapshot) -> Vec<(String, String)> {
+    let mut pruned = Vec::new();
+    loop {
+        let mut live_ids: HashSet<String> = HashSet::new();
+        for workspace in &snapshot.workspaces {
+            for tab in &workspace.tabs {
+                live_ids.insert(tab.id.clone());
+                if let Some(leaf_id) = leaf_tab_id(&tab.split_tree) {
+                    live_ids.insert(leaf_id.to_string());
+                }
+            }
+        }
+        let mut round = Vec::new();
+        for workspace in &mut snapshot.workspaces {
+            let mut removed_any = false;
+            workspace.tabs.retain(|tab| {
+                let Some((surface_id, owner_id)) = leaf_surface_owner(&tab.split_tree) else {
+                    return true;
+                };
+                if owner_id != surface_id && live_ids.contains(owner_id) {
+                    return true;
+                }
+                round.push((surface_id.to_string(), owner_id.to_string()));
+                removed_any = true;
+                false
+            });
+            if removed_any
+                && workspace
+                    .active_tab_id
+                    .as_deref()
+                    .is_some_and(|active| !workspace.tabs.iter().any(|tab| tab.id == active))
+            {
+                workspace.active_tab_id = workspace.tabs.first().map(|tab| tab.id.clone());
+            }
+        }
+        if round.is_empty() {
+            break;
+        }
+        pruned.extend(round);
+    }
+    pruned.sort_unstable();
+    pruned
 }
 
 enum LayoutProjectionError {

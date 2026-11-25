@@ -126,6 +126,7 @@ pub struct Store {
     pub unavailable: Option<LoadFailure>,
     pub admission_closed: bool,
     pub committed_revisions: BTreeMap<ScopeKey, String>,
+    pub last_emitted_revisions: BTreeMap<ScopeKey, String>,
     pub changes: BTreeMap<ScopeKey, String>,
     pub pending_stop_notices: Vec<StopNotice>,
     pub quarantined: Vec<crate::storage::quarantine::Quarantined>,
@@ -219,7 +220,19 @@ impl Store {
     }
 
     pub fn take_changes(&mut self) -> Vec<serde_json::Value> {
-        std::mem::take(&mut self.changes).into_iter().map(|((workspace_id,team_id),revision)| serde_json::json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision})).collect()
+        std::mem::take(&mut self.changes)
+            .into_iter()
+            .map(|(scope, revision)| {
+                if self.committed_revisions.contains_key(&scope) {
+                    self.last_emitted_revisions
+                        .insert(scope.clone(), revision.clone());
+                } else {
+                    self.last_emitted_revisions.remove(&scope);
+                }
+                let (workspace_id, team_id) = scope;
+                serde_json::json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision})
+            })
+            .collect()
     }
 
     pub fn take_stop_notices(&mut self) -> Vec<StopNotice> {

@@ -94,11 +94,17 @@ it("views provider process output and asks the bound agent to stop it until comp
     const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process · fixture.mjs"]');
     expect(chip).not.toBeNull();
     await act(async () => chip!.click());
+    // Secondary actions live behind the chevron, not in an always-visible row under the pill.
+    expect(view.host.querySelector('button[aria-label="View output for fixture.mjs"]')).toBeNull();
+    const chevron = view.host.querySelector<HTMLButtonElement>('button[aria-label="Details for fixture.mjs"]')!;
+    expect(chevron).not.toBeNull();
+    await act(async () => chevron.click());
+    expect(chevron.getAttribute("aria-expanded")).toBe("true");
+    expect(view.host.querySelector("code")?.textContent).toBe("node fixture.mjs");
+    expect(view.host.textContent).toContain("Stop unavailable");
     const output = view.host.querySelector<HTMLButtonElement>('button[aria-label="View output for fixture.mjs"]')!;
     await act(async () => output.click());
-    expect(view.host.querySelector("code")?.textContent).toBe("node fixture.mjs");
     expect(view.host.querySelector("pre")?.textContent).toBe("fixture output");
-    expect(view.host.textContent).toContain("Stop unavailable");
     const ask = Array.from(view.host.querySelectorAll("button")).find(button => button.textContent === "Ask FixtureAgent to stop it");
     expect(ask).toBeDefined();
     await act(async () => { ask!.click(); ask!.click(); });
@@ -164,15 +170,16 @@ it.each(["stopped", "degraded"] as const)("stops a terminal once and renders the
     expect(panelStyle.overscrollBehaviorY).toBe("contain");
     expect(panelStyle.touchAction).toBe("pan-y");
     expect(panel?.tabIndex).toBe(0);
-    expect(view.host.querySelectorAll('button[aria-label="View output for build.mjs"]')).toHaveLength(1);
     expect(panel?.querySelector("code,pre")).toBeNull();
     expect(view.host.querySelector('button[aria-label="Choose fixture model"]')).not.toBeNull();
     expect(view.host.querySelector('[data-testid="agent-state"]')?.textContent).not.toContain(process.command);
-    const details=panel!.querySelector<HTMLButtonElement>('button[aria-label="View output for build.mjs"]')!;
-    await act(async()=>details.click());
+    const details = panel!.querySelector<HTMLButtonElement>('button[aria-label="Details for build.mjs"]')!;
+    expect(details).not.toBeNull();
+    await act(async () => details.click());
     expect(details.getAttribute("aria-expanded")).toBe("true");
     expect(panel?.querySelector('[role="region"] code')?.textContent).toBe(process.command);
-    await act(async()=>details.click());
+    expect(view.host.querySelectorAll('button[aria-label="View output for build.mjs"]')).toHaveLength(1);
+    await act(async () => details.click());
     expect(panel?.querySelector('[role="region"]')).toBeNull();
     const stop = panel?.querySelector<HTMLButtonElement>('button[aria-label="Stop build.mjs"]');
     expect(stop).not.toBeNull();
@@ -282,7 +289,7 @@ it("keeps mixed background work distinct from provider sub-agents", async () => 
     expect(bubble!.title).toContain("Background process · mixed.mjs");
     await act(async () => { bubble!.click(); });
     const panel = view.host.querySelector('[role="group"][aria-label="Background work"]');
-    expect(panel?.querySelector('button[aria-label="View output for mixed.mjs"]')).not.toBeNull();
+    expect(panel?.querySelector('button[aria-label="Details for mixed.mjs"]')).not.toBeNull();
     const transcript = panel?.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Child task, Sub-agent of Fixture Harness"]');
     expect(transcript).not.toBeNull();
     await act(async () => { transcript!.click(); });
@@ -352,7 +359,7 @@ it("surfaces OS-observed runtime background commands above the composer on an id
     await act(async () => bubble!.click());
     const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]');
     expect(panel).not.toBeNull();
-    const details = panel?.querySelector<HTMLButtonElement>('button[aria-label^="View output for "]');
+    const details = panel?.querySelector<HTMLButtonElement>('button[aria-label^="Details for "]');
     expect(details).not.toBeNull();
     await act(async () => details!.click());
     expect(panel?.querySelector("code")?.textContent).toBe(process.command);
@@ -360,5 +367,93 @@ it("surfaces OS-observed runtime background commands above the composer on an id
     expect(view.host.querySelector('button[aria-label^="Background process ·"]')).toBeNull();
   } finally {
     await act(async () => view.root.unmount());
+  }
+});
+
+it("renders one grouped card with helper badge, flat process list, stopping state, and +N more overflow", async () => {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  setAgentDescriptors([{ id: "fixture-runtime", display_name: "Fixture Runtime", agent_runtime: {} }] as ProviderDescriptor[]);
+  let resolveStop!: (value: BackgroundStopResult) => void;
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(async <T,>(command: string) => {
+    if (command === "agent_runtime_stop_background_process") {
+      return await new Promise<BackgroundStopResult>((resolve) => { resolveStop = resolve; }) as T;
+    }
+    throw new Error(`unexpected invoke: ${command}`);
+  });
+  const grouped = {
+    threadId: authority.rootThreadId,
+    processId: "os:41208:50",
+    itemId: "os-bg:41208:50",
+    command: "bash scripts/build.sh check 2>&1 | tee -a /tmp/build-check.log",
+    cwd: "/repo",
+    osPid: 41208,
+    children: [
+      { command: "bash scripts/build.sh check", osPid: 41231 },
+      { command: "tee -a /tmp/build-check.log", osPid: 41209 },
+      { command: "sccache", osPid: 40977 },
+    ],
+  };
+  const view = harness([], vi.fn(), undefined, [grouped]);
+  try {
+    await act(async () => view.render());
+    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process · build.sh check"]');
+    expect(chip).not.toBeNull();
+    await act(async () => chip!.click());
+    const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]')!;
+    const cards = panel.querySelectorAll("li.ct-background-command");
+    expect(cards).toHaveLength(1);
+    const title = panel.querySelector(".ct-ctx-bubble__title");
+    expect(title?.textContent).toBe("build.sh check");
+    const badge = panel.querySelector<HTMLElement>('.ct-work-bubble__ordinal[aria-label="3 helper processes"]');
+    expect(badge?.textContent).toBe("+3");
+    const stopBtn = panel.querySelector<HTMLButtonElement>('button[aria-label="Stop build.sh check and 3 helpers"]')!;
+    expect(stopBtn).not.toBeNull();
+    const chevron = panel.querySelector<HTMLButtonElement>('button[aria-label="Details for build.sh check"]')!;
+    await act(async () => chevron.click());
+    const rows = Array.from(panel.querySelectorAll("li.ct-background-command__proc"));
+    expect(rows).toHaveLength(4);
+    expect(rows[0].textContent).toContain("pid 41208");
+    expect(rows[1].textContent).toContain("helper · pid 41231");
+    expect(rows[2].textContent).toContain("helper · pid 41209");
+    expect(rows[3].textContent).toContain("helper · pid 40977");
+    expect(panel.textContent).toContain("Stop ends all 4");
+    expect(panel.querySelector('button[aria-label="View output for build.sh check"]')).not.toBeNull();
+
+    // Clicking Stop enters muted stopping state and disables stop without spinner.
+    await act(async () => { stopBtn.click(); });
+    expect(panel.querySelector('.ct-work-state[data-state="stopping"]')?.textContent).toBe("stopping…");
+    expect(stopBtn.disabled).toBe(true);
+    await act(async () => { resolveStop({ status: "stopped", snapshot: snapshot([]) }); });
+
+    // >6 processes caps the visible list at 6 rows plus a "+2 more" overflow row, and 2 groups show "2 background processes".
+    const manyHelpers = {
+      ...grouped,
+      children: Array.from({ length: 7 }, (_, index) => ({ command: `rustc --crate-${index}`, osPid: 42000 + index })),
+    };
+    const secondGroup = {
+      threadId: authority.rootThreadId,
+      processId: "os:50000:60",
+      itemId: "os-bg:50000:60",
+      command: "pnpm dev",
+      cwd: "/repo",
+      osPid: 50000,
+    };
+    await act(async () => view.setProcesses([manyHelpers, secondGroup]));
+    expect(view.host.querySelector('button[aria-label="2 background processes"]')).not.toBeNull();
+    expect(panel.querySelector(".ct-background-command__proc--more")?.textContent).toBe("+2 more");
+
+    // Unknown shell item riding beside a live command shows "No live evidence for this process." inside details.
+    await act(async () => view.setProviderRoster({
+      running: {}, unknown: { "stale-shell": "cargo check" }, ended: {}, kinds: { "stale-shell": "shell" },
+      overflow: false, history_incomplete: false, history_initialized: true,
+    }));
+    const staleChevron = panel.querySelector<HTMLButtonElement>('button[aria-label="Details for cargo check"]')!;
+    expect(staleChevron).not.toBeNull();
+    await act(async () => staleChevron.click());
+    expect(panel.textContent).toContain("No live evidence for this process.");
+  } finally {
+    await act(async () => view.root.unmount());
+    __setInvokeForTest(null);
   }
 });

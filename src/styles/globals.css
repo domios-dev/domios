@@ -2792,7 +2792,7 @@ button {
 
 .sidebar-team-machine-pill[data-remote="true"] {
   padding-inline-start: 5px;
-  background: color-mix(in srgb, var(--ct-plan-tone) 12%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
 }
 
 [data-ct-theme="light"] .sidebar-team-unit .sidebar-role-badge {

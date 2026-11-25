@@ -469,5 +469,6 @@
   "src/components/Terminal/ComposerContextMeter.test.tsx",
   "src/components/Terminal/ComposerQueueTray.test.tsx",
   "src/lib/teamTemplates/peerStartOutcome.test.ts",
-  "src/components/Terminal/useChatActivationReconcile.test.tsx"
+  "src/components/Terminal/useChatActivationReconcile.test.tsx",
+  "src/components/Terminal/TabTopBar.modeSwitch.test.tsx"
 ]

@@ -155,7 +155,7 @@ test("a peer PTY that appears after the attach reaches the attachment, and a gon
 
 test("a manager attached while launching follows its peer's session, keeping this machine's placement and channels", () => {
   const launching: Tab = { ...attachedTab("lead"), agent_session_id: null, boot_stage: "agent_launching",
-    remote_channels: { control: "available", output: "unavailable", chat: "available" } };
+    remote_channels: { control: "reconnecting", output: "unavailable", chat: "available" } };
   const ready = applyRemotePeerAgentStates({ [launching.id]: launching }, { peer_id: "peer", peer_name: "Mac", tabs: [
     { ...local, id: "lead", title: "Lead", agent_session_id: "SESSION-FRAGMENT", boot_stage: "agent_ready", workspace_id: "peer-workspace" },
   ] });
@@ -163,6 +163,7 @@ test("a manager attached while launching follows its peer's session, keeping thi
   assert.equal(tab.agent_session_id, "SESSION-FRAGMENT");
   assert.equal(tab.boot_stage, "agent_ready");
   assert.equal(tab.workspace_id, "windows");
+  assert.equal(tab.remote_channels?.control, "available");
   assert.equal(tab.remote_channels?.output, "unavailable");
   assert.equal(tab.id, launching.id);
 });

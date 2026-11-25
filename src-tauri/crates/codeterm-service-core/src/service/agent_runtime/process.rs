@@ -19,7 +19,7 @@ pub struct Process {
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
     session_baseline: parking_lot::Mutex<HashSet<(u32, u128)>>,
     first_turn_started: AtomicBool,
-    pub(super) tracked_os_background: parking_lot::Mutex<HashSet<(u32, u128)>>,
+    pub(super) tracked_os_background: parking_lot::Mutex<HashMap<(u32, u128), Vec<(u32, u128)>>>,
     pub(super) background_changed: Arc<tokio::sync::Notify>,
     pub(super) background_operation: tokio::sync::Mutex<()>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
@@ -49,7 +49,7 @@ impl Process {
             boundary: None,
             session_baseline: parking_lot::Mutex::new(HashSet::new()),
             first_turn_started: AtomicBool::new(false),
-            tracked_os_background: parking_lot::Mutex::new(HashSet::new()),
+            tracked_os_background: parking_lot::Mutex::new(HashMap::new()),
             background_changed: Arc::new(tokio::sync::Notify::new()),
             background_operation: Default::default(),
             turn_members: parking_lot::Mutex::new(Vec::new()),
@@ -133,14 +133,13 @@ impl Process {
 
     pub(super) async fn stop_os_background(
         &self,
-        pid: u32,
-        born: u128,
+        targets: Vec<(u32, u128)>,
         others: Vec<(u32, u128)>,
     ) -> Result<(), RuntimeFailure> {
         let boundary = self.boundary.clone().ok_or(RuntimeFailure::Superseded)?;
         let baseline: Vec<(u32, u128)> = self.session_baseline.lock().iter().copied().collect();
         tokio::task::spawn_blocking(move || {
-            boundary.stop_os_background(pid, born, &baseline, &others)
+            boundary.stop_os_background(&targets, &baseline, &others)
         })
         .await
         .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
@@ -496,7 +495,7 @@ pub(super) fn spawn(
         boundary: Some(boundary),
         session_baseline: parking_lot::Mutex::new(HashSet::new()),
         first_turn_started: AtomicBool::new(false),
-        tracked_os_background: parking_lot::Mutex::new(HashSet::new()),
+        tracked_os_background: parking_lot::Mutex::new(HashMap::new()),
         background_changed: Arc::new(tokio::sync::Notify::new()),
         background_operation: Default::default(),
         turn_members: parking_lot::Mutex::new(Vec::new()),

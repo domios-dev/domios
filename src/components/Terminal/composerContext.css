@@ -23,6 +23,7 @@
 
 .ct-ctx__title {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 5px;
   min-width: 0;
@@ -52,12 +53,17 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   color: var(--ct-ctx-plan);
 }
 
+.ct-ctx__prefix {
+  flex: none;
+}
+
 .ct-ctx__title[data-kind="task"] .ct-ctx__title-icon { color: var(--ct-ctx-task); }
 .ct-ctx__title[data-kind="blueprints"] .ct-ctx__title-icon { color: var(--ct-ctx-blueprints); }
 .ct-ctx__title[data-kind="crons"] .ct-ctx__title-icon { color: var(--ct-ctx-crons); }
 .ct-ctx__title[data-kind="delayed"] .ct-ctx__title-icon { color: var(--ct-ctx-delayed); }
 
 .ct-ctx__primary {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -66,6 +72,8 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 }
 
 .ct-ctx__secondary {
+  /* Yield secondary context completely before truncating the primary title. */
+  flex: 0 100000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -191,6 +199,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 }
 
 .ct-ctx-pill__icon { color: var(--ct-ctx-plan); flex: none; }
+.ct-ctx-pill__icon[data-kind="task"] { color: var(--ct-ctx-task); }
 .ct-ctx-pill__icon[data-kind="blueprints"] { color: var(--ct-ctx-blueprints); }
 .ct-ctx-pill__icon[data-kind="crons"] { color: var(--ct-ctx-crons); }
 .ct-ctx-pill__icon[data-kind="delayed"] { color: var(--ct-ctx-delayed); }
@@ -233,9 +242,29 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   font-weight: 500;
 }
 
-.ct-ctx-kind__label { color: var(--ct-fg); }
-@media (max-width: 760px) { .ct-ctx-kind__label { display: none; } }
-.ct-ctx-kind[data-kind="background"] .ct-ctx-kind__label { display: inline; }
+.ct-ctx-kind__label {
+  max-width: 14rem;
+  overflow: hidden;
+  color: var(--ct-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .ct-ctx-kind__label { display: none; }
+  .ct-ctx-kind[data-kind="background"] .ct-ctx-kind__label {
+    display: inline;
+    max-width: 8rem;
+  }
+}
+
+@container ct-chat (max-width: 680px) {
+  .ct-ctx-kind__label { display: none; }
+  .ct-ctx-kind[data-kind="background"] .ct-ctx-kind__label {
+    display: inline;
+    max-width: 8rem;
+  }
+}
 
 .ct-ctx[data-phone] .ct-ctx__strip[data-kind="delayed"] .ct-ctx-bubble:not(.ct-ctx-bubble--add) {
   width: 100%;

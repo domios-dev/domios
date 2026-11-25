@@ -390,7 +390,7 @@ async fn apply_config_patch(
     let new_name = new_cfg.mesh.instance_name.clone();
     let new_mesh_enabled = new_cfg.mesh.enabled;
     let renamed = !new_name.is_empty() && new_name != prev_name;
-    let mesh_disabled = prev_mesh_enabled && !new_mesh_enabled;
+    let mesh_toggled = prev_mesh_enabled != new_mesh_enabled;
     let changed_catalogue_settings =
         codeterm_service_core::config::changed_provider_settings(&cfg, &new_cfg);
 
@@ -448,18 +448,17 @@ async fn apply_config_patch(
         state.svc.neighbors_config_changed();
     }
 
-    if mesh_disabled {
-        log::info!("[mesh] disabled mid-session — marking peers offline");
-        {
-            let mut m = state.mesh.lock();
-            for peer in m.paired_peers.values_mut() {
-                peer.online = false;
-            }
-        }
-        state
-            .svc
-            .ui
-            .emit("mesh-state-changed", serde_json::Value::Null);
+    if mesh_toggled {
+        let mesh = state.mesh.clone();
+        let ui = state.svc.ui.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            codeterm_service_core::mesh::apply_mesh_enabled_runtime(
+                &mesh,
+                ui.as_ref(),
+                new_mesh_enabled,
+            );
+        })
+        .await;
     }
 
     if renamed {

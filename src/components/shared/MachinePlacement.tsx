@@ -81,7 +81,7 @@ export function MachinePlacement({ choices, value, onChange, disabled = false, t
       onChange={onChange}
       disabled={disabled}
       placeholder="Choose a machine"
-      leading={<MachineGlyph kind={selected?.identity?.kind} color={selected?.identity?.color} size="mark-15" />}
+      leading={<MachineGlyph kind={selected?.identity?.kind} size="mark-15" />}
       trailing={selected?.local ? <MachineThisBadge /> : undefined}
       selectionIndicator="highlight"
     />

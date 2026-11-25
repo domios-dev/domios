@@ -231,6 +231,8 @@ async fn list_owned(
         processes.extend(roster.into_iter().map(|process| BackgroundProcessEntry {
             thread_id: thread_id.clone(),
             process,
+            parent_os_pid: None,
+            children: None,
         }));
     }
     Ok(processes)

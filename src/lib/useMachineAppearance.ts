@@ -7,13 +7,10 @@ import { readMachineAppearance, readWallpaperAsset, type MachineAppearance } fro
 import { DEFAULT_THEME } from "./themeCss";
 import { relayTarget } from "./webApi";
 import { discardWorkspaceSwitchOrigin, useWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
-import { useMeshMachineIdentity } from "./useMeshMachineIdentities";
-import type { MachineIdentity } from "./machineIdentity";
 
 export interface SelectedMachineAppearance {
   appearance: MachineAppearance;
   peerId?: string;
-  identity?: MachineIdentity;
   ready: boolean;
   projectWallpaper: (wallpaper: MachineAppearance["wallpaper"]) => void;
 }
@@ -32,7 +29,6 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
   const target = useWorkspaceBrowseTarget();
   const relay = relayTarget()?.id;
   const peerId = target?.id ?? relay;
-  const identity = useMeshMachineIdentity(peerId);
   const [peer, setPeer] = useState<PeerAppearance | null>(null);
   const remoteId = target && target.id !== relay ? target.id : null;
   const targetRef = useRef<Target>(target);
@@ -96,7 +92,6 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
   return {
     appearance: selected ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null, tuning: config.appearance ?? null },
     peerId,
-    identity,
     ready: remote ? selected !== null : ready,
     projectWallpaper(wallpaper) {
       if (remote) setPeer(previous => previous?.targetId === remoteId

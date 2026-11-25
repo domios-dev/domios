@@ -793,13 +793,12 @@ function AppInner() {
   const wallpaper = (projected?.look ?? appliedAppearance.look).wallpaper ?? undefined;
   const wallAsset = projected ? stagedWallpaper.asset ?? (wallpaper?.asset === appliedAppearance.look.wallpaper?.asset
     ? appliedAppearance.asset : undefined) : appliedAppearance.asset;
-  const identityColor = machineAppearance.identity?.color;
   const { background, foreground, chat_background: chatBackground } = stableTheme;
   const wallpaperStyle = useMemo(() => ({
     "--ct-bg": background,
     "--ct-fg": foreground,
-    ...wallpaperRenderStyle({ foreground, chat_background: chatBackground }, wallpaper, isLightColor(background), wallAsset?.url, identityColor),
-  } as React.CSSProperties), [background, foreground, chatBackground, wallpaper, wallAsset?.url, identityColor]);
+    ...wallpaperRenderStyle({ foreground, chat_background: chatBackground }, wallpaper, isLightColor(background), wallAsset?.url),
+  } as React.CSSProperties), [background, foreground, chatBackground, wallpaper, wallAsset?.url]);
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
