@@ -217,7 +217,7 @@ export function CanvasItemView({ placed, live, selected = false, interactive, th
   // The selected or moving item draws above its neighbours, so its ring and handle stay in sight; file order is unchanged.
   const raised = selected || Boolean(edit?.dragging);
   const editing = edit?.draft !== null && edit?.draft !== undefined;
-  const editStyle: CSSProperties = edit ? { cursor: edit.dragging ? "grabbing" : "grab", userSelect: "none", touchAction: "none" } : {};
+  const editStyle: CSSProperties = edit ? { cursor: editing ? "text" : "move", userSelect: "none", touchAction: "none" } : {};
   return (
     <div ref={itemRef} data-canvas-item={item.id} data-zoom-target={interactive ? placed.index : undefined} data-selected={selected || undefined}
       role={interactive ? "group" : undefined} aria-label={interactive ? label : undefined}

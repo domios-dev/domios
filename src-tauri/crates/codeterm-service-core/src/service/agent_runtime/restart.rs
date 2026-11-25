@@ -57,6 +57,21 @@ pub async fn restart_with_selection(
     retry_refused_start: bool,
     requested: Option<RestartSelection<'_>>,
 ) -> AccountRestartResult {
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|tab| tab.is_transcript_router())
+    {
+        return AccountRestartResult {
+            session: Err(RuntimeFailure::Refused(
+                "Transcript router restart is host-owned".into(),
+            )),
+            target_refusal: None,
+            source_account_restored: false,
+            account_refusal_nonce: None,
+        };
+    }
     let (account, selection) = match requested {
         Some(RestartSelection::Account(account)) => (Some(account), None),
         Some(RestartSelection::Model(model)) => (None, Some(model)),
@@ -185,9 +200,135 @@ pub async fn restart_idle(
     provider: &str,
     nonce: &str,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|tab| tab.is_transcript_router())
+    {
+        return Ok(None);
+    }
     restart_inner(svc, tab, provider, nonce, None, Trigger::IdleUpdate, None)
         .await
         .inspect_err(|_| svc.clear_runtime_restart_binding(tab))
+}
+
+pub(crate) fn attached_transcript_settled_turns(
+    svc: &ServiceContext,
+    epoch: &crate::service::live_transcript::ConciergeEpoch,
+) -> Result<usize, String> {
+    let session =
+        engine::for_tab(&epoch.runtime_tab_id).ok_or("Transcript router runtime is absent")?;
+    let _permit = session
+        .gate
+        .try_acquire()
+        .map_err(|_| "Transcript router runtime is busy")?;
+    require_idle_attached_epoch(svc, epoch, &session)?;
+    let count = session
+        .completions
+        .lock()
+        .transcript_count(&epoch.session_id);
+    count.ok_or("Transcript router completion tracking is absent".into())
+}
+
+pub(crate) fn arm_attached_transcript_turns(
+    svc: &ServiceContext,
+    epoch: &crate::service::live_transcript::ConciergeEpoch,
+) -> Result<(), String> {
+    let session =
+        engine::for_tab(&epoch.runtime_tab_id).ok_or("Transcript router runtime is absent")?;
+    let _permit = session
+        .gate
+        .try_acquire()
+        .map_err(|_| "Transcript router runtime is busy")?;
+    require_idle_attached_epoch(svc, epoch, &session)?;
+    session
+        .completions
+        .lock()
+        .track_transcript_thread(&epoch.session_id);
+    Ok(())
+}
+
+pub(crate) async fn persist_attached_transcript_epoch(
+    svc: &ServiceContext,
+    epoch: &crate::service::live_transcript::ConciergeEpoch,
+) -> Result<(), String> {
+    let session =
+        engine::for_tab(&epoch.runtime_tab_id).ok_or("Transcript router runtime is absent")?;
+    let _permit = session
+        .gate
+        .try_acquire()
+        .map_err(|_| "Transcript router runtime is busy")?;
+    require_idle_attached_epoch(svc, epoch, &session)?;
+    super::transcript::persist(&session).await;
+    require_idle_attached_epoch(svc, epoch, &session)
+}
+
+fn require_idle_attached_epoch(
+    svc: &ServiceContext,
+    epoch: &crate::service::live_transcript::ConciergeEpoch,
+    session: &Session,
+) -> Result<(), String> {
+    let ready = svc
+        .mux
+        .read()
+        .get_tab(&epoch.runtime_tab_id)
+        .is_some_and(|tab| {
+            crate::service::spawn_chatbackend::live_transcript::is_current_epoch(tab, epoch)
+                && engine::has_live_bound_session(tab)
+        });
+    if !ready
+        || !engine::for_tab(&epoch.runtime_tab_id)
+            .is_some_and(|current| std::ptr::eq(current.as_ref(), session))
+        || super::update::busy(session)
+        || !session.turn_requests.lock().is_empty()
+    {
+        return Err("Transcript router requires an idle, exact ready session".into());
+    }
+    engine::validate_binding(svc, session).map_err(|error| error.to_string())
+}
+
+pub(crate) async fn restart_attached_transcript_epoch(
+    svc: &ServiceContext,
+    epoch: &crate::service::live_transcript::ConciergeEpoch,
+    bootstrap: &str,
+) -> Result<(), String> {
+    let snapshot = {
+        let mux = svc.mux.read();
+        let tab = mux
+            .get_tab(&epoch.runtime_tab_id)
+            .filter(|tab| {
+                crate::service::spawn_chatbackend::live_transcript::is_current_epoch(tab, epoch)
+            })
+            .ok_or("Original transcript router changed before restart")?;
+        crate::service::agent_lifecycle::TabRestartSnapshot {
+            tab_id: tab.id.clone(),
+            pty_id: String::new(),
+            provider: epoch.provider.clone(),
+            target_provider: None,
+            session_id: Some(epoch.session_id.clone()),
+            cwd: tab.cwd.clone(),
+            auto_approve: false,
+            role: None,
+            role_profile: None,
+            handoff_history: None,
+        }
+    };
+    restart_inner(
+        svc,
+        &epoch.runtime_tab_id,
+        &epoch.provider,
+        &epoch.binding_nonce,
+        Some((&snapshot, true)),
+        Trigger::TranscriptRouter(epoch, bootstrap),
+        None,
+    )
+    .await
+    .map_err(|error| {
+        svc.clear_runtime_restart_binding(&epoch.runtime_tab_id);
+        error.to_string()
+    })?;
+    Ok(())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -197,6 +338,7 @@ enum Trigger<'a> {
     Request,
     /// Only this trigger retires a retained provider refusal, so it relaunches.
     RetryRefused,
+    TranscriptRouter(&'a crate::service::live_transcript::ConciergeEpoch, &'a str),
 }
 
 async fn restart_inner(
@@ -208,6 +350,21 @@ async fn restart_inner(
     trigger: Trigger<'_>,
     mut transition: Option<AccountTransition<'_>>,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
+    let router = match trigger {
+        Trigger::TranscriptRouter(epoch, bootstrap) => Some((epoch, bootstrap)),
+        _ => None,
+    };
+    if router.is_none()
+        && svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .is_some_and(|tab| tab.is_transcript_router())
+    {
+        return Err(RuntimeFailure::Refused(
+            "Transcript router restart is host-owned".into(),
+        ));
+    }
     let selection = match trigger {
         Trigger::Model(selection) => Some(selection),
         _ => None,
@@ -224,6 +381,14 @@ async fn restart_inner(
         ),
         None => None,
     };
+    if let Some((epoch, _)) = router {
+        require_idle_attached_epoch(
+            svc,
+            epoch,
+            session.as_deref().ok_or(RuntimeFailure::Superseded)?,
+        )
+        .map_err(RuntimeFailure::Refused)?;
+    }
     if let Some(selection) = selection {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
@@ -448,6 +613,21 @@ async fn restart_inner(
             if let TabBacking::ChatBackend { session_id, .. } = &mut target.backing {
                 session_id.clear();
             }
+        }
+        if let Some((_, bootstrap)) = router {
+            let config = target
+                .agent_runtime_config
+                .as_mut()
+                .and_then(serde_json::Value::as_object_mut)
+                .ok_or_else(|| {
+                    RuntimeFailure::Refused(
+                        "Transcript router launch configuration is absent".into(),
+                    )
+                })?;
+            config.insert(
+                "systemPrompt".into(),
+                serde_json::Value::String(bootstrap.into()),
+            );
         }
         if let Some(selection) = selection {
             let config = target

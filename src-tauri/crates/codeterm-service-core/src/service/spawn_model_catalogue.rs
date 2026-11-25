@@ -129,7 +129,7 @@ pub(crate) fn find_catalogue_model<'a>(
 /// The live snapshot, else the static list unless the provider requires live discovery.
 fn launch_catalogue(registry: &AgentRegistry, provider_id: &str) -> Option<Vec<ModelInfo>> {
     if crate::agent::model_catalog::has_live_snapshot(provider_id) {
-        crate::agent::model_catalog::resolve_live_models(provider_id)
+        crate::agent::model_catalog::unfiltered_live_models(provider_id)
     } else if model_catalogue_capability(registry, provider_id).live_discovery_required {
         None
     } else {

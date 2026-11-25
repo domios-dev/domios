@@ -123,7 +123,33 @@ struct Credential {
     token: String,
     caller: TabCaller,
     session: Option<String>,
+    unused_runtime_thread: Option<String>,
     file: Option<CredentialFile>,
+}
+
+impl Credential {
+    fn new(caller: TabCaller) -> Self {
+        Self {
+            token: uuid::Uuid::new_v4().to_string(),
+            caller,
+            session: None,
+            unused_runtime_thread: None,
+            file: None,
+        }
+    }
+
+    fn matches_session(&self, current: Option<&str>) -> bool {
+        self.session
+            .as_deref()
+            .or(self.unused_runtime_thread.as_deref())
+            .is_none_or(|session| Some(session) == current)
+    }
+
+    fn attest(&mut self, current: Option<&str>, attested: bool) {
+        if attested && self.session.is_none() && self.unused_runtime_thread.is_none() {
+            self.session = current.map(str::to_owned);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -137,28 +163,12 @@ impl TabCredentials {
         let mut credentials = self.0.lock();
         let entry = credentials
             .entry(caller.tab_id.clone())
-            .or_insert_with(|| Credential {
-                token: uuid::Uuid::new_v4().to_string(),
-                caller: caller.clone(),
-                session: None,
-                file: None,
-            });
-        let session_changed = entry
-            .session
-            .as_deref()
-            .is_some_and(|session| Some(session) != current_session);
-        if entry.caller != caller || session_changed {
+            .or_insert_with(|| Credential::new(caller.clone()));
+        if entry.caller != caller || !entry.matches_session(current_session) {
             self.1.lock().remove(&caller.tab_id);
-            *entry = Credential {
-                token: uuid::Uuid::new_v4().to_string(),
-                caller,
-                session: None,
-                file: None,
-            };
+            *entry = Credential::new(caller);
         }
-        if entry.session.is_none() && attested {
-            entry.session = current_session.map(str::to_owned);
-        }
+        entry.attest(current_session, attested);
         entry.token.clone()
     }
 
@@ -176,25 +186,23 @@ impl TabCredentials {
         }) else {
             return false;
         };
-        if let Some(session) = &credential.session {
-            let matches = Some(session.as_str()) == current;
-            if !matches {
-                let tab_id = tab_id.clone();
-                credentials.remove(&tab_id);
-                self.1.lock().remove(&tab_id);
-            }
-            return matches;
+        if !credential.matches_session(current) {
+            let tab_id = tab_id.clone();
+            credentials.remove(&tab_id);
+            self.1.lock().remove(&tab_id);
+            return false;
         }
-        if attested {
-            credential.session = current.map(str::to_owned);
-        }
+        credential.attest(current, attested);
         true
     }
 
     fn session_changed(&self, tab_id: &str, next: Option<&str>) {
         let mut credentials = self.0.lock();
         if let Some(credential) = credentials.get_mut(tab_id) {
-            if credential.session.is_some() || next.is_none() {
+            if credential.session.is_some()
+                || credential.unused_runtime_thread.is_some()
+                || next.is_none()
+            {
                 credentials.remove(tab_id);
                 self.1.lock().remove(tab_id);
             } else {
@@ -226,6 +234,34 @@ impl TabCredentials {
 }
 
 impl super::ServiceContext {
+    pub(crate) fn start_unused_runtime_thread_credential(&self, caller: TabCaller, thread: &str) {
+        let mut credentials = self.tab_credentials.0.lock();
+        let mut credential = Credential::new(caller);
+        credential.unused_runtime_thread = Some(thread.into());
+        self.tab_credentials
+            .1
+            .lock()
+            .remove(&credential.caller.tab_id);
+        credentials.insert(credential.caller.tab_id.clone(), credential);
+    }
+
+    pub(crate) fn settle_unused_runtime_thread_credential(
+        &self,
+        tab: &crate::multiplexer::types::Tab,
+        resumed_thread: Option<&str>,
+    ) {
+        if let Some(credential) = self.tab_credentials.0.lock().get_mut(&tab.id) {
+            let thread = tab.agent_session_id.as_deref();
+            if credential.unused_runtime_thread.is_some()
+                && credential.unused_runtime_thread.as_deref() == thread
+                && tab.session_binding_nonce.as_ref() == Some(&credential.caller.binding_nonce)
+            {
+                credential.unused_runtime_thread = None;
+                credential.session = resumed_thread.map(str::to_owned);
+            }
+        }
+    }
+
     pub(crate) fn runtime_credential_file(
         &self,
         tab_id: &str,

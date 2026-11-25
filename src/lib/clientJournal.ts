@@ -1,8 +1,12 @@
 import { baseDaemonTransport } from "./daemonBootstrap";
 
+export type ChatViewportCause = "scroll" | "reveal" | "restore" | "hold" | "pin";
+
 type ClientHealth = {
-  event: "connection-lost" | "connection-restored" | "chat-connect-slow" | "preview-slow" | "preview-failed";
+  event: "connection-lost" | "connection-restored" | "chat-connect-slow" | "preview-slow" | "preview-failed"
+    | "chat-viewport-detached" | "chat-newer-revealed";
   elapsedMs: number;
+  cause?: ChatViewportCause;
   tabId?: string;
   listenerMs?: number;
   responseMs?: number;

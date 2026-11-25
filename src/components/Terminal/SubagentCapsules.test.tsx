@@ -12,13 +12,13 @@ it("lists every internal child with its harness label and transcript access", as
   const inspect=vi.fn();
   const items:ComposerBackgroundWorkItem[]=Array.from({length:5},(_,index)=>({id:String(index),kind:"agent",name:`Worker ${index}`,threadId:`child-${index}`,transcriptThreadId:`child-${index}`,startedAtMs:0,elapsed:"20s",status:"running",model:"fixture"}));
   try {
-    await act(async()=>root.render(<AgentInspectionProvider onInspect={inspect}><ComposerBackgroundWorkPanel items={items} onStop={async()=>{}} internalAgentLabel="Internal agent of Fixture Harness" /></AgentInspectionProvider>));
-    const first=host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 0, Internal agent of Fixture Harness"]')!;
+    await act(async()=>root.render(<AgentInspectionProvider onInspect={inspect}><ComposerBackgroundWorkPanel items={items} onStop={async()=>{}} internalAgentLabel="Sub-agent of Fixture Harness" /></AgentInspectionProvider>));
+    const first=host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 0, Sub-agent of Fixture Harness"]')!;
     expect(first).not.toBeNull();
     await act(async()=>first.click());
     expect(inspect).toHaveBeenCalledExactlyOnceWith("child-0");
     expect(host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(5);
-    await act(async()=>host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 4, Internal agent of Fixture Harness"]')!.click());
+    await act(async()=>host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 4, Sub-agent of Fixture Harness"]')!.click());
     expect(inspect).toHaveBeenLastCalledWith("child-4");
   } finally { await act(async()=>root.unmount()); }
 });
@@ -30,7 +30,7 @@ it("keeps stop single-flight, displays refusal, and retains details behind expan
   let rejectStop!:(reason:Error)=>void;
   const stop=vi.fn(()=>new Promise<void>((_,reject)=>{rejectStop=reject;}));
   try {
-    await act(async()=>root.render(<ComposerBackgroundWorkPanel items={[item]} onStop={stop} internalAgentLabel="Internal agent of Fixture Harness" />));
+    await act(async()=>root.render(<ComposerBackgroundWorkPanel items={[item]} onStop={stop} internalAgentLabel="Sub-agent of Fixture Harness" />));
     expect(host.querySelector('[role="region"]')).toBeNull();
     const stopButton=host.querySelector<HTMLButtonElement>('button[aria-label="Stop fixture.ps1"]')!;
     await act(async()=>{stopButton.click();stopButton.click();});
@@ -40,7 +40,7 @@ it("keeps stop single-flight, displays refusal, and retains details behind expan
     await act(async()=>rejectStop(new Error("fixture refusal")));
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
     expect(stopButton.disabled).toBe(false);
-    const details=host.querySelector<HTMLButtonElement>('button[aria-label="Details for fixture.ps1"]')!;
+    const details=host.querySelector<HTMLButtonElement>('button[aria-label="View output for fixture.ps1"]')!;
     await act(async()=>details.click());
     expect(host.querySelector('[role="region"] code')?.textContent).toBe(item.command);
     expect(host.querySelector('[role="region"] pre')?.textContent).toBe(item.outputTail);
@@ -53,7 +53,7 @@ it("discloses the full task only on request while keeping transcript inspection 
   const inspect = vi.fn();
   const item: ComposerBackgroundWorkItem = { id: "child", kind: "agent", name: "Task fixture", threadId: "child", transcriptThreadId: "child", startedAtMs: 0, elapsed: "", prompt: "Opaque first paragraph\n\nOpaque second paragraph", model: "fixture" };
   try {
-    await act(async () => root.render(<AgentInspectionProvider onInspect={inspect}><ComposerBackgroundWorkPanel items={[item]} onStop={async () => {}} internalAgentLabel="Internal agent of Fixture Harness" /></AgentInspectionProvider>));
+    await act(async () => root.render(<AgentInspectionProvider onInspect={inspect}><ComposerBackgroundWorkPanel items={[item]} onStop={async () => {}} internalAgentLabel="Sub-agent of Fixture Harness" /></AgentInspectionProvider>));
     const disclosure = host.querySelector<HTMLButtonElement>('button[aria-label="Task details for Task fixture"]');
     expect(disclosure).not.toBeNull();
     expect(disclosure!.getAttribute("aria-expanded")).toBe("false");

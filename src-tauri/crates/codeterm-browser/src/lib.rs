@@ -24,6 +24,7 @@ use screencast::{
 };
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, watch};
@@ -114,9 +115,18 @@ pub struct BrowserHost {
     lifecycle: Arc<tokio::sync::Mutex<()>>,
     runtime: Arc<Mutex<Option<Arc<Runtime>>>>,
     pending_termination: Mutex<Option<Arc<BrowserProcess>>>,
+    retired: AtomicBool,
+    launch_error: Mutex<Option<String>>,
     viewport: Arc<Mutex<ViewportModel>>,
     resizes: Arc<tokio::sync::Mutex<resize::Coordinator>>,
     frames: Arc<FrameHub>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BrowserStatus {
+    Closed,
+    Running,
+    Error(String),
 }
 
 impl BrowserHost {
@@ -127,6 +137,8 @@ impl BrowserHost {
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             runtime: Arc::new(Mutex::new(None)),
             pending_termination: Mutex::new(None),
+            retired: AtomicBool::new(false),
+            launch_error: Mutex::new(None),
             viewport: Arc::new(Mutex::new(ViewportModel::new(ViewportMode::Owned, initial))),
             resizes: Arc::new(tokio::sync::Mutex::new(resize::Coordinator::default())),
             frames: FrameHub::new(ScreencastParams::new(initial)),
@@ -148,6 +160,7 @@ impl BrowserHost {
             model.current()
         };
         let runtime = Arc::new(runtime);
+        self.launch_error.lock().take();
         *self.runtime.lock() = Some(runtime.clone());
         self.frames.set_params(ScreencastParams::new(viewport));
         runtime
@@ -184,6 +197,7 @@ impl BrowserHost {
 
     /// Daemon exit: like `shutdown`, but Chromium gets only `graceful` to flush before the kill.
     pub async fn shutdown_within(&self, graceful: Duration) -> Option<CloseOutcome> {
+        self.retire();
         let outcome = {
             let _lifecycle = self.lifecycle.lock().await;
             self.stop_current_within(graceful).await
@@ -203,7 +217,8 @@ impl BrowserHost {
             viewport,
             self.frames.clone(),
         )
-        .await?;
+        .await
+        .inspect_err(|error| *self.launch_error.lock() = Some(error.clone()))?;
         Ok(self.install(runtime))
     }
 
@@ -223,6 +238,7 @@ impl BrowserHost {
         exclusive: bool,
     ) -> Result<OpenedBrowser, String> {
         let _lifecycle = self.lifecycle.lock().await;
+        self.ensure_open()?;
         let wanted = ProfileKind::from_request(&options.profile);
         let current = self.current();
         let plan = plan_open(
@@ -251,8 +267,11 @@ impl BrowserHost {
     /// Drive an existing CDP endpoint (e.g. a WebView2 app) instead of launching; never resizes it.
     pub async fn attach(&self, http_base: &str) -> Result<OpenedBrowser, String> {
         let _lifecycle = self.lifecycle.lock().await;
+        self.ensure_open()?;
         close_result(self.stop_current().await).map_err(|error| error.to_string())?;
-        let runtime = runtime::attach(http_base, self.frames.clone()).await?;
+        let runtime = runtime::attach(http_base, self.frames.clone())
+            .await
+            .inspect_err(|error| *self.launch_error.lock() = Some(error.clone()))?;
         let runtime = self.install(runtime);
         Ok(OpenedBrowser::from_runtime(&runtime, false))
     }
@@ -260,19 +279,63 @@ impl BrowserHost {
     /// Graceful close (Browser.close flushes cookies), then kill; viewers stay subscribed.
     pub async fn close(&self) -> Option<CloseOutcome> {
         let _lifecycle = self.lifecycle.lock().await;
+        self.launch_error.lock().take();
         self.stop_current().await
     }
 
     /// Owner or Team teardown: close the browser and end every frame subscription.
     pub async fn shutdown(&self) -> Option<CloseOutcome> {
-        let outcome = self.close().await;
-        self.frames.close();
-        outcome
+        self.shutdown_within(CLOSE_DEADLINE).await
+    }
+
+    pub fn retire(&self) {
+        self.retired.store(true, Ordering::Release);
+    }
+
+    fn ensure_open(&self) -> Result<(), String> {
+        if self.retired.load(Ordering::Acquire) {
+            return Err("browser surface is closed".into());
+        }
+        Ok(())
+    }
+
+    pub fn status(&self) -> BrowserStatus {
+        if let Some(runtime) = self.current() {
+            if let Some(exit) = runtime
+                .process
+                .as_ref()
+                .and_then(|process| process.exit_status())
+            {
+                return BrowserStatus::Error(match exit.code {
+                    Some(code) => format!("Chromium exited with code {code}"),
+                    None => "Chromium exited".into(),
+                });
+            }
+            if let Some(reason) = runtime.client.close_reason() {
+                return BrowserStatus::Error(reason);
+            }
+            return BrowserStatus::Running;
+        }
+        if self
+            .pending_termination
+            .lock()
+            .as_ref()
+            .is_some_and(|process| process.exit_status().is_none())
+        {
+            return BrowserStatus::Error(
+                process::termination::TerminationFailure::ExitUnconfirmed.to_string(),
+            );
+        }
+        match self.launch_error.lock().clone() {
+            Some(error) => BrowserStatus::Error(error),
+            None => BrowserStatus::Closed,
+        }
     }
 
     /// Relaunch under `name` (`""` = clean) and reopen the current web page there.
     pub async fn use_profile(&self, name: &str) -> Result<OpenedBrowser, String> {
         let _lifecycle = self.lifecycle.lock().await;
+        self.ensure_open()?;
         let wanted = ProfileKind::from_request(name);
         let current = self.current();
         if let Some(runtime) = &current {

@@ -151,6 +151,8 @@ fn place_surface_tab(
     let owner_id = choose_owner(explicit_owner.as_deref(), caller).map(str::to_string);
     let owner = match owner_id.as_deref() {
         Some(id) => {
+            mux.ensure_tab_membership_mutable(id)
+                .map_err(SurfaceError::Placement)?;
             let owner = mux
                 .get_tab(id)
                 .ok_or_else(|| SurfaceError::OwnerNotFound(id.to_string()))?;

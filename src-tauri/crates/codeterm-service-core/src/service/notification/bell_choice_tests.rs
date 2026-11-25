@@ -38,7 +38,7 @@ fn bell_choice_reaches_the_asking_tab_once() {
             received
                 .lock()
                 .push((tab.to_string(), envelope, body.to_string()));
-            Ok(())
+            answer_delivery::AnswerHandoff::Confirmed
         });
     }
     let received = received.lock();

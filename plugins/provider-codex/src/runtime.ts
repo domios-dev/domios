@@ -14,13 +14,14 @@ import { loginFailureReason, loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
 import {resetCredits, resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
+import { modelRefusal } from "./modelRefusal";
 import {backgroundOwns, backgroundPlan, backgroundResponse} from "./runtimeBackground";
 import { interruptTargets } from "./runtimeInterrupt";
 import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsSplitWindowsRoots, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexManagedMxcRefusal, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsSplitWindowsRoots, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexManagedMxcRefusal, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions, codexNeighborReplyMcpConfig, codexNeighborReadInstructions } from "./runtimeSettings";
 import { modelServiceTiers, serviceTierSelection, tierAvailable } from "./runtimeServiceTiers";
 export { runtimeReduce } from "./runtimeReduce";
 
@@ -32,10 +33,10 @@ function request(method: string, params: unknown, state: unknown = {stage:method
   return {action:{kind:"request",call:{method,params:json(params),...(target ? {target} : {})}},state:json(state)};
 }
 function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string, windowsSandbox?: "mxc"): Record<string,unknown> {
-  instructions = codexRestrictedCliInstructions(ctx,instructions);
+  instructions = codexNeighborReadInstructions(ctx,codexRestrictedCliInstructions(ctx,instructions));
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
-  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:{...codexThreadConfig(settings,ctx.hostOwned),...codexRestrictedCliConfig(ctx),...(windowsSandbox ? {"windows.sandbox":windowsSandbox} : {})},
+  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:{...codexThreadConfig(settings,ctx.hostOwned),...codexRestrictedCliConfig(ctx),...codexNeighborReplyMcpConfig(ctx),...(windowsSandbox ? {"windows.sandbox":windowsSandbox} : {})},
     ...(policies.runtimeWorkspaceRoots ? {runtimeWorkspaceRoots:policies.runtimeWorkspaceRoots} : {}),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
@@ -220,6 +221,12 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
     return pagedHistoryResponse(op,state,reply);
   }
   if (reply.kind === "error") {
+    const model = (op.kind === "openThread" && state.stage === "thread/start"
+      || op.kind === "resumeThread" && state.stage === "thread/resume"
+      || op.kind === "submitTurn" && state.stage === "turn/start") ? op.settings.model : undefined;
+    const refusal = model && modelRefusal(reply.error, model);
+    if (refusal && refusal.model === model)
+      return {kind:"refused",reason:{code:"model_unavailable",message:refusal.message},beforeAcceptance:true};
     if ((op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume")
       && state.windowsSandbox === "mxc" && codexNeedsSplitWindowsRoots(ctx) && codexManagedMxcRefusal(reply.error))
       return continuation(threadPlan(ctx,op,undefined,state.unarchived === true));

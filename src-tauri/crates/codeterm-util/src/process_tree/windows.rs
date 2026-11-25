@@ -103,6 +103,14 @@ pub struct OwnedProcessTree(Vec<OwnedHandle>);
 
 impl OwnedProcessTree {
     pub fn capture(root: (u32, u64), images: &[PathBuf]) -> io::Result<Self> {
+        Self::capture_tree(root, images, false)
+    }
+
+    pub fn capture_including_root(root: (u32, u64), images: &[PathBuf]) -> io::Result<Self> {
+        Self::capture_tree(root, images, true)
+    }
+
+    fn capture_tree(root: (u32, u64), images: &[PathBuf], include_root: bool) -> io::Result<Self> {
         let table = process_table()?;
         if !is_owned_descendant(root, root, images, &table) {
             return Err(io::Error::other(
@@ -111,7 +119,9 @@ impl OwnedProcessTree {
         }
         let mut handles = Vec::new();
         for (&pid, process) in &table {
-            if pid == root.0 || !is_owned_descendant(root, (pid, process.created), images, &table) {
+            if (!include_root && pid == root.0)
+                || !is_owned_descendant(root, (pid, process.created), images, &table)
+            {
                 continue;
             }
             let handle = match open(

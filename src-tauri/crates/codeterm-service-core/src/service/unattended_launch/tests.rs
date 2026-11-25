@@ -41,6 +41,52 @@ fn rule(command: &str) -> String {
 }
 
 #[test]
+fn full_access_transcript_router_still_requires_a_roleless_local_runtime() {
+    let registry = AgentRegistry::new();
+    let runtime = serde_json::from_value(serde_json::json!({
+        "runtime": "stdio-jsonrpc",
+        "command": { "binary": "fixture", "args": [] },
+        "requestMethods": {},
+        "notificationMethods": [],
+    }))
+    .unwrap();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new(PROVIDER).with_agent_runtime(runtime),
+    ));
+    let router = UnattendedLaunch {
+        provider_id: PROVIDER,
+        purpose: LaunchPurpose::TranscriptRouter,
+        full_access: true,
+        ..Default::default()
+    };
+    assert!(preflight(&registry, &router).is_ok());
+    assert!(preflight(
+        &registry,
+        &UnattendedLaunch {
+            role: Some("Worker"),
+            ..router
+        }
+    )
+    .is_err());
+    assert!(preflight(
+        &registry,
+        &UnattendedLaunch {
+            has_task: true,
+            ..router
+        }
+    )
+    .is_err());
+    assert!(preflight(
+        &registry,
+        &UnattendedLaunch {
+            provider_id: "missing",
+            ..router
+        }
+    )
+    .is_err());
+}
+
+#[test]
 fn role_launch_requires_unattended_codeterm_capability() {
     let registry = registry(Some(capability(true)));
 

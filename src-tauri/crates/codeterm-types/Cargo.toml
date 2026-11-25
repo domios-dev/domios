@@ -11,6 +11,7 @@ codeterm-notify-types = { path = "../codeterm-notify-types" }
 codeterm-team-package = { path = "../codeterm-team-package" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+quick-xml = "0.37"
 toml = "0.8"
 ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 uuid = { version = "1", features = ["v4", "serde"] }

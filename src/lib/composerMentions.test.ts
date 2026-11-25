@@ -5,7 +5,8 @@ import { taskMentionSource } from "./mentionSources/tasks";
 import { planMentionSource } from "./mentionSources/plans";
 import { blueprintMentionSource } from "./mentionSources/blueprints";
 import { fileMentionSource } from "./mentionSources/files";
-import { projectIdentity } from "./mentionSources/scope";
+import { mentionScopeForTab, projectIdentity } from "./mentionSources/scope";
+import { projectAttachedRemoteTab } from "./remoteTabPortal";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../components/Canvas/cards/fixtures.testdata";
 import { fixtureGraph, fixtureNode } from "../components/Automation/fixtures.testdata";
 import type { Plan, Task } from "../components/Canvas/types";
@@ -124,10 +125,48 @@ test("file-name prefixes and title substrings precede description matches across
   assert.equal(result[1].insertText, formatAttachmentMarker("/project1/README.md"));
 });
 test("same workspace precedes others for non-Team callers and mesh is labelled", async () => {
-  const mesh = { ...tabs.far, id: "mesh:peer:far", remote_peer_id: "peer", remote_peer_name: "Remote" };
-  const result = await createMentionRegistry([tabMentionSource(() => ({ tabs: { ...tabs, mesh }, workspaces }))]).search("co", { ...ctx, scope: { ...ctx.scope, teamId: null } });
+  const mesh = projectAttachedRemoteTab(tabs.far, { peer_id: "peer", peer_name: "Remote" }, "ws1");
+  const result = await createMentionRegistry([tabMentionSource(() => ({ tabs: { ...tabs, [mesh.id]: mesh }, workspaces }))]).search("co", { ...ctx, scope: { ...ctx.scope, teamId: null } });
   assert.equal(result[result.length - 1]?.group, "Tabs · Mesh");
   assert.equal(result[0].group, "Tabs · Other Teams");
+});
+test("colliding Vela names and tab ids follow the composing machine", async () => {
+  const vela = tab("vela-id", "design", "ws1", "Vela");
+  const composer = tab("elgar", "dev", "remote-ws", "Elgar");
+  const host = { peer_id: "blackstar", peer_name: "BLACKSTAR" };
+  const remoteVela = projectAttachedRemoteTab({ ...vela, team_id: "dev", workspace_id: "remote-ws" }, host, "ws1");
+  const remoteComposer = projectAttachedRemoteTab(composer, host, "ws1");
+  const competing = projectAttachedRemoteTab({ ...vela, title: "Vel", team_id: "dev" },
+    { peer_id: "mac", peer_name: "DomiosMac" }, "ws1");
+  const scopedTabs: Record<string, Tab> = { ...tabs, [vela.id]: vela, [remoteVela.id]: remoteVela, [remoteComposer.id]: remoteComposer, [competing.id]: competing };
+  const state = {
+    tabs: scopedTabs,
+    workspaces,
+    peerWorkspaces: [{
+      peerId: host.peer_id,
+      workspace: { ...workspaces[0], id: "remote-ws", name: "Remote workspace", tabs: [composer.id, vela.id] },
+      teams: [],
+      tabs: [],
+    }],
+  };
+  const registry = createMentionRegistry([tabMentionSource(() => state)]);
+  const search = (partial: string, ownerId: string) =>
+    registry.search(partial, { ...ctx, scope: mentionScopeForTab(state, ownerId, state.peerWorkspaces) });
+  for (const query of ["vel", "Vela"]) {
+    const [local, ...matches] = await search(query, "self");
+    assert.equal(local.id, "tabs:vela-id");
+    assert.equal(local.group, "Tabs · Other Teams");
+    assert.equal(local.insertText, '<domios type="tab" id="vela-id" />');
+    const other = matches.find(row => row.id === `tabs:${remoteVela.id}`);
+    assert.deepEqual(other?.machine, { id: "blackstar", name: "BLACKSTAR" });
+    assert.equal(other?.insertText, '<domios type="tab" id="mesh:blackstar/vela-id" />');
+  }
+  const [remote] = await search("vel", remoteComposer.id);
+  assert.equal(remote.id, "tabs:mesh:blackstar/vela-id");
+  assert.equal(remote.group, "Tabs · Team");
+  assert.equal(remote.insertText, '<domios type="tab" id="mesh:blackstar/vela-id" />');
+  state.tabs[remoteComposer.id] = { ...remoteComposer, remote_team_id: "renamed-team" };
+  assert.equal((await search("Vela", remoteComposer.id))[0].group, "Tabs · Other Teams");
 });
 test("workspace and Other Teams groups remain contiguous across agents and shells", async () => {
   const mixed = { alpha: tab("alpha", null, "ws1", "Alpha"), beta: tab("beta", "team2", "ws1", "Beta"), gamma: tab("gamma", null, "ws1", "Gamma", false) };
@@ -195,6 +234,21 @@ test("dictation is an action and leaves the text beyond the caret outside its qu
   assert.equal(composerActions("dicta")[0]?.kind, "action");
   assert.deepEqual(composerActionQuery("hello@dictasuffix", 11, 11), { start: 5, end: 11, partial: "dicta" });
   assert.equal(composerActionQuery("hello@dictionary", 16, 16), null);
+});
+test("fast mention sources publish progressively via onUpdate while slower sources are pending", async () => {
+  let resolveSlow!: (rows: ComposerMention[]) => void;
+  const seen: string[][] = [];
+  const registry = createMentionRegistry([
+    { id: "fast", group: "Tabs", search: async () => [row("Pasteur", { match: 1 })] },
+    { id: "slow", group: "Plans", search: () => new Promise<ComposerMention[]>((resolve) => { resolveSlow = resolve; }) },
+  ]);
+  const pending = registry.search("pas", { ...ctx, onUpdate: (rows) => { seen.push(rows.map((r) => r.label)); } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(seen, [["Pasteur"]]);
+  resolveSlow([row("Pasteur Plan", { match: 1 })]);
+  const final = await pending;
+  assert.deepEqual(final.map((r) => r.label), ["Pasteur", "Pasteur Plan"]);
 });
 async function main() { for (const [name, fn] of tests) { await fn(); console.log(`PASS ${name}`); } console.log(`${tests.length} tests passed`); }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

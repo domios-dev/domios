@@ -6,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use codeterm_service_core::service::agent_runtime::login::{operate, LoginRequest};
+use codeterm_service_core::service::background_work::{self, BackgroundWorkTarget};
 
 pub(super) async fn tab_usage(
     State(state): State<AppState>,
@@ -54,6 +55,61 @@ pub(super) async fn stop_background_process(
     .await
     .map(Json)
     .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
+async fn provider_background_output(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    axum::extract::Query(target): axum::extract::Query<BackgroundWorkTarget>,
+) -> Result<
+    Json<codeterm_service_core::service::local_preview::html_preview::LocalPreviewFile>,
+    (StatusCode, String),
+> {
+    require_background_work_authority(&state, &headers)?;
+    background_work_action(move || {
+        let configured = state.config.lock().api.preview_secret_paths.clone();
+        background_work::read_output(&state.svc, &tab, &configured, &target)
+    })
+    .await
+}
+
+async fn ask_provider_to_stop_background_work(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    Json(target): Json<BackgroundWorkTarget>,
+) -> Result<Json<&'static str>, (StatusCode, String)> {
+    require_background_work_authority(&state, &headers)?;
+    background_work_action(move || background_work::ask_stop(&state.svc, &tab, target)).await
+}
+
+fn require_background_work_authority(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, String)> {
+    match crate::auth::RequestActor::authenticate(state, headers)? {
+        crate::auth::RequestActor::Owner | crate::auth::RequestActor::Peer => Ok(()),
+        _ => Err((
+            StatusCode::FORBIDDEN,
+            "Background process controls require the owner".into(),
+        )),
+    }
+}
+
+async fn background_work_action<T: Send + 'static>(
+    action: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<Json<T>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(action)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Background process operation failed".to_string(),
+            )
+        })?
+        .map(Json)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
 pub(super) async fn child_history(
@@ -260,6 +316,10 @@ pub(super) fn router() -> Router<AppState> {
         .route(
             "/api/tabs/{id}/agent/runtime/background-processes",
             get(background_processes).post(stop_background_process),
+        )
+        .route(
+            "/api/tabs/{id}/agent/background-work",
+            get(provider_background_output).post(ask_provider_to_stop_background_work),
         )
 }
 

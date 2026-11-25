@@ -1,6 +1,8 @@
 use super::{close, started};
 use crate::cron::clock;
-use crate::cron::store::{CronCreateParams, CronRunStatus, CronStorageOptions, CronStore};
+use crate::cron::store::{
+    CronCreateParams, CronRunInfo, CronRunStatus, CronStorageOptions, CronStore,
+};
 use crate::plugin::js_runtime::{JsProvider, PluginVm};
 use crate::service::spawn::TabHandle;
 use crate::service::ServiceContext;
@@ -37,7 +39,7 @@ fn cron_for(
     )
     .expect("startup hydrates cron from Storage");
     let cron = Arc::new(Mutex::new(store));
-    let wake = Arc::new(std::sync::Condvar::new());
+    let wake = crate::CronWake::default();
     assert!(service.set_ext(cron.clone()).is_ok());
     assert!(service.set_ext(wake.clone()).is_ok());
     (cron, wake)
@@ -152,22 +154,15 @@ fn install_cron_transcript_provider(service: &ServiceContext, transcript: &Path)
         .register_provider(Box::new(JsProvider::new(manifest, vm)));
 }
 
-#[test]
-fn cron_run_start_finish_and_history_round_trip_expected_pass() {
-    let root = tempfile::tempdir().unwrap();
-    let instance = started(root.path());
-    let service = &instance.fixture.service;
-    let workspace_id = service.mux.read().list_workspaces()[0].id.clone();
-    let (cron, wake) = cron_for(service, &instance.storage, root.path());
-    let created = service
-        .cron_create(&cron, &wake, cron_params(root.path(), workspace_id.clone()))
-        .expect("create cron through ServiceContext");
-    let transcript = root.path().join("cron-session.jsonl");
-    let mut writer = std::fs::File::create(&transcript).unwrap();
-    install_cron_transcript_provider(service, &transcript);
-    let run = service
-        .cron_trigger_with_spawn(&cron, &created.id, |spec| {
-            let history = service.cron_history(&cron, &created.id)?;
+fn trigger_hidden_cron(
+    service: &ServiceContext,
+    cron: &crate::CronState,
+    job_id: &str,
+    workspace_id: String,
+) -> CronRunInfo {
+    service
+        .cron_trigger_with_spawn(cron, job_id, |spec| {
+            let history = service.cron_history(cron, job_id)?;
             assert_eq!(history.len(), 1);
             assert_eq!(history[0].status, CronRunStatus::Running);
             assert!(history[0].tab_id.is_none());
@@ -187,7 +182,7 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
                 service,
                 pty_id.clone(),
                 tab_id.clone(),
-                created.id.clone(),
+                job_id.into(),
                 run_id,
             )?;
             Ok(TabHandle {
@@ -202,19 +197,129 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
                 budget_notice: None,
             })
         })
-        .expect("trigger cron through ServiceContext");
+        .expect("trigger cron through ServiceContext")
+}
+
+#[test]
+fn cron_complete_accepts_sessionless_hidden_run_owner() {
+    for oneshot in [true, false] {
+        let root = tempfile::tempdir().unwrap();
+        let instance = started(root.path());
+        let service = &instance.fixture.service;
+        let workspace_id = service.mux.read().list_workspaces()[0].id.clone();
+        let (cron, wake) = cron_for(service, &instance.storage, root.path());
+        let mut params = cron_params(root.path(), workspace_id.clone());
+        params.detach_from_team = true;
+        params.enabled = Some(true);
+        params.oneshot = Some(oneshot);
+        if oneshot {
+            params.schedule = "in 1m".into();
+        }
+        let job = service.cron_create(&cron, &wake, params).unwrap();
+        assert!(job.team_id.is_none());
+        let foreign_tab = service.mux.write().create_tab(&workspace_id).unwrap();
+        let foreign_nonce = service.ensure_session_binding_nonce(&foreign_tab);
+        let run = trigger_hidden_cron(service, &cron, &job.id, workspace_id);
+        let tab_id = run.tab_id.as_deref().unwrap();
+        let nonce = {
+            let mux = service.mux.read();
+            let tab = mux.get_tab(tab_id).unwrap();
+            assert!(tab.hidden);
+            assert!(tab.agent_session_id.is_none());
+            tab.session_binding_nonce.clone().unwrap()
+        };
+        assert!(run.session_id.is_none());
+
+        let complete = |caller, nonce, human_confirmed| {
+            service.cron_complete(
+                &cron,
+                &wake,
+                &run.run_id,
+                Some("finished"),
+                caller,
+                nonce,
+                human_confirmed,
+            )
+        };
+        for (caller, credential) in [
+            (foreign_tab.as_str(), foreign_nonce.as_str()),
+            (foreign_tab.as_str(), nonce.as_str()),
+            (tab_id, foreign_nonce.as_str()),
+        ] {
+            assert_eq!(
+                complete(Some(caller), Some(credential), false).err(),
+                Some(format!(
+                    "Only the owning Tab or a human caller may complete cron run {}",
+                    run.run_id
+                ))
+            );
+        }
+        assert_eq!(
+            service.cron_history(&cron, &job.id).unwrap()[0].status,
+            CronRunStatus::Running
+        );
+        let (changed_tx, changed_rx) = std::sync::mpsc::channel();
+        let listener = instance.fixture.ui.listen("cron-run-finished", move |_| {
+            let _ = changed_tx.send(());
+        });
+        let release = complete(Some(tab_id), Some(&nonce), false)
+            .expect("the launch credential authorizes an explicit completion")
+            .expect("hidden PTY cleanup waits until the completion response");
+        assert!(service.mux.read().get_tab(tab_id).is_some());
+        release.finish().expect("finish owned run cleanup");
+        assert!(service.mux.read().get_tab(tab_id).is_none());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while service.run_watcher.cron_job_finalizing(&job.id) {
+            changed_rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("finish report settlement and release the job");
+        }
+        instance.fixture.ui.unlisten(listener);
+        let history = service.cron_history(&cron, &job.id).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, CronRunStatus::Success);
+        assert_eq!(history[0].summary.as_deref(), Some("finished"));
+        assert!(history[0].session_id.is_none());
+        if !oneshot {
+            let store = cron.lock();
+            let job = store.get(&job.id).unwrap();
+            assert!(job.enabled);
+            assert_eq!(job.consecutive_failures, 0);
+            let occurrence = job.occurrence().unwrap();
+            assert_eq!(
+                occurrence.decision(
+                    occurrence.due_at,
+                    job.oneshot,
+                    store.job_has_active_run(job)
+                ),
+                codeterm_cron::occurrence::FireDecision::Fire { late_by_ms: None }
+            );
+        }
+        drop(cron);
+        drop(wake);
+        close(instance);
+    }
+}
+
+#[test]
+fn cron_run_start_finish_and_history_round_trip_expected_pass() {
+    let root = tempfile::tempdir().unwrap();
+    let instance = started(root.path());
+    let service = &instance.fixture.service;
+    let workspace_id = service.mux.read().list_workspaces()[0].id.clone();
+    let (cron, wake) = cron_for(service, &instance.storage, root.path());
+    let created = service
+        .cron_create(&cron, &wake, cron_params(root.path(), workspace_id.clone()))
+        .expect("create cron through ServiceContext");
+    let transcript = root.path().join("cron-session.jsonl");
+    let mut writer = std::fs::File::create(&transcript).unwrap();
+    install_cron_transcript_provider(service, &transcript);
+    let run = trigger_hidden_cron(service, &cron, &created.id, workspace_id);
     let tab_id = run
         .tab_id
         .as_deref()
         .expect("trigger returned the owning tab");
     let nonce = service.ensure_session_binding_nonce(tab_id);
-    assert_eq!(
-        service
-            .cron_complete(&cron, &wake, &run.run_id, Some("early"), None, None, true)
-            .err()
-            .as_deref(),
-        Some("cron session missing")
-    );
     service.set_agent_session_id(tab_id, Some(SESSION.into()));
 
     let complete = |summary, nonce| {

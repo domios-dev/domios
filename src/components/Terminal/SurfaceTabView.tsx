@@ -132,20 +132,22 @@ export function SurfaceTabView({
 }: SurfaceTabViewProps) {
   const label = surfaceDisplayLabel(tab.title, backing, ownerName);
   const plan = surfaceRenderPlan(decl, isVisible);
+  const streamOwner = ownerName?.trim() || (tab.parent_tab_id == null ? "User" : null);
+  const headerOwner = plan.kind === "stream" ? streamOwner : ownerName;
   const SurfaceGlyph = surfaceIconComponent(decl.status === "ready" ? decl.declared : null, { pluginId: backing.plugin_id, surfaceId: backing.surface_id });
   return (
     <section aria-label={label} className="flex h-full w-full flex-col bg-[var(--ct-bg)]">
       <header className="ct-jobs-header flex h-8 shrink-0 items-center gap-2 px-3 text-xs text-[var(--ct-fg)]">
         <nav aria-label="Surface breadcrumb" data-testid="surface-breadcrumb" className="flex min-w-0 flex-1 items-center gap-1.5">
-          {ownerName && (
+          {headerOwner && (
             <>
-              <OwnerChip ownerName={ownerName} ownerTab={ownerTab} onFocusOwner={onFocusOwner} />
+              <OwnerChip ownerName={headerOwner} ownerTab={ownerTab} onFocusOwner={onFocusOwner} />
               <span aria-hidden="true" className="shrink-0 text-[var(--ct-muted)]">›</span>
             </>
           )}
           <span data-testid="surface-crumb" className="flex min-w-0 items-center gap-1.5">
             <SurfaceGlyph data-testid="surface-crumb-icon" size={13} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />
-            <span className="min-w-0 truncate font-medium">{ownerName ? tab.title : label}</span>
+            <span className="min-w-0 truncate font-medium">{headerOwner ? tab.title : label}</span>
             <SurfaceActorTag surfaceTabId={tab.id} />
           </span>
         </nav>
@@ -161,9 +163,13 @@ export function SurfaceTabView({
             surface={pluginViewSurface(tab.id, backing)}
           />
         )}
-        {plan.kind === "stream" && (
-          <StreamSurfaceBody visible={plan.live} tab={tab} api={api} ownerName={ownerName} chrome={plan.chrome} createTransport={createTransport} />
-        )}
+        {plan.kind === "stream" && (streamOwner ? (
+          <StreamSurfaceBody key={backing.instance_id} visible={plan.live} tab={tab} api={api} ownerName={streamOwner} chrome={plan.chrome} createTransport={createTransport} />
+        ) : (
+          <div role="status" className="flex h-full items-center justify-center p-4 text-sm text-[var(--ct-muted-fg)]">
+            Surface owner unavailable
+          </div>
+        ))}
         {plan.kind === "unavailable" && <SurfaceUnavailable title={tab.title || backing.surface_id} error={plan.error} onRetry={onRetry} />}
         {plan.kind === "unsupported" && (
           <InlineErrorNotice error={plan.message} operation="opening this surface" blocking />

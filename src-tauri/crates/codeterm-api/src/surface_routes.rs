@@ -39,6 +39,7 @@ fn surface_refusal(error: SurfaceError) -> Refusal {
         | SurfaceError::TabNotFound(_) => StatusCode::NOT_FOUND,
         SurfaceError::ViewUnavailable(_)
         | SurfaceError::Placement(_)
+        | SurfaceError::Blocked(_)
         | SurfaceError::TerminationFailed(_)
         | SurfaceError::NotAStreamSurface(_)
         | SurfaceError::RuntimeUnavailable(_) => StatusCode::CONFLICT,
@@ -91,9 +92,20 @@ pub(crate) struct SurfaceCloseRequest {
 
 pub(crate) async fn close(
     AxumState(state): AxumState<AppState>,
+    axum::Extension(identity): axum::Extension<crate::auth::CallerIdentity>,
     headers: HeaderMap,
     Json(request): Json<SurfaceCloseRequest>,
 ) -> RouteResult {
+    if !matches!(
+        identity,
+        crate::auth::CallerIdentity::Local | crate::auth::CallerIdentity::Tab(_)
+    ) {
+        return Err(refusal(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "Surface close requires a local caller",
+        ));
+    }
     let caller = crate::auth::caller_claim(&state, &headers, request.caller_tab_id.as_deref())
         .map_err(|(status, message)| refusal(status, "forbidden", &message))?;
     on_blocking_pool(state.svc.clone(), move |svc| {

@@ -41,7 +41,7 @@ each failed run. An untested proposal must not become an established recipe.
 Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions.
 Only owner pushes to `release/next` qualify and package. Application publication has exactly one path:
 the master merge push of the owner release PR, approved in the `release` environment (branch policies
-`release/next` and `master`). Dispatches never publish an application: `release.yml` dispatches are
+`release/*` and `master`). Dispatches never publish an application: `release.yml` dispatches are
 dry runs of the dispatching release head and `release-publish.yml` only rehearses. Every PR uses
 hosted, secret-free checks. The trusted organization runner group must restrict every acquiring
 workflow to explicit reviewed release branch refs; unrestricted repository runners are forbidden.
@@ -168,6 +168,10 @@ then sync them here. Never hand-edit the bundled snapshot.
    its exact-SHA tests.yml push run to finish green, including full CI, qualification and the
    reusable release.yml dry run (`dry_run=true`, `mirror=false`). A newer push cancels the previous
    run through the release-push concurrency group. Only then open or refresh the PR into master.
+   For the same-repository owner full release PR from `release/next` to `master`, include
+   `[domios-full-release]` in the initial title, for example
+   `release: publish Domios 1.22.1 [domios-full-release]`. Use the marker exclusively for that route.
+   It skips CodeRabbit automatic review from opening. Create the PR with its complete body.
    Every PR uses hosted light checks (**PR result**); the master PR also requires **Release
    qualification**, a read-only `release-pr.yml` job that verifies the current head's owner push run
    and its unexpired receipts. Only a PR whose base is master emits that context, so a develop PR or
@@ -181,8 +185,8 @@ then sync them here. Never hand-edit the bundled snapshot.
    After publication, synchronize develop through an admin-owned merge PR; workflows
    never push master/develop with GITHUB_TOKEN.
    Fast checks own
-   frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
-   The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
+   frontend production/typechecking and static/plugin/TS suites. The Rust tier owns the Linux
+   full suite, native macOS/Windows subsets, embeddings and workspace Clippy, including the CLI.
    `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
    its current attempt, every required job and the executed Rust receipts. Missing, expired,
    skipped or foreign evidence refuses release preparation and publication. Qualification
@@ -196,7 +200,8 @@ then sync them here. Never hand-edit the bundled snapshot.
    completed Actions jobs do. Confirm the intended version is unpublished.
    **Initial setup or workflow-list change:** after the owner creates `release/next`, the release
    Orchestrator uses standing owner permission to apply the reviewed
-   [runner-group payload](../../../.github/admin/runner-group-policy.json) to `domios-trusted`.
+   [runner-group payload](../../../.github/admin/runner-group-policy.json) to `domios-trusted`
+   after the release owner reconciles any drift identified by the readback.
    GitHub requires the exact ref to exist when applying the PATCH. Before each release, read back
    the exact refs, selected repository grant, fleet and absence of repository runners using
    [the runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
@@ -306,7 +311,9 @@ A failed run keeps its partial hidden drafts and completion receipts. Failed-job
 the same run draft. A newer run starts its own draft; platform startup deletes older hidden
 drafts of that version, never published releases. Uploads target the admitted numeric draft ID,
 so a cancelled older job cannot upload into the replacement. Consolidated local verification
-seals the draft complete after every platform succeeds.
+seals the draft complete after every platform succeeds. Draft preparation refuses a version whose
+`vX.Y.Z` release is already published: bump package.json before pushing release/next again, since
+such a draft could never be promoted.
 
 Dry-run platform jobs retain original updater bytes, signed fragments and digest/source receipts
 in the existing private MinIO CI store under `<run-id>/release-dry-run/<platform>/`, with its
@@ -693,9 +700,39 @@ Sign macOS updater archives with `tauri signer sign --app-version "$VER"`, like 
 Manifest verification authenticates every trusted comment and requires exactly one matching `version:`
 binding, including entries outside a selected artifact check; an unsigned or stale comment refuses release.
 
+### Public release shape
+
+Every published application version is exactly one public release: tag `vX.Y.Z`, title
+`Domios X.Y.Z` (no `v`), human release notes, the platform payloads with their signature assets,
+qualified manifests and `SHA256SUMS.txt`, not a prerelease, and explicitly marked Latest.
+`release-promote.mjs checksums` writes `SHA256SUMS.txt` before un-drafting from the draft assets'
+API digests, which upload already checked against the signed-byte receipts; it downloads no payload
+and refuses a payload without an uploaded sha256 digest. The publish step sets
+`--draft=false --prerelease=false --title "Domios X.Y.Z" --latest` and reads back `releases/latest`.
+`frontend-latest`, `codeterm-core-latest` and `plugin-*` releases stay `latest=false`.
+
 `sync-release-notes.mjs` maintains one substantive notes body on the source release, and on the
-mirror when `--mirror-repo` is given (with `MIRROR_TOKEN`). Historical
-backfill mutates published notes and needs explicit authorization.
+mirror when `--mirror-repo` is given (with `MIRROR_TOKEN`). For a placeholder (draft-only) body it
+takes, in order: the `## [X.Y.Z]` section of `CHANGELOG.md` at the tag; the release PR body with
+operator sections removed (`## Verification`, evidence, qualification, owner publication approval,
+candidate/lanes, test plan, deferred/investigated, handoff), issue/waiver metadata lines and the
+`This release uses commit` line; then GitHub generated notes. With version-bump GO, add the
+`## [X.Y.Z]` CHANGELOG section on the release line with `### Highlights`, `### Fixed` and
+`### Known issues` written for users; evidence belongs in the PR body, never in that section.
+An owner test waiver still appends its visible section. Hidden qualification markers remain as
+HTML comments for publication retries. Historical backfill mutates published notes and needs
+explicit authorization.
+
+### Qualification draft hygiene
+
+Qualification drafts (`qualification-vX.Y.Z-RUN`, or an `untagged-*` placeholder carrying a
+`<!-- qualification:` marker) are hidden drafts, never public; only repository writers see them in
+the Releases list. After the source and mirror releases verify, `release-promote.mjs prune vX.Y.Z`
+deletes every such draft of this or an older version in both repositories (numeric version order),
+including drafts of runs that were never promoted. It refuses unless `vX.Y.Z` is published, never
+touches a published release or a draft without the marker, and keeps drafts of newer versions that
+may still be qualifying. A pre-existing orphan is removed by the next stable publication; removing
+one sooner is a live mutation that needs owner GO.
 
 Declare fixed issues as exact metadata, one per line:
 
@@ -745,4 +782,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

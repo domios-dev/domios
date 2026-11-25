@@ -137,6 +137,8 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>
             socket_unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"),
         Commands::Tab { .. } => socket_rest(),
+        Commands::SendText { attach, .. } if !attach.is_empty() =>
+            socket_unsupported("--attach requires both tabs on the same machine"),
         Commands::SendText { .. } => socket_rest(),
         Commands::Delayed { .. } => socket_rest(),
         Commands::Web { .. } => socket_unsupported(
@@ -146,7 +148,13 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Notify { .. } => socket_rest(),
         Commands::Keepawake { .. } => socket_rest(),
         Commands::Integration { .. } => socket_rest(),
-        Commands::Theme { .. } => socket_rest(),
+        Commands::LiveTranscript { .. } => socket_unsupported(
+            "live transcript requires a local owner or active consumer credential",
+        ),
+        Commands::Theme { .. } | Commands::Appearance { .. } => socket_rest(),
+        Commands::Wallpaper { action: crate::WallpaperAction::Set { request: Some(_), .. } } =>
+            socket_unsupported("An owner-requested wallpaper must be submitted from the target machine's General Agent"),
+        Commands::Wallpaper { .. } => socket_rest(),
         Commands::Surface { .. } => socket_unsupported(SURFACE_LOCAL_ONLY),
         Commands::Agent { action: crate::AgentAction::Turns { .. } } => socket_unsupported("agent turns reads this daemon's authenticated session; run on the target machine"),
         Commands::Agent { action: crate::AgentAction::Reparent { .. } } => socket_unsupported("agent reparent runs on the local origin; use --peer instead of --mesh"),

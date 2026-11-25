@@ -51,9 +51,13 @@ Identity update flow. The prompt identity block comes from `{general_dir}/identi
 
 For an owner-requested self-switch, use `domios agent switch-provider PROVIDER --tab main`; the daemon completes it and saves your defaults.
 
+For owner requests about appearance and for appearance handoffs from another machine's Main, read `domios docs APPEARANCE`. In Main, apply tuning tweaks immediately for owner requests about this machine. For a new palette, theme or wallpaper, return a proposal card for the owner to Apply. On other machines, ask their Main to store a proposal and return one card per machine. For an incoming mesh appearance request, store a local proposal for owner review and reply with its IDs.
+
 ## Voice transcription
 
 With `integrations.voice_transcribe.enabled = true`, messenger voice and video notes reach you already transcribed as plain text (`domios docs CONFIG`).
+
+Live Transcript (Live Mode) is different: continuous local microphone capture, transcribed on-device by Parakeet STT. A hidden Concierge/Scout reads the stream, routes only actionable requests to the right agent and ignores chatter. A floating Orb shows state and a Thoughts drawer shows its reasoning. Users start it from the Transcript panel (Start Live Mode) or by swiping up on the mic. When asked what it is, or to set it up from scratch, explain it plainly in the user's language and follow `domios docs TRANSCRIBE`.
 
 
 ---

@@ -3,7 +3,7 @@ import { harnessWindow } from "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { MuxStateStoreContext, PairedWorkspaceInventoryContext } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { useComposerMentionSources } from "./useComposerMentionSources";
@@ -14,6 +14,7 @@ import { FIXTURE_PLAN } from "../Canvas/cards/fixtures.testdata";
 import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import { __setListenForTest } from "../../lib/bridge";
 import { fixtureGraph } from "../Automation/fixtures.testdata";
+import { projectAttachedRemoteTab } from "../../lib/remoteTabPortal";
 let state = { tabs: { t: { id: "t", title: "Rivet", team_id: "team-a", workspace_id: "ws", tab_type: "Terminal" } }, workspaces: [{ id: "ws", cwd: "/repo", name: "Repo", tabs: ["t"] }] } as unknown as ExtendedState;
 const mux = createMuxStateStore(() => state);
 const paths: string[] = [];
@@ -33,7 +34,7 @@ __setListenForTest(async (event, handler) => {
 globalThis.fetch = muxMockFetch(async (input) => { fetched.push(String(input)); return Response.json(String(input).includes("/fs/list-dir") ? { entries: [{ name: "cdp.mjs", path: "/repo/cdp.mjs" }] } : (String(input).includes("chat=1") || String(input).includes("view=summary")) ? { plans: [{ ...FIXTURE_PLAN, revision: String(renders + 1), project_path: "/repo", team_id: "team-a", title: `Update ${renders}` }] } : { plans: [] }); });
 configureDaemonTransport({ origin: harnessWindow.location.origin, token: "fixture" });
 const api = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "fixture", cors: true };
-function Harness() { renders++; const feed = useSidebarPlansOptional(); currentPlanTitle = feed.plans[0]?.title; refetchPlans = feed.refetch; sources = useComposerMentionSources("t"); return null; }
+function Harness({ tabId = "t" }: { tabId?: string }) { renders++; const feed = useSidebarPlansOptional(); currentPlanTitle = feed.plans[0]?.title; refetchPlans = feed.refetch; sources = useComposerMentionSources(tabId); return null; }
 async function main() {
   const element = document.createElement("div"); const root = createRoot(element);
   try {
@@ -65,6 +66,40 @@ async function main() {
     sources.registry.close?.();
     await sources.registry.search("", ctx()); assert.equal(paths.length, 4, "new open session reads fresh scoped graphs");
     console.log("4 lazy source and scoped Blueprint session-cache checks passed");
+
+    const viewerVela = { ...state.tabs.t, id: "vela-id", title: "Vela", team_id: "viewer-team" };
+    const hostWorkspace = { ...state.workspaces[0], id: "host-ws", name: "Host project", cwd: "C:/host", tabs: ["elgar", "vela-id"] };
+    const hostElgar = { ...state.tabs.t, id: "elgar", title: "Elgar", team_id: "dev-team", workspace_id: hostWorkspace.id };
+    const hostVela = { ...viewerVela, workspace_id: hostWorkspace.id, team_id: "design-team" };
+    const attachment = projectAttachedRemoteTab(hostElgar, { peer_id: "blackstar", peer_name: "BLACKSTAR" }, "ws");
+    state = { ...state, tabs: { ...state.tabs, [viewerVela.id]: viewerVela, [attachment.id]: attachment } };
+    const showRemoteComposer = async (availability: "online" | "offline", velaTeam = "design-team") => {
+      const peerWorkspaces = [{ peerId: "blackstar", workspace: hostWorkspace, teams: [],
+        tabs: [{ viewerId: attachment.id, tab: hostElgar }, { viewerId: "mesh:blackstar/vela-id", tab: { ...hostVela, team_id: velaTeam } }],
+      }];
+      await act(async () => root.render(<MuxStateStoreContext.Provider value={mux}>
+        <PairedWorkspaceInventoryContext.Provider value={{
+          generals: [{ peerId: "blackstar", name: "BLACKSTAR", sessions: [], availability }], browse: null, peerWorkspaces,
+        }}>
+          <PlansProvider api={api}><Harness tabId={attachment.id} /></PlansProvider>
+        </PairedWorkspaceInventoryContext.Provider>
+      </MuxStateStoreContext.Provider>));
+    };
+    await showRemoteComposer("online");
+    assert.equal(sources.scope().peerId, "blackstar");
+    assert.equal(sources.scope().workspaceId, "host-ws");
+    assert.equal(sources.scope().teamId, "dev-team");
+    for (const query of ["vel", "Vela"]) {
+      const [vela, ...other] = await sources.registry.search(query, ctx());
+      assert.equal(vela.insertText, '<domios type="tab" id="mesh:blackstar/vela-id" />');
+      assert.equal(vela.group, "Tabs · Other Teams");
+      assert.equal(other.length, 0);
+    }
+    await showRemoteComposer("online", "dev-team");
+    assert.equal((await sources.registry.search("Vela", ctx()))[0].group, "Tabs · Team");
+    await showRemoteComposer("offline");
+    assert.deepEqual(await sources.registry.search("Vela", ctx()), []);
+    console.log("Remote composer follows authenticated host inventory, including unattached tabs and Team moves.");
   } finally { await act(async () => root.unmount()); await harnessWindow.happyDOM.abort(); }
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

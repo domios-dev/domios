@@ -8,10 +8,14 @@ pub(super) async fn claim(
     token: &str,
 ) -> bool {
     let ReplyContext::Telegram { chat_id, .. } = &message.reply_ctx;
-    let Some(result) = message
-        .callback_data
-        .as_deref()
-        .and_then(|data| tab.claim_channel_answer(data, *chat_id, message.message_id))
+    let Some(data) = message.callback_data.clone() else {
+        return false;
+    };
+    let tab = Arc::clone(tab);
+    let chat_id = *chat_id;
+    let message_id = message.message_id;
+    let Some(result) =
+        claim_off_runtime(move || tab.claim_channel_answer(&data, chat_id, message_id)).await
     else {
         return false;
     };
@@ -51,3 +55,18 @@ pub(super) async fn claim(
     }
     true
 }
+
+async fn claim_off_runtime(
+    claim: impl FnOnce() -> Option<Result<(), String>> + Send + 'static,
+) -> Option<Result<(), String>> {
+    match tokio::task::spawn_blocking(claim).await {
+        Ok(result) => result,
+        Err(error) => {
+            log::error!("[bridge] notification answer task stopped: {error}");
+            Some(Err("The notification answer could not be confirmed".into()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

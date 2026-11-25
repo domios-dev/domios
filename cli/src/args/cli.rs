@@ -19,8 +19,8 @@ use super::essence_map::EssenceMapAction;
 use super::integration::IntegrationAction;
 use super::mem::MemAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
-    WorkspaceAction,
+    AppearanceAction, BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction,
+    TabAction, ThemeAction, WallpaperAction, WorkspaceAction,
 };
 use super::orchestrator::OrchestratorAction;
 use super::pad::PadAction;
@@ -71,6 +71,11 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Work with a tab's committed microphone transcript and routing
+    LiveTranscript {
+        #[command(subcommand)]
+        action: super::live_transcript::LiveTranscriptAction,
+    },
     /// Tab-scoped MCP tools using inherited launch authority
     Mcp {
         #[command(subcommand)]
@@ -217,6 +222,14 @@ pub enum Commands {
         #[arg(long, value_name = "PATH", conflicts_with_all = ["text", "from_file", "stdin"])]
         from_pad: Option<String>,
 
+        /// Share a relative file from the current tab's pad in the recipient's chat. Repeat to share several files.
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["actions", "delay", "at", "every", "until", "count", "system_context", "to_shell"])]
+        attach: Vec<String>,
+
+        /// Put a snapshot of each attachment in the receiving tab's pad inbox.
+        #[arg(long, requires = "attach")]
+        copy: bool,
+
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
         ///   domios send --tab X --stdin <<'EOF'
@@ -318,6 +331,18 @@ pub enum Commands {
     Theme {
         #[command(subcommand)]
         action: ThemeAction,
+    },
+
+    /// Per-machine chat wallpaper
+    Wallpaper {
+        #[command(subcommand)]
+        action: WallpaperAction,
+    },
+
+    /// Propose, review, apply and undo a machine's appearance
+    Appearance {
+        #[command(subcommand)]
+        action: AppearanceAction,
     },
 
     /// Plugin surface tabs: app tabs whose content a plugin view renders

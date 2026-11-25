@@ -654,3 +654,23 @@ mod cron_task {
         assert!(store.created.is_empty());
     }
 }
+
+#[test]
+fn rem_prompt_injects_host_time_without_a_shell_clock() {
+    let start = chrono::DateTime::parse_from_rfc3339("2026-11-24T05:26:54Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let rendered = render_rem_prompt(start, "opaque_notify_fragment_519");
+    assert!(rendered.contains("2026-11-24T05:26:54Z"));
+    assert!(rendered.contains("2026-11-24T04:26:54Z"));
+    assert!(rendered.contains("dream: 2026-11-24 05:26"));
+    assert!(rendered.contains("opaque_notify_fragment_519"));
+    for placeholder in [
+        "{started_at}",
+        "{calibration_since}",
+        "{diary_title}",
+        "{telegram_notify_step}",
+    ] {
+        assert!(!rendered.contains(placeholder));
+    }
+}

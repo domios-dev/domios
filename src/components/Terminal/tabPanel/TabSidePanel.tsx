@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ComponentProps, RefObject } from "react";
 import { formatCompact, formatExact } from "../../../lib/formatCompact";
 import { planSidePanelStore } from "../../Canvas/planSidePanelStore";
 import { SidePanelFrame } from "../../Canvas/planView/SidePanelFrame";
@@ -24,11 +24,14 @@ function TabPanelSwitch({ tabId, view }: { tabId: string; view: TabPanelView }) 
   </div>;
 }
 
-/** One frame for a tab's Documents and Changes: the switch stays mounted while the view below it changes. */
-export function TabSidePanel({ tabId, view, cwd, panelRef, state, onClose }: {
+type TabContentProps = {
   tabId: string; view: TabPanelView; cwd?: string | null;
   panelRef: RefObject<HTMLElement | null>; state: PresenceState; onClose: () => void;
-}) {
+};
+
+export function TabSidePanel(props: TabContentProps | ComponentProps<typeof SidePanelFrame>) {
+  if (!("tabId" in props)) return <SidePanelFrame {...props} />;
+  const { tabId, view, cwd, panelRef, state, onClose } = props;
   return <SidePanelFrame panelRef={panelRef} state={state} label={VIEW_LABEL[view]} closeLabel="Close side panel" onClose={onClose} contentKey={tabId}
     data-testid="tab-side-panel" data-view={view} title={<TabPanelSwitch tabId={tabId} view={view} />}>
     {view === "changes" ? <ChangesView tabId={tabId} cwd={cwd} /> : <DocumentsView tabId={tabId} open={state !== "closing"} />}

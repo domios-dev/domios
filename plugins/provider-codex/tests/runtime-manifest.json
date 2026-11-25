@@ -1,6 +1,13 @@
 {
   "agentRuntime": {
     "localImagePaths": true,
+    "hostMcp": {
+      "param": "neighborReplyStdio",
+      "methods": [
+        "thread/start",
+        "thread/resume"
+      ]
+    },
     "restrictedCli": {
       "kind": "execpolicy-service-operations",
       "metadataDirectory": ".codex"

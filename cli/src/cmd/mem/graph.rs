@@ -214,12 +214,30 @@ pub(crate) fn handle_mem_graph(
             });
             client.call("mem.graph.repair.delete_entity", Some(payload))
         }
+        MemGraphAction::IntroduceTopic {
+            topic_id,
+            entity_type,
+            sources,
+            anchor,
+            rel_source,
+            rel_anchor,
+            reason,
+            db_path,
+        } => {
+            if db_path.is_some() {
+                return Err("explicit database paths require local dispatch".into());
+            }
+            let sources = crate::cmd::graph_mutate::parse_sources(&sources)?;
+            client.call("mem.graph.introduce_topic", Some(serde_json::json!({
+                "topic_id":topic_id, "entity_type":entity_type, "sources":sources,
+                "anchor":anchor, "rel_source":rel_source, "rel_anchor":rel_anchor, "reason":reason
+            })))
+        }
         // Local-only mutations + reads that benefit from direct DB access: route through the same dispatcher as main()
         // cannot turn this into a panic in production. The run_* helpers exit; the line after never runs.
         local @ (MemGraphAction::Route { .. }
         | MemGraphAction::PurgeInvalidated { .. }
         | MemGraphAction::ReviveBroken { .. }
-        | MemGraphAction::IntroduceTopic { .. }
         | MemGraphAction::Hubs { .. }
         | MemGraphAction::Islands { .. }
         | MemGraphAction::Orphans { .. }

@@ -76,7 +76,12 @@ impl PlanStore {
         checkout: &str,
         now_ms: u64,
     ) -> Result<Vec<LostSharedCommit>, PlanError> {
-        let checkout_key = super::canonical_path(checkout);
+        let checkout_key = super::resolved_checkout_target(checkout);
+        let inspect_path = if super::canonical_path(checkout) == checkout_key {
+            checkout.to_string()
+        } else {
+            checkout_key.clone()
+        };
         let mut verified = self.shared_history.verified.lock();
         let plan_ids = self.checkout_plan_ids(&checkout_key)?;
         let candidates = if plan_ids.is_empty() {
@@ -88,12 +93,13 @@ impl PlanStore {
             verified.remove(&checkout_key);
             return Ok(Vec::new());
         }
-        let head = super::report::shared_checkout_head(checkout).map_err(PlanError::Io)?;
+        let head = super::report::shared_checkout_head(&inspect_path).map_err(PlanError::Io)?;
         let previous = verified.remove(&checkout_key);
         let contained = previous
             .as_ref()
             .filter(|previous| {
-                previous.head == head || is_ancestor(checkout, &previous.head, &head) == Ok(true)
+                previous.head == head
+                    || is_ancestor(&inspect_path, &previous.head, &head) == Ok(true)
             })
             .map(|previous| &previous.commits);
         let mut commits = BTreeSet::new();
@@ -104,13 +110,13 @@ impl PlanStore {
                 commits.insert(identity);
                 continue;
             }
-            match is_ancestor(checkout, &candidate.sha, &head) {
+            match is_ancestor(&inspect_path, &candidate.sha, &head) {
                 Ok(true) => {
                     commits.insert(identity);
                 }
                 Ok(false) => lost.push(candidate),
                 Err(error) => log::debug!(
-                    "[shared-history] cannot check {} in {checkout}: {error}",
+                    "[shared-history] cannot check {} in {inspect_path}: {error}",
                     candidate.sha
                 ),
             }
@@ -131,13 +137,13 @@ impl PlanStore {
             {
                 continue;
             }
-            let (old_head, cause) = transition(checkout, &candidate.sha);
+            let (old_head, cause) = transition(&inspect_path, &candidate.sha);
             let incident = LostSharedCommit {
                 plan_id: candidate.plan_id,
                 task_id: candidate.task_id,
                 attempt_id: candidate.attempt_id,
                 commit: candidate.sha,
-                checkout: checkout.to_string(),
+                checkout: inspect_path.clone(),
                 old_head,
                 new_head: head.clone(),
                 cause: cause.into(),

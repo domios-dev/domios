@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import { CHAT_PAGE_SIZE, conversationEntries, earlierMessageLabel, revealEarlierMessages } from "./chatPagingModel";
+import { CHAT_PAGE_SIZE, conversationEntries, earlierMessageLabel, revealEarlierMessages, revealNewerMessages } from "./chatPagingModel";
 import { chatWindowProjection, chatWindowRange, timelineItemKey } from "./chatWindow";
 
 const text = (index: number): NormalizedChatMessage => ({ id: `m-${index}`, type: "assistant", content: `body-${index}` });
@@ -49,5 +49,29 @@ describe("conversation paging", () => {
     expect(earlierMessageLabel(3, false)).toBe("Load previous 3 messages");
     expect(earlierMessageLabel(1, false)).toBe("Load previous 1 message");
     expect(earlierMessageLabel(3, true)).toBe("Load previous messages (up to 100)");
+  });
+
+  it("renders replies that arrived under a detached reader below the frozen tail instead of hiding them", () => {
+    const before = conversationEntries(Array.from({ length: 40 }, (_, index) => text(index))).map(entry => entry.item);
+    const anchor = timelineItemKey(before[before.length - 1]);
+    const items = conversationEntries(Array.from({ length: 43 }, (_, index) => text(index))).map(entry => entry.item);
+    const frozen = chatWindowProjection(items, anchor, CHAT_PAGE_SIZE);
+    expect(frozen.items.map(timelineItemKey).slice(-1)[0]).toBe("m-39");
+    expect(frozen.newerCount).toBe(3);
+
+    const next = revealNewerMessages(items, anchor, CHAT_PAGE_SIZE)!;
+    const revealed = chatWindowProjection(items, next.anchor, next.size);
+    expect(revealed.items.map(timelineItemKey)).toEqual(items.map(timelineItemKey));
+    expect(revealed.newerCount).toBe(0);
+    expect(revealNewerMessages(items, next.anchor, next.size)).toBeNull();
+    expect(revealNewerMessages(items, null, CHAT_PAGE_SIZE)).toBeNull();
+  });
+
+  it("reveals at most a page of newer rows and bounds the window at the reading cap", () => {
+    const items = conversationEntries(Array.from({ length: 1_000 }, (_, index) => text(index))).map(entry => entry.item);
+    const next = revealNewerMessages(items, "m-399", 250)!;
+    const after = chatWindowRange(items, next.anchor, next.size);
+    expect(next.count).toBe(CHAT_PAGE_SIZE);
+    expect(after).toEqual({ start: 200, end: 500 });
   });
 });

@@ -8,6 +8,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
 import { publishNotice } from "../../lib/notices";
 import {
+  AudioLines,
   Bot,
   Check,
   Copy,
@@ -20,7 +21,6 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
-  Unlink,
   UserCog,
   X,
   type LucideIcon,
@@ -51,9 +51,9 @@ const GLYPHS: Record<TabMenuGlyph, LucideIcon> = {
   restart: RotateCcw,
   autoConfirm: ShieldCheck,
   plugins: Puzzle,
+  liveTranscript: AudioLines,
   telegram: MessageSquare,
   telegramClose: MessageSquareX,
-  detach: Unlink,
   close: X,
 };
 

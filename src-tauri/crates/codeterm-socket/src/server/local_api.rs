@@ -5,6 +5,8 @@ use tower::ServiceExt;
 
 use super::JsonRpcError;
 
+pub(super) const NEIGHBOR_RUNTIME_ROUTE: &str = "/api/account/neighbors/runtime";
+
 pub(super) fn dispatch(params: &Option<Value>, svc: &ServiceState) -> Result<Value, JsonRpcError> {
     let params = params.as_ref().ok_or_else(|| invalid("params required"))?;
     let method = params
@@ -18,6 +20,7 @@ pub(super) fn dispatch(params: &Option<Value>, svc: &ServiceState) -> Result<Val
     if !path.starts_with("/api/") || path.starts_with("//") {
         return Err(invalid("path must be an absolute /api/ path"));
     }
+    let neighbor_runtime = path == NEIGHBOR_RUNTIME_ROUTE;
 
     let mut request = Request::builder().method(method).uri(path);
     if let Some(headers) = params.get("headers").and_then(Value::as_object) {
@@ -70,6 +73,9 @@ pub(super) fn dispatch(params: &Option<Value>, svc: &ServiceState) -> Result<Val
         let body = axum::body::to_bytes(response.into_body(), 64 * 1024 * 1024)
             .await
             .map_err(|error| internal(error.to_string()))?;
+        if neighbor_runtime && !(200..300).contains(&status) {
+            super::refusal::http(status, &body);
+        }
         Ok(serde_json::json!({
             "status": status,
             "headers": headers,

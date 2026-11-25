@@ -1,4 +1,5 @@
-import type { MultiplexerState } from "../../lib/types";
+import { isSurfaceTab } from "../../lib/surfaceTab";
+import type { MultiplexerState, Tab } from "../../lib/types";
 
 export interface PageSelection {
   active_workspace_id: string | null;
@@ -14,10 +15,37 @@ interface SelectionWorkspace {
 
 export interface SavedPageSelection { workspaceId: string; tabId: string | null }
 
+type SelectionTab = Pick<Tab, "backing" | "hidden" | "show_in_tabbar" | "parent_tab_id">;
+type SelectionTabs = Readonly<Record<string, SelectionTab>>;
+
 export interface PageSelectionSnapshot {
   active_workspace_id: string | null;
   workspaces: readonly SelectionWorkspace[];
-  tabs: Readonly<Record<string, unknown>>;
+  tabs: SelectionTabs;
+}
+
+export function implicitTabId(ids: readonly string[], tabs: SelectionTabs): string | undefined {
+  return ids.find((id) => {
+    const tab = tabs[id];
+    return tab && !tab.hidden && tab.show_in_tabbar !== false && !isSurfaceTab(tab);
+  });
+}
+
+export function tabAfterClose(
+  closedId: string,
+  previousIds: readonly string[],
+  previousTabs: SelectionTabs,
+  remainingIds: readonly string[],
+  remainingTabs: SelectionTabs,
+): string | undefined {
+  const owner = isSurfaceTab(previousTabs[closedId]) ? previousTabs[closedId].parent_tab_id : null;
+  if (owner && remainingIds.includes(owner) && implicitTabId([owner], remainingTabs)) return owner;
+  const index = previousIds.indexOf(closedId);
+  if (index < 0) return implicitTabId(remainingIds, remainingTabs);
+  const remaining = new Set(remainingIds);
+  const adjacent = [...previousIds.slice(index + 1), ...previousIds.slice(0, index).reverse()]
+    .filter((id) => remaining.has(id));
+  return implicitTabId(adjacent, remainingTabs) ?? implicitTabId(remainingIds, remainingTabs);
 }
 
 export function initialPageSelection(snapshot: PageSelectionSnapshot, saved: SavedPageSelection | null = null): PageSelection {
@@ -25,7 +53,7 @@ export function initialPageSelection(snapshot: PageSelectionSnapshot, saved: Sav
   for (const workspace of snapshot.workspaces) {
     const selected = workspace.active_tab_id;
     const tabId = selected && workspace.tabs.includes(selected) && snapshot.tabs[selected]
-      ? selected : workspace.tabs.find((id) => snapshot.tabs[id]);
+      ? selected : implicitTabId(workspace.tabs, snapshot.tabs);
     if (tabId) activeTabIds[workspace.id] = tabId;
   }
   let workspaceId = snapshot.workspaces.some((workspace) => workspace.id === snapshot.active_workspace_id)

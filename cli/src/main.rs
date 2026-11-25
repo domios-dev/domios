@@ -101,8 +101,8 @@ pub use args::mem::{
     MemGraphAction, MemSecretAction, MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
-    WebAction, WorkspaceAction,
+    AppearanceAction, BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction,
+    TabAction, ThemeAction, WallpaperAction, WebAction, WorkspaceAction,
 };
 pub use args::pad::PadAction;
 pub use args::plan::PlanAction;
@@ -452,6 +452,8 @@ fn main_impl() {
             text,
             from_file,
             from_pad,
+            attach,
+            copy,
             stdin,
             actions,
             delay,
@@ -470,6 +472,7 @@ fn main_impl() {
                 text,
                 from_file,
                 from_pad,
+                (attach, copy),
                 stdin,
                 actions,
                 delay,
@@ -597,6 +600,11 @@ fn main_impl() {
             return;
         }
 
+        Commands::LiveTranscript { action } => {
+            cmd::live_transcript::handle(client, cli.json, action);
+            return;
+        }
+
         Commands::ModelProvider { action } => {
             cmd::model_provider::handle(&mut client, cli.json, action);
             return;
@@ -644,6 +652,16 @@ fn main_impl() {
 
         Commands::Theme { action } => {
             cmd::theme::handle_theme(cli.json, action);
+            return;
+        }
+
+        Commands::Wallpaper { action } => {
+            cmd::wallpaper::handle(cli.json, &action);
+            return;
+        }
+
+        Commands::Appearance { action } => {
+            cmd::appearance::handle(cli.json, &action);
             return;
         }
 

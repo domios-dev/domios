@@ -4,9 +4,17 @@ function hashed(name: string): boolean {
   return /^[a-f\d]{16,}/i.test(name);
 }
 
-function originalName(path: string): string {
+function imageName(path: string): string {
   const name = attachmentPathName(path);
   return hashed(name) ? `Image.${name.split(".").pop() || "jpg"}` : name;
+}
+
+function storedFileLabel(path: string, label: string | undefined): string | undefined {
+  if (!label) return label;
+  const stored = path.split(/[\\/]/).pop() ?? "";
+  if (!/^[a-f\d]{32}(?:[.-]|$)/i.test(stored) || !stored.startsWith(label.split("…")[0])) return label;
+  const name = attachmentPathName(path);
+  return /^[a-f\d]{32}\.txt$/i.test(name) ? "Pasted text.txt" : name;
 }
 
 export function presentedAttachmentSegments(segments: readonly PlacedAttachmentSegment[], names: Readonly<Record<string, string>> = {}): PlacedAttachmentSegment[] {
@@ -20,10 +28,10 @@ export function presentedAttachmentSegments(segments: readonly PlacedAttachmentS
     const copy = segments[next];
     if (original.kind === "file" && original.label === "original" && copy && "attachment" in copy
       && copy.attachment.kind === "image" && /-model\.jpg$/i.test(copy.attachment.path)) {
-      result.push({ attachment: { ...original, kind: "image", label: names[original.path] ?? originalName(original.path), previewPath: copy.attachment.path }, image: copy.image });
+      result.push({ attachment: { ...original, kind: "image", label: names[original.path] ?? imageName(original.path), previewPath: copy.attachment.path }, image: copy.image });
       index = next;
     } else {
-      const label = names[original.path] ?? (original.kind === "image" || hashed(original.label ?? "") ? originalName(original.path) : original.label);
+      const label = names[original.path] ?? (original.kind === "image" ? imageName(original.path) : storedFileLabel(original.path, original.label));
       result.push({ ...segment, attachment: { ...original, label } });
     }
   }

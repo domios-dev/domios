@@ -404,3 +404,28 @@ it("ends a refused first read without claiming cached friends are connected", as
   expect(host.querySelector('[role="status"]')?.textContent).toContain("Sign in with a hosted account to use Neighbors");
   expect(host.textContent).not.toContain("connected");
 });
+
+it.each([
+  ["Neighbor gateway unavailable", "Neighbors on this device isn’t ready yet."],
+  ["neighbor_local_fence: off_cleanup", "Neighbors on this device isn’t ready yet."],
+  ["Neighbor callable unavailable", "The hosted Neighbors service is temporarily unavailable."],
+  ["Neighbor transport unavailable", "The hosted Neighbors service is temporarily unavailable."],
+  ["Neighbor HTTP 503 (retry after 0s)", "The hosted Neighbors service is temporarily unavailable."],
+  ["Neighbor HTTP 401 (retry after 0s)", "Sign in to use Neighbors."],
+  ["Sign in to manage Neighbors", "Sign in to use Neighbors."],
+  [null, "Neighbors on this device isn’t ready yet."],
+])("shows the list failure %s and recovers to the empty sidebar on Retry", async (failure, expected) => {
+  if (failure === null) transport.localFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  else transport.localFetch.mockResolvedValueOnce(new Response(failure, { status: 503 }));
+  transport.localFetch.mockResolvedValueOnce(Response.json({
+    schema_version: 1, access: "paid", can_invite: true, friends: [], incoming: [], outgoing: [],
+  }));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  const runtimeClient = runtime();
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
+  expect(host.querySelector('[role="status"]')?.textContent).toBe(expected);
+  await act(async () => button("Retry").click());
+  expect(transport.localFetch).toHaveBeenLastCalledWith("/api/account/neighbors", expect.objectContaining({ body: '{"operation":"refresh"}' }));
+  expect(host.querySelector('[aria-label="Neighbors"]')).toBeNull();
+});

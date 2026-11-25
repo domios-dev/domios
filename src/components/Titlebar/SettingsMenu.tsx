@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 import { UpdateTray } from "./UpdateTray";
 import { GearIcon } from "../Icons";
 import { Ellipsis } from "lucide-react";
@@ -10,6 +10,7 @@ import { usePwaInstallOffer } from "../../lib/pwaInstallOffer";
 interface SettingsMenuProps {
   onOpenSection?: (section?: SectionId) => void;
   overflowActions?: DropdownMenuEntry[];
+  triggerRef?: Ref<HTMLButtonElement>;
   /** Sits between the gear and the update control, e.g. the account circle. */
   afterGear?: ReactNode;
 }
@@ -18,7 +19,7 @@ interface SettingsMenuProps {
  * Gear button in the titlebar tray that opens the settings menu.
  * Each row deep-links into the full settings panel at that section.
  */
-export function SettingsMenu({ onOpenSection, afterGear, overflowActions }: SettingsMenuProps) {
+export function SettingsMenu({ onOpenSection, afterGear, overflowActions, triggerRef }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
   const installOffer = usePwaInstallOffer();
   const settings: DropdownMenuEntry[] = onOpenSection ? SETTINGS_SECTIONS.map((s) => {
@@ -53,6 +54,7 @@ export function SettingsMenu({ onOpenSection, afterGear, overflowActions }: Sett
       className="flex"
       trigger={
         <button
+          ref={triggerRef}
           type="button"
           data-testid="titlebar-settings"
           title={menuLabel}

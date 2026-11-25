@@ -6,6 +6,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { reduceToolEvents, type FileDiff, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
 import { installTestIo } from "../../../../plugins/provider-shared/tests/hostIo";
+import { runtimeReduce } from "../../../../plugins/provider-codex/src/runtimeReduce";
+import type { RuntimeContext } from "@codeterm/plugin-sdk";
 import { ToolCallBubble } from "../ToolCallBubble";
 import { FileDiffCards } from "./FileDiffCards";
 import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
@@ -200,6 +202,88 @@ describe("file diff cards", () => {
     }
   });
 
+  it("counts a live creation once when the turn snapshot echoes it, and keeps snapshot-only files", async () => {
+    const runtimeFixture = (path: string) => JSON.parse(readFileSync(
+      resolve(process.cwd(), "plugins/provider-codex/tests/fixtures", path), "utf8"));
+    const { context } = runtimeFixture("runtime/tool-call.json") as { context: RuntimeContext };
+    const item = runtimeFixture("captured-live-edit.json") as {
+      id: string;
+      changes: { path: string; diff: string }[];
+    };
+    const { path, diff } = item.changes[0];
+    const snapshotPath = path.replace(/\\/g, "/");
+    const creation = `--- /dev/null\n+++ b/${snapshotPath}\n@@ -0,0 +1,42 @@\n${diff.trimEnd().split("\n").map((line) => `+${line}`).join("\n")}\n`;
+    const snapshotOnly = "--- /dev/null\n+++ b/src/other.txt\n@@ -0,0 +1 @@\n+another change\n";
+    const { threadId } = context;
+    if (!threadId) throw new Error("Expected a bound runtime fixture");
+    const params = { threadId, turnId: "file-changes-turn" };
+    const messages = (patch: string) => runtimeReduce(context, null, [
+      { kind: "notification", method: "item/completed", params: { ...params, item } },
+      { kind: "notification", method: "turn/diff/updated", params: { ...params, diff: patch } },
+    ]).events.flatMap((event) => event.kind === "chatItem"
+      ? [{ ...event.item, sourceSessionId: "live-edit-session" } as NormalizedChatMessage]
+      : []);
+
+    const duplicate = messages(creation);
+    expect(duplicate).toHaveLength(2);
+    expect(toolEvents(reduceToolEvents(duplicate)).map((event) => event.id)).toEqual([item.id]);
+    expect(toolEvents(reduceToolEvents([...duplicate].reverse())).map((event) => event.id)).toEqual([item.id]);
+    expect(toolEvents(reduceToolEvents(duplicate.slice(1)))[0]?.fileDiffs?.map((change) => change.path)).toEqual([snapshotPath]);
+    expect(toolEvents(reduceToolEvents([duplicate[0], { ...duplicate[1], toolFlowId: "another-turn" }]))).toHaveLength(2);
+
+    const items = reduceToolEvents(messages(creation + snapshotOnly));
+    expect(items).toHaveLength(1);
+    const head = items[0];
+    if (head.kind !== "tool") throw new Error("Expected a file-change group");
+    const host = await mount(<ChatBlockHostProvider value={{
+      renderMenu: ({ items }) => <>{items.map((item) => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</>,
+    }}><ToolCallBubble event={head.event} expanded onToggle={() => undefined} /></ChatBlockHostProvider>);
+    const run = host.querySelector('[aria-label="File changes, +43 −0"]');
+    expect(run).not.toBeNull();
+    const rows = all(host, "chat-edit-run-file");
+    expect(rows.map((row) => row.querySelector("[title]")?.getAttribute("title"))).toEqual([path, "src/other.txt"]);
+    expect(all(host, "message-raw-content")).toHaveLength(0);
+    expect(all(host, "toolcard-result")).toHaveLength(0);
+    await act(async () => rows[0].querySelector("button")?.click());
+    expect(all(rows[0], "file-diff-line")).toHaveLength(42);
+    expect(all(host, "message-raw-content")).toHaveLength(0);
+    expect(host.textContent).not.toContain('"changes"');
+    const rawToggle = [...host.querySelectorAll("button")].find((button) => button.textContent === "View raw");
+    expect(rawToggle).toBeDefined();
+    await act(async () => rawToggle?.click());
+    expect(all(host, "message-raw-content").map((node) => node.textContent)).toContain(JSON.stringify(item, null, 2));
+    expect(all(rows[0], "message-raw-content")).toHaveLength(0);
+    await act(async () => rawToggle?.click());
+    expect(all(host, "message-raw-content")).toHaveLength(0);
+  });
+
+  it("renders the captured workspace-relative snapshot and absolute Windows creation as one +84 row", async () => {
+    const cwd = "C:\\Users\\User\\.domios-dev-w1221\\provisioned-workspaces\\veilfileqa-4851174b754b";
+    const messages = JSON.parse(readFileSync(
+      resolve(process.cwd(), "packages/chat-ui/src/toolcard/fixtures/relative-turn-diff.json"), "utf8",
+    )) as NormalizedChatMessage[];
+    const [created, snapshot] = messages;
+    const host = await mount(<Timeline items={reduceToolEvents(messages, cwd)} />);
+    expect(all(host, "chat-edit-run-file")).toHaveLength(0);
+    const cards = all(host, "file-diff-card");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].getAttribute("aria-label")).toBe("Created veil-file-change-proof.txt +84");
+    await expandAll(host);
+    expect(all(cards[0], "file-diff-line")).toHaveLength(84);
+
+    expect(toolEvents(reduceToolEvents(messages, cwd.toUpperCase().replace(/\\/g, "/") + "/."))).toHaveLength(1);
+    expect(toolEvents(reduceToolEvents(messages, cwd + "\\another-workspace"))).toHaveLength(2);
+    const posix = [{ ...created, fileDiffs: created.fileDiffs?.map(diff => ({
+      ...diff, path: "/Workspace/veil-file-change-proof.txt",
+    })) }, snapshot];
+    expect(toolEvents(reduceToolEvents(posix, "/Workspace"))).toHaveLength(1);
+    expect(toolEvents(reduceToolEvents(posix, "/workspace"))).toHaveLength(2);
+    const rootSnapshot = { ...snapshot, toolResult: snapshot.toolResult?.replaceAll(
+      "veil-file-change-proof.txt", "Workspace/veil-file-change-proof.txt",
+    ) };
+    expect(toolEvents(reduceToolEvents([posix[0], rootSnapshot], "/"))).toHaveLength(1);
+  });
+
   it("keeps create and edit calls for the same path as separate file change rows", async () => {
     const path = "C:/Users/User/AppData/Local/Temp/domios-open131-1d8cadc0/cards-created.txt";
     const created: FileDiff = { path, kind: "add", additions: 1, deletions: 0, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: ["+PUBLIC_OPEN131_CREATED"] }] };
@@ -267,7 +351,7 @@ describe("file diff cards", () => {
     const card = all(host, "file-diff-card")[0];
     expect(card.querySelector('[data-testid="message-raw-content"]')).toBeNull();
     expect(card.textContent).not.toContain("Raw command");
-    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent === "Details");
+    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent === "View raw");
     expect(rawToggle).toBeDefined();
     await act(async () => rawToggle?.click());
     expect(card.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(JSON.stringify(editEvent.message.toolInput, null, 2));
@@ -424,7 +508,7 @@ describe("file diff cards", () => {
     expect(host.textContent).toContain("after");
   });
 
-  it("discloses deduplicated detail and result once across successful multi-file diff cards when expanded", async () => {
+  it("keeps tool detail and result in the menu disclosure for a multi-file edit", async () => {
     const notice = "ACP tool details were shortened to fit the display budget.";
     const first: FileDiff = {
       path: "src/first.ts", kind: "modify", additions: 1, deletions: 1,
@@ -434,9 +518,11 @@ describe("file diff cards", () => {
       path: "src/second.ts", kind: "modify", additions: 1, deletions: 1,
       hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-oldB", "+newB"] }],
     };
-    const multiHost = await mount(<FileDiffCards event={{
+    const multiHost = await mount(<ChatBlockHostProvider value={{
+      renderMenu: ({ items }) => <>{items.map((item) => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</>,
+    }}><FileDiffCards event={{
       ...diffEvent([first, second]), status: "success", detail: notice, result: "Edited both files.",
-    }} />);
+    }} /></ChatBlockHostProvider>);
     expect(all(multiHost, "toolcard-result")).toHaveLength(0);
     const toggles = all(multiHost, "file-diff-toggle");
     expect(toggles).toHaveLength(2);
@@ -448,19 +534,14 @@ describe("file diff cards", () => {
     }
     await expandAll(multiHost);
     const cards = all(multiHost, "file-diff-card");
-    expect(all(multiHost, "toolcard-result")).toHaveLength(1);
-    expect(all(cards[0], "toolcard-result")).toHaveLength(1);
-    expect(all(cards[1], "toolcard-result")).toHaveLength(0);
-    expect(all(cards[0], "toolcard-result")[0].textContent).toContain(notice);
-    expect(all(cards[0], "toolcard-result")[0].textContent).toContain("Edited both files.");
-
-    const dedupHost = await mount(<FileDiffCards event={{
-      ...diffEvent([first]), status: "success", detail: notice, result: `${notice}  `,
-    }} />);
-    await expandAll(dedupHost);
-    const results = all(dedupHost, "toolcard-result");
-    expect(results).toHaveLength(1);
-    expect((results[0].textContent ?? "").split(notice).length - 1).toBe(1);
+    expect(all(multiHost, "toolcard-result")).toHaveLength(0);
+    expect(all(multiHost, "message-raw-content")).toHaveLength(0);
+    expect(multiHost.textContent).not.toContain(notice);
+    const rawToggle = [...cards[0].querySelectorAll("button")].find((button) => button.textContent === "View raw");
+    expect(rawToggle).toBeDefined();
+    await act(async () => rawToggle?.click());
+    expect(all(cards[0], "message-raw-content").map((node) => node.textContent)).toEqual([notice, "Edited both files."]);
+    expect(all(cards[1], "message-raw-content")).toHaveLength(0);
   });
 
   it("uses CodeTerm theme tokens with no right borders or motion", async () => {

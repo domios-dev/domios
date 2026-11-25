@@ -64,6 +64,13 @@ pub async fn chat_send_text(
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
     validate_user_client_token(&id, body.client_token.as_deref())?;
+    if !body.pad_attachments.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Pad attachments require a tab-to-tab send",
+        )
+            .into());
+    }
     if body.startup_override_nonce.is_some() {
         return Err(SendRejection::from((
             StatusCode::FORBIDDEN,
@@ -352,6 +359,8 @@ pub(crate) fn prefixes_return_address(body: &str, prefix_source: bool) -> bool {
 #[derive(Deserialize)]
 pub struct SendTextBody {
     pub(crate) text: Option<String>,
+    #[serde(flatten)]
+    pad_attachments: codeterm_service_core::service::local_preview::PadAttachments,
     /// Terminal key/action sequence. Enter submits optional text through the
     /// acknowledged transaction; navigation keys and delays remain ordered.
     /// A plain text send always submits — use `actions` (no Enter) or `raw` to
@@ -363,6 +372,8 @@ pub struct SendTextBody {
     /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
     #[serde(default)]
     pub(crate) raw: bool,
+    #[serde(default)]
+    require_agent: bool,
     /// Sender's tab id when CLI is invoked from inside CodeTerm. The daemon
     /// keeps it in the marker and adds a reply hint based on sender identity.
     /// Mesh hops and hierarchy reports use the same marker family.
@@ -505,6 +516,13 @@ pub async fn send_text(
     Json(mut body): Json<SendTextBody>,
 ) -> Result<Json<serde_json::Value>, SendRejection> {
     validate_user_client_token(&raw_tab_id, body.client_token.as_deref())?;
+    if body.require_agent && (body.raw || body.actions.is_some() || body.batch.is_some()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Agent-only mesh sends require plain text",
+        )
+            .into());
+    }
     let svc_token_match = headers
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
@@ -534,6 +552,23 @@ pub async fn send_text(
             tab: raw_tab_id.clone(),
         })?;
     authority::bind_source(&state, &headers, &mut body, svc_token_match.is_some())?;
+    use crate::auth::{AuthenticatedOrigin, CallerIdentity};
+    let local_tab = matches!(
+        crate::auth::authenticated_request(&state, &headers),
+        Ok((CallerIdentity::Tab(_), AuthenticatedOrigin::Agent))
+            | Ok((CallerIdentity::Local, AuthenticatedOrigin::Owner))
+    ) && body.source_peer.is_none()
+        && body.system_context.is_none()
+        && body.actions.is_none()
+        && body.batch.is_none()
+        && !body.raw;
+    if !local_tab && !body.pad_attachments.is_empty() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Pad attachments require a local tab message",
+        )
+            .into());
+    }
     let owner = state.clone();
     let target = tab_id.clone();
     let source_tab = body.source_tab.clone();
@@ -705,6 +740,8 @@ pub async fn send_text(
                         let source_tab = mux.get_tab(&resolved);
                         let from_agent = source_tab
                             .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+                        let from_transcript_router =
+                            source_tab.is_some_and(|tab| tab.is_transcript_router());
                         let model = source_tab.and_then(|tab| tab.agent_session_model_label());
                         let purpose = source_tab.and_then(utility_shell_purpose);
                         Some(
@@ -713,7 +750,8 @@ pub async fn send_text(
                             )
                             .model(model)
                             .purpose(purpose)
-                            .from_agent(Some(from_agent)),
+                            .from_agent(Some(from_agent))
+                            .from_transcript_router(from_transcript_router),
                         )
                     }
                 }
@@ -971,11 +1009,16 @@ pub async fn send_text(
     }
 
     let raw_text = body.text.unwrap_or_default();
-    let envelope = source_envelope.unwrap_or_default();
+    let mut envelope = source_envelope.unwrap_or_default();
+    envelope.require_agent = body.require_agent;
+    let router_tab = envelope
+        .from_transcript_router
+        .then(|| envelope.from_tab.clone());
     let raw_text = preparation::stage(&state.svc, &tab_id, raw_text, run_stages).await?;
     let svc = state.svc.clone();
     let target = tab_id.clone();
     let payload = raw_text.clone();
+    let attachments = body.pad_attachments;
     let (delivery, pad_file, restored_send) = run_programmatic_delivery(&tab_id, move || {
         let class =
             if envelope.kind == codeterm_service_core::service::messenger::MessageKind::System {
@@ -984,8 +1027,14 @@ pub async fn send_text(
                 codeterm_service_core::service::message_gateway::DeliveryClass::AgentTraffic
             };
         let restored_send = svc.public_send_restores_agent(&target);
-        svc.gateway_deliver_with_pad_file(&target, envelope, &payload, class)
-            .map(|(delivery, pad)| (delivery, pad, restored_send))
+        svc.gateway_deliver_with_shares(
+            &target,
+            envelope,
+            &payload,
+            class,
+            local_tab.then_some(&attachments),
+        )
+        .map(|(delivery, pad)| (delivery, pad, restored_send))
     })
     .await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
@@ -998,6 +1047,22 @@ pub async fn send_text(
         state.svc.public_delivery_receipt(&tab_id, delivery)
     };
     use codeterm_service_core::service::messenger::Delivery;
+    if let Some(router) = router_tab.filter(|_| {
+        matches!(
+            delivery,
+            Delivery::ChatBackend { .. } | Delivery::Pty { .. }
+        )
+    }) {
+        let svc = state.svc.clone();
+        let target = tab_id.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            svc.record_live_transcript_forward(&router, &target, &raw_text);
+        })
+        .await
+        {
+            log::warn!("[api/send] transcript forward receipt worker failed: {error}");
+        }
+    }
     let (delivery_state, send_id, bytes_written) = match delivery {
         Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),
         Delivery::Unconfirmed { delivery_id } => ("pending", Some(delivery_id), true),

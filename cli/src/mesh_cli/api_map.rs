@@ -66,6 +66,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             tab,
             from_file,
             from_pad,
+            attach: _,
+            copy: _,
             stdin: use_stdin,
             actions,
             delay,
@@ -73,19 +75,22 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             every,
             until,
             count,
-            require_agent: _,
+            require_agent,
             to_shell: _,
             system_context,
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
+                if *require_agent {
+                    return unsupported("--require-agent requires an immediate mesh text send");
+                }
                 delayed_create_to_api(
                     text, tab, from_file, from_pad, *use_stdin, delay, at, every, until, count,
                     &mut stdin,
                 )
             } else {
                 send_text_to_api(
-                    text, tab, from_file, from_pad, *use_stdin, actions, system_context, &mut stdin,
+                    text, tab, from_file, from_pad, *use_stdin, actions, system_context, *require_agent, &mut stdin,
                 )
             }
         }
@@ -802,6 +807,14 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::ThemeAction::List => ("GET".into(), "/api/themes".into(), None),
             _ => ("GET".into(), "/api/themes".into(), None),
         },
+        Commands::Wallpaper { action } => {
+            let (method, path, body) = crate::cmd::wallpaper::request(action);
+            (method.into(), path, Some(body.to_string()))
+        }
+        Commands::Appearance { action } => {
+            let (method, path, body) = crate::cmd::appearance::request(action);
+            (method.into(), path, body.map(|value| value.to_string()))
+        }
         Commands::Mem { action } => mem_to_api(action),
         Commands::Sessions { action } => match action {
             crate::SessionsAction::Search {
@@ -951,6 +964,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Analytics { .. }
         | Commands::Plugin { .. }
         | Commands::ModelProvider { .. }
+        | Commands::LiveTranscript { .. }
         | Commands::Supporter { .. }
         | Commands::Blueprint { .. }
         | Commands::Plan { .. }

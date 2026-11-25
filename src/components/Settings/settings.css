@@ -10,6 +10,10 @@
   max-width: 940px;
 }
 
+.ct-settings-page[data-settings-page="appearance-lab"] {
+  max-width: 1120px;
+}
+
 .ct-settings-card {
   display: flex;
   flex-direction: column;
@@ -31,7 +35,7 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 9px;
+  border-radius: calc(9px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
   color: var(--ct-accent);
 }
@@ -85,7 +89,7 @@
 .ct-settings-card__body input[type="password"]:not(.ct-field),
 .ct-settings-card__body textarea {
   border-color: transparent;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 5%, transparent);
 }
 
@@ -151,7 +155,7 @@
 .ct-settings-nav__item .ct-settings-card__icon {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ct-roundness, 1));
 }
 
 .ct-settings-nav__label {

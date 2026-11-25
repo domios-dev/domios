@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::{ClosedTab, TabCloseReason};
+use crate::service::close_authority::MeshCloseGrant;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
 
@@ -46,7 +47,7 @@ fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> 
 #[derive(Clone, Copy)]
 enum WorkspaceCloseCaller<'a> {
     LocalTab(&'a str),
-    AuthenticatedMeshPeer(&'a str),
+    AuthenticatedMeshPeer(&'a str, &'a MeshCloseGrant),
     #[cfg(any(test, feature = "test-support"))]
     Human,
     HumanConfirmedHeaderless,
@@ -57,7 +58,7 @@ impl WorkspaceCloseCaller<'_> {
     fn kind(self) -> &'static str {
         match self {
             Self::LocalTab(_) => "AgentTab",
-            Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
+            Self::AuthenticatedMeshPeer(..) => "AuthenticatedMeshPeer",
             #[cfg(any(test, feature = "test-support"))]
             Self::Human => "Human",
             Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
@@ -68,7 +69,7 @@ impl WorkspaceCloseCaller<'_> {
     fn team_caller(self) -> TeamMutationCaller {
         match self {
             Self::LocalTab(tab_id) => TeamMutationCaller::AgentTab(tab_id.to_string()),
-            Self::AuthenticatedMeshPeer(peer_id) => {
+            Self::AuthenticatedMeshPeer(peer_id, _) => {
                 TeamMutationCaller::AuthenticatedMeshPeer(peer_id.to_string())
             }
             #[cfg(any(test, feature = "test-support"))]
@@ -280,22 +281,25 @@ impl ServiceContext {
         peer_id: &str,
         workspace_id: &str,
         force: bool,
+        grant: &MeshCloseGrant,
     ) -> Result<(), String> {
         crate::async_runtime::block_on(self.close_workspace_from_authenticated_mesh_peer_async(
             peer_id,
             workspace_id,
             force,
+            grant,
         ))
     }
 
-    pub(crate) async fn close_workspace_from_authenticated_mesh_peer_async(
+    async fn close_workspace_from_authenticated_mesh_peer_async(
         &self,
         peer_id: &str,
         workspace_id: &str,
         force: bool,
+        grant: &MeshCloseGrant,
     ) -> Result<(), String> {
         self.close_workspace_guarded_for(
-            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id),
+            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id, grant),
             workspace_id,
             force,
         )
@@ -339,7 +343,7 @@ impl ServiceContext {
                     None => self.workspace_has_protected_tab(workspace_id)?,
                 }
             }
-            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id) => {
+            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id, _) => {
                 if peer_id.trim().is_empty() {
                     return Err("authenticated mesh peer id is required".to_string());
                 }
@@ -378,10 +382,30 @@ impl ServiceContext {
         }
 
         let inventory = self.capture_close_inventory(workspace_id, None).await?;
-        let _capture_guard = super::close_history::WorkspaceCloseGuard::new(workspace_id);
-        let result = self
-            .close_workspace_members(caller, workspace_id, force)
-            .await;
+        let admission = {
+            let mux = self.mux.read();
+            let begin = || {
+                mux.ensure_workspace_membership_mutable(workspace_id)?;
+                let workspace = mux
+                    .get_workspace(workspace_id)
+                    .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+                if workspace.protected {
+                    return Err("Cannot close protected workspace".into());
+                }
+                super::close_history::WorkspaceCloseGuard::begin(workspace_id)
+            };
+            match caller {
+                WorkspaceCloseCaller::AuthenticatedMeshPeer(_, grant) => grant.admit(begin),
+                _ => begin(),
+            }
+        };
+        let result = match &admission {
+            Ok(_) => {
+                self.close_workspace_members(caller, workspace_id, force)
+                    .await
+            }
+            Err(error) => Err(error.clone()),
+        };
         let service = self.clone();
         match tokio::task::spawn_blocking(move || {
             service.settle_close_inventory(inventory.as_deref())
@@ -529,6 +553,7 @@ impl ServiceContext {
         };
         if let Some(batch) = history_batch {
             let evicted = batch.persist_on_blocking_thread_collect_evicted();
+            self.retire_evicted_transcript_owners(&evicted);
             self.forget_evicted_tab_todos(evicted);
             crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
@@ -583,9 +608,28 @@ impl ServiceContext {
         if self.mux.read().get_workspace(to_workspace_id).is_none() {
             return Err(format!("Workspace not found: {to_workspace_id}"));
         }
-        self.mux
-            .write()
-            .move_tab(tab_id, from_workspace_id, to_workspace_id)?;
+        {
+            let mut mux = self.mux.write();
+            mux.require_focusable_tab(tab_id)?;
+            mux.move_tab(tab_id, from_workspace_id, to_workspace_id)?;
+            let fallback = mux.get_workspace(from_workspace_id).and_then(|workspace| {
+                let active = workspace.active_tab_id.as_deref()?;
+                mux.require_focusable_tab(active).err()?;
+                Some(
+                    workspace
+                        .tabs
+                        .iter()
+                        .rev()
+                        .find(|id| mux.require_focusable_tab(id).is_ok())
+                        .cloned(),
+                )
+            });
+            if let Some(fallback) = fallback {
+                if let Some(workspace) = mux.get_workspace_mut(from_workspace_id) {
+                    workspace.active_tab_id = fallback;
+                }
+            }
+        }
         self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
@@ -732,10 +776,11 @@ impl ServiceContext {
     ) -> Result<String, String> {
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = mux.reopen_closed_tab(workspace_id, index)?;
-            let _ = mux.set_active_tab(workspace_id, &result);
-            result
+            let owner = mux.reopen_closed_tab_with_lineage(workspace_id, index)?;
+            let _ = mux.set_active_tab(workspace_id, &owner.live_tab_id);
+            owner.live_tab_id
         };
+        self.settle_reopened_transcript(&tab_id);
         self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(tab_id)
     }
@@ -748,13 +793,16 @@ impl ServiceContext {
         if let Some(result) = self.restore_close_inventory(group_id)? {
             return Ok(result);
         }
-        let result = {
+        let (result, lineage) = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_closed_group(group_id)?;
+            let (r, lineage) = mux.reopen_closed_group_with_lineage(group_id)?;
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
-            r
+            (r, lineage)
         };
+        for owner in lineage {
+            self.settle_reopened_transcript(&owner.live_tab_id);
+        }
         self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(result)
     }
@@ -764,13 +812,30 @@ impl ServiceContext {
     pub fn reopen_orphaned_tab(&self, tab_id: &str) -> Result<(String, String), String> {
         let result = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_orphaned_tab(tab_id)?;
+            let (workspace, owner) = mux.reopen_orphaned_tab_with_lineage(tab_id)?;
+            let r = (workspace, owner.live_tab_id);
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
         };
+        self.settle_reopened_transcript(&result.1);
         self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(result)
+    }
+
+    fn settle_reopened_transcript(&self, live_tab_id: &str) {
+        let lineage = self.mux.read().reopened_transcript_owner(live_tab_id);
+        match lineage.and_then(|closed| {
+            if let Some(closed) = closed {
+                self.restore_transcript_owner(&closed, live_tab_id)?;
+            }
+            Ok(())
+        }) {
+            Ok(()) => {}
+            Err(error) => {
+                log::warn!("[live-transcript] reopened owner {live_tab_id} held: {error}")
+            }
+        }
     }
 }
 

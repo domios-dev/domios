@@ -1,6 +1,8 @@
 use super::*;
 use codeterm_neighbors::wire::{hex_id, Kind};
 
+pub const NEIGHBOR_NAMED_FILE_GUIDANCE: &str = "When an in-scope question names a local file under folder or full machine access, use commands.machine_read on its permitted path first. Under folder access, look for the named file in the granted folder and read it directly at its path. Under full access, read it directly at its permitted path within the owner topic scope. Shared attachment handles are a separate, secondary source for named local files.";
+
 #[derive(Debug, Clone)]
 pub struct NeighborMessage {
     pub message_id: String,
@@ -64,7 +66,22 @@ pub(super) fn reply_hint(envelope: &MessageEnvelope) -> Option<String> {
     if !hex_id(friendship, 64) || !hex_id(&message.message_id, 32) {
         return None;
     }
-    Some(format!("Reply through domios account neighbors send '{friendship}' --kind answer --in-reply-to '{}' --from-pad - using stdin; refuse out-of-scope requests politely.", message.message_id))
+    Some(direct_reply_hint(
+        "domios",
+        friendship,
+        &message.message_id,
+        NEIGHBOR_NAMED_FILE_GUIDANCE,
+    ))
+}
+
+pub(super) fn direct_reply_hint(
+    executable: &str,
+    friendship: &str,
+    message: &str,
+    named_file_guidance: &str,
+) -> String {
+    let file = format!("neighbor-reply-{message}.txt");
+    format!("{named_file_guidance} Write the reply to '{file}' in your own AgentPad (CODETERM_PAD_DIR) using a native file tool or a permitted native shell command. Then run {executable} account neighbors send '{friendship}' --kind answer --in-reply-to '{message}' --from-pad '{file}'. Use --kind refusal for a linked refusal.")
 }
 
 #[cfg(test)]

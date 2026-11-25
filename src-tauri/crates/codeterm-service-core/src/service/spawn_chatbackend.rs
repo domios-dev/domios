@@ -8,6 +8,7 @@ use std::future::Future;
 #[path = "spawn_chatbackend/launch_options.rs"]
 mod launch_options;
 use launch_options::runtime_launch_mode;
+pub(super) mod live_transcript;
 mod role;
 #[path = "spawn_chatbackend/runtime_launch.rs"]
 mod runtime_launch;
@@ -196,6 +197,12 @@ impl ServiceContext {
 
         let cloud = self.remote_execution(&plugin_id, &config)?;
         let local_runtime = !cloud && super::agent_runtime::engine::requested(self, &plugin_id);
+        let router_owner =
+            live_transcript::router_launch_owner(self, &spec, &plugin_id, local_runtime)?;
+        let config_model = config
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         if local_runtime {
             if let Some(metadata) = spec.chatbackend_launch.as_ref() {
                 super::spawn_capability::validate_runtime_launch_arguments(
@@ -299,6 +306,19 @@ impl ServiceContext {
         let gate = self.limit_gate();
         let (tab_id, original) = {
             let mut mux = self.mux.write();
+            if let Some(owner) = router_owner {
+                mux.ensure_tab_membership_mutable(owner)?;
+                if mux.find_workspace_for_tab(owner).as_deref() != Some(ws_id.as_str())
+                    || mux
+                        .get_tab(owner)
+                        .is_none_or(|tab| tab.is_transcript_router())
+                    || mux
+                        .all_tabs()
+                        .any(|tab| tab.transcript_router_owner() == Some(owner))
+                {
+                    return Err("Transcript router owner changed or already has a router".into());
+                }
+            }
             let result = match spec
                 .chatbackend_launch
                 .as_ref()
@@ -312,6 +332,21 @@ impl ServiceContext {
                     tab_id
                 }
             };
+            if let Some(owner) = router_owner {
+                let tab = mux
+                    .get_tab_mut(&result)
+                    .ok_or("Transcript router allocation lost")?;
+                tab.audience = crate::multiplexer::types::TabAudience::TranscriptRouter;
+                tab.spawned_by_tab_id = Some(owner.into());
+                tab.hidden = true;
+                tab.show_in_tabbar = false;
+                tab.skip_snapshot = true;
+                if let Some(workspace) = mux.get_workspace_mut(&ws_id) {
+                    if workspace.active_tab_id.as_deref() == Some(result.as_str()) {
+                        workspace.active_tab_id = None;
+                    }
+                }
+            }
             if let Some(ref title) = spec.title {
                 if let Err(e) = mux.rename_tab(&result, title) {
                     log::warn!("[spawn.chatbackend] rename_tab failed: {}", e);
@@ -385,6 +420,8 @@ impl ServiceContext {
                 tab.show_in_tabbar = !tab.hidden;
                 if let Some(launch) = launch {
                     stamp_chatbackend_launch_identity(tab, launch);
+                } else if local_runtime {
+                    tab.agent_requested_model = config_model;
                 }
                 tab.audience = spec.audience;
                 tab.role_profile = role_profile.clone();

@@ -25,8 +25,10 @@ pub mod agent_pad;
 pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
+pub mod chat_wallpaper;
 mod image_attachments;
 pub mod lazy_restore;
+pub mod live_transcript;
 pub mod provider_accounts;
 pub mod tab_mutation_authority;
 pub mod tab_todos;
@@ -47,6 +49,7 @@ pub mod cartographer;
 pub mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod client_selection;
+pub mod close_authority;
 mod close_history;
 pub use close_history::close_inventory_error_data;
 mod command_port_impl;
@@ -392,6 +395,7 @@ pub struct ServiceContext {
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
+    pad_shares: Arc<local_preview::pad_shares::Store>,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,
@@ -493,11 +497,7 @@ pub struct PlanStartupLoaded(pub Arc<AtomicBool>);
 
 /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
 pub struct BridgeOutboundRx(
-    pub  Arc<
-        parking_lot::Mutex<
-            Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>,
-        >,
-    >,
+    pub Arc<parking_lot::Mutex<Option<crate::bridge::manager::OutboundReceiver>>>,
 );
 
 /// Instrumentation for the desktop `mux-state-changed` emit path. `requests` =

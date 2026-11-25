@@ -3,8 +3,8 @@ reads the diary you leave, and everything else is graph mutation work.
 
 ## HARD RULES
 
-1. ACT ONLY ON CLI JSON. Every action is one plain `codeterm ...` (or
-   `date -u`) Bash call, and you read its JSON in the tool output.
+1. ACT ONLY ON CLI JSON. Every action is one plain `domios ...` command in
+   the available command tool (PowerShell, Bash or another shell). Read its JSON.
    NEVER write scripts or temp files: no `python`, `jq`, `node`, `awk` or
    `sed`, no heredocs, no pipes, no `>` redirects, no `/tmp` files, no
    `$(...)`, backticks or shell variables. This run is hidden: a command
@@ -28,7 +28,7 @@ reads the diary you leave, and everything else is graph mutation work.
 
 | # | Stage | Cap | Log fields after the stage |
 |---|-------|-----|----------------------------|
-| 0 | Start: `date -u`, `mem stats`, skeleton diary | — | `STARTED`, `STATS_BEFORE` |
+| 0 | Start: host time, `mem stats`, skeleton diary | — | `STARTED`, `STATS_BEFORE` |
 | 1 | Bulk pre-clean | 2 calls | `DREAM_BACKLINKS`, `PARALLEL_EDGES` |
 | 2 | A.1 Hub decomposition | the hubs one `hubs --limit 5` call returns | `HUBS_BEFORE`, `HUBS`, `HUBS_AFTER` |
 | 3 | A.2 Islands + orphans | 15 actions total | `ISLANDS_*`, `ORPHANS_*` |
@@ -39,17 +39,24 @@ reads the diary you leave, and everything else is graph mutation work.
 | 8 | D Calibration (read-only) | 2 calls | `CALIBRATION`, `ARCHIVED` |
 | 9 | B Final diary, self-link, report | — | `PATTERN`, `ENTITY_COUNT_AFTER`, `ACTION` |
 
+Report the stage through `domios mem worker progress '<stage>'` before each
+group: stage 0 `read_memories`, stage 1 `prune_backlinks`, stages 2–3
+`bridge_islands`, stages 4–8 `check_duplicates`, stage 9 `write_diary`.
+
 After EVERY stage, `domios mem update <diary_id> --body '...'` with the full
 log so far (stages not reached yet stay `pending`). If the run is cut short,
 the diary still says what happened.
 
 ## STAGE 0 — Start
 
-    date -u +%Y-%m-%dT%H:%M:%SZ          # remember this start time
+The host supplied start time `{started_at}`, diary title `{diary_title}` and
+calibration window `{calibration_since}`. Use these literal values; no shell
+date command is needed. Submit each command on one line using the available
+shell's quoting; examples show logical commands, not required Bash syntax.
+
+    domios mem worker progress 'read_memories'
     domios mem stats
-    domios mem save --kind daily --title "dream: <UTC YYYY-MM-DD HH:MM>" \
-      --tags dream-diary --area _dreams --skip-extract --summary "WIP: dreaming" \
-      '<insight></insight><log>STARTED: <start time></log>'
+    domios mem save --kind daily --title "{diary_title}" --tags dream-diary --area _dreams --skip-extract --summary "WIP: dreaming" '<insight></insight><log>STARTED: {started_at}</log>'
 
 The returned id is `<diary_id>` for the whole run.
 
@@ -58,7 +65,11 @@ The returned id is `<diary_id>` for the whole run.
     domios mem graph prune-dream-hub-edges --json    # diary -> hub backlinks
     domios mem graph collapse-synonym-edges --json   # parallel synonym edges
 
-Log `DREAM_BACKLINKS: <deleted>` and `PARALLEL_EDGES: collapsed=<deleted>`.
+Log `DREAM_BACKLINKS: <result.report.deleted>` and
+`PARALLEL_EDGES: collapsed=<result.report.deleted>` from these calls only.
+`orphan_ids` are candidates, not confirmed deletions. A dry run deletes zero.
+Then preview both commands with `--dry-run --json` and log the remaining
+candidate counts; do not claim cleanup succeeded when candidates remain.
 These deflate most hubs before A.1 starts.
 
 ## STAGE 2 — A.1 Hub decomposition
@@ -81,9 +92,7 @@ more search noise, so if anything is skipped it is the smallest. For each:
 
 1. Decompose: one call per cluster, straight from the JSON —
 
-       domios mem graph introduce-topic --topic-id <suggested_topic> \
-         --type <entity_type> --sources <members, comma-separated> \
-         --anchor <hub id> --reason "dreamer-recluster"
+       domios mem graph introduce-topic --topic-id <suggested_topic> --type <entity_type> --sources <members, comma-separated> --anchor <hub id> --reason "dreamer-recluster"
 
    If a cluster is weak (its members plainly share nothing), skip that
    cluster, not the hub.
@@ -119,14 +128,11 @@ For each island, top to bottom, until the cap:
   entity): bridge with ONE edge from the first / most central member. Never
   invent a new topic when the anchor exists.
 
-      domios mem graph relate --from <member> --rel applies_to \
-        --to <suggested_anchor> --reason "dreamer-island-bridge"
+      domios mem graph relate --from <member> --rel applies_to --to <suggested_anchor> --reason "dreamer-island-bridge"
 
 - No real anchor (`topic_misc`) but a coherent theme: promote it —
 
-      domios mem graph introduce-topic --topic-id topic_<theme> --type Topic \
-        --sources <2+ members> --anchor <a real project_/topic_ hub> \
-        --reason "dreamer-island-promote"
+      domios mem graph introduce-topic --topic-id topic_<theme> --type Topic --sources <2+ members> --anchor <a real project_/topic_ hub> --reason "dreamer-island-promote"
 
 - Garbage (extraction leftovers like `auto: User has mentioned ...`,
   duplicate `tech_*` stubs): `domios mem archive <id> --reason "orphan or junk stub"`,
@@ -181,8 +187,7 @@ Log `DEDUP: aliases=N duplicates=M` and
 
 ## STAGE 5 — A.4 Repair primitives (typed CLI only, never raw SQL)
 
-    domios mem graph find-duplicate-relations \
-      --group-by from_id,relation_type,to_id,valid_from --limit 20 --json
+    domios mem graph find-duplicate-relations --group-by from_id,relation_type,to_id,valid_from --limit 20 --json
 
 Groups carry `key`, `count`, `rowids` and `sample`. Identical payloads: drop
 all but the lowest rowid with `domios mem graph delete-relations --rowids
@@ -231,11 +236,10 @@ Never delete a learning here. Log `MAINTENANCE: classified=N promoted=M revived=
 ## STAGE 8 — D Calibration (read-only)
 
 The supervisor already ran the calibration sweep before you started. Never
-invoke the sweep. Read what it did, with `<since>` = your start time minus one
-hour, written out as a literal timestamp:
+invoke the sweep. Read what it did using the host calibration window:
 
-    domios mem calibration log --since <since> --count
-    domios mem calibration log --since <since> --limit 30
+    domios mem calibration log --since {calibration_since} --count
+    domios mem calibration log --since {calibration_since} --limit 30
 
 `APPLIED` = rows whose `changed_by` ends in promote or demote; archived = rows
 with `change_type` archive. The `dreamer-calibration:stale` rows are the
@@ -250,8 +254,7 @@ Log `ARCHIVED: <item_id> (<reason>); ...` for every archive row, or
 
 `domios mem stats` gives `ENTITY_COUNT_AFTER`. Then write the final body:
 
-    domios mem update <diary_id> --summary '<one-sentence teaser of the insight>' \
-      --body '<the full body below>'
+    domios mem update <diary_id> --summary '<one-sentence teaser of the insight>' --body '<the full body below>'
 
 Body shape (the frontend parses these tags):
 
@@ -321,4 +324,4 @@ The daemon checks your claim against the stored diary either way.
 - If a call needs more than five sub-decisions to justify, pick the simpler
   routing and move on.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

@@ -362,6 +362,17 @@ dev_auth_header() {
   echo "Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
 }
 
+dev_socket_identity() {
+  local path="$1"
+  if is_windows; then
+    case "$path" in
+      '\\.\pipe\'*) path="${path#'\\.\pipe\'}" ;;
+      '//./pipe/'*) path="${path#'//./pipe/'}" ;;
+    esac
+  fi
+  printf '%s\n' "$path"
+}
+
 # Run ONE child process with the dev connection composed into its environment.
 # Those variables live for that process only, which is what keeps a leaked
 # parent CODETERM_API_PORT from redirecting the call and leaves this shell
@@ -387,7 +398,7 @@ dev_run() {
        [ -z "$EVAL_LIB_CALLER_API_TOKEN" ] ||
        [ "$EVAL_LIB_CALLER_API_TOKEN" = "$EVAL_LIB_RESOLVED_API_TOKEN" ] ||
        [ "$EVAL_LIB_CALLER_API_PORT" != "$EVAL_LIB_DEV_API_PORT" ] ||
-       [ "$EVAL_LIB_CALLER_SOCKET_PATH" != "$EVAL_LIB_RESOLVED_SOCKET_PATH" ] ||
+       [ "$(dev_socket_identity "$EVAL_LIB_CALLER_SOCKET_PATH")" != "$(dev_socket_identity "$EVAL_LIB_RESOLVED_SOCKET_PATH")" ] ||
        { [ "$EVAL_LIB_CALLER_API_URL" != "$(dev_api_url)" ] &&
          [ "$EVAL_LIB_CALLER_API_URL" != "http://localhost:$EVAL_LIB_DEV_API_PORT" ]; }; then
       echo "ERROR [dev-tab]: --as-tab requires the selected DEV tab's own launch credential; run the probe inside that tab, not from a prod or owner shell." >&2

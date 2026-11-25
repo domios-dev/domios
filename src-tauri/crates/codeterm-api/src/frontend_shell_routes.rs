@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
 };
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -28,12 +28,25 @@ enum ClientHealthEvent {
     ChatConnectSlow,
     PreviewSlow,
     PreviewFailed,
+    ChatViewportDetached,
+    ChatNewerRevealed,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum ChatViewportCause {
+    Scroll,
+    Reveal,
+    Restore,
+    Hold,
+    Pin,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ClientHealth {
     event: ClientHealthEvent,
+    cause: Option<ChatViewportCause>,
     tab_id: Option<String>,
     elapsed_ms: u32,
     listener_ms: Option<u32>,
@@ -63,7 +76,7 @@ async fn client_health(
         "frontend.client",
         format!("{:?} ({} ms)", body.event, body.elapsed_ms),
         Some(
-            json!({ "client_id": diagnostic_client(&headers), "tab_id": body.tab_id, "elapsed_ms": body.elapsed_ms,
+            json!({ "client_id": diagnostic_client(&headers), "tab_id": body.tab_id, "cause": body.cause, "elapsed_ms": body.elapsed_ms,
             "listener_ms": body.listener_ms, "response_ms": body.response_ms, "adoption_ms": body.adoption_ms, "paint_ms": body.paint_ms }),
         ),
     );

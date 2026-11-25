@@ -113,6 +113,13 @@ fn prune_dream_hub_edges_drops_backlinks_keeps_anchor() {
 
     let rep = prune_dream_hub_edges(&conn, false, "dreamer").unwrap();
     assert_eq!(rep.deleted, 2, "both hub backlinks invalidated");
+    codeterm_mem_store::maintenance::worker_dreaming_normalize(&conn).unwrap();
+    assert_eq!(
+        prune_dream_hub_edges(&conn, false, "dreamer")
+            .unwrap()
+            .deleted,
+        0
+    );
     assert!(
         active_rel_types(&conn, "daily_dream_x", "project_aurora").is_empty(),
         "no dream backlinks left to the hub"
@@ -122,4 +129,46 @@ fn prune_dream_hub_edges_drops_backlinks_keeps_anchor() {
         vec!["belongs_to".to_string()],
         "the dreams-anchor link survives"
     );
+}
+
+#[test]
+fn nightly_normalize_does_not_revive_deliberate_cleanup() {
+    let conn = fresh_conn();
+    for id in ["topic_a", "topic_b"] {
+        crate::graph::insert_entity(
+            &conn,
+            &crate::Entity {
+                id: id.into(),
+                entity_type: "Topic".into(),
+                scope: "global".into(),
+                properties: serde_json::json!({}),
+            },
+        )
+        .unwrap();
+    }
+    insert_relation(
+        &conn,
+        &rel("topic_a", "about", "topic_b", "2026-01-01T00:00:00Z"),
+    )
+    .unwrap();
+    insert_relation(
+        &conn,
+        &rel("topic_a", "belongs_to", "topic_b", "2026-01-02T00:00:00Z"),
+    )
+    .unwrap();
+    let mut older = rel("topic_a", "belongs_to", "topic_b", "2025-01-01T00:00:00Z");
+    older.valid_to = Some("2025-01-02T00:00:00Z".into());
+    insert_relation(&conn, &older).unwrap();
+    let mut recoverable = rel("topic_b", "uses", "topic_a", "2025-01-01T00:00:00Z");
+    recoverable.valid_to = Some("2025-01-02T00:00:00Z".into());
+    insert_relation(&conn, &recoverable).unwrap();
+    let first = collapse_synonym_edges(&conn, false, "dreamer").unwrap();
+    assert_eq!(first.deleted, 1);
+    let normalized = codeterm_mem_store::maintenance::worker_dreaming_normalize(&conn).unwrap();
+    assert_eq!(normalized["broken_relations_revived"], 1);
+    assert_eq!(active_rel_types(&conn, "topic_a", "topic_b"), vec!["about"]);
+    let second = collapse_synonym_edges(&conn, false, "dreamer").unwrap();
+    assert_eq!(second.deleted, 0);
+    assert!(second.orphan_ids.is_empty());
+    assert!(active_rel_types(&conn, "topic_b", "topic_a").contains(&"uses".into()));
 }

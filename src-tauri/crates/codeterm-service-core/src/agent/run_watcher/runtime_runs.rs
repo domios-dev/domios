@@ -867,6 +867,15 @@ impl RunWatcherRegistry {
         context: &RuntimeContext,
         reason: String,
     ) {
+        self.runtime_turn_failed(svc, context, reason);
+    }
+
+    pub(crate) fn runtime_turn_failed(
+        &self,
+        svc: &ServiceContext,
+        context: &RuntimeContext,
+        reason: String,
+    ) {
         if current_runtime_binding(svc, context) {
             let _ = self.finish_runtime(
                 svc,

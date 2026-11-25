@@ -1,6 +1,6 @@
 mod input;
 mod neighbor;
-pub use neighbor::NeighborMessage;
+pub use neighbor::{NeighborMessage, NEIGHBOR_NAMED_FILE_GUIDANCE};
 pub mod switch_handoff;
 mod turn_resume;
 pub use input::{
@@ -25,6 +25,7 @@ pub struct MessageEnvelope {
     pub from_label: String,
     pub from_tab: String,
     pub from_agent: Option<bool>,
+    pub from_transcript_router: bool,
     pub relay_hops: u8,
     pub relay_notice: bool,
     pub from_model: Option<String>,
@@ -45,6 +46,7 @@ pub struct MessageEnvelope {
     pub next_at_ms: Option<u64>,
     pub skipped_ticks: Option<u64>,
     pub delivery_observer: Option<DeliveryWriteObserver>,
+    pub require_agent: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
@@ -195,6 +197,11 @@ impl MessageEnvelope {
         self
     }
 
+    pub fn from_transcript_router(mut self, from_transcript_router: bool) -> Self {
+        self.from_transcript_router = from_transcript_router;
+        self
+    }
+
     pub fn peer(mut self, peer: Option<String>) -> Self {
         self.peer = peer.filter(|p| !p.trim().is_empty());
         self
@@ -257,6 +264,8 @@ impl Messenger {
     pub const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
     pub const AGENT_REPLY_COMMAND: &'static str = "domios send";
     const SHELL_REPLY_HINT: &'static str = "[sender is a shell; reply here]";
+    const TRANSCRIPT_ROUTER_REPLY_HINT: &'static str =
+        "[routed from owner Live Transcript; answer the owner directly here]";
     pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
         MessageEnvelope::tab(from_name, from_tab).into()
     }
@@ -454,7 +463,7 @@ impl Messenger {
             .map(|delivery| (delivery, None));
         }
 
-        let (resolved_target, should_prefix, pty_agent_target) = {
+        let (resolved_target, should_prefix, pty_agent_target, required_binding) = {
             let mux = svc.mux.read();
             let resolved_target = mux
                 .resolve_tab_id(to_tab)
@@ -462,19 +471,38 @@ impl Messenger {
             let tab = mux.get_tab(&resolved_target);
             let target_is_agent =
                 tab.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+            let pty_agent_target = target_is_agent
+                && matches!(
+                    tab.map(|tab| &tab.backing),
+                    Some(crate::multiplexer::types::TabBacking::Pty)
+                );
+            let required_binding = if envelope.require_agent {
+                let tab = tab
+                    .filter(|tab| {
+                        pty_agent_target
+                            && tab.pty_id.is_some()
+                            && tab.launch_session_authenticated()
+                    })
+                    .ok_or("tab_busy_refused: Recipient has no live authenticated agent")?;
+                (
+                    tab.pty_id.clone(),
+                    tab.agent_session_id.clone(),
+                    tab.session_binding_nonce.clone(),
+                )
+            } else {
+                (None, None, None)
+            };
+            let should_prefix = should_prefix_pty(
+                envelope.kind,
+                target_is_agent,
+                &envelope.from_tab,
+                &resolved_target,
+            );
             (
-                resolved_target.clone(),
-                should_prefix_pty(
-                    envelope.kind,
-                    target_is_agent,
-                    &envelope.from_tab,
-                    &resolved_target,
-                ),
-                target_is_agent
-                    && matches!(
-                        tab.map(|p| &p.backing),
-                        Some(crate::multiplexer::types::TabBacking::Pty)
-                    ),
+                resolved_target,
+                should_prefix,
+                pty_agent_target,
+                required_binding,
             )
         };
         log::debug!(
@@ -528,9 +556,9 @@ impl Messenger {
                                     transport,
                                     observer: envelope.delivery_observer.clone(),
                                     idempotency_key: envelope.id.clone(),
-                                    expected_pty_id: None,
-                                    expected_session_id: None,
-                                    expected_binding_nonce: None,
+                                    expected_pty_id: required_binding.0,
+                                    expected_session_id: required_binding.1,
+                                    expected_binding_nonce: required_binding.2,
                                 },
                                 &text,
                             )
@@ -945,6 +973,9 @@ impl Messenger {
         let tab = short_id(&self.envelope.from_tab);
         if !safe_reply_token(tab) {
             return None;
+        }
+        if self.envelope.from_transcript_router {
+            return Some(Self::TRANSCRIPT_ROUTER_REPLY_HINT.to_string());
         }
         if self.envelope.from_agent == Some(false) {
             return Some(Self::SHELL_REPLY_HINT.to_string());

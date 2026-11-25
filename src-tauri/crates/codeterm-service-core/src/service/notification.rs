@@ -1,4 +1,5 @@
 //! Notification creation with OS toast support.
+mod answer_receipt;
 mod daemon;
 mod resolution;
 
@@ -484,34 +485,26 @@ impl ServiceContext {
     /// existing envelope path, and report what actually happened. A refused
     /// send leaves the record answered-but-undelivered, never delivered.
     fn settle_answer(&self, id: &str, standing: String) -> serde_json::Value {
+        let events = self.events.subscribe();
+        let mut receipt = None;
         let outcome = answer_delivery::settle(
             &self.notif,
             id,
             |to_tab, envelope, body| {
-                crate::service::messenger::Messenger::deliver(self, to_tab, envelope, body)
-                    .map(|_| ())
+                let (handoff, send_id) = self.notification_answer_handoff(to_tab, envelope, body);
+                receipt = send_id.map(|send_id| (to_tab.to_owned(), send_id));
+                handoff
             },
             |spent| self.spend_on_channels(id, spent),
         );
-        if outcome == AnswerDeliveryOutcome::Pending {
-            return serde_json::json!({ "answered": standing, "pending": true });
-        }
         if let Some(detail) = outcome.failure() {
             log::warn!("[notify-answer] {id} recorded but not delivered: {detail}");
         }
-        let delivered = outcome.reached_tab();
-        self.notify_event(
-            "notification-answered",
-            serde_json::json!({ "id": id, "answered": standing, "delivered": delivered, "deliveryError": outcome.failure() }),
-        );
-        match outcome {
-            AnswerDeliveryOutcome::Failed(detail) => serde_json::json!({
-                "answered": standing,
-                "delivered": false,
-                "deliveryError": detail,
-            }),
-            _ => serde_json::json!({ "answered": standing, "delivered": delivered }),
+        let result = self.publish_answer_delivery(id, &standing, outcome);
+        if let Some((tab, send_id)) = receipt {
+            self.watch_notification_answer(id, standing, tab, send_id, events);
         }
+        result
     }
 
     pub fn resolve_prompt_notifications(
@@ -625,7 +618,10 @@ impl ServiceContext {
                 ) => {
                     return serde_json::json!({ "answered": standing, "delivered": true });
                 }
-                None => return serde_json::json!({ "answered": standing, "pending": true }),
+                None
+                | Some(crate::notification::answer_delivery::AnswerDeliveryPlan::Unconfirmed) => {
+                    return serde_json::json!({ "answered": standing, "submit_unconfirmed": true });
+                }
                 Some(crate::notification::answer_delivery::AnswerDeliveryPlan::Nothing) => {
                     return serde_json::json!({ "answered": standing, "delivered": false,
                         "deliveryError": "The notification is no longer available" });

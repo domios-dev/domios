@@ -12,6 +12,7 @@ fn observation() -> (ActionCompletion, mpsc::Sender<Arc<CdpEvent>>) {
             session: "own".into(),
             target: "target".into(),
             requested: false,
+            loading_started: false,
             loader: None,
             loaded: HashSet::new(),
             url: None,
@@ -105,6 +106,17 @@ async fn completion_withheld_navigation_needs_its_main_frame_loader_load() {
                 ))
                 .await
                 .unwrap();
+            sender
+                .send(event(
+                    "Page.frameStartedNavigating",
+                    json!({"frameId":"main","loaderId":"new","navigationType":"differentDocument"}),
+                ))
+                .await
+                .unwrap();
+            sender
+                .send(event("Page.frameStartedLoading", json!({"frameId":"main"})))
+                .await
+                .unwrap();
             Ok(Value::Null)
         },
         false,
@@ -180,6 +192,67 @@ async fn completion_same_document_and_non_navigation_have_positive_boundaries() 
         receipt,
         "action acknowledged; asynchronous effects require an explicit state wait"
     );
+}
+
+#[tokio::test]
+async fn completion_history_commit_after_loading_start_needs_no_new_loader() {
+    let (observation, sender) = observation();
+    let action = observation.finish(
+        async {
+            sender
+                .send(event("Page.frameStartedLoading", json!({"frameId":"main"})))
+                .await
+                .unwrap();
+            sender
+                .send(event(
+                    "Page.navigatedWithinDocument",
+                    json!({"frameId":"main","url":"https://page/route","navigationType":"historyApi"}),
+                ))
+                .await
+                .unwrap();
+            Ok(Value::Null)
+        },
+        false,
+        Duration::from_secs(15),
+    );
+    tokio::pin!(action);
+    let result = futures_util::poll!(&mut action);
+    assert!(
+        result.is_ready(),
+        "history commit must not wait for a new loader"
+    );
+    assert_eq!(
+        result.map(Result::unwrap),
+        std::task::Poll::Ready((
+            Value::Null,
+            "same-document navigation: https://page/route".into()
+        ))
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn completion_history_commit_does_not_confirm_a_pending_document_request() {
+    let (observation, sender) = observation();
+    let result = observation
+        .finish(
+            async {
+                for (method, params) in [
+                    ("Page.frameRequestedNavigation", json!({"frameId":"main"})),
+                    ("Page.frameStartedLoading", json!({"frameId":"main"})),
+                    (
+                        "Page.navigatedWithinDocument",
+                        json!({"frameId":"main","url":"https://page/route","navigationType":"historyApi"}),
+                    ),
+                ] {
+                    sender.send(event(method, params)).await.unwrap();
+                }
+                Ok(Value::Null)
+            },
+            false,
+            Duration::from_secs(15),
+        )
+        .await;
+    assert!(result.unwrap_err().contains("deadline exceeded"));
 }
 
 #[tokio::test]

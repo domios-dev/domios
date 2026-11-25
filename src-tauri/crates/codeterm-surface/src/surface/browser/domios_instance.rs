@@ -57,6 +57,7 @@ fn read_token(root: &std::path::Path) -> Result<String, String> {
 
 impl BrowserRuntime {
     pub(super) async fn open_domios_instance(&self, args: &[String]) -> Result<String, String> {
+        self.shared.check_page_verb()?;
         let target = parse(args)?;
         let origin = format!("http://127.0.0.1:{}", target.port);
         verify_dev_identity(&health(&origin).await?, &target.name, target.port)?;
@@ -81,7 +82,7 @@ impl BrowserRuntime {
         }
         self.open_session(&session).await?;
         verify_dev_identity(&health(&origin).await?, &target.name, target.port)?;
-        let page = self.ensure_page().await?;
+        let page = self.ensure_page_for_agent().await?;
         self.connect_token(&page, &origin, &token).await
     }
 }

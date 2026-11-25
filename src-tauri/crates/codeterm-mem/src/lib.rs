@@ -59,6 +59,7 @@ mod manager_storage;
 #[path = "tests_manager.rs"]
 mod manager_tests;
 mod reindex;
+mod run_mutations;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -111,6 +112,7 @@ pub struct MemManager {
     pub(crate) heavy_ops_permits: Arc<Semaphore>,
     pub(crate) layout: graph_layout::LayoutState,
     pub(crate) extraction: Arc<ExtractionAuthority>,
+    run_registry: parking_lot::RwLock<std::sync::Weak<workers::GraphWorkerRegistry>>,
 }
 
 impl MemManager {

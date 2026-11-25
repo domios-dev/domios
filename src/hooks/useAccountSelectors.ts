@@ -88,7 +88,8 @@ export function useSpawnAccounts(providerId: string | null, workspaceId: string)
     if (!providerId || !accounts.snapshot?.accounts.some(account => account.id === accountId && account.status !== "removing")) return;
     setChoice({ provider: providerId, workspace: workspaceId, account: accountId });
   }, [providerId, workspaceId, accounts.snapshot]);
-  return { snapshot: accounts.snapshot, selectedAccountId, explicitAccountId, select, loading: catalogue.loading || accounts.loading, error: accounts.error ?? catalogue.error };
+  const unavailableModels = available.find(account => account.id === selectedAccountId)?.unavailableModels;
+  return { snapshot: accounts.snapshot, selectedAccountId, explicitAccountId, unavailableModels, select, loading: catalogue.loading || accounts.loading, error: accounts.error ?? catalogue.error };
 }
 
 export function useTabAccounts(tab: Tab) {

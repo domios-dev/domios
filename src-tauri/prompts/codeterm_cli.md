@@ -31,6 +31,7 @@ Programmatic sends to agents are framed, including anonymous CLI sends. Host job
 - Remote task locations come from provider `remote_task` metadata. Use `agent spawn <provider> --location cloud --environment <id>` only when its capability reports available. These are one-task tabs, with no assumed follow-up, cancellation or Worker authority. Never replay unconfirmed creation; inspect the existing provider task list.
 - DELAYED SEND IS NOT THE DEFAULT. `domios send` is immediate; `--delay`/`--at` are for user-requested future delivery. `send --every` repeats into an EXISTING tab (monitor/watcher); cron spawns a FRESH agent per scheduled run. With `--mesh`, recurring delays require the target to advertise `delayed_recurrence`; an incapable peer is refused, so update it or send a one-shot explicitly.
 - SEND RESULT: Immediate `send` exits 1 with a reason on stderr when `ok:false` or `bytes_written:false`, including retained pre-ready input. JSON failures retain the daemon receipt in `result`. A restored PTY-agent send waits for its retained write outcome within the existing readiness bound. A retained `send_id` or queued delivery may still write after a nonzero CLI exit: inspect Chat and queued PTY-agent delivery ids with `domios tab send-status <send-id>` or read the exact own-session transcript and never replay held, written or uncertain input. Held agent sends expose their release condition and failure deadline; cancel a never-written send with `domios tab send-cancel <send-id>` before replacing it. Claimed or uncertain sends refuse cancellation.
+- PAD PREVIEWS. A local tab send shares file cards from your own pad with the recipient's owner UI. Use `domios send --tab ID --attach FILE` to add a pad-relative file, or add `--copy` to snapshot the attachment into the receiving tab's pad inbox. See `domios docs CHAT-BLOCKS`.
 - NEVER HARDCODE MODEL IDS. Discover with `domios agent providers` / `domios agent models <provider>`, which refreshes live-discovery catalogues before listing.
 - MODEL SELECTION: `--model` is validated through each provider's catalogue capability. Authoritative catalogues refuse unknown ids before creating a tab and show close ids; free-form providers keep provider-owned ids. If a required live catalogue is unavailable, the requested id is preserved and the response carries a warning.
 - CUSTOM ENDPOINTS: configured endpoint models appear under their owning harness in `agent models <harness>`. Select with `agent spawn <harness> --model <endpoint>/<model>`; the endpoint owns model validation. An endpoint id colliding with an installed harness is refused with `harness_id_collision`.
@@ -69,6 +70,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Spinal Cord (Supporter Agent): explain, connect, verify, disconnect | `supporter --help` (`spinal-cord` alias) | `domios docs SPINAL-CORD` |
 | Past chats | `sessions search` / `get` / `resume`; read-only `sessions backups export latest --sanitize --out <file>` captures a desk | — |
 | Config | `config get [key]`, `config set` | `docs CONFIG` |
+| Chat wallpaper | `wallpaper set --request REQUEST_ID --from-pad tile.svg` from the General session when the owner uses Ask General | `docs RUNTIME-CONFIG` |
+| Machine appearance | `appearance current`, `appearance tweak` from General Main, and `appearance propose` for reviewed looks | `docs APPEARANCE` |
 | Resolving an answered question | `notify resolve <id>` (asking tab only) after an answer elsewhere; owner chat leaves questions open | `docs NOTIFICATIONS` |
 | Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
 | Plugins, provider CLIs | `plugin list` / `install` / `update` (the running daemon owns installs and updates; minimum host requirements fail closed offline), `agent cli status <provider>` | `docs API-CLI` |
@@ -146,6 +149,10 @@ Relocate a workspace after its folder moves: `domios workspace set-cwd <workspac
 Repair a moved Plan project without its old folder: `domios plan set-project <plan> <path>`. It validates the target host folder and preserves Plan, task, Team and attempt identities.
 
 Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" label="voice" />` plus `<transcript>…</transcript>`: the transcript is the message, the path its audio. `status="untranscribed"` carries a failure note instead. Older notes (bare text after the frame, or `-=-codeterm:voice file=<path>-=-`) are read-only legacy.
+
+Live microphone history uses `domios live-transcript`. If a delivery provides
+an owner tab, binding revision and sequence range, use those exact values in
+`read` and `ack`. Use owner-scoped `status` for transcriber and Scout setup.
 
 For cold replacement, `domios app quit --exact --json` must confirm cleanup and pinned process exits.
 

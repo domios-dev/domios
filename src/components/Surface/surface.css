@@ -62,7 +62,7 @@
   height: 28px;
   box-sizing: border-box;
   border: 1px solid var(--ct-border);
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: transparent;
   color: var(--ct-fg);
   font: 12px var(--ct-font-ui);
@@ -174,7 +174,7 @@
   margin: 0;
   padding: 5px 12px;
   border: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: var(--ct-surface);
   color: var(--ct-fg);
   font-size: 12px;
@@ -188,7 +188,7 @@
   position: absolute;
   box-sizing: border-box;
   border: 1px solid var(--ct-accent);
-  border-radius: 2px;
+  border-radius: calc(2px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-accent) 8%, transparent);
   box-shadow: 0 0 0 100vmax color-mix(in srgb, #000 34%, transparent);
   pointer-events: none;
@@ -199,7 +199,7 @@
   top: calc(100% + 6px);
   right: 0;
   padding: 2px 7px;
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-surface) 86%, transparent);
   color: var(--ct-fg);
   font-size: 11px;
@@ -213,7 +213,7 @@
   z-index: 4;
   box-sizing: border-box;
   border: 1px solid var(--ct-accent);
-  border-radius: 2px;
+  border-radius: calc(2px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-accent) 7%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-accent) 14%, transparent);
   pointer-events: none;
@@ -284,7 +284,7 @@
   width: 340px;
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent);
-  border-radius: 14px;
+  border-radius: calc(14px * var(--ct-roundness, 1));
   background: var(--ct-surface);
   box-shadow: var(--ct-shadow-lg);
   color: var(--ct-fg);
@@ -300,7 +300,7 @@
 .ct-surface-ask .ct-composer-card,
 .ct-surface-ask .ct-composer-card:focus-within {
   border: 0;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--ct-roundness, 1));
   background: transparent;
   box-shadow: none;
 }
@@ -319,7 +319,7 @@
   align-items: center;
   gap: 5px;
   padding: 2px 8px 2px 6px;
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
   color: var(--ct-muted-fg);
   font-size: 11px;
@@ -396,7 +396,7 @@
   align-items: center;
   gap: 5px;
   border: 0;
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   padding: 1px 7px 1px 5px;
   background: color-mix(in srgb, var(--ct-hover) 70%, transparent);
   color: var(--ct-muted-fg);
@@ -440,7 +440,7 @@
   bottom: 0;
   left: 0;
   width: 38%;
-  border-radius: 1px;
+  border-radius: calc(1px * var(--ct-roundness, 1));
   background: linear-gradient(90deg, transparent, var(--ct-accent) 70%, transparent);
   transform: translateX(-100%);
   animation: ct-surface-flow-pass var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle) forwards;

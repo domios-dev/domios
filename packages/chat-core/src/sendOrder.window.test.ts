@@ -30,6 +30,62 @@ test("delivered claims recorded before a partial window stay settled in unloaded
   assert.deepEqual([...projection.outside], ["send-early", "send-later"]);
 });
 
+test("legacy delivered sends before a partial window stay outside after a same-session restart", () => {
+  const early: ChatSend = { id: "early", content: "opaque early", sentAtMs: at + 1_000, delivered: true };
+  const restarted: ChatSend = {
+    ...early, id: "restarted",
+    echoBoundary: { ...authority, sessionBindingNonce: "old-launch", lastRowId: "unloaded" },
+  };
+  const foreign: ChatSend = {
+    ...restarted, id: "foreign", echoBoundary: { ...restarted.echoBoundary!, sourceSessionId: "session-b" },
+  };
+  const undelivered = { ...restarted, id: "unconfirmed", delivered: false };
+  const projection = projectTranscript(window(8_192, newest), [early, restarted, foreign, undelivered]);
+
+  assert.deepEqual([...projection.outside], ["early", "restarted"]);
+  assert.deepEqual(projection.pending.map(send => send.id), ["foreign", "unconfirmed"]);
+  assert.ok(projection.rows.every(entry => entry.id !== early.id && entry.id !== restarted.id));
+});
+
+test("loaded own rows reconcile legacy delivery by item ID or token across a nonce change", () => {
+  const echoBoundary = { ...authority, sessionBindingNonce: "old-launch", lastRowId: "unloaded" };
+  const byItemId: ChatSend = { id: "mid-turn", content: "wire", sentAtMs: at + 1_000, delivered: true, echoBoundary };
+  const byToken: ChatSend = { ...byItemId, id: "local-bubble", correlationId: "own-token", sentAtMs: at + 6_500 };
+  const rows = [...newest, row("mid-turn", 8_000, "user"),
+    { ...row("provider-row", 9_000, "user"), correlationId: "own-token" }];
+  const projection = projectTranscript(window(8_192, rows), [byItemId, byToken]);
+
+  assert.deepEqual([...projection.echoes.keys()], [byItemId.id, byToken.id]);
+  assert.deepEqual(projection.pending, []);
+  assert.equal(projection.outside.size, 0);
+  assert.equal(projection.rows.filter(entry => entry.type === "user").length, 3);
+});
+
+test("a restarted legacy send uses its loaded boundary for text matching", () => {
+  const send: ChatSend = {
+    id: "legacy", content: "opaque repeat", sentAtMs: at + 6_500, delivered: true,
+    echoBoundary: { ...authority, sessionBindingNonce: "old-launch", lastRowId: "loaded-owner", endOffset: 4_096 },
+  };
+  const preSend = { ...row("before", 5_500, "user"), content: send.content };
+  const afterSend = { ...row("after", 8_000, "user"), content: send.content };
+  const projection = projectTranscript(window(8_192, [newest[0], preSend, ...newest.slice(1), afterSend]), [send]);
+
+  assert.deepEqual(projection.pending, []);
+  assert.equal(projection.echoes.get(send.id)?.timestampMs, at + 8_000);
+});
+
+test("legacy delivered sends in an untimed partial window keep a slot only with a loaded boundary", () => {
+  const untimed = window(8_192, [{ id: "loaded", type: "assistant", content: "opaque" }]);
+  const old: ChatSend = { id: "old", content: "opaque old", sentAtMs: at, delivered: true };
+  const fresh: ChatSend = {
+    ...old, id: "fresh", echoBoundary: { ...authority, sessionBindingNonce: "old-launch", lastRowId: "loaded" },
+  };
+  const projection = projectTranscript(untimed, [old, fresh]);
+
+  assert.deepEqual([...projection.outside], ["old"]);
+  assert.deepEqual(projection.pending.map(send => send.id), ["fresh"]);
+});
+
 test("paging the claimed records in shows each once, in order, where it was recorded", () => {
   const sends = [claim("send-early", "item-early", 1_000), claim("send-later", "item-later", 2_000)];
   const paged = reduceTranscript(window(8_192, newest), {

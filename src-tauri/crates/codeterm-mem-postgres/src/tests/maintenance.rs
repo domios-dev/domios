@@ -174,3 +174,86 @@ fn calibration_and_stale_match_sqlite_and_nightly_cap() {
     let sq = sqlite.nightly_calibration(&ctx, &hygiene, now).unwrap();
     assert_eq!(pg, sq);
 }
+
+#[test]
+#[ignore = "requires disposable pgvector and DOMIOS_TEST_POSTGRES_URL"]
+fn nightly_cleanup_survives_normalize_on_both_backends() {
+    let fixture = Fixture::new();
+    let dir = tempfile::tempdir().unwrap();
+    let sqlite = SqliteMemStore::open_in_memory(dir.path()).unwrap();
+    let ctx = WriteContext::system("cleanup-contract");
+    let a = sqlite
+        .save(&ctx, &contract::item("cleanup-a"), false)
+        .unwrap()
+        .id;
+    let b = sqlite
+        .save(&ctx, &contract::item("cleanup-b"), false)
+        .unwrap()
+        .id;
+    for (kind, stamp) in [
+        ("about", "2026-11-24T01:00:00Z"),
+        ("belongs_to", "2026-11-24T02:00:00Z"),
+    ] {
+        sqlite
+            .graph_relate(
+                &ctx,
+                &codeterm_mem::Relation {
+                    from_id: a.clone(),
+                    to_id: b.clone(),
+                    relation_type: kind.into(),
+                    scope: "global".into(),
+                    valid_from: stamp.into(),
+                    valid_to: None,
+                    confidence: 1.0,
+                    properties: serde_json::json!({}),
+                    reason: None,
+                },
+            )
+            .unwrap();
+    }
+    for (kind, from, to) in [
+        ("belongs_to", a.clone(), b.clone()),
+        ("uses", b.clone(), a.clone()),
+    ] {
+        sqlite
+            .graph_insert_relation(
+                &ctx,
+                &codeterm_mem::Relation {
+                    from_id: from,
+                    to_id: to,
+                    relation_type: kind.into(),
+                    scope: "global".into(),
+                    valid_from: "2025-01-01T00:00:00Z".into(),
+                    valid_to: Some("2025-01-02T00:00:00Z".into()),
+                    confidence: 1.0,
+                    properties: serde_json::json!({}),
+                    reason: None,
+                },
+            )
+            .unwrap();
+    }
+    for page in export_all(&sqlite) {
+        MemStore::import_page(fixture.store(), &ctx, &page).unwrap();
+    }
+    for store in [&sqlite as &dyn MemStore, fixture.store()] {
+        assert_eq!(
+            store
+                .graph_collapse_synonym_edges(&ctx, false, "dreamer")
+                .unwrap()
+                .deleted,
+            1
+        );
+        let normalized = store.dream_normalize(&ctx).unwrap();
+        assert_eq!(normalized["broken_relations_revived"], 1);
+        let active = store.graph_related(&a, None, None, false).unwrap();
+        assert!(!active.iter().any(|edge| edge.relation_type == "belongs_to"));
+        assert!(active.iter().any(|edge| edge.relation_type == "uses"));
+        assert_eq!(
+            store
+                .graph_collapse_synonym_edges(&ctx, false, "dreamer")
+                .unwrap()
+                .deleted,
+            0
+        );
+    }
+}

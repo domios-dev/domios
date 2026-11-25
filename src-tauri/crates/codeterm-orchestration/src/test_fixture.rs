@@ -58,7 +58,7 @@ pub(crate) fn install_team_close_ports(
         )
         .unwrap(),
     ));
-    let wake: CronWake = Arc::new(std::sync::Condvar::new());
+    let wake = CronWake::default();
     assert!(instance.fixture.service.set_ext(cron).is_ok());
     assert!(instance.fixture.service.set_ext(wake).is_ok());
     let sentinels = Arc::new(parking_lot::Mutex::new(

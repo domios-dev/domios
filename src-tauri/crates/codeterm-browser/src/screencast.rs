@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, watch};
 
-pub const DEFAULT_QUALITY: u8 = 90;
+pub const DEFAULT_QUALITY: u8 = 78;
 pub const STILL_DEADLINE: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,29 +152,25 @@ impl ScreencastParams {
             "everyNthFrame": 1,
         })
     }
-
-    fn frame_metadata(
-        &self,
-        mut metadata: FrameMetadata,
-        native_dpr: Option<f64>,
-    ) -> FrameMetadata {
-        if let Some(native_dpr) = native_dpr {
-            // CSS viewports are whole pixels; rounding removes float drift from the DPR division.
-            let scale = self.viewport.dpr / native_dpr;
-            metadata.device_width = (metadata.device_width / scale).round();
-            metadata.device_height = (metadata.device_height / scale).round();
-            metadata.offset_top = (metadata.offset_top / scale * 1000.0).round() / 1000.0;
-        }
-        metadata
-    }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ScreencastFrame {
     pub seq: u64,
     pub jpeg: Vec<u8>,
+    pub base64: Option<Arc<str>>,
     pub metadata: FrameMetadata,
     pub still: bool,
+}
+
+impl ScreencastFrame {
+    pub fn encoded_jpeg(&self) -> std::borrow::Cow<'_, str> {
+        if let Some(encoded) = &self.base64 {
+            std::borrow::Cow::Borrowed(encoded.as_ref())
+        } else {
+            std::borrow::Cow::Owned(base64::engine::general_purpose::STANDARD.encode(&self.jpeg))
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -325,9 +321,25 @@ impl FrameHub {
         metadata: FrameMetadata,
         still: bool,
     ) -> bool {
+        self.publish_encoded(generation, jpeg, None, metadata, still, None)
+    }
+
+    fn publish_encoded(
+        &self,
+        generation: u64,
+        jpeg: Vec<u8>,
+        base64: Option<Arc<str>>,
+        metadata: FrameMetadata,
+        still: bool,
+        only_if: Option<(u64, ScreencastParams)>,
+    ) -> bool {
         let frame = {
             let mut state = self.state.lock();
             if state.closed || state.generation != generation {
+                return false;
+            }
+            // A still for superseded params would flash the previous viewport after a restart.
+            if only_if.is_some_and(|(seq, params)| state.seq != seq || state.params != params) {
                 return false;
             }
             if state.captures > 0 && !still && off_viewport(&metadata, state.params.viewport) {
@@ -337,12 +349,17 @@ impl FrameHub {
             Arc::new(ScreencastFrame {
                 seq: state.seq,
                 jpeg,
+                base64,
                 metadata,
                 still,
             })
         };
         self.frames.send_replace(Some(frame));
         true
+    }
+
+    fn current_seq(&self) -> u64 {
+        self.state.lock().seq
     }
 
     pub fn latest(&self) -> Option<Arc<ScreencastFrame>> {
@@ -433,16 +450,10 @@ pub struct ScreencastDriver {
 }
 
 impl ScreencastDriver {
-    pub fn spawn(page: PageChannel, hub: Arc<FrameHub>, native_dpr: Option<f64>) -> Self {
+    pub fn spawn(page: PageChannel, hub: Arc<FrameHub>) -> Self {
         let (commands, receiver) = mpsc::unbounded_channel();
         let generation = hub.bind(commands);
-        tokio::spawn(run_driver(
-            page,
-            hub.clone(),
-            generation,
-            receiver,
-            native_dpr,
-        ));
+        tokio::spawn(run_driver(page, hub.clone(), generation, receiver));
         Self { hub, generation }
     }
 }
@@ -458,31 +469,30 @@ async fn run_driver(
     hub: Arc<FrameHub>,
     generation: u64,
     mut commands: mpsc::UnboundedReceiver<DriverCommand>,
-    native_dpr: Option<f64>,
 ) {
     let mut frames = page.subscribe_session(&["Page.screencastFrame"]);
-    let mut casting = None;
+    let mut casting = false;
     loop {
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else { break };
                 log::debug!("[browser-screencast] generation {generation}, command {command:?}");
                 match command {
-                    DriverCommand::Start(params) if casting.is_none() => {
-                        casting = start_cast(&page, &hub, generation, params).await.then_some(params);
+                    DriverCommand::Start(params) if !casting => {
+                        casting = start_cast(&page, &hub, generation, params).await;
                     }
                     DriverCommand::Start(_) => {}
                     DriverCommand::Restart(params) => {
-                        if casting.is_some() {
+                        if casting {
                             stop_cast(&page).await;
                         }
-                        casting = start_cast(&page, &hub, generation, params).await.then_some(params);
+                        casting = start_cast(&page, &hub, generation, params).await;
                     }
                     DriverCommand::Stop => {
-                        if casting.is_some() {
+                        if casting {
                             stop_cast(&page).await;
                         }
-                        casting = None;
+                        casting = false;
                     }
                 }
             }
@@ -495,12 +505,19 @@ async fn run_driver(
                         continue;
                     }
                 };
-                let Some(params) = casting else {
+                if !casting {
                     continue;
-                };
+                }
                 match base64::engine::general_purpose::STANDARD.decode(raw.data.as_bytes()) {
                     Ok(jpeg) => {
-                        hub.publish(generation, jpeg, params.frame_metadata(raw.metadata, native_dpr), false);
+                        hub.publish_encoded(
+                            generation,
+                            jpeg,
+                            Some(Arc::from(raw.data)),
+                            raw.metadata,
+                            false,
+                            None,
+                        );
                     }
                     Err(error) => log::warn!("[browser-screencast] frame is not base64: {error}"),
                 }
@@ -514,16 +531,21 @@ async fn run_driver(
 
 async fn start_cast(
     page: &PageChannel,
-    hub: &FrameHub,
+    hub: &Arc<FrameHub>,
     generation: u64,
     params: ScreencastParams,
 ) -> bool {
     let _ = page.send("Page.bringToFront", json!({})).await;
+    let seq_before = hub.current_seq();
     if let Err(error) = page.send("Page.startScreencast", params.start_json()).await {
         hub.notice(format!("screencast could not start: {error}"));
         return false;
     }
-    push_still(page, hub, generation, params).await;
+    let page = page.clone();
+    let hub = hub.clone();
+    tokio::spawn(async move {
+        push_still(&page, &hub, generation, params, seq_before).await;
+    });
     true
 }
 
@@ -534,7 +556,13 @@ async fn stop_cast(page: &PageChannel) {
 }
 
 /// An idle page never repaints, so a fresh viewer gets one still; an occluded app may never render.
-async fn push_still(page: &PageChannel, hub: &FrameHub, generation: u64, params: ScreencastParams) {
+async fn push_still(
+    page: &PageChannel,
+    hub: &FrameHub,
+    generation: u64,
+    params: ScreencastParams,
+    seq_before: u64,
+) {
     let still = page
         .send_with_deadline(
             "Page.captureScreenshot",
@@ -548,23 +576,31 @@ async fn push_still(page: &PageChannel, hub: &FrameHub, generation: u64, params:
             .and_then(Value::as_str)
             .map(str::to_string),
         Err(error) => {
-            hub.preview_paused(format!("no frame: window not rendering ({error})"));
+            if hub.current_seq() == seq_before {
+                hub.preview_paused(format!("no frame: window not rendering ({error})"));
+            }
             return;
         }
     };
-    let Some(jpeg) = data.and_then(|data| {
-        base64::engine::general_purpose::STANDARD
-            .decode(data.as_bytes())
-            .ok()
-    }) else {
-        hub.preview_paused("no frame: the still capture returned no image");
+    let Some(raw_base64) = data else {
+        if hub.current_seq() == seq_before {
+            hub.preview_paused("no frame: the still capture returned no image");
+        }
         return;
     };
-    hub.publish(
+    let Ok(jpeg) = base64::engine::general_purpose::STANDARD.decode(raw_base64.as_bytes()) else {
+        if hub.current_seq() == seq_before {
+            hub.preview_paused("no frame: the still capture returned no image");
+        }
+        return;
+    };
+    hub.publish_encoded(
         generation,
         jpeg,
+        Some(Arc::from(raw_base64)),
         FrameMetadata::still(params.viewport, unix_now_secs()),
         true,
+        Some((seq_before, params)),
     );
 }
 

@@ -1,6 +1,8 @@
 import { type TransportClient } from "../transportClient";
 import { readPluginSnapshot } from "../pluginSnapshotRequest";
 import { relayTarget } from "../webApi";
+import type { AppConfig } from "../types";
+import { relayToPeer } from "./tabs";
 export type CapabilityArgs = Record<string, unknown>;
 export type CapabilityMapper = (args: CapabilityArgs) => Promise<unknown>;
 export type CapabilitiesClient = Pick<TransportClient, "json" | "localJson" | "currentToken" | "origin">;
@@ -19,6 +21,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
   const webJson = client.json.bind(client);
   const localJson = client.localJson.bind(client);
   const currentToken = client.currentToken.bind(client);
+  const usageRead = (a: CapabilityArgs, path: string) => {
+    if (a.peerId === null) return localJson("GET", path);
+    if (typeof a.peerId === "string") return relayToPeer({ json: localJson }, a.peerId, "GET", path, null);
+    return webJson("GET", path);
+  };
   return {
     account_mesh_state: () => localJson("GET", "/api/account/mesh"),
     account_mesh_enroll: () => localJson("POST", "/api/account/mesh/enroll"),
@@ -213,40 +220,45 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       });
       return resp.line ?? "";
     },
-    update_config: (a) => webJson("PATCH", "/api/config", a.config),
+    update_config: (a) => {
+      const { chat_wallpaper: _wallpaper, ...config } = a.config as Partial<AppConfig>;
+      return webJson("PATCH", "/api/config", config);
+    },
     usage_history: (a) => {
       const accountId = a.accountId ?? a.account_id;
       const limit = a.limit == null ? "" : `&limit=${enc(String(a.limit))}`;
-      return webJson(
-        "GET",
+      return usageRead(
+        a,
         `/api/usage/history?provider=${enc(s(a, "provider"))}&since=${enc(String(a.since))}${limit}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
       );
     },
     usage_latest: (a) => {
       const accountId = a.accountId ?? a.account_id;
-      return webJson(
-        "GET",
+      return usageRead(
+        a,
         `/api/usage/latest?provider=${enc(s(a, "provider"))}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
       );
     },
     usage_projection: (a) => {
       const accountId = a.accountId ?? a.account_id;
-      return webJson(
-        "GET",
+      return usageRead(
+        a,
         `/api/usage/projection?provider=${enc(s(a, "provider"))}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
       );
     },
-    usage_refresh: (a) =>
-      webJson("POST", "/api/usage/refresh", {
+    usage_refresh: (a) => {
+      if (typeof a.peerId === "string") return Promise.reject(new Error("Usage refresh requires the owning machine"));
+      return (a.peerId === null ? localJson : webJson)("POST", "/api/usage/refresh", {
         provider: s(a, "provider"),
         account_id: a.accountId ?? a.account_id ?? null,
-      }),
+      });
+    },
     install_provider_integration: (a) => {
       if (a.consent !== true) return Promise.reject(new Error("Integration repair requires consent"));
       return webJson("POST", `/api/setup/hooks/install?provider=${enc(s(a, "provider_id"))}`, { consent: true, provider: s(a, "provider_id") });
     },
     uninstall_provider_integration: (a) => webJson("POST", `/api/setup/hooks/uninstall?provider=${enc(s(a, "provider_id"))}`, { provider: s(a, "provider_id") }),
-    provider_model_usage: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/model-usage${a.accountId ? `?account_id=${enc(String(a.accountId))}` : ""}`),
+    provider_model_usage: (a) => usageRead(a, `/api/agents/providers/${enc(s(a, "providerId"))}/model-usage${a.accountId ? `?account_id=${enc(String(a.accountId))}` : ""}`),
     get_default_cwd: () => webJson("GET", "/api/system/default-cwd"),
     get_shell_diagnostics: () => webJson("GET", "/api/system/shell-diagnostics"),
     suggest_install_pwsh: () => webJson("POST", "/api/system/install-pwsh"),

@@ -307,6 +307,17 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        self.gateway_deliver_with_shares(target, envelope, body, class, None)
+    }
+
+    pub fn gateway_deliver_with_shares(
+        &self,
+        target: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+        class: DeliveryClass,
+        attachments: Option<&super::local_preview::PadAttachments>,
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         let policy = self.role_policy_for_tab(&envelope.from_tab);
         let role_body = match policy {
             Some(policy) => policy.prepare_message(self, &envelope.from_tab, target, body)?,
@@ -314,12 +325,31 @@ impl super::ServiceContext {
         };
         let sender = envelope.from_tab.clone();
         let body = role_body.as_deref().unwrap_or(body);
+        let shareable = class == DeliveryClass::AgentTraffic
+            && envelope.from_mesh.is_none()
+            && envelope.peer.is_none()
+            && envelope.from_neighbor.is_none()
+            && envelope.neighbor_friend.is_none()
+            && envelope.neighbor_message.is_none();
+        let shared = match attachments {
+            Some(attachments)
+                if shareable && (!attachments.is_empty() || body.contains("<ds-")) =>
+            {
+                self.require_enveloped_input_allowed(target, &envelope)?;
+                super::local_preview::pad_shares::prepare(self, &sender, target, body, attachments)
+                    .map_err(|error| format!("tab_busy_refused: {error}"))?
+            }
+            Some(attachments) if !attachments.is_empty() => {
+                return Err("tab_busy_refused: Pad attachments require a local tab message".into());
+            }
+            _ => None,
+        };
         let receipt = self.gateway.submit(
             self,
             OutboundMessage {
                 target: target.to_string(),
                 body: MessageBody::Text {
-                    body: body.to_string(),
+                    body: shared.unwrap_or_else(|| body.to_string()),
                 },
                 envelope: Some(envelope),
                 class,

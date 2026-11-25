@@ -159,8 +159,8 @@ export function NewSessionPicker({
   const orchestratorAccountId = orchestratorAccounts.explicitAccountId;
   const plannerAccountId = plannerAccounts.explicitAccountId;
   const roleControls: PairRoleControls = {
-    orchestrator: { ...orchestratorProfile, accountSlot: spawnAccountSlot(orchestratorAccounts, orchestratorProvider?.display_name ?? "", busy) },
-    planner: { ...plannerProfile, accountSlot: spawnAccountSlot(plannerAccounts, plannerProvider?.display_name ?? "", busy) },
+    orchestrator: { ...orchestratorProfile, accountSlot: spawnAccountSlot(orchestratorAccounts, orchestratorProvider?.display_name ?? "", busy), unavailableModels: orchestratorAccounts.unavailableModels },
+    planner: { ...plannerProfile, accountSlot: spawnAccountSlot(plannerAccounts, plannerProvider?.display_name ?? "", busy), unavailableModels: plannerAccounts.unavailableModels },
   };
 
   const hasRestoredRef = useRef(false);
@@ -563,6 +563,7 @@ export function NewSessionPicker({
                   onInstallProvider={handleInstallProvider}
                   modelSlot={singleProfile.modelSlot}
                   accountSlot={accountProviderId ? spawnAccountSlot(accounts, selectedProvider?.display_name ?? "", busy) : undefined}
+                  unavailableModels={accounts.unavailableModels}
                 />
                 {accountProviderId && accounts.error && <InlineErrorNotice error={accounts.error} operation="choosing an account" />}
                 {singleProfile.details}</>

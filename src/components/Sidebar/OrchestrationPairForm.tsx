@@ -22,6 +22,7 @@ export interface OrchestrationPairValues {
 
 interface RoleRowProps {
   accountSlot?: ReactNode;
+  unavailableModels?: readonly string[];
   modelControls?: boolean;
   /** One row: harness, then a model · effort pill that opens the unified model picker. */
   compact?: boolean;
@@ -63,6 +64,7 @@ interface RoleRowProps {
 
 export function OrchestrationRoleRow({
   accountSlot,
+  unavailableModels,
   modelControls = true,
   compact = false,
   heading,
@@ -88,7 +90,13 @@ export function OrchestrationRoleRow({
   showCurrentModel,
   showEffortLabel,
 }: RoleRowProps) {
-  const provider = providers.find((p) => p.id === providerId);
+  const descriptor = providers.find((p) => p.id === providerId);
+  const provider = descriptor && unavailableModels?.length ? {
+    ...descriptor,
+    available_models: descriptor.available_models.map(model => unavailableModels.includes(model.id)
+      ? { ...model, available: false, availability: "unavailable" as const }
+      : model),
+  } : descriptor;
   const models = provider?.available_models ?? [];
   const efforts = reasoningEffortsForModel(provider, modelId);
   const providerDisabled = disabledProviderIds?.has(providerId) === true;
@@ -109,6 +117,7 @@ export function OrchestrationRoleRow({
       : models.map((m) => ({
         value: m.id,
         label: m.display_name,
+        disabled: m.available === false || m.availability === "unavailable",
         badge: m.badge ?? undefined,
         group: m.group ?? undefined,
       }));
@@ -222,8 +231,8 @@ export function OrchestrationPairForm({
   titleField?: ReactNode;
   pairAffordanceTestId?: string;
   roleControls?: {
-    orchestrator?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot">;
-    planner?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot">;
+    orchestrator?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot" | "unavailableModels">;
+    planner?: Pick<RoleRowProps, "modelSlot" | "details" | "accountSlot" | "unavailableModels">;
   };
   roleTestIds?: {
     orchestratorProvider?: string;
@@ -262,6 +271,7 @@ export function OrchestrationPairForm({
     <OrchestrationRoleRow
       label="Orchestrator"
       accountSlot={roleControls?.orchestrator?.accountSlot}
+      unavailableModels={roleControls?.orchestrator?.unavailableModels}
       modelSlot={roleControls?.orchestrator?.modelSlot}
       details={roleControls?.orchestrator?.details}
       modelControls={!roleControls?.orchestrator?.modelSlot}
@@ -293,6 +303,7 @@ export function OrchestrationPairForm({
     <OrchestrationRoleRow
       label="Planner"
       accountSlot={roleControls?.planner?.accountSlot}
+      unavailableModels={roleControls?.planner?.unavailableModels}
       modelSlot={roleControls?.planner?.modelSlot}
       details={roleControls?.planner?.details}
       modelControls={!roleControls?.planner?.modelSlot}

@@ -35,8 +35,8 @@ fn sse_decodes_split_utf8_crlf_comments_and_multiline_data() {
     let mut decoder = sse::Decoder::default();
     let mut frames = Vec::new();
     for byte in input.bytes() {
-        if let Some(frame) = decoder.push(byte).unwrap() {
-            frames.push(frame);
+        if let Some(data) = decoder.push(byte).unwrap() {
+            frames.push(sse::parse_event(&data).unwrap());
         }
     }
     assert_eq!(frames, vec![json!({"text":"雪"}), json!({"next":true})]);
@@ -44,14 +44,55 @@ fn sse_decodes_split_utf8_crlf_comments_and_multiline_data() {
 
 #[test]
 fn sse_fails_closed_on_malformed_or_oversized_events() {
-    for bytes in [b"data: {bad}\n\n".to_vec(), vec![b'x'; 256 * 1024 + 1]] {
-        let mut decoder = sse::Decoder::default();
-        assert!(bytes.into_iter().any(|byte| decoder.push(byte).is_err()));
-    }
+    let data = decode_sse(b"data: {bad}\n\n").unwrap();
+    assert!(sse::parse_event(&data[0]).is_err());
+    let mut oversized =
+        br#"data: {"id":"evt_owned","type":"message.part.updated","properties":{"part":{"text":""#
+            .to_vec();
+    oversized.resize(sse::EVENT_LIMIT + 1, b'x');
+    let failure = decode_sse(&oversized).unwrap_err();
+    assert_eq!(
+        failure,
+        RuntimeFailure::SseEventTooLarge {
+            event_type: "message.part.updated".into(),
+            limit_bytes: sse::EVENT_LIMIT,
+        }
+    );
+    assert_eq!(
+        failure.to_string(),
+        "Runtime SSE event 'message.part.updated' exceeded the 4194304-byte limit"
+    );
     let mut decoder = sse::Decoder::default();
     for byte in b"data: {\"partial\":true}" {
         assert!(decoder.push(*byte).unwrap().is_none());
     }
+}
+
+#[test]
+fn sse_keeps_large_echo_and_later_events_after_oversized_comment() {
+    let text = "λ\n".repeat(110_000);
+    let echo = json!({"type":"message.part.updated","properties":{"part":{"text":text}}});
+    let idle = json!({"type":"session.idle","properties":{"sessionID":"ses_owned"}});
+    let echo_line = format!("data: {echo}\n\n");
+    assert!(echo_line.len() > 256 * 1024);
+    let mut input = vec![b'x'; sse::EVENT_LIMIT + 1];
+    input[0] = b':';
+    input.extend_from_slice(format!("\r\n\r\n{echo_line}data: {idle}\n\n").as_bytes());
+
+    let frames = decode_sse(&input)
+        .unwrap()
+        .into_iter()
+        .map(|data| sse::parse_event(&data).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(frames, [echo, idle]);
+}
+
+fn decode_sse(input: &[u8]) -> Result<Vec<Vec<u8>>, RuntimeFailure> {
+    let mut decoder = sse::Decoder::default();
+    input
+        .iter()
+        .filter_map(|&byte| decoder.push(byte).transpose())
+        .collect()
 }
 
 #[tokio::test]

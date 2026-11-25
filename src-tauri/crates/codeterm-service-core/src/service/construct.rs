@@ -16,9 +16,7 @@ pub fn build_service_context(
     mem: Arc<crate::mem::MemManager>,
     prompt_detector: crate::PromptDetectorState,
     bridge_outbound_tx: crate::bridge::manager::OutboundSender,
-    bridge_outbound_rx: tokio::sync::mpsc::UnboundedReceiver<
-        crate::bridge::manager::OutboundMessage,
-    >,
+    bridge_outbound_rx: crate::bridge::manager::OutboundReceiver,
     secret_registry: &Arc<crate::secrets::SecretRegistry>,
     transcribe_registry: &Arc<crate::transcribe::TranscribeRegistry>,
     converter_registry: &Arc<codeterm_plugin::converter::ConverterRegistry>,
@@ -313,6 +311,7 @@ pub fn build_service_context(
         #[cfg(any(test, feature = "test-support"))]
         ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
         agent_pad_data_dir: crate::paths::data_dir(),
+        pad_shares: Default::default(),
         mux: states.mux.clone(),
         pty: states.pty.clone(),
         output_buf: states.output_buffer.clone(),

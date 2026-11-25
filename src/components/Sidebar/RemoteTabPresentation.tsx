@@ -1,14 +1,17 @@
-import type { ReactNode } from "react";
-import { cleanMachineName, machineLabel } from "../../lib/machineIdentity";
+import type { CSSProperties, ReactNode } from "react";
+import { deriveColor } from "../../lib/colors";
+import { cleanMachineName, desaturateMachineColor, machineColor, machineGlyphColor, machineLabel, UNKNOWN_MACHINE, type MachineIdentity } from "../../lib/machineIdentity";
 import { REMOTE_CHAT_COPY, remoteMachineName } from "../../lib/remoteChatState";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { asleepDuration } from "../../lib/tabSleep";
 import type { TabActivity } from "../../lib/tabActivity";
+import { useMachineViewerTheme } from "../../lib/useMachineAppearance";
+import { useMachineChromeAppearance } from "../../lib/useMachineChromeAppearance";
 import { useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
 import type { Tab } from "../../lib/types";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { CursorTooltip } from "../shared/CursorTooltip";
-import { MachineGlyph, MachineIconBadge } from "../shared/MachineGlyph";
+import { MachineGlyph } from "../shared/MachineGlyph";
 import { MachineStatus } from "../shared/MachineRow";
 import { namedManagerRole, useRemoteTabTeamName } from "./remoteOwnership";
 import { remoteTabKindLabel } from "./remoteTabKindLabel";
@@ -49,10 +52,20 @@ export function useRemoteTabPresentation(tab: Tab, activity: TabActivity, observ
 
 type RemotePresentation = NonNullable<ReturnType<typeof useRemoteTabPresentation>>;
 
+export function RemoteTabMachineGlyph({ machine }: { machine: RemotePresentation }) {
+  const online = machine.connection === "online";
+  const appearance = useMachineChromeAppearance(machine.peerId, online);
+  const viewer = useMachineViewerTheme();
+  const tone = appearance ? machineGlyphColor(
+    desaturateMachineColor(appearance.theme.blue, online), deriveColor(viewer.background, 8), viewer.foreground,
+  ) : "var(--ct-muted-fg)";
+  return <MachineGlyph {...machine.identity} tone={tone} />;
+}
+
 export function RemoteMachineSummary({ machine, stacked = false }: { machine: RemotePresentation; stacked?: boolean }) {
   return <span className={stacked ? "grid gap-1" : "flex min-w-0 items-center gap-1"}>
     <span className="flex min-w-0 items-center gap-1">
-      <MachineGlyph {...machine.identity} />
+      <RemoteTabMachineGlyph machine={machine} />
       <span className="min-w-0 truncate">{machine.name}</span>
       <span aria-hidden="true">·</span>
       <MachineStatus status={machine.connection} />
@@ -64,16 +77,26 @@ export function RemoteMachineSummary({ machine, stacked = false }: { machine: Re
 export function RemoteTabIcon({ machine, children }: { machine: RemotePresentation; children: ReactNode }) {
   return <CursorTooltip as="span" active opaque className="sidebar-remote-tab-icon" content={<RemoteMachineSummary machine={machine} stacked />}>
     {children}
-    <MachineIconBadge identity={machine.identity} />
   </CursorTooltip>;
 }
 
-export function TeamRunMachine({ peerId, fallbackName }: { peerId?: string; fallbackName?: string | null }) {
+export function useTeamMachine(peerId?: string, fallbackName?: string | null) {
   const resolved = useMeshPeerName(peerId);
   const identity = useMeshMachineIdentity(peerId, Boolean(peerId));
-  const name = peerId ? resolved ?? cleanMachineName(fallbackName, peerId) : undefined;
-  return name ? <div className="col-span-full flex min-w-0 items-center gap-1 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)]">
-    <MachineGlyph {...identity} />
-    <span className="min-w-0 truncate" title={name}>Runs on {name}</span>
-  </div> : null;
+  return peerId
+    ? { name: resolved ?? cleanMachineName(fallbackName, peerId) ?? "Remote machine", identity: identity ?? UNKNOWN_MACHINE }
+    : { name: "This machine" };
+}
+
+export function TeamMachinePill({ id, name, identity }: { id: string; name: string; identity?: MachineIdentity }) {
+  return <span
+    id={id}
+    className="ct-neutral-badge sidebar-team-machine-pill"
+    data-remote={identity ? "true" : undefined}
+    title={name}
+    style={identity ? { "--ct-plan-tone": `var(--ct-machine-${machineColor(identity.color)})` } as CSSProperties : undefined}
+  >
+    {identity && <MachineGlyph {...identity} />}
+    <span className="sidebar-team-machine-pill__label min-w-0 truncate">{name}</span>
+  </span>;
 }

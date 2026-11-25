@@ -286,4 +286,20 @@ suite.test("a frame decoded after unmount is closed instead of retained", async 
   assert.equal(closed, 1);
 });
 
+suite.test("remote cursor updates apply only in interactive mode and clear outside it", async () => {
+  const listeners = new Set<(cursor: string) => void>();
+  const subscribeCursor = (listener: (cursor: string) => void) => {
+    listeners.add(listener);
+    listener("pointer");
+    return () => { listeners.delete(listener); };
+  };
+  const { host, unmount } = await renderCanvas({ interactive: true, subscribeCursor });
+  const canvas = getByRole(host, "application") as HTMLCanvasElement;
+  assert.equal(canvas.style.cursor, "pointer");
+  for (const listener of listeners) listener("text");
+  assert.equal(canvas.style.cursor, "text");
+  await unmount();
+  assert.equal(listeners.size, 0);
+});
+
 void suite.run();

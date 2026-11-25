@@ -4,6 +4,7 @@ import { rateLimitEvents } from "./runtimeUsage";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
 import { json, runtimeItem } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
+import { modelRefusal } from "./modelRefusal";
 import {outputLimit} from "../../provider-shared/outputLimit";
 import { loginCompleted } from "./runtimeLogin";
 import { notificationAuth } from "./runtimeAuth";
@@ -136,6 +137,14 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
   return stamp(state,stampToolLifecycle(row,previous,method,params),params);
 }
 
+function turnError(state: ReduceState, turnId: string, failure: unknown, willRetry: boolean, model?: string): RuntimeItem {
+  const row = {id:`${turnId}:error`, seq:state.seq+1, type:"system"} as const;
+  const refusal = willRetry ? undefined : modelRefusal(failure, model);
+  if (refusal) return {...row, content:refusal.message, systemSubtype:"model_unavailable", toolInput:{model:refusal.model}};
+  const error = runtimeError(failure,willRetry,state.rateLimitSnapshot);
+  return {...row, content:error.message, systemSubtype:willRetry ? "provider_retry" : "api_error", toolInput:error.metadata};
+}
+
 export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: readonly RuntimeFrame[]): RuntimeReduction {
   const state = initial(ctx,raw);
   const events: AgentEvent[] = [];
@@ -229,8 +238,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         delete state.compacting;
         const failure = outputLimit(params.turn) ? object(params.turn) : object(object(params.turn).error);
         if (Object.keys(failure).length) {
-          const error = runtimeError(failure,false,state.rateLimitSnapshot);
-          events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:"api_error",toolInput:error.metadata},params)});
+          events.push({kind:"chatItem",threadId,item:stamp(state,turnError(state,turnId,failure,false,ctx.settings.model),params)});
         }
         const outcome = turnOutcome(params.turn);
         events.push({kind:"turnState",threadId,turnId,state:"idle",...(outcome ? {detail:outcome} : {}),...timing(params)}); break;
@@ -290,8 +298,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         if (row) events.push({kind:"chatItem",threadId,item:stamp(state,row,params)}); break;
       }
       case "error": {
-        const error = runtimeError(params.error,params.willRetry === true,state.rateLimitSnapshot);
-        if (turnId) events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:params.willRetry === true ? "provider_retry" : "api_error",toolInput:error.metadata},params)});
+        if (turnId) events.push({kind:"chatItem",threadId,item:stamp(state,turnError(state,turnId,params.error,params.willRetry === true,ctx.settings.model),params)});
         break;
       }
       default: {

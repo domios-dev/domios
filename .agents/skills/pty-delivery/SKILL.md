@@ -172,8 +172,9 @@ Claimed or uncertain records remain held and are never replayed.
   confirm.
 - Daemon restart restores queued records and bounded settlement receipts into
   the ledger before status reconciliation. Claimed and uncertain records restore
-  as uncertainty and never replay. Missing held statuses become uncertainty,
-  not a fabricated zero-write failure; a durable failure receipt allows Retry.
+  as uncertainty and never replay. A held (never-written) send that a ledger
+  snapshot omits stays held/queued: it is neither uncertainty nor a fabricated
+  zero-write failure; a durable failure receipt allows Retry.
   The frontend shows a failure
   only while the CURRENT ledger vouches for it — a reconcile response that no
   longer contains a tracked failed send removes the record (no false Retry is
@@ -240,4 +241,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

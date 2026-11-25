@@ -5,6 +5,8 @@ pub mod application_host;
 mod autostart;
 #[cfg(target_os = "linux")]
 pub use autostart::refresh_owned_linux_unit;
+#[cfg(target_os = "macos")]
+pub use autostart::refresh_owned_macos_agent;
 pub mod clipboard_files;
 pub mod commands;
 mod update;

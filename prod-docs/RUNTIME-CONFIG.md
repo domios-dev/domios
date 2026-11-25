@@ -31,6 +31,76 @@ Settings and `domios system enable-autostart` install the same supervisor regist
 
 A custom theme is a TOML file with `name` plus 20 color fields: `background`, `foreground`, `cursor`, `selection`, then `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white` and their `bright_` variants (`bright_black` … `bright_white`), each a `"#rrggbb"` string. UI chrome (sidebar, surfaces, borders) is derived from the background and palette, so light and dark themes need no extra fields.
 
+### Chat background
+
+Open Settings › General › Appearance Lab for the complete wallpaper editor. General also offers quick wallpaper picks for the current machine. The machine's saved wallpaper takes precedence over the active theme's optional `[chat_background]` table. With neither set, chat shows the plain theme background. The terminal, composer and sidebar keep their own surfaces. High-contrast and print modes show a solid transcript background. See `domios docs APPEARANCE` for complete look proposals and background strength.
+
+The owner can run `domios wallpaper clear` to restore the theme wallpaper and `domios wallpaper set --from-pad tile.svg` to apply a static SVG. Use `--from-pad -` to read SVG from stdin. For an ordinary chat request or an owner-only write refusal, follow the Appearance Lab proposal procedure and return the native `<ds-appearance>` card in the same chat for the owner to apply. For a wallpaper draft with a one-time request ID, the destination General session can run:
+
+```sh
+domios wallpaper set --request REQUEST_ID --from-pad tile.svg
+```
+
+The request applies one sanitized tile to that machine, provided its wallpaper setting has stayed the same. Undo in the picker restores the previous wallpaper. To author a complete theme, continue to use `domios theme save`.
+
+| Field | Values |
+|---|---|
+| `pattern` | `none` (default), `dots`, `grid`, `icon`, `svg`, or the bundled patterns `domios`, `doodles`, `space`, `math`, `botanical`, `retro`, `geometry`, `sketch`, and `circuits` |
+| `scale` | Tile spacing in whole pixels, from 8 to 512. Defaults to 20 for dots and 360 for bundled artwork |
+| `opacity` | Pattern opacity from 0 to 1. Dots use 0.035 in light themes and 0.028 in dark themes when chosen without an intensity. Domios displays pattern opacity up to 0.24 |
+| `color` | `"#rrggbb"` color, derived from the theme foreground when omitted |
+| `colors` | One to three `"#rrggbb"` stroke colors, used in place of `color` when supplied |
+| `rotation` | Artwork or grid rotation from −360 to 360 degrees |
+| `icon` | `cat` (default), `diamond`, or `star` when using `pattern = "icon"` |
+| `svg` | Inline SVG string when using `pattern = "svg"`. Use a `viewBox`, static shapes or paths, and optional static transforms. SVG is limited to 64 KiB before and after sanitization and rejects scripts, styles, animation, external references and `url()` |
+| `gradient` | Optional table with `kind = "linear"` or `"radial"`, 2–4 evenly spaced `stops` as `"#rrggbb"` strings, and optional `angle` (−360 to 360 degrees, default 135 for linear). Radial gradients are centered. |
+
+The gradient sits beneath the pattern and is blended lightly with the theme background. Set `pattern = "none"` for a gradient alone, or omit the gradient too for a solid background.
+
+```toml
+[chat_background]
+pattern = "icon"
+icon = "cat"
+scale = 48
+opacity = 0.10
+rotation = -12
+
+[chat_background.gradient]
+kind = "linear"
+angle = 35
+stops = ["#5359a8", "#419a80"]
+```
+
+Add the table to your custom theme file and run `domios theme save my-chat my-chat.toml --apply`. Invalid backdrop settings refuse the save with reason `invalid_chat_background` and a field-specific message.
+
+To draw a custom cat wallpaper, author a square SVG with the cats at different positions within one tile. Use `fill="none"` and `stroke="currentColor"` so the theme controls the line color. Set `color` for a custom tint or omit it to follow the foreground in light and dark themes. Put the SVG into the TOML as a multiline literal and apply the file with `domios theme save cat-wallpaper cat-wallpaper.toml --apply`.
+
+```toml
+[chat_background]
+pattern = "svg"
+scale = 192
+opacity = 0.10
+svg = '''
+<svg viewBox="0 0 192 192" fill="none" stroke="currentColor" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+  <g transform="translate(30 54) rotate(-16)">
+    <path d="M-14 0v-13l10 7h8l10-7V0a14 14 0 1 1-28 0Z"/>
+    <path d="M-5 3h.01M5 3h.01M-2 7l2 2 2-2"/>
+  </g>
+  <g transform="translate(132 127) rotate(18)">
+    <path d="M-14 0v-13l10 7h8l10-7V0a14 14 0 1 1-28 0Z"/>
+    <path d="M-5 3h.01M5 3h.01M-2 7l2 2 2-2"/>
+  </g>
+  <path d="M94 47v15m-7-7h14M63 136v11m-5-5h10"/>
+</svg>
+'''
+
+[chat_background.gradient]
+kind = "linear"
+angle = 135
+stops = ["#615eae", "#456d94"]
+```
+
 ## Session Persistence
 
 Desk state—workspaces, tabs, layout, and tab identity—is committed through the instance's Storage owner in `storage/state.db` beneath its data directory. Ordinary mutations are persisted through Storage; `POST /api/session/save` provides an explicit flush barrier before a forced stop. The Cron Jobs section below describes Storage unavailable mode and the backup/rollback protocol.
@@ -212,4 +282,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `domios sessions` commands and `/api/sessions/*` find and resume them; `domios docs API-STATE` has the contract.
 
-<!-- revision: 35 -->
+<!-- revision: 40 -->

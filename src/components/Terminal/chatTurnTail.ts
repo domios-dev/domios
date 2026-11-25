@@ -12,17 +12,19 @@ export function latestFailedToolCallId(entries: readonly EnrichedChatEntry[]): s
 }
 
 export function latestTurnStopNoticeId(entries: readonly EnrichedChatEntry[]): string | null {
+  let stopNotice: string | null = null;
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const msg = entries[i]?.msg;
     if (!msg) continue;
-    if (msg.type === "system" && msg.systemSubtype === "turn_stop_reason") {
-      return msg.id;
+    if (msg.type === "system") {
+      if (msg.systemSubtype === "model_unavailable") return null;
+      if (msg.systemSubtype === "turn_stop_reason") stopNotice ??= msg.id;
     }
     if (msg.type === "user" || msg.type === "assistant") {
-      return null;
+      break;
     }
   }
-  return null;
+  return stopNotice;
 }
 
 export function submitTurnContinuation(

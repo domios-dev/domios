@@ -1,9 +1,13 @@
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import type { Notification, Tab } from "../../lib/types";
+import type { MeshPeersResponse, Notification, Tab } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
+import { resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import type { AccountMeshSnapshot } from "../MeshPanel/accountMeshClient";
+import { rememberAccountMachineNames, rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
 
 const fakes = vi.hoisted(() => ({ reconnect: vi.fn(async () => {}) }));
 vi.mock("./tabSessionActions", async (importOriginal) => ({
@@ -21,12 +25,115 @@ vi.mock("./DocumentsPanel", () => ({ DocumentsButton: () => null }));
 vi.mock("./ChangesPanel", () => ({ ChangesButton: () => null }));
 vi.mock("./TabModeSwitch", () => ({ TabModeSwitch: () => null }));
 vi.mock("../Extensions/PluginBubbles", () => ({ PluginBubbles: () => null }));
-vi.mock("../Usage/UsageBubble", () => ({ UsageBubble: () => null }));
 
 import { TabTopBar, type HeaderTabMenu } from "./TabTopBar";
+import { TabHeaderOverflow } from "./TabHeaderOverflow";
+import { TabHeaderTitle } from "./TabHeaderTitle";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function Harness({ chat = true, locked = false, chatCapable = false }: { chat?: boolean; locked?: boolean; chatCapable?: boolean }) {
+const otherInstallation = {
+  installation_id: "other-installation",
+  name: "Other",
+  active: true,
+  signed_out: true,
+  membership_expires_at: null,
+  endpoint_expires_at: null,
+  instance_id: null,
+  online: false,
+};
+const localMesh: MeshPeersResponse = {
+  local_instance_name: "Local",
+  local_machine_identity: { kind: "desktop", color: "blue" },
+  machine_identities: {},
+  installations: [],
+  paired: [],
+  local_dev: false,
+  local_last_active_ms: null,
+};
+
+it.each([
+  { scenario: "a local tab on the only machine", subtitle: "Worker" },
+  { scenario: "a local tab with only a revoked slot", installations: [{ ...otherInstallation, active: false }], subtitle: "Worker" },
+  { scenario: "a local tab with another signed-out machine", installations: [otherInstallation], subtitle: "Worker · Local" },
+  { scenario: "a local tab with a paired peer", paired: [{ instance_id: "other", instance_name: "Other" }] as MeshPeersResponse["paired"], subtitle: "Worker · Local" },
+  { scenario: "a local tab with a named account peer", accountPeer: true, subtitle: "Worker · Local" },
+  { scenario: "a remote tab without a matching peer", remote: true, subtitle: "Worker · Other" },
+])("renders the subtitle for $scenario", async ({ installations = [], paired = [], accountPeer, remote, subtitle }) => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const tab = {
+    id: remote ? "mesh:other/tab-a" : "tab-a",
+    title: "Tab A",
+    role: "Worker",
+    remote_peer_name: remote ? "Other" : undefined,
+  } as Tab;
+  try {
+    await act(async () => {
+      rememberMachineIdentities({ ...localMesh, installations, paired });
+      rememberAccountMachineNames(accountPeer ? {
+        local_installation_id: "local-installation",
+        registry_names: [{ installation_id: "other-installation", admitted_at: 1, display_name: "Other", active: true }],
+        pairs: [{ instance_id: "other", installation_id: "other-installation", admission: "account", online: false, name: "Other" }],
+      } as AccountMeshSnapshot : null);
+      root.render(<TabHeaderTitle tab={tab} />);
+    });
+    expect(host.textContent).toBe(`Tab A${subtitle}`);
+  } finally {
+    await act(async () => root.unmount());
+    rememberMachineIdentities({ ...localMesh, local_instance_name: "" });
+    rememberAccountMachineNames(null);
+  }
+});
+
+it("opens a single set of overflow controls in a dialog and dismisses it from inside or outside", async () => {
+  const callbacks: ResizeObserverCallback[] = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: ResizeObserverCallback) { callbacks.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  const host = document.createElement("div");
+  host.className = "ct-tab-top-bar";
+  document.body.append(host);
+  const root = createRoot(host);
+  const action = vi.fn();
+  try {
+    await act(async () => root.render(<TabHeaderOverflow isActive>
+      <button type="button">Usage</button>
+      <button type="button" onClick={action}>Details</button>
+    </TabHeaderOverflow>));
+    const [usage, details] = host.querySelectorAll<HTMLButtonElement>("button");
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 39));
+    vi.spyOn(usage.parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(190, 6, 110, 27));
+    vi.spyOn(usage, "getBoundingClientRect").mockReturnValue(new DOMRect(190, 6, 70, 27));
+    vi.spyOn(details, "getBoundingClientRect").mockReturnValue(new DOMRect(190, 39, 70, 27));
+    await act(async () => callbacks[0]([], {} as ResizeObserver));
+
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Show all 1 hidden details"]')!;
+    await act(async () => trigger.click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Tab details"]')!;
+    expect(dialog.contains(details)).toBe(true);
+    expect(document.activeElement).toBe(dialog);
+    await act(async () => details.click());
+    expect(action).toHaveBeenCalledOnce();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(dialog.isConnected).toBe(false);
+    expect(host.contains(details)).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+
+    await act(async () => trigger.click());
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => host.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('[role="dialog"][aria-label="Tab details"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+function Harness({ chat = true, locked = false, chatCapable = false, usageTabId }: { chat?: boolean; locked?: boolean; chatCapable?: boolean; usageTabId?: string }) {
   const [toasts, setToasts] = useState<Notification[]>([]);
   const actions = {
     upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
@@ -40,10 +147,46 @@ function Harness({ chat = true, locked = false, chatCapable = false }: { chat?: 
     context: { status: null, descriptor: null, descriptors: [], activity: null, orchestrators: [] },
   };
   return <MultiplexerActionsContext.Provider value={actions}>
-    <TabTopBar tabId="tab-a" cwd={null} showSwitch={chatCapable} workspaceId="workspace-a" tabMenu={tabMenu} isActive />
+    <TabTopBar tabId={usageTabId ?? "tab-a"} cwd={null} showSwitch={chatCapable} workspaceId="workspace-a" tabMenu={tabMenu} isActive
+      usageVisible={Boolean(usageTabId)}
+      usageSource={usageTabId ? { kind: "meter", provider: "claude", trackingProvider: "claude", borrowedAccount: false } : undefined} />
     <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
   </MultiplexerActionsContext.Provider>;
 }
+
+it("reads usage on the displayed machine and drops it when that peer goes offline", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const latest = vi.fn((scope: unknown) => ({ provider: "claude", account_id: null,
+    session_pct: scope === "fixture-dev" ? 31 : 73, parsed_ok: true, captured_at: Date.now() }));
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>) => (cmd === "usage_latest" ? latest(args?.peerId) : null) as T);
+  const peer = (online: boolean) => ({ local_instance_name: "Local", paired: [
+    { instance_id: "fixture-dev", instance_name: "Remote", online },
+  ] }) as MeshPeersResponse;
+  try {
+    await act(async () => root.render(<Harness usageTabId="tab-a" />));
+    expect(host.querySelector('button[aria-label="usage session 73%"]')).not.toBeNull();
+    await act(async () => {
+      updateRemoteChatPeers(peer(true));
+      root.render(<Harness usageTabId="mesh:fixture-dev/tab-a" />);
+    });
+    expect(host.querySelector('button[aria-label="usage session 31%"]')).not.toBeNull();
+    await act(async () => updateRemoteChatPeers(peer(false)));
+    expect(host.querySelector('button[aria-label^="usage limits unavailable"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="usage session 31%"]')).toBeNull();
+    expect(latest.mock.calls).toEqual([[null], ["fixture-dev"]]);
+    await act(async () => root.render(<Harness usageTabId="tab-a" />));
+    expect(host.querySelector('button[aria-label="usage session 73%"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    resetRemoteChatStatus();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+    host.remove();
+  }
+});
 
 it("shows header action failures in a retryable toast without an inline alert", async () => {
   fakes.reconnect.mockReset().mockRejectedValueOnce(new Error("opaque reconnect failure"));

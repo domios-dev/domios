@@ -28,6 +28,7 @@ import { LimitAmount } from "./LimitAmount";
 import { usePlanCatalog } from "./planCatalogContext";
 import { usePlanViewed } from "./usePlanViewed";
 import { IDLE_INTENT, type PurchaseIntent } from "./purchaseIntent";
+import { planChangeCopy, type PlanChangeMode } from "./desktopBilling";
 
 export function BillingIntervalToggle({ interval, onChange, savings }: {
   interval: BillingInterval;
@@ -86,6 +87,7 @@ function useIntentFocus(kind: PurchaseIntentView["kind"] | undefined) {
 }
 
 export interface PlanCardProps {
+  planChangeMode?: PlanChangeMode | null;
   onChangePlan?: (priceId: string, tier: string, direction: "upgrade" | "downgrade") => void;
   changeDirection?: "upgrade" | "downgrade";
   changePrice?: PlanPrice | null;
@@ -101,7 +103,7 @@ export interface PlanCardProps {
   manageBusy?: boolean;
 }
 
-export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, onChangePlan, changeDirection, changePrice, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
+export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, onChangePlan, planChangeMode = null, changeDirection, changePrice, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
   const price = offerPrice(offer, interval);
   const action: PlanCardAction = givenAction ?? (price.planKey ? { kind: "choose", planKey: price.planKey } : { kind: "none" });
   const border = offer.recommended ? "border-[var(--ct-accent)]" : "border-[var(--ct-border-subtle)]";
@@ -165,7 +167,7 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
             <Button size="lg" variant="outline" disabled={!canPurchase || manageBusy || !changePrice?.priceId} onClick={() => { if (changePrice?.priceId) onChangePlan(changePrice.priceId, offer.id, changeDirection); }}>
               {changeDirection === "upgrade" ? "Upgrade" : "Downgrade"} to {offer.name}
             </Button>
-            <p>{changeDirection === "upgrade" ? "Upgrade now with prorated billing." : "Your current tier stays active until the next renewal."} Keep the same billing interval.</p>
+            <p>{[planChangeCopy(planChangeMode, changeDirection).card, "Keep the same billing interval."].filter(Boolean).join(" ")}</p>
           </> : <>
           <Button size="lg" variant="outline" disabled={manageBusy} loading={manageBusy} onClick={onManage}>Manage subscription</Button>
           <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Manage billing and cancellation in your subscription portal.</p>
@@ -183,8 +185,9 @@ function intentView(intent: PurchaseIntent, signedInAs: string | null): Purchase
 }
 
 /** One card per offer, then the interval switch beside the purchase terms; yearly by default. */
-export function PlanCards({ currentPlan = null, subscribedPlan = null, subscriptionInterval = null, onManage, onChangePlan, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+export function PlanCards({ currentPlan = null, subscribedPlan = null, subscriptionInterval = null, planChangeMode = null, onManage, onChangePlan, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
   onChangePlan?: PlanCardProps["onChangePlan"];
+  planChangeMode?: PlanChangeMode | null;
   viewRequested?: boolean;
   currentPlan?: string | null;
   /** A live paid subscription; while set, other paid cards offer Manage subscription instead of a checkout. */
@@ -228,6 +231,7 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, subscript
               action={planCardAction(offers, offer, interval, subscribedPlan)}
               onManage={onManage}
               onChangePlan={offers.changesAvailable && offers.offers.some(entry => entry.id === currentOffer) ? onChangePlan : undefined}
+              planChangeMode={planChangeMode}
               changePrice={planChangePrice(offer, subscriptionInterval)}
               changeDirection={index > offers.offers.findIndex(entry => entry.id === currentOffer) ? "upgrade" : "downgrade"}
               manageBusy={manageBusy}

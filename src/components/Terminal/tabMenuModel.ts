@@ -45,9 +45,9 @@ export const TAB_MENU_LABELS = {
   replaceOrchestratorHint: "Starts a new Team owner without resuming this session.",
   providerHint: "Continues through a handoff on the target harness. Full history is not transferred.",
   plugins: "Plugins",
+  liveTranscript: "Live Transcript",
   closeSession: "Close session",
   closeTab: "Close Tab",
-  detach: "Detach from this machine",
 } as const;
 
 /** Close on a remote tab names the machine it closes on; a local close keeps its plain label. */
@@ -74,10 +74,9 @@ export type TabMenuAction =
   | { type: "copySessionId"; sessionId: string }
   | { type: "setAutoConfirm"; enabled: boolean }
   | { type: "runPlugin"; entry: PluginTabMenuEntry }
+  | { type: "openLiveTranscript" }
   | { type: "openTelegram" }
   | { type: "closeTelegram" }
-  | { type: "removeMachineTabs" }
-  | { type: "detach" }
   | { type: "close" };
 
 export type TabMenuGlyph =
@@ -90,9 +89,9 @@ export type TabMenuGlyph =
   | "restart"
   | "autoConfirm"
   | "plugins"
+  | "liveTranscript"
   | "telegram"
   | "telegramClose"
-  | "detach"
   | "close";
 
 type AccountMenuIcon = { kind: "account"; account: ProviderAccountRow; other: boolean };
@@ -206,6 +205,7 @@ export interface TabMenuInput extends TabMenuContext {
   surface: TabMenuSurface;
   canRename: boolean;
   canClose: boolean;
+  canOpenLiveTranscript?: boolean;
   pluginTabMenu: PluginTabMenuState;
   telegramThread: TelegramThreadMenuState | null;
   busy?: { reconnecting: boolean; restarting: boolean };
@@ -386,7 +386,7 @@ function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): T
 
 export function unavailableTabMenu(entries: readonly TabMenuEntry[], reason: string): TabMenuEntry[] {
   return entries.map(entry => {
-    if (entry.kind === "header" || entry.kind === "separator") return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
     return {
       kind: "item", id: entry.id, testId: entry.testId, label: entry.label, icon: entry.icon,
       unavailable: true, hint: reason, action: null,
@@ -445,8 +445,8 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);
-  if (tab.remote_peer_id) {
-    entries.push({ kind: "item", id: "detach", testId: "tab-menu-detach", label: TAB_MENU_LABELS.detach, icon: "detach", action: { type: "detach" } });
+  if (input.canOpenLiveTranscript && !tab.remote_peer_id && !tab.ownership && !tab.neighbor_authority && !tab.locked) {
+    entries.push({ kind: "item", id: "live-transcript", testId: "tab-menu-live-transcript", label: TAB_MENU_LABELS.liveTranscript, icon: "liveTranscript", action: { type: "openLiveTranscript" } });
   }
   if (input.canClose && !tab.protected) {
     entries.push({
@@ -462,7 +462,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   const lock = input.lock ?? lockedView("agent.tabs", tab);
   if (!lock.locked) return entries;
   return entries.map((entry): TabMenuEntry => {
-    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close" || entry.id === "detach") return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
     if (entry.kind === "submenu") {
       return { ...entry, disabled: true, title: lock.label, entries: entry.entries.map(child =>
         child.kind === "separator" ? child : { ...child, disabled: true, title: lock.label }) };

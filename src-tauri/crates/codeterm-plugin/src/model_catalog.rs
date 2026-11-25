@@ -42,9 +42,13 @@ mod grouping;
 mod inputs;
 mod live_policy;
 mod live_refresh;
+mod refusals;
 pub use inputs::{discovery_stamp, invalidate_inputs};
 pub use live_policy::register_catalogue_capability;
 pub use live_refresh::{last_refresh_failure, refresh_live, RefreshFailure};
+pub use refusals::{
+    remember as remember_model_refusal, unavailable_models, unavailable_models_for_version,
+};
 
 pub(super) const CACHE_SCHEMA_VERSION: u32 = 1;
 
@@ -153,9 +157,12 @@ pub fn fingerprint_path(path: &std::path::Path) -> Option<BinaryFingerprint> {
 }
 
 pub fn binary_fingerprint_path(path: &std::path::Path) -> Option<String> {
+    binary_fingerprint_file(&mut std::fs::File::open(path).ok()?)
+}
+
+pub(crate) fn binary_fingerprint_file(file: &mut std::fs::File) -> Option<String> {
     use std::io::Read;
 
-    let mut file = std::fs::File::open(path).ok()?;
     let mut digest = Sha256::new();
     let mut buffer = [0; 8192];
     loop {
@@ -748,6 +755,12 @@ pub fn has_live_snapshot(provider_id: &str) -> bool {
 }
 
 pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
+    let mut models = unfiltered_live_models(provider_id)?;
+    refusals::filter(provider_id, &mut models);
+    Some(models)
+}
+
+pub fn unfiltered_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
     let live = registry()
         .read()
         .get(provider_id)
@@ -772,18 +785,11 @@ pub fn resolve_live_default_model(provider_id: &str) -> Option<String> {
     if snapshot.source != Source::Live {
         return None;
     }
-    snapshot
-        .default
-        .as_deref()
-        .and_then(|default| find_model(&snapshot.models, default))
-        .map(|model| model.id.clone())
-        .or_else(|| {
-            snapshot
-                .models
-                .iter()
-                .find(|model| model.available != Some(false))
-                .map(|model| model.id.clone())
-        })
+    let default = snapshot.default.clone();
+    let mut models = snapshot.models.clone();
+    drop(guard);
+    refusals::filter(provider_id, &mut models);
+    resolve_live_default(&models, default)
 }
 
 pub fn resolve_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {

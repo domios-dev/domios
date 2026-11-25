@@ -85,8 +85,8 @@
   gap: 16px;
   overflow-y: auto;
   padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
-  border-radius: 14px;
+  border: 1px solid var(--ct-panel-edge);
+  border-radius: calc(14px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg));
   color: var(--ct-fg);
   font-size: 12px;
@@ -105,8 +105,8 @@
   max-width: 100%;
   overflow-x: auto;
   padding: 22px 24px;
-  border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
-  border-radius: 14px;
+  border: 1px solid var(--ct-panel-edge);
+  border-radius: calc(14px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 3.5%, var(--ct-bg));
   box-shadow: var(--ct-shadow-sm);
 }

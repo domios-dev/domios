@@ -169,6 +169,13 @@ impl ApplicationRelaunchEnv {
     pub fn apply(&self, command: &mut std::process::Command) {
         command.env_clear().envs(self.0.iter().cloned());
     }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(name, _)| name == key)
+            .and_then(|(_, value)| value.to_str())
+    }
 }
 
 pub fn user_zdotdir(value: &Path, integration: &Path, home: &Path) -> std::path::PathBuf {

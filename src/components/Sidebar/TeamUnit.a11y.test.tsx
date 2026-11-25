@@ -68,7 +68,7 @@ async function main() {
     const { host, root } = await render(teamName);
     const found = labels(host);
     const section = host.querySelector('[data-testid="team-unit"]');
-    assert(section?.getAttribute("aria-label") === teamName, `team region is named "${teamName}"`);
+    assert(section?.getAttribute("aria-label") === teamName, "a local team region is named by its title alone");
     for (const suffix of ["managers", "workers", "utility shells", "jobs"]) {
       assert(found.includes(`${teamName} ${suffix}`), `${suffix} group carries the team name`);
     }

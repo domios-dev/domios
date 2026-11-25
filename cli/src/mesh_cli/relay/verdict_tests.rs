@@ -56,6 +56,7 @@ fn mesh_send_no_payload_echo() {
         false,
         &None,
         &None,
+        false,
         &mut std::io::empty(),
     );
     assert_eq!(method, "POST");

@@ -22,6 +22,7 @@ use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
 /// Auto-edit window — if a new send arrives within this time, edit the previous message.
 const AUTO_EDIT_WINDOW_SECS: u64 = 60;
+const MAX_RECENT_CHATS: usize = 64;
 const BRIDGE_MEDIA_UPLOAD_LIMIT: u64 = 150 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
@@ -71,15 +72,10 @@ pub struct PlacementReceipt {
     pub tag: String,
 }
 
-pub type OutboundSender = Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<OutboundMessage>>>>;
-
-pub fn create_outbound_channel() -> (
-    OutboundSender,
-    tokio::sync::mpsc::UnboundedReceiver<OutboundMessage>,
-) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    (Arc::new(Mutex::new(Some(tx))), rx)
-}
+mod outbound_queue;
+pub use outbound_queue::{
+    create_outbound_channel, outbound_channel, OutboundEnqueue, OutboundReceiver, OutboundSender,
+};
 
 /// Gate the send path on the service roster. A service nobody registered is
 /// unknown; a registered service with no transport in this build says exactly
@@ -100,6 +96,25 @@ struct ChatState {
     text: String,
 }
 
+fn remember_chat_state(states: &mut HashMap<i64, ChatState>, chat_id: i64, state: ChatState) {
+    states.insert(chat_id, state);
+    if states.len() > MAX_RECENT_CHATS {
+        if let Some(oldest) = states
+            .iter()
+            .min_by_key(|(_, state)| state.sent_at)
+            .map(|(&id, _)| id)
+        {
+            states.remove(&oldest);
+        }
+    }
+}
+
+fn expire_chat_states(states: &mut HashMap<i64, ChatState>, now: Instant) {
+    states.retain(|_, state| {
+        now.saturating_duration_since(state.sent_at).as_secs() < AUTO_EDIT_WINDOW_SECS
+    });
+}
+
 pub struct BridgeManager {
     tab: Arc<dyn BridgeTabPort>,
 }
@@ -112,7 +127,7 @@ impl BridgeManager {
     pub async fn start(
         self,
         services: Vec<Box<dyn MessagingService>>,
-        mut outbound_rx: tokio::sync::mpsc::UnboundedReceiver<OutboundMessage>,
+        mut outbound_rx: OutboundReceiver,
         cancel: Arc<tokio::sync::Notify>,
         status: Arc<dyn super::supervisor::BridgeStatusSink>,
     ) {
@@ -146,6 +161,9 @@ impl BridgeManager {
         let _keep_tx = tx;
 
         let mut chat_states: HashMap<i64, ChatState> = HashMap::new();
+        let mut retention =
+            tokio::time::interval(std::time::Duration::from_secs(AUTO_EDIT_WINDOW_SECS));
+        retention.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         log::info!("[bridge] manager v4 started (CLI + auto-edit + typing)");
 
@@ -154,6 +172,7 @@ impl BridgeManager {
 
         loop {
             tokio::select! {
+                _ = retention.tick() => expire_chat_states(&mut chat_states, Instant::now()),
                 _ = cancel.notified() => {
                     log::info!("[bridge] manager received cancel; exiting outer loop");
                     return;
@@ -281,7 +300,8 @@ async fn route_text_outbound(
         if !edited {
             let resent = send_message(client, api_base, token, chat_id, &sanitized).await;
             if let Some(new_id) = resent {
-                chat_states.insert(
+                remember_chat_state(
+                    chat_states,
                     chat_id,
                     ChatState {
                         message_id: new_id,
@@ -308,7 +328,8 @@ async fn route_text_outbound(
                 send_message_with_buttons(client, api_base, token, chat_id, chunk, btns).await;
         }
         if let Some(id) = last_id {
-            chat_states.insert(
+            remember_chat_state(
+                chat_states,
                 chat_id,
                 ChatState {
                     message_id: id,

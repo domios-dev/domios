@@ -218,11 +218,10 @@ impl ServiceContext {
         let mut items = Vec::with_capacity(criteria.len());
         let mut truncated_ids = Vec::new();
         for criterion in criteria {
-            let title = criterion.trim();
+            let (title, truncated) = bounded_title(criterion);
             if title.is_empty() {
                 return Err("acceptance criteria cannot contain an empty item".into());
             }
-            let (title, truncated) = bounded_title(title);
             let id = uuid::Uuid::new_v4().to_string();
             if truncated {
                 truncated_ids.push(id.clone());
@@ -634,7 +633,14 @@ fn require_human(actor_tab_id: Option<&str>) -> Result<(), String> {
 }
 
 fn bounded_title(text: &str) -> (String, bool) {
-    let mut chars = text.chars();
+    let normalized = text
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut chars = normalized.chars();
     let title: String = chars.by_ref().take(120).collect();
     let truncated = chars.next().is_some();
     (title, truncated)

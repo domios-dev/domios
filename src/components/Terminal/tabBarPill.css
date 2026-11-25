@@ -10,7 +10,7 @@
   gap: 6px;
   padding: 0 13px;
   border: 0;
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-bg));
   box-shadow: var(--ct-bar-pill-edge);
   color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg));
@@ -59,7 +59,7 @@
 .ct-bar-pill[aria-expanded="true"],
 .ct-bar-pill.is-open {
   background: color-mix(in srgb, var(--ct-accent) 14%, var(--ct-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 30%, transparent), 0 4px 14px rgb(0 0 0 / 28%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 30%, transparent), var(--ct-shadow-md);
   color: var(--ct-fg);
 }
 
@@ -77,7 +77,7 @@
   width: 28px;
   height: 4px;
   border: 0;
-  border-radius: 99px;
+  border-radius: calc(99px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
   overflow: hidden;
   appearance: none;
@@ -85,19 +85,19 @@
 
 .ct-bar-meter::-webkit-meter-bar {
   border: 0;
-  border-radius: 99px;
+  border-radius: calc(99px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
 }
 
 .ct-bar-meter::-webkit-meter-optimum-value,
 .ct-bar-meter::-webkit-meter-suboptimum-value,
 .ct-bar-meter::-webkit-meter-even-less-good-value {
-  border-radius: 99px;
+  border-radius: calc(99px * var(--ct-roundness, 1));
   background: var(--ct-accent);
 }
 
 .ct-bar-meter::-moz-meter-bar {
-  border-radius: 99px;
+  border-radius: calc(99px * var(--ct-roundness, 1));
   background: var(--ct-accent);
 }
 
@@ -106,7 +106,7 @@
   display: inline-block;
   width: 28px;
   height: 4px;
-  border-radius: 99px;
+  border-radius: calc(99px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
   overflow: hidden;
   flex: none;
@@ -151,7 +151,7 @@
   display: inline-flex;
   height: var(--ct-tab-pill-h, 28px);
   align-items: stretch;
-  border-radius: 999px;
+  border-radius: calc(999px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-bg));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent),
     inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 7%, transparent);

@@ -48,9 +48,24 @@ export function frameBytes(data: StreamFrame["data"]): Uint8Array<ArrayBuffer> {
 }
 
 export const decodeJpegFrame: FrameDecoder = async (frame) => {
+  const blob = new Blob([frameBytes(frame.data)], { type: "image/jpeg" });
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(blob);
+    let closed = false;
+    return {
+      width: bitmap.width,
+      height: bitmap.height,
+      image: bitmap,
+      close() {
+        if (closed) return;
+        closed = true;
+        bitmap.close();
+      },
+    };
+  }
   const image = new Image();
   if (typeof image.decode !== "function") throw new Error("JPEG image decoding is unavailable");
-  const url = URL.createObjectURL(new Blob([frameBytes(frame.data)], { type: "image/jpeg" }));
+  const url = URL.createObjectURL(blob);
   let closed = false;
   const close = () => {
     if (closed) return;

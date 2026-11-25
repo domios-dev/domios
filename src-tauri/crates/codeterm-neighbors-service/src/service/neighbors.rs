@@ -1,6 +1,7 @@
 use super::ServiceContext;
 use crate::prelude::*;
 use codeterm_account::account_mesh::callable::{CallableFailure, CallableTransport, HttpCallable};
+use codeterm_neighbors::Error as NeighborError;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -79,10 +80,6 @@ pub trait NeighborsExt {
         &self,
         command: NeighborCommand,
     ) -> impl std::future::Future<Output = Result<Value, String>> + Send;
-    fn neighbor_registry_owned(
-        &self,
-        command: NeighborCommand,
-    ) -> impl std::future::Future<Output = Result<Value, String>> + Send;
     fn prepare_neighbor_list_observation(
         &self,
         metadata: &storage::Metadata,
@@ -98,45 +95,58 @@ pub trait NeighborsExt {
 
 impl NeighborsExt for ServiceContext {
     async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
-        if matches!(&command, NeighborCommand::Refresh {}) {
-            self.refresh_neighbor_list()
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-        self.neighbor_registry_owned(command).await
-    }
-
-    async fn neighbor_registry_owned(&self, command: NeighborCommand) -> Result<Value, String> {
-        if self.neighbor_access_locked().await
-            && !matches!(
-                &command,
-                NeighborCommand::List {} | NeighborCommand::Refresh {}
-            )
-        {
-            return match command {
-                NeighborCommand::List {} | NeighborCommand::Refresh {} => {
-                    Ok(backend_reads::locked_list())
-                }
-                _ => Err(codeterm_neighbors::Error::Locked.to_string()),
-            };
+        let listing = matches!(
+            &command,
+            NeighborCommand::List {} | NeighborCommand::Refresh {}
+        );
+        if !listing && self.neighbor_access_locked().await {
+            return Err(NeighborError::Locked.to_string());
         }
         let history_generation = self.neighbor_history_generation();
-        let account = self.account().await?;
+        let account = self.account().await.map_err(|error| {
+            if listing {
+                local_list_failure("account_start", error)
+            } else {
+                error
+            }
+        })?;
         let session = account
             .current_session()
             .await
-            .map_err(|_| "Sign in to manage Neighbors")?
-            .ok_or("Sign in to manage Neighbors")?;
-        let base = codeterm_account::firebase_endpoints::current().functions;
-        let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
+            .map_err(|error| match error {
+                codeterm_account::Error::Cancelled => SIGN_IN.to_owned(),
+                codeterm_account::Error::Transport | codeterm_account::Error::Provider
+                    if listing =>
+                {
+                    NeighborError::Transport.to_string()
+                }
+                _ if listing => local_list_failure("account_session", error),
+                _ => SIGN_IN.to_owned(),
+            })?
+            .ok_or(SIGN_IN)?;
+        if listing {
+            if session.identity.provider == "local" {
+                return Err("Sign in with a hosted account to use Neighbors".into());
+            }
+            self.require_neighbors_enabled()
+                .map_err(|error| error.to_string())?;
+            self.drain_neighbor_stop_local(history_generation)
+                .await
+                .map_err(|error| local_list_failure("off_cleanup", error))?;
+            if matches!(&command, NeighborCommand::Refresh {}) {
+                self.refresh_neighbor_list()
+                    .await
+                    .map_err(|error| local_list_failure("list_refresh", error))?;
+            }
+        }
         let (name, data) = command.callable();
-        let list_epoch = if name == "friendsList" {
+        let list_epoch = if listing {
             Some(
                 self.neighbor_projection_read_epoch(
                     &session.identity.uid,
                     session.login_generation,
                 )
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| local_list_failure("list_epoch", error))?,
             )
         } else {
             None
@@ -146,7 +156,7 @@ impl NeighborsExt for ServiceContext {
         } else {
             None
         };
-        let response = if name == "friendsList" {
+        let response = if listing {
             use codeterm_neighbors::adapter::AuthenticatedCall;
             let calls = runtime::callable::Calls {
                 service: self.clone(),
@@ -159,6 +169,8 @@ impl NeighborsExt for ServiceContext {
                 .map_err(|error| error.to_string())?;
             Ok(json!({"result": result}))
         } else {
+            let base = codeterm_account::firebase_endpoints::current().functions;
+            let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
             transport
                 .call_for_account(
                     &session.identity.uid,
@@ -198,8 +210,11 @@ impl NeighborsExt for ServiceContext {
                 .await
                 .map_err(|error| error.to_string())?;
         }
-        if name == "friendsList" {
-            let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
+        if listing {
+            let root = self
+                .account_data_root()
+                .map_err(|error| local_list_failure("list_storage", error))?;
+            let metadata = storage::Metadata::new(root, &session.identity.uid);
             self.prepare_neighbor_list_observation(&metadata, &mut result)
                 .await?;
             if !same_session(account.session().await.as_ref(), &session) {
@@ -212,7 +227,7 @@ impl NeighborsExt for ServiceContext {
                 list_epoch.as_ref().ok_or("Missing Neighbor list epoch")?,
                 &result,
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| local_list_failure("list_observation", error))?;
         } else {
             self.invalidate_neighbor_list()
                 .await
@@ -260,6 +275,13 @@ impl NeighborsExt for ServiceContext {
             .wait()
             .await
     }
+}
+
+const SIGN_IN: &str = "Sign in to manage Neighbors";
+
+fn local_list_failure(phase: &'static str, error: impl std::fmt::Display) -> String {
+    log::debug!("[neighbors] local list preparation failed: {error}");
+    NeighborError::LocalFence { phase }.to_string()
 }
 
 fn annotate_list(result: &mut Value, settings: &storage::Settings) -> Result<(), String> {

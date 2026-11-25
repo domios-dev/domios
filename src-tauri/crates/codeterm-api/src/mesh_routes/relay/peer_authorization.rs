@@ -3,6 +3,8 @@ use axum::http::{Method, StatusCode};
 use codeterm_service_core::api_support::access_policy::{
     allows_full_dispatch, is_local_only_path, peer_access_allowed, request_path, request_scope,
 };
+use codeterm_service_core::mesh::types::AccessLevel;
+use codeterm_service_core::service::close_authority::{MeshCloseGrant, OwnerTabCloseScope};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PeerRelayAuthorization<'a> {
@@ -23,12 +25,15 @@ pub(super) enum PeerRelayAuthorization<'a> {
         peer_id: &'a str,
         tab_id: &'a str,
     },
+    OwnerTabClose {
+        tab_id: &'a str,
+    },
     Forward,
 }
 
 pub(super) fn authorize_peer_relay<'a>(
     peer_id: &'a str,
-    access: &codeterm_service_core::mesh::types::AccessLevel,
+    access: &AccessLevel,
     method: &Method,
     path: &'a str,
     body: &serde_json::Value,
@@ -50,6 +55,13 @@ pub(super) fn authorize_peer_relay<'a>(
             .and_then(|path| path.strip_suffix("/close"))
         {
             if !tab_id.is_empty() && !tab_id.contains('/') {
+                if body.get("as_owner").and_then(serde_json::Value::as_bool) == Some(true) {
+                    return if matches!(access, AccessLevel::Full) {
+                        PeerRelayAuthorization::OwnerTabClose { tab_id }
+                    } else {
+                        PeerRelayAuthorization::Rejected
+                    };
+                }
                 return PeerRelayAuthorization::TabClose { peer_id, tab_id };
             }
         }
@@ -109,13 +121,9 @@ pub(super) async fn close_tab_from_mesh_peer(
     path: &str,
     origin: crate::auth::AuthenticatedOrigin,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    grant: crate::auth::peer_grant::PeerGrant,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
-    let uri = path
-        .parse::<axum::http::Uri>()
-        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
-    let axum::extract::Query(query) =
-        axum::extract::Query::<crate::tab_routes::CloseTabQuery>::try_from_uri(&uri)
-            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let force = tab_close_force(path)?;
     let (peer_id, controller) = match (origin, agent) {
         (crate::auth::AuthenticatedOrigin::Agent, Some(agent)) => {
             (agent.instance_id.as_str(), Some(agent.tab_id.as_str()))
@@ -128,9 +136,44 @@ pub(super) async fn close_tab_from_mesh_peer(
             ))
         }
     };
-    let result =
-        crate::tab_routes::close_remote_tab(state, peer_id, controller, tab_id, query.force).await;
-    Ok(match result {
+    Ok(tab_close_relay_response(
+        crate::tab_routes::close_remote_tab(state, peer_id, controller, tab_id, force, grant).await,
+    ))
+}
+
+pub(super) async fn close_tab_from_mesh_owner(
+    state: &AppState,
+    tab_id: &str,
+    path: &str,
+    grant: crate::auth::peer_grant::PeerGrant,
+) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
+    let force = tab_close_force(path)?;
+    let grant = MeshCloseGrant::new(state.mesh.clone(), move |mesh| grant.current(mesh));
+    Ok(tab_close_relay_response(
+        crate::web_routes::close_tab_as_owner(
+            state,
+            tab_id,
+            force,
+            OwnerTabCloseScope::Mesh(grant),
+        )
+        .await,
+    ))
+}
+
+fn tab_close_force(path: &str) -> Result<bool, (StatusCode, String)> {
+    let uri = path
+        .parse::<axum::http::Uri>()
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let axum::extract::Query(query) =
+        axum::extract::Query::<crate::tab_routes::CloseTabQuery>::try_from_uri(&uri)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(query.force)
+}
+
+fn tab_close_relay_response(
+    result: Result<axum::Json<serde_json::Value>, (StatusCode, String)>,
+) -> codeterm_service_core::mesh::types::RelayResponse {
+    match result {
         Ok(axum::Json(data)) => codeterm_service_core::mesh::types::RelayResponse {
             ok: true,
             status: 200,
@@ -143,7 +186,7 @@ pub(super) async fn close_tab_from_mesh_peer(
             data: None,
             error: Some(message),
         },
-    })
+    }
 }
 
 fn workspace_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
@@ -195,12 +238,14 @@ pub(super) async fn close_workspace_from_mesh_peer(
     peer_id: &str,
     workspace_id: &str,
     force: bool,
+    grant: crate::auth::peer_grant::PeerGrant,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let service = state.svc.clone();
     let peer_id = peer_id.to_string();
     let workspace_id = workspace_id.to_string();
+    let grant = MeshCloseGrant::new(state.mesh.clone(), move |mesh| grant.current(mesh));
     let result = tokio::task::spawn_blocking(move || {
-        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force)
+        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force, &grant)
     })
     .await
     .map_err(|error| {

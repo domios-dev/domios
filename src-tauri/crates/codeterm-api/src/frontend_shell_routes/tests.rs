@@ -291,6 +291,17 @@ fn frontend_shell_contract_chat_scroll_diagnostic_metadata() {
     assert_eq!(body.chat.unwrap()["state"]["newerCount"], 2);
 }
 
+#[test]
+fn client_health_accepts_chat_viewport_causes_only_from_the_closed_set() {
+    let value = json!({"event":"chat-newer-revealed", "tabId":"t1", "elapsedMs":0, "cause":"hold"});
+    let body = serde_json::from_value::<ClientHealth>(value.clone()).unwrap();
+    assert!(matches!(body.event, ClientHealthEvent::ChatNewerRevealed));
+    assert!(matches!(body.cause, Some(ChatViewportCause::Hold)));
+    let mut free_text = value;
+    free_text["cause"] = json!("opaque-fixture");
+    assert!(serde_json::from_value::<ClientHealth>(free_text).is_err());
+}
+
 #[tokio::test]
 async fn frontend_diagnostic_identity_route_accepts_and_bounds_metadata() {
     use axum::http::Request;

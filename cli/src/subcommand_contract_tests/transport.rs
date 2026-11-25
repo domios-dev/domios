@@ -180,6 +180,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ),
     ),
     (
+        "live-transcript",
+        &["codeterm", "live-transcript", "status", "--tab", "own"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("live transcript requires a local owner or active consumer credential"),
+    ),
+    (
         "paste",
         &["codeterm", "paste", "list"],
         Local::Socket,
@@ -210,6 +217,20 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
     (
         "theme",
         &["codeterm", "theme", "list"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Rest,
+    ),
+    (
+        "wallpaper",
+        &["codeterm", "wallpaper", "clear"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Rest,
+    ),
+    (
+        "appearance",
+        &["codeterm", "appearance", "current"],
         Local::Socket,
         MeshRelay::Fallthrough,
         ApiVerdict::Rest,
@@ -457,7 +478,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 30, "unsupported command count changed");
+    assert_eq!(checked, 31, "unsupported command count changed");
 }
 
 #[test]

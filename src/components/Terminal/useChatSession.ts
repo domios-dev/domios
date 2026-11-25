@@ -106,6 +106,7 @@ function batchRange(start: number | undefined, end: number | undefined, kind?: "
 
 export function useChatSession({
   tabId,
+  cwd,
   agentSessionId,
   sessionBindingNonce,
   onError,
@@ -120,8 +121,10 @@ export function useChatSession({
   live = true,
   queueSendsBehindTurn = false,
   hostRows,
+  showLiveTools = false,
 }: {
   tabId: string;
+  cwd?: string | null;
   agentSessionId: string | null;
   sessionBindingNonce: string | null | undefined;
   onError?: (msg: string) => void;
@@ -140,6 +143,7 @@ export function useChatSession({
   live?: boolean;
   queueSendsBehindTurn?: boolean;
   hostRows?:readonly ChatMessage[];
+  showLiveTools?: boolean;
 }) {
   const activatedRef = useRef(false);
   if (active) activatedRef.current = true;
@@ -485,6 +489,8 @@ export function useChatSession({
 
   const view = useChatWindowView({
     hostRows,
+    liveToolsScope: showLiveTools ? `${windowKey}|${sessionBindingNonce ?? ""}` : null,
+    cwd,
     queueSendsBehindTurn,
     localAttempt,
     tabId,
@@ -917,6 +923,7 @@ export function useChatSession({
     loadOlder: view.loadOlder,
     loadHistoryGap: view.loadHistoryGap,
     showLatest: view.showLatest,
+    revealNewer: view.revealNewer,
     prepareMessage: view.prepareMessage,
     setHistoryReading: view.setHistoryReading,
     addOptimistic: view.addOptimistic,

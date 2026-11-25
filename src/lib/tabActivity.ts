@@ -24,20 +24,40 @@ export function runtimeBackgroundProcesses(
   return roster.processes;
 }
 
-export function backgroundWorkLabel(count: number): string {
-  return count === 1 ? "Running background task" : `Running ${count} background tasks`;
+export function backgroundProcessLabel(count: number): string {
+  return `${count} background ${count === 1 ? "process" : "processes"}`;
 }
 
-function liveBackgroundTaskCount(
+export function idleBackgroundLabel(activity: TabActivity): string | null {
+  if (activity.kind !== "idle" || !activity.backgroundTasks) return null;
+  const { backgroundProcesses, backgroundSubagents, backgroundTasks } = activity;
+  const other = backgroundTasks - backgroundProcesses - backgroundSubagents;
+  return [
+    backgroundProcesses && `${backgroundProcessLabel(backgroundProcesses)} running`,
+    backgroundSubagents && `${backgroundSubagents} sub-${backgroundSubagents === 1 ? "agent" : "agents"} running`,
+    other && `${other} background ${other === 1 ? "task" : "tasks"} running`,
+  ].filter(Boolean).join(" · ");
+}
+
+type BackgroundCounts = Pick<TabActivity, "backgroundTasks" | "backgroundProcesses" | "backgroundSubagents">;
+const noBackgroundWork: BackgroundCounts = { backgroundTasks: 0, backgroundProcesses: 0, backgroundSubagents: 0 };
+
+function liveBackgroundCounts(
   tab: TabActivityInput | null | undefined,
   sessionBound: boolean,
-): number {
-  if (!sessionBound) return 0;
-  const providerIds = Object.keys(tab?.provider_signals?.background?.running ?? {});
+): BackgroundCounts {
+  if (!sessionBound) return noBackgroundWork;
+  const roster = tab?.provider_signals?.background;
   const runtimeProcesses = runtimeBackgroundProcesses(tab);
-  if (!runtimeProcesses.length) return providerIds.length;
-  const known = new Set(runtimeProcesses.flatMap((entry) => [entry.threadId, entry.processId]));
-  return runtimeProcesses.length + providerIds.filter((id) => !known.has(id)).length;
+  const known = new Set(runtimeProcesses.map(entry => entry.processId));
+  const counts = { ...noBackgroundWork, backgroundTasks: runtimeProcesses.length, backgroundProcesses: runtimeProcesses.length };
+  for (const id of Object.keys(roster?.running ?? {})) {
+    if (known.has(id)) continue;
+    counts.backgroundTasks++;
+    if (roster?.kinds?.[id] === "shell") counts.backgroundProcesses++;
+    if (roster?.kinds?.[id] === "subagent") counts.backgroundSubagents++;
+  }
+  return counts;
 }
 
 export interface AgentState extends Omit<TabAgentState, "state"> {
@@ -57,6 +77,8 @@ export interface TabActivity {
   lastTurnMs?: number;
   /** Live background tasks of the own session; they never make a finished turn active. */
   backgroundTasks: number;
+  backgroundProcesses: number;
+  backgroundSubagents: number;
   status: TabStatus;
   state: AgentState["state"];
   subtype?: TabAgentState["subtype"];
@@ -137,7 +159,7 @@ function boundSessionRetiresShellStartup(tab: TabActivityInput | null | undefine
 
 export function tabActivity(tab: TabActivityInput | null | undefined, status?: TabStatus | null): TabActivity {
   if (tab?.frozen) return {
-    kind: "idle", label: "Sleeping", status: "Idle", state: "idle", backgroundTasks: 0,
+    kind: "idle", label: "Sleeping", status: "Idle", state: "idle", ...noBackgroundWork,
     active: false, canStop: false, quiet: false, launching: false, phase: "work", shellSucceeded: null,
   };
   const chatBacked = tab?.backing?.kind === "chat_backend";
@@ -176,7 +198,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   else kind = "idle";
   const failure = kind === "failed" ? tabFailure({ status, bootStage: tab?.boot_stage, runtime: tab?.agent_runtime_state,
     launched: tabLaunched(tab), chatBacked: tab?.backing?.kind === "chat_backend" }) : undefined;
-  const backgroundTasks = liveBackgroundTaskCount(tab, sessionBound);
+  const background = liveBackgroundCounts(tab, sessionBound);
   const quiet = kind === "idle" && live?.state === "quiet";
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
@@ -199,7 +221,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
           : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));
   return {
-    kind, label, failure, genericWork, lastTurnMs, backgroundTasks, state, subtype, phase, quiet, launching,
+    kind, label, failure, genericWork, lastTurnMs, ...background, state, subtype, phase, quiet, launching,
     status: kind === "failed" ? status === "Dead" ? "Dead" : "Error"
       : kind === "waiting-on-user" ? "Waiting" : kind === "working" ? "Working" : "Idle",
     active: kind === "working",

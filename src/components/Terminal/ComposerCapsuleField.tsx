@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { BusyState } from "../shared/BusyState";
 import { RotateCw, TriangleAlert, X } from "lucide-react";
 import { AttachmentCapsule, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
 import {
+  CAPSULE_GAP,
   CAPSULE_LEAD,
   CAPSULE_TRAIL,
   capsuleSegments,
@@ -24,13 +25,103 @@ interface Hover {
   y: number;
 }
 
+const MIRRORED_TEXT_STYLES = [
+  "font-family", "font-size", "font-weight", "font-style", "font-stretch", "font-variant", "font-feature-settings", "font-variation-settings",
+  "font-kerning", "letter-spacing", "word-spacing", "line-height", "text-indent", "text-transform", "tab-size", "text-rendering",
+  "white-space", "overflow-wrap", "word-break", "line-break", "hyphens", "direction", "text-align", "-webkit-text-size-adjust",
+  "padding-top", "padding-bottom",
+] as const;
+
+/** The mirror's text box taken from the textarea itself, so every glyph and wrap lands where the textarea puts its caret. */
+export function capsuleMirrorBox(style: Pick<CSSStyleDeclaration, "getPropertyValue">, clientWidth: number, innerInsetPx: number): Record<string, string> {
+  const box: Record<string, string> = Object.fromEntries(MIRRORED_TEXT_STYLES.map((name) => [name, style.getPropertyValue(name)]));
+  const padding = (side: "left" | "right") => `${(Number.parseFloat(style.getPropertyValue(`padding-${side}`)) || 0) + innerInsetPx}px`;
+  return { ...box, "box-sizing": "border-box", width: `${clientWidth}px`, "padding-left": padding("left"), "padding-right": padding("right") };
+}
+
+/**
+ * Per-side inset an engine adds inside a textarea's text box beyond its CSS padding (WebKit on iOS pads the
+ * inner editor); computed style cannot see it, so an empty, zero-width, unpadded, unwrapped probe exposes it as overflow.
+ */
+export function textareaInnerInset(textarea: HTMLTextAreaElement): number {
+  const style = textarea.ownerDocument?.defaultView?.getComputedStyle?.(textarea);
+  if (!style) return 0;
+  const probe = textarea.ownerDocument.createElement("textarea");
+  probe.wrap = "off";
+  probe.tabIndex = -1;
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;width:0;height:0;min-width:0;min-height:0;margin:0;padding:0;border:0;overflow:hidden;resize:none";
+  probe.style.font = style.font;
+  textarea.after(probe);
+  try {
+    return probe.scrollWidth / 2;
+  } finally {
+    probe.remove();
+  }
+}
+
+export function useComposerMirror(
+  editorRef: RefObject<HTMLTextAreaElement | null>,
+  mirrorRef: RefObject<HTMLDivElement | null>,
+  text: string,
+  active = true,
+) {
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    const mirror = mirrorRef.current;
+    if (!active || !editor || !mirror) return;
+    let font: string | undefined;
+    let innerInset = 0;
+    const layout = (content?: DOMRectReadOnly) => {
+      const style = editor.ownerDocument?.defaultView?.getComputedStyle?.(editor);
+      if (!style) {
+        syncMirrorScroll(editor, mirror);
+        return;
+      }
+      if (style.font !== font) {
+        font = style.font;
+        innerInset = textareaInnerInset(editor);
+      }
+      // ResizeObserver preserves the fractional text width after the scrollbar takes its gutter.
+      const width = content
+        ? content.width + (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+        : editor.clientWidth;
+      for (const [name, setting] of Object.entries(capsuleMirrorBox(style, width, innerInset))) {
+        mirror.style.setProperty(name, setting);
+      }
+      syncMirrorScroll(editor, mirror);
+    };
+    const scroll = () => syncMirrorScroll(editor, mirror);
+    layout();
+    editor.addEventListener("scroll", scroll);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(([entry]) => layout(entry.contentRect));
+    observer?.observe(editor);
+    return () => {
+      editor.removeEventListener("scroll", scroll);
+      observer?.disconnect();
+    };
+  }, [active, editorRef, mirrorRef]);
+
+  useLayoutEffect(() => {
+    if (active && editorRef.current && mirrorRef.current) syncMirrorScroll(editorRef.current, mirrorRef.current);
+  }, [active, editorRef, mirrorRef, text]);
+}
+
+function syncMirrorScroll(editor: HTMLTextAreaElement, mirror: HTMLDivElement) {
+  mirror.scrollTop = editor.scrollTop;
+  mirror.scrollLeft = editor.scrollLeft;
+}
+
 function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean; upload?: ComposerUpload }) {
   const { name, detail } = capsuleLabelParts(typedLabel(span.label));
   return (
     <AttachmentCapsule
       inert
       attachment={{ kind: capsule?.kind ?? "file", path: capsule?.path ?? "", label: capsule?.displayName ?? span.label }}
-      spanProps={{ "data-capsule-start": span.start, "data-unknown": capsule ? undefined : "", "data-hovered": hovered || undefined }}
+      spanProps={{
+        "data-capsule-start": span.start, "data-unknown": capsule ? undefined : "", "data-hovered": hovered || undefined,
+        style: { fontSize: "inherit", lineHeight: "inherit" },
+      }}
       decoration={upload ? <><span className="ct-capsule__plate" />{upload.state === "uploading"
         ? <span className="ct-capsule__icon"><BusyState inline hideLabel dotSize="small" label="Uploading" /></span>
         : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</> : undefined}
@@ -79,23 +170,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
   const cardRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<Hover | null>(null);
 
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    const mirror = mirrorRef.current;
-    if (!active || !textarea || !mirror) return;
-    const sync = () => {
-      mirror.style.width = `${textarea.clientWidth}px`;
-      mirror.scrollTop = textarea.scrollTop;
-    };
-    sync();
-    textarea.addEventListener("scroll", sync);
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(sync);
-    observer?.observe(textarea);
-    return () => {
-      textarea.removeEventListener("scroll", sync);
-      observer?.disconnect();
-    };
-  }, [active, textareaRef, value]);
+  useComposerMirror(textareaRef, mirrorRef, value, active);
 
   const track = (event: MouseEvent<HTMLDivElement>) => {
     if (!active || cardRef.current?.contains(event.target as Node)) return;
@@ -136,12 +211,15 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
           ref={mirrorRef}
           aria-hidden
           data-testid="composer-capsule-mirror"
-          className="pointer-events-none absolute left-0 overflow-hidden pr-1 text-[length:var(--ct-capsule-font-size)]"
-          style={{ top: marginPx, bottom: marginPx, lineHeight: "var(--ct-capsule-line-height)", whiteSpace: "pre-wrap", overflowWrap: "break-word", color: "var(--ct-fg, #c9d1d9)" }}
+          className="pointer-events-none absolute left-0 overflow-hidden"
+          style={{ insetBlock: marginPx, color: "var(--ct-fg, #c9d1d9)" }}
         >
           {segments.map((segment) => ("text" in segment
             ? segment.text
-            : <PaintedCapsule key={segment.span.start} span={segment.span} capsule={segment.capsule} hovered={hover?.span.start === segment.span.start} upload={uploads.find(upload => upload.id === segment.capsule?.uploadId)} />))}
+            : <Fragment key={segment.span.start}>
+              <PaintedCapsule span={segment.span} capsule={segment.capsule} hovered={hover?.span.start === segment.span.start} upload={uploads.find(upload => upload.id === segment.capsule?.uploadId)} />
+              {segment.token.endsWith(CAPSULE_GAP) ? CAPSULE_GAP : null}
+            </Fragment>))}
           {value.endsWith("\n") ? " " : null}
         </div>
       )}

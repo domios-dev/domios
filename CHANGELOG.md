@@ -7,6 +7,98 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.23.1]
+
+### Highlights
+
+- Memory has a refreshed header and tab controls that adapt to narrow screens. Dreams shows each night's work as a constellation, with a detail view for the run and links into the Memory graph.
+- General can propose a look for another machine paired to your account. You choose whether to apply it on that machine and can undo the change from the proposal card.
+
+### Changed
+
+- The Chat/Terminal toggle sits to the left of the tab name. The chat header hides the machine name when the mesh has only one machine.
+- The selected sidebar tab no longer shows an accent bar, and the newest dream uses a New label without an accent stripe.
+- Dream runs record the nodes they touched, the actions they took, the edges they created, and their current stage. The diary is linked to its run as soon as its draft is created.
+
+### Fixed
+
+- Routed messages stay in a single chat card when they arrive during an agent's turn.
+- Restored chat bubbles with image attachments no longer show a large blank gap.
+- Text attachments keep their original filenames.
+- The queue chip is read-only in tabs where a manager or concierge controls input.
+- Nightly REM runs on Windows without Bash or the Unix `date` command. Run timestamps use the host start time, and graph cleanup keeps removed edges from reappearing.
+- Browser clicks that change the route within the same page now report completion. Browser actions promptly report blocking dialogs and leave them for the owner to handle. Named Browser profiles survive a restart.
+- The Secrets dialog is available again from Settings, and the help points to the restored entry.
+- Windows QA tools recognize the named pipe for an owned DEV tab while retaining their instance and caller checks.
+
+### Known issues
+
+- A restored General tab with a mismatched provider and session can refuse incoming messages, including a look proposal forwarded from another machine.
+
+## [1.23.0]
+
+### Highlights
+
+- Appearance Lab "Try it": preview palettes, wallpapers, roundness, shadows, border brightness and text size live on the real app, then Apply or Discard. Every change shows exactly what it will look like, and Undo names the look it returns to.
+- Chat wallpapers: a gallery of patterns, colours and fills, your own SVG or image, per-machine looks. Chats have no backdrop by default.
+- Ask General for a look: it proposes a themed card with live contrast readings and Apply, and small tweaks ("make the background weaker") apply right away with Undo.
+- Appearance changes play a smooth reveal over the real interface, without the text flickering.
+
+### Changed
+
+- Calmer interface: softer shadows, a quieter selected tab, even border brightness, a subtler focused composer, more air between sidebar rows.
+- The machine menu shows each machine's live status and uses its peer theme for the entry colour.
+- When the selected tab is scrolled out of the sidebar, a small "Name ↓" cue brings it back into view.
+- File changes in chat show one row per file with the diff; raw tool data is under View raw.
+- Background processes and sub-agents are labelled as such.
+- The Updates button hides when everything is up to date.
+- Try it opens in a side panel that overlays chat.
+- Appearance Lab keeps contrast results near the colour controls and updates previews smoothly while you edit.
+- Live agent activity appears in chat, and tool rows stay stable while work settles.
+- macOS Login Items associates Domios background services with the app.
+- Managed Payments explains when subscription plan changes take effect at renewal.
+- Chat has a new top bar with a soft fade, the tab title, role and machine, and a compact Chat/Terminal toggle.
+- The machine menu adds Add machine and Open Mesh, with an invitation when no other machines are paired.
+- Press Ctrl+C or Cmd+C to copy selected chat messages.
+- Queued messages appear in the composer context row.
+
+### Fixed
+
+- Closing a worker tab always works, even while its task is in review.
+- A browser pane never shows another browser's page after one closes, and agent browsers close with their agent.
+- Claude tabs with recent bound sessions resume automatically after a restart.
+- Usage, @mentions, boards and images in a chat viewed from another machine come from that machine.
+- Typing into rich web editors (for example X) through the browser tool registers the text.
+- Settings Back and Analytics behave predictably; the macOS sidebar no longer jumps on hover.
+- Lower server CPU under agent and mesh-viewer load.
+- Remote shared tabs close like local tabs. Detach is gone, and only the owner with Full access can close a tab across machines.
+- Restart works when a launch stalls.
+- Team browser tabs restore without showing a false error.
+- Neighbors no longer shows 'Neighbor gateway unavailable' after you toggle Neighborhood while signed out.
+- Built-in themes switch from Settings without a contrast error, and light themes adapt the wallpaper for readability.
+- The browser toolbar stays clear of the 'Take control' toast.
+- New General sessions start on macOS without the 'General session configuration changed' error.
+- Notification answers are delivered reliably, and notification history stays bounded.
+- Cron runs without an attached session can complete and show the correct final status.
+
+## [1.22.0]
+
+### Highlights
+
+- Live Transcript v2: a floating transcript panel with flowing passages, pause markers and a phone-size bottom sheet. It filters silence hallucinations in English and Russian, and forwards remarks addressed to an agent with a visible receipt.
+- A local Concierge for Live Transcript can run on LM Studio or Ollama on this machine, with no hidden agent tabs. You can mark a wrong send and undo it, and those decisions are kept privately for training.
+
+### Fixed
+
+- Chat messages no longer stick or reappear after delivery during a running turn.
+- The machine name in the title bar no longer overlaps its icons in narrow windows.
+- The built-in browser reports the real screen width, so sites lay out for the actual window.
+- Removed the "Try Live Transcript" bubble from the composer microphone; swipe-up lock and the tab menu entry remain.
+
+### Known issues
+
+- Local Concierge needs a running LM Studio or Ollama server; without one, Live Transcript uses the cloud Concierge.
+
 ## [1.21.1]
 
 ### Fixed

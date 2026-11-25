@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { admitDraft, draftNotes, qualificationTag, requireQualificationPush, prepareDraft, resetPlatform, sealDraft, uploadDraft } from './release-qualification-draft.mjs';
-import { promoteQualifiedDrafts } from './release-promote.mjs';
+import { admitDraft, draftNotes, qualificationTag, requireQualificationPush, prepareDraft, pruneSupersededDrafts,
+  resetPlatform, sealDraft, supersededDrafts, uploadDraft } from './release-qualification-draft.mjs';
+import { checksumManifest, promoteQualifiedDrafts } from './release-promote.mjs';
 import { fetchPlatformEvidence, PLATFORMS, storeAsync } from './release-dry-run-manifest.mjs';
 
 const tag = 'v1.20.1';
@@ -74,10 +75,55 @@ test('new run creates a hidden draft without a git tag or deleting failed eviden
     if (args[1] === 'view') throw new Error('release not found');
     return '';
   } });
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls[1].slice(0, 3), ['release', 'create', 'qualification-v1.20.1-123']);
-  assert.ok(calls[1].includes('--draft'));
-  assert.ok(calls[1].includes(sourceSha));
+  const create = calls.find(args => args[1] === 'create');
+  assert.deepEqual(create.slice(0, 3), ['release', 'create', 'qualification-v1.20.1-123']);
+  assert.ok(create.includes('--draft'));
+  assert.ok(create.includes(sourceSha));
+  assert.equal(create[create.indexOf('--title') + 1], 'Domios 1.20.1');
+  assert.equal(calls.filter(args => args.includes('DELETE')).length, 0);
+});
+
+test('a version that is already published refuses a new qualification draft', async () => {
+  const calls = [];
+  await assert.rejects(prepareDraft({ ...identity, run: async args => {
+    calls.push(args);
+    if (args[1] === 'view' && args[2] === tag) return JSON.stringify({ ...draft, isDraft: false, tagName: tag });
+    if (args[1] === 'view') throw new Error('release not found');
+    return '';
+  } }), /already published/);
+  assert.equal(calls.filter(args => args[1] === 'create').length, 0);
+});
+
+test('superseded drafts cover this and older versions, including untagged placeholders, never public or foreign rows', () => {
+  const marker = draftNotes(sourceSha, runId);
+  const releases = [
+    { id: 1, draft: true, tag_name: 'qualification-v1.20.1-122', body: marker },
+    { id: 2, draft: true, tag_name: 'qualification-v1.9.9-1', body: marker },
+    { id: 3, draft: true, tag_name: 'untagged-c3eb00dc220db1ab6f0c', name: 'Domios v1.20.0', body: marker },
+    { id: 4, draft: true, tag_name: 'qualification-v1.20.2-130', body: marker },
+    { id: 5, draft: true, tag_name: 'untagged-abc', name: 'Domios 1.21.0', body: marker },
+    { id: 6, draft: false, tag_name: 'qualification-v1.20.0-1', body: marker },
+    { id: 7, draft: true, tag_name: 'untagged-def', name: 'Domios v1.19.0', body: 'owner notes draft' },
+    { id: 8, draft: true, tag_name: 'qualification-v1.100.0-5', body: marker },
+    { id: 9, draft: true, tag_name: 'plugin-x-v1.0.0', name: 'Domios v1.0.0', body: marker },
+  ];
+  assert.deepEqual(supersededDrafts(releases, tag).map(row => row.id), [1, 2, 3]);
+});
+
+test('pruning requires the published release and deletes only superseded drafts', async () => {
+  const marker = draftNotes(sourceSha, runId);
+  const releases = [{ id: 4, draft: true, tag_name: 'qualification-v1.20.1-122', body: marker },
+    { id: 5, draft: false, tag_name: 'v1.20.1', body: marker }, { id: 6, draft: true, tag_name: 'qualification-v1.21.0-200', body: marker }];
+  const deleted = [];
+  const run = published => async args => {
+    if (args[1] === 'view') return JSON.stringify({ ...draft, isDraft: !published, tagName: tag });
+    if (args.includes('DELETE')) { deleted.push(args.at(-1)); return ''; }
+    return releases.map(row => JSON.stringify(row)).join('\n');
+  };
+  await assert.rejects(pruneSupersededDrafts({ tag, repository, env: {}, run: run(false) }), /not published/);
+  assert.deepEqual(deleted, []);
+  assert.deepEqual(await pruneSupersededDrafts({ tag, repository, env: {}, run: run(true) }), ['qualification-v1.20.1-122']);
+  assert.deepEqual(deleted, ['repos/domios-dev/domios/releases/4']);
 });
 
 test('platform reset supersedes only older same-version drafts and clears only its assets', async () => {
@@ -100,6 +146,18 @@ test('platform reset supersedes only older same-version drafts and clears only i
     'repos/domios-dev/domios/releases/4', 'repos/domios-dev/domios/releases/assets/8',
     'repos/domios-dev/domios/releases/assets/9', 'repos/domios-dev/domios/releases/assets/10',
   ]);
+});
+
+test('public checksums list every platform payload from verified digests and refuse an unverified one', () => {
+  const row = (name, hex) => ({ name, digest: `sha256:${hex.repeat(64)}`, state: 'uploaded' });
+  const assets = [row('Domios_1.20.1_x64-setup.exe', 'b'), row('Domios_1.20.1_amd64.AppImage', 'a'),
+    row('domios-headless-v1.20.1-linux-x86_64.tar.gz', 'c'), row('latest.json', 'd'), row('qualification-linux-x86_64.json', 'e')];
+  assert.equal(checksumManifest(assets), [
+    `${'a'.repeat(64)}  Domios_1.20.1_amd64.AppImage`, `${'b'.repeat(64)}  Domios_1.20.1_x64-setup.exe`,
+    `${'c'.repeat(64)}  domios-headless-v1.20.1-linux-x86_64.tar.gz`, ''].join('\n'));
+  assert.throws(() => checksumManifest([{ ...assets[0], digest: null }]), /no uploaded sha256/);
+  assert.throws(() => checksumManifest([{ ...assets[0], state: 'starter' }]), /no uploaded sha256/);
+  assert.throws(() => checksumManifest([assets[3]]), /no platform payloads/);
 });
 
 test('sealing preserves the unpublished tag and verifies the retained identity and seal', async () => {

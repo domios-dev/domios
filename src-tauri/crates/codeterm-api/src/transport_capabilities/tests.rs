@@ -107,7 +107,7 @@ mod http {
                     fixture.temp.path().join("crons.json"),
                 ),
             )),
-            cron_wake: Arc::new(std::sync::Condvar::new()),
+            cron_wake: Default::default(),
             api_port: 0,
             update_state: Arc::new(parking_lot::Mutex::new(codeterm_update::UpdateState {
                 install_method: codeterm_update::InstallMethod::Unknown,

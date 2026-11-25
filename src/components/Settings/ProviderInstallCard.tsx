@@ -24,6 +24,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
   const view = providerCliView(status, error);
   const statusSubject = status?.launch_profiles ? "launch profiles" : "CLI";
   const canRecheck = view.canRecheck || probeFailed;
+  const showUpdate = Boolean(status?.latest_version || status?.update_job);
   const install = async () => {
     setBusy(true);
     setLaunchError(null);
@@ -60,7 +61,10 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
         )}
       </div>
       {view.compatibilityHint && <p role="status" aria-label="CLI compatibility" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{view.compatibilityHint}</p>}
-      {(status?.latest_version || status?.update_job) && <ProviderUpdateBubble providerId={providerId} />}
+      {showUpdate && <ProviderUpdateBubble providerId={providerId} />}
+      {!showUpdate && status?.update_refusal && (
+        <p role="status" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{status.update_refusal}</p>
+      )}
       {!compact && view.installCommand && (
         <div aria-label="Install command" role="region">
           <CodeBlock text={view.installCommand} language={view.installLanguage} wrapLines />

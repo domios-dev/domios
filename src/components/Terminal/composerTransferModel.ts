@@ -43,6 +43,18 @@ export function extractTransferFiles(data: FileTransfer): File[] {
   return Array.from(data.items ?? [], droppedFile).filter((file): file is File => file !== null);
 }
 
+const PLAIN_TEXT_UTI = /^public\.(?:utf8-)?plain-text$/i;
+
+export function clipboardFileName(file: File, transferTypes: readonly string[] = []): string {
+  const type = file.type.toLowerCase().split(";")[0];
+  const textUti = PLAIN_TEXT_UTI.test(type) || transferTypes.some(value => PLAIN_TEXT_UTI.test(value));
+  const name = file.name;
+  if (PLAIN_TEXT_UTI.test(name?.replace(/\.txt$/i, "") ?? "")
+    || (textUti && /^(?:blob|file|text)(?:\.txt)?$/i.test(name))) return "Pasted text.txt";
+  if (name?.trim()) return name;
+  return textUti || type === "text/plain" ? "Pasted text.txt" : "file.bin";
+}
+
 export function planFileDrop(data: FileTransfer) {
   const rawFiles = extractTransferFiles(data);
   const imageTypes = [

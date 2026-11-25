@@ -1,521 +1,86 @@
+import { memo, useCallback, useState } from "react";
+import { Play } from "lucide-react";
+import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
+import { formatUntil } from "../../lib/timeLabels";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { daemonFetch } from "../../lib/webApi";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { formatDuration, formatUntil } from "../../lib/timeLabels";
-import { listen } from "../../lib/bridge";
-import {
-  Moon,
-  Play,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
-import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
-import { authHeaders } from "./memoryApi";
-import { BusyState } from "../shared/BusyState";
-import { Button } from "../shared/Button";
+import { Loader } from "../shared/Loader";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
-import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
-import { hasRenderableDreamInsight } from "./dreamVisuals";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
-import { workerTimeLabels } from "./workerActivityModel";
-import { diaryRecordState, dreamRunLabel, dreamRunReport } from "./dreamRunStatus";
+import { DreamCard } from "./DreamCard";
+import { DreamDetail, DreamLive } from "./DreamDetail";
+import { DreamOverview } from "./DreamOverview";
+import { dreamScheduleLabel } from "./dreamSchedule";
+import { dreamNights, selectDreamNight } from "./dreamModel";
+import { useDreams } from "./useDreams";
+import { useDreamLayout, useDreamSheet } from "./useDreamDetail";
+import "./dreams.css";
 
 interface Props {
   api: ApiConfig;
+  onViewInGraph?: (id: string) => void;
 }
 
-function MemoryDreamsTabImpl({ api }: Props) {
-  const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
-  const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
+function MemoryDreamsTabImpl({ api, onViewInGraph }: Props) {
+  const data = useDreams(api);
+  const { ref, compact } = useDreamLayout();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailDismissed, setDetailDismissed] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
-  const [openDream, setOpenDream] = useState<DreamDiaryEntry | null>(null);
-  const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
-  const [diaryTotal, setDiaryTotal] = useState(0);
-  const [diaryLoading, setDiaryLoading] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [showAllSessions, setShowAllSessions] = useState(false);
-  const carouselRef = useRef<HTMLDivElement>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const toggleDreamCron = useCallback(
-    async (enable: boolean) => {
-      if (!dreamCron) return;
-      const endpoint = enable ? "enable" : "disable";
-      try {
-        const res = await daemonFetch(api,
-          `/api/crons/${encodeURIComponent(dreamCron.id)}/${endpoint}`,
-          { method: "POST", headers: authHeaders(api) },
-        );
-        if (res.ok && mountedRef.current) {
-          setDreamCron((await res.json()) as CronJob);
-        }
-      } catch {
-        /* network */
-      }
-    },
-    [api.host, api.port, api.token, dreamCron],
-  );
-
-  const fetchCronData = useCallback(async () => {
-    try {
-      const res = await daemonFetch(api, `/api/crons`, { headers: authHeaders(api) });
-      if (res.ok && mountedRef.current) {
-        const jobs = (await res.json()) as CronJob[];
-        const dream = jobs.find((j) => j.name === "mem-dreaming-auto") ?? null;
-        setDreamCron(dream);
-      }
-      const wRes = await daemonFetch(api, `/api/mem/workers`, { headers: authHeaders(api) });
-      if (wRes.ok && mountedRef.current) {
-        const workers = (await wRes.json()) as GraphWorkerInfo[];
-        const dreamRuns = workers
-          .filter((w) => w.intent.startsWith("dreaming:"))
-          .sort((a, b) => b.spawned_at - a.spawned_at);
-        setDreamWorkers(dreamRuns);
-      }
-    } catch {
-      /* network */
-    }
-  }, [api.host, api.port, api.token]);
-
-  const fetchDiary = useCallback(
-    async (showLoading = false) => {
-      if (showLoading) setDiaryLoading(true);
-      try {
-        const params = new URLSearchParams({ limit: "30" });
-        const res = await daemonFetch(api, `/api/mem/dream/diary?${params}`, {
-          headers: authHeaders(api),
-        });
-        if (!res.ok || !mountedRef.current) return;
-        const data = (await res.json()) as { items: DreamDiaryEntry[]; total: number };
-        const entries = (data.items || [])
-          .filter((entry) => hasRenderableDreamInsight(entry.body));
-        setDiaryEntries(entries);
-        setDiaryTotal(data.total);
-      } catch {
-        /* network */
-      } finally {
-        if (mountedRef.current && showLoading) setDiaryLoading(false);
-      }
-    },
-    [api.host, api.port, api.token],
-  );
-
-  useEffect(() => { fetchCronData(); }, [fetchCronData]);
-  useEffect(() => { fetchDiary(true); }, [fetchDiary]);
-
-  useEffect(() => {
-    let active = true;
-    const unlisteners: Array<() => void> = [];
-    let workerTimer: ReturnType<typeof setTimeout> | null = null;
-    let diaryTimer: ReturnType<typeof setTimeout> | null = null;
-    const refreshWorkers = () => {
-      if (!active) return;
-      if (workerTimer) clearTimeout(workerTimer);
-      workerTimer = setTimeout(() => { if (active) fetchCronData(); }, 500);
-    };
-    const refreshDiary = () => {
-      if (!active) return;
-      if (diaryTimer) clearTimeout(diaryTimer);
-      diaryTimer = setTimeout(() => { if (active) fetchDiary(false); }, 500);
-    };
-    (async () => {
-      try {
-        for (const name of [
-          "graph-worker-spawned",
-          "graph-worker-progress",
-          "graph-worker-reported",
-          "graph-worker-done",
-        ]) {
-          const fn = await listen(name, refreshWorkers);
-          if (!active) { fn(); return; }
-          unlisteners.push(fn);
-        }
-        const memFn = await listen<{ op: string }>("mem-activity", (ev) => {
-          if (ev.payload?.op === "read") return;
-          refreshDiary();
-        });
-        if (!active) { memFn(); return; }
-        unlisteners.push(memFn);
-        const cronFn = await listen("cron-run-finished", refreshWorkers);
-        if (!active) { cronFn(); return; }
-        unlisteners.push(cronFn);
-      } catch {
-        /* listen setup failed — no live updates this session */
-      }
-    })();
-    return () => {
-      active = false;
-      if (workerTimer) clearTimeout(workerTimer);
-      if (diaryTimer) clearTimeout(diaryTimer);
-      unlisteners.forEach((fn) => fn());
-    };
-  }, [fetchCronData, fetchDiary]);
-
-  const runNow = useCallback(async () => {
-    if (running) return;
-    setRunning(true);
-    setRunError(null);
-    try {
-      const res = await daemonFetch(api, `/api/mem/dream`, {
-        method: "POST",
-        headers: { ...authHeaders(api), "Content-Type": "application/json" },
-        body: JSON.stringify({ phase: "all" }),
-      });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-    } catch (e) {
-      if (mountedRef.current) {
-        setRunError(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      if (mountedRef.current) setRunning(false);
-    }
-  }, [api.host, api.port, api.token, running]);
-
-  const inflight = dreamWorkers.find(
-    (w) => !isTerminalWorkerStatus(w.status),
-  );
-
-  const diaryStates = diaryEntries.map((entry) =>
-    diaryRecordState(entry.id, entry.body, dreamWorkers),
-  );
-  // Incompleteness is judgeable only from bodies this page loaded, so it flags what
-  // is shown and never becomes a second count competing with diaryTotal.
-  const unfinishedInView = diaryStates.some((s) => s.state === "incomplete_recoverable");
-
-  const scrollCarousel = useCallback((dir: 1 | -1) => {
-    const el = carouselRef.current;
-    if (!el) return;
-    const card = el.querySelector("[data-dream-card]") as HTMLElement | null;
-    const step = card ? card.offsetWidth + 16 : el.clientWidth * 0.7;
-    el.scrollBy({ left: dir * step, behavior: "smooth" });
-  }, []);
-
-  return (
-    <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]" data-testid="memory-dreams-tab">
-      <div className="relative px-4 sm:px-5 pt-5 pb-5 flex flex-wrap items-start gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 text-lg font-medium text-[var(--ct-fg)] leading-tight">
-            <Moon size={18} className="shrink-0 text-[var(--ct-magenta)]" />
-            <span>What memory dreamt.</span>
-          </div>
-          <div
-            className="mt-1.5 text-[11px] text-[var(--ct-muted-fg)] flex items-center gap-2 flex-wrap"
-            data-testid="memory-dream-meta"
-          >
-            {(() => {
-              const statusText = inflight
-                ? `Dreaming now · ${formatDuration(Date.now() - inflight.spawned_at)}`
-                : dreamCron?.next_run
-                  ? `Next session ${formatUntil(dreamCron.next_run, Date.now())}`
-                  : !dreamCron
-                    ? "Not configured"
-                    : null;
-              return (
-                <>
-                  {statusText && (
-                    <>
-                      <span>{statusText}</span>
-                      <span className="opacity-30">·</span>
-                    </>
-                  )}
-                  <span>{diaryTotal} dream{diaryTotal === 1 ? "" : "s"} recorded</span>
-                  {unfinishedInView && (
-                    <>
-                      <span className="opacity-30">·</span>
-                      <span
-                        data-testid="memory-dream-unfinished-flag"
-                        style={{ color: "var(--ct-yellow)" }}
-                      >
-                        unfinished diaries in view need recovery
-                      </span>
-                    </>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
-          {dreamCron && (
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              data-testid="memory-dream-nightly-toggle"
-              className="gap-1.5"
-              onClick={() => toggleDreamCron(!dreamCron.enabled)}
-              aria-label={dreamCron.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}
-            >
-              <span
-                className="inline-block w-1.5 h-1.5 rounded-full"
-                style={{ background: dreamCron.enabled ? "var(--ct-green)" : "var(--ct-muted-fg)" }}
-              />
-              <span
-                className="text-xs"
-                style={{ color: dreamCron.enabled ? "var(--ct-green)" : "var(--ct-muted-fg)" }}
-              >
-                {dreamCron.enabled ? "Nightly on" : "Nightly off"}
-              </span>
-            </Button>
-          )}
-          <Button
-            variant="primary"
-            size="sm"
-            data-testid="memory-dream-run-now"
-            className="gap-1.5"
-            onClick={runNow}
-            disabled={running || !!inflight}
-          >
-            {running || inflight ? (
-              <>
-                <BusyState inline hideLabel label={inflight ? "Dreaming" : "Starting"} phase="work" dotSize="micro" />
-                {inflight ? "Dreaming…" : "Starting…"}
-              </>
-            ) : (
-              <>
-                <Play size={12} />
-                Dream now
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {runError && (
-        <div data-testid="memory-dream-run-error"><InlineErrorNotice error={runError} operation="running memory maintenance" blocking /></div>
-      )}
-
-      <section className="relative pb-8">
-        <div className="flex items-center justify-between px-4 sm:px-5 pb-2">
-          <h3 className="text-xs font-medium text-[var(--ct-muted-fg)]">
-            Dream diary
-          </h3>
-          {diaryEntries.length > 1 && (
-            <div className="flex gap-1">
-              <Button
-                variant="icon"
-                size="sm"
-                onClick={() => scrollCarousel(-1)}
-                data-testid="memory-dream-scroll-left"
-                aria-label="Scroll left"
-              >
-                <ChevronLeft size={14} />
-              </Button>
-              <Button
-                variant="icon"
-                size="sm"
-                onClick={() => scrollCarousel(1)}
-                data-testid="memory-dream-scroll-right"
-                aria-label="Scroll right"
-              >
-                <ChevronRight size={14} />
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {diaryLoading ? (
-          <SkeletonCarousel />
-        ) : diaryEntries.length === 0 ? (
-          <EmptyDream />
-        ) : (
-          <div
-            ref={carouselRef}
-            className="flex gap-4 overflow-x-auto px-4 sm:px-5 pb-3 snap-x snap-mandatory scroll-pl-5"
-            data-testid="memory-dream-carousel"
-          >
-            {diaryEntries.map((entry, index) => (
-              <DreamCard
-                key={entry.id}
-                entry={entry}
-                recordState={diaryStates[index]}
-                onOpen={() => setOpenDream(entry)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="px-4 sm:px-5 pb-6" data-testid="memory-dream-sessions">
-        <h3 className="text-xs font-medium text-[var(--ct-muted-fg)] mb-2">
-          Recent sessions
-        </h3>
-        <RecentSessionsList
-          workers={dreamWorkers}
-          showAll={showAllSessions}
-          onToggleAll={() => setShowAllSessions((v) => !v)}
-          onSelect={(w) => setLogWorker(w)}
-        />
-      </section>
-
-      {logWorker &&
-        (logWorker.session_id ? (
-          <RunChatPopup tabId={logWorker.tab_id}
-            title={logWorker.intent.replace(/^dreaming:/, "dream:")}
-            subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
-            status={logWorker.status}
-            report={logWorker.report}
-            provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
-            cwd={logWorker.cwd ?? ""}
-            sessionId={logWorker.session_id}
-            live={!isTerminalWorkerStatus(logWorker.status)}
-            onClose={() => setLogWorker(null)}
-          />
-        ) : (
-          <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
-        ))}
-      {openDream && (
-        <DreamDetailModal
-          entry={openDream}
-          report={dreamRunReport(openDream.id, dreamWorkers)}
-          onClose={() => setOpenDream(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function EmptyDream() {
-  return (
-    <div className="ct-card ct-card--static mx-4 sm:mx-5 px-6 py-10 flex flex-col items-center gap-2 text-center" data-testid="memory-dream-empty">
-      <Moon size={28} className="text-[var(--ct-magenta,#a78bfa)] opacity-70" />
-      <div className="text-sm font-medium text-[var(--ct-fg)]">No dreams yet</div>
-      <div className="text-xs text-[var(--ct-muted-fg)] max-w-[300px] leading-relaxed">
-        Start a session or wait for the nightly run to see what memory dreamt.
-      </div>
-    </div>
-  );
-}
-
-function SkeletonDream() {
-  return (
-    <div
-      data-dream-card
-      className="ct-card ct-card--static snap-start shrink-0 w-[260px] h-[280px] animate-pulse overflow-hidden flex flex-col"
-    >
-      <div className="ct-card__head justify-between">
-        <div className="ct-card__icon bg-[var(--ct-border)]" />
-        <div className="flex flex-col items-end gap-1.5">
-          <div className="h-6 w-10 rounded bg-[var(--ct-border)]" />
-          <div className="h-2 w-12 rounded bg-[var(--ct-border)]/70" />
-        </div>
-      </div>
-      <div className="px-4 mt-3">
-        <div className="h-3 w-20 rounded bg-[var(--ct-border)]" />
-      </div>
-      <div className="flex-1 px-4 pt-3 pb-3 flex flex-col gap-2">
-        <div className="h-2.5 w-[90%] rounded bg-[var(--ct-border)]" />
-        <div className="h-2.5 w-[80%] rounded bg-[var(--ct-border)]" />
-        <div className="h-2.5 w-[85%] rounded bg-[var(--ct-border)]" />
-        <div className="h-2.5 w-[60%] rounded bg-[var(--ct-border)]" />
-      </div>
-      <div className="px-4 pb-3 pt-1 flex items-center gap-2">
-        <div className="h-3 w-12 rounded bg-[var(--ct-border)]" />
-        <div className="h-3 w-10 rounded bg-[var(--ct-border)] ml-auto" />
-      </div>
-    </div>
-  );
-}
-
-function SkeletonCarousel() {
-  return (
-    <div className="flex gap-4 overflow-x-hidden px-4 sm:px-5 pb-3">
-      <SkeletonDream />
-      <SkeletonDream />
-      <SkeletonDream />
-    </div>
-  );
-}
-
-function RecentSessionsList({
-  workers,
-  showAll,
-  onToggleAll,
-  onSelect,
-}: {
-  workers: GraphWorkerInfo[];
-  showAll: boolean;
-  onToggleAll: () => void;
-  onSelect: (w: GraphWorkerInfo) => void;
-}) {
-  if (workers.length === 0) {
-    return <div className="text-[11px] text-[var(--ct-muted-fg)]">No dream sessions yet.</div>;
-  }
-  const capped = workers.slice(0, 12);
-  const first = capped.slice(0, 5);
-  const rest = capped.slice(5);
-  const renderRow = (w: GraphWorkerInfo) => {
-    const run = dreamRunLabel(w);
-    const time = workerTimeLabels(w, Date.now());
-    return (
-      <div
-        key={w.worker_id}
-        onClick={() => onSelect(w)}
-        data-testid="memory-dream-session"
-        data-worker-id={w.worker_id}
-        data-worker-status={w.status}
-        data-run-label={run.label}
-        title={run.reason ?? undefined}
-        className="ct-card flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 cursor-pointer"
-      >
-        <span
-          className="text-[11px] w-[74px] shrink-0"
-          style={{ color: run.color }}
-        >
-          {w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}
-        </span>
-        <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
-          {new Date(w.spawned_at).toLocaleString("en-US", {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </span>
-        {w.model && (
-          <span className="text-[9px] text-[var(--ct-muted-fg)] truncate max-w-[120px]">
-            {w.model}
-          </span>
-        )}
-        {run.reason && (
-          <div data-testid="memory-dream-session-reason"><InlineErrorNotice error={{ code: "memory_run_incomplete", raw: run.reason }} /></div>
-        )}
-        <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">
-          {time.age} · {time.duration}
-        </span>
-      </div>
-    );
+  const closeSheet = useCallback(() => setSheetOpen(false), []);
+  const sheet = useDreamSheet(compact && sheetOpen);
+  const nights = dreamNights(data.diaryEntries, data.dreamWorkers);
+  const live = nights.find((night) => night.state === "live");
+  const selected = detailDismissed ? undefined : selectDreamNight(nights.filter((night) => night.state !== "live"), selectedId);
+  const runNow = () => {
+    setSelectedId(null);
+    setDetailDismissed(false);
+    closeSheet();
+    return data.runNow();
   };
-  return (
-    <div data-testid="memory-dream-session-list">
-      <div className="space-y-1">{first.map(renderRow)}</div>
-      {rest.length > 0 && (
-        <div className="flex flex-col items-center">
-          <Button
-            size="sm"
-            data-testid="memory-dream-show-all-sessions"
-            onClick={onToggleAll}
-            className="mt-2"
-          >
-            {showAll ? "Show less" : `Show all (${workers.length})`}
-          </Button>
-          {showAll && (
-            <div className="w-full space-y-1 mt-2">{rest.map(renderRow)}</div>
-          )}
+  const detail = selected && <DreamDetail key={selected.id} night={selected} api={api} onClose={() => { setDetailDismissed(true); closeSheet(); }}
+    onLog={() => selected.worker && setLogWorker(selected.worker)} onRun={runNow} onViewInGraph={onViewInGraph} />;
+  const cron = data.dreamCron;
+  return <div ref={ref} className="dreams-root" data-testid="memory-dreams-tab">
+    <div className="dreams-page">
+      <div className="dream-row dream-title">
+        <h2>Dream diary</h2>
+        <button className="dream-schedule dream-small dream-muted" type="button"
+          onClick={() => cron && data.toggleDreamCron(!cron.enabled)} disabled={!cron}
+          aria-label={cron?.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}>
+          <span className={["dream-dot", cron?.enabled ? "" : "dream-inactive"].join(" ")} />
+          {cron ? cron.enabled ? <>{dreamScheduleLabel(cron.schedule)}{cron.next_run && <> · next {formatUntil(cron.next_run, Date.now())}</>}</> : "Nightly off" : "Not configured"}
+        </button>
+        <span className="dream-spacer" />
+        {!live && <button className="dream-button" data-testid="memory-dream-run-now" onClick={runNow} disabled={data.running}>
+          <Play size={11} aria-hidden="true" />{data.running ? "Starting…" : "Dream now"}
+        </button>}
+      </div>
+      {data.runError && <InlineErrorNotice error={data.runError} operation="running memory maintenance" blocking />}
+      {data.diaryLoading ? <Loader variant="region" label="Loading dream diary" /> : <div className="dream-columns">
+        <div className="dream-nights">
+          {compact && live ? <DreamLive night={live} onStop={() => data.stop(live.worker!)} /> : <DreamOverview nights={nights} now={Date.now()} />}
+          {nights.filter((night) => night.state !== "live").map((night) => <DreamCard key={night.id} night={night}
+            selected={!compact && !(live && !selectedId) && selected?.id === night.id} onOpen={() => { setSelectedId(night.id); setDetailDismissed(false); if (compact) setSheetOpen(true); }} />)}
+          {!nights.length && <div className="dream-card dream-empty" data-testid="memory-dream-empty"><b>No dreams yet</b><p className="dream-muted">Start a session or wait for the nightly run.</p></div>}
         </div>
-      )}
+        {!compact && <aside>{live && !selectedId ? <DreamLive night={live} onStop={() => data.stop(live.worker!)} /> : selected && <div className="dream-card dream-panel">{detail}</div>}</aside>}
+      </div>}
     </div>
-  );
+    {compact && <dialog ref={sheet} className="dream-sheet" onClose={closeSheet} onKeyDown={(event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") { event.preventDefault(); closeSheet(); }
+    }} aria-label="Night details" onClick={(event) => { if (event.target === event.currentTarget) closeSheet(); }}>
+      <div className="dream-grab" />{sheetOpen && detail}
+    </dialog>}
+    {logWorker && (logWorker.session_id ? <RunChatPopup tabId={logWorker.tab_id}
+      title={logWorker.intent.replace(/^dreaming:/, "dream:")} subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
+      status={logWorker.status} report={logWorker.report} provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
+      cwd={logWorker.cwd ?? ""} sessionId={logWorker.session_id} live={!isTerminalWorkerStatus(logWorker.status)} onClose={() => setLogWorker(null)} />
+      : <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />)}
+  </div>;
 }
 
 export const MemoryDreamsTab = memo(MemoryDreamsTabImpl);

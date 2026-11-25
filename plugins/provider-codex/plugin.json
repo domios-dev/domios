@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.82",
-  "minCodeterm": "1.21.0",
+  "version": "1.14.85",
+  "minCodeterm": "1.22.1",
   "hostApi": 2,
   "accounts": {
     "credentialFiles": [
@@ -68,6 +68,13 @@
     "subagentVisibility": true,
     "agentRuntime": {
       "localImagePaths": true,
+      "hostMcp": {
+        "param": "neighborReplyStdio",
+        "methods": [
+          "thread/start",
+          "thread/resume"
+        ]
+      },
       "restrictedCli": {
         "kind": "execpolicy-service-operations",
         "metadataDirectory": ".codex"

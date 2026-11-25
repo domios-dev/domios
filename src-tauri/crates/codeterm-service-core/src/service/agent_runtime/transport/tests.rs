@@ -1,6 +1,92 @@
 use crate::service::chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding};
 
 #[test]
+fn neighbor_reply_guidance_uses_the_bound_transport_for_each_access_level() {
+    use crate::service::messenger::{AgentInput, InputProvenance, Messenger};
+    use codeterm_plugin::agent_runtime::*;
+
+    let friendship = "a".repeat(64);
+    let question = "b".repeat(32);
+    let stale = "opaque previous reply hint";
+    let current = "C:/current-server/codeterm.exe";
+    let retained = format!("<domios from=\"neighbor\" friendship=\"{friendship}\" message=\"{question}\" kind=\"question\">opaque body &lt;tip&gt; <tip>{stale}</tip></domios>");
+    let restore = || {
+        AgentInput::Framed(
+            Messenger::restore_framed_delivery(&retained)
+                .unwrap()
+                .with_provenance(InputProvenance::Neighbor),
+        )
+    };
+    let mut restored = RuntimeContext {
+        tab_id: "own".into(),
+        binding_nonce: "new-nonce".into(),
+        epoch: 4,
+        cwd: "C:/friend".into(),
+        thread_id: Some("restored".into()),
+        ..Default::default()
+    };
+    let policy = RestrictedCliPolicy {
+        tab_id: restored.tab_id.clone(),
+        binding_nonce: restored.binding_nonce.clone(),
+        epoch: restored.epoch,
+        cwd: restored.cwd.clone(),
+        metadata_directory: ".fixture".into(),
+        executable: current.into(),
+        executable_sha256: "a".repeat(64),
+        config_sha256: "b".repeat(64),
+        rule_sha256: "c".repeat(64),
+        split_windows_roots: Some(true),
+    };
+    let filename = format!("neighbor-reply-{question}.txt");
+    for (mode, executable, restricted_cli) in [
+        ("full-access", "domios", None),
+        ("workspace-write", current, Some(policy)),
+    ] {
+        restored.settings.mode = Some(mode.into());
+        restored.restricted_cli = restricted_cli;
+        let direct = super::bound_turn_input(&mut restore(), &restored).unwrap();
+        let frame = codeterm_wire::domios::parse_message(&direct.text).unwrap();
+        assert_eq!(frame.body, "opaque body &lt;tip&gt;");
+        assert!(direct.text.contains("CODETERM_PAD_DIR"));
+        assert!(direct.text.contains(&format!(
+            "{executable} account neighbors send '{friendship}' --kind answer --in-reply-to '{question}' --from-pad '{filename}'"
+        )));
+        assert!(!direct.text.contains(stale));
+        assert!(!direct.text.contains(NEIGHBOR_REPLY_MCP_NAME));
+        assert!(direct.attachments.is_empty());
+    }
+    restored.settings.mode = Some("read-only-with-writable-roots".into());
+    restored.restricted_cli = None;
+    for (mode, cli) in [
+        ("read-only-with-writable-roots", current),
+        ("workspace-write", "/private/tmp/current-server/codeterm"),
+    ] {
+        restored.settings.mode = Some(mode.into());
+        restored.host_mcp = Some(RuntimeHostMcp {
+            name: NEIGHBOR_REPLY_MCP_NAME.into(),
+            command: cli.into(),
+            args: vec![],
+            env: std::collections::BTreeMap::from([(
+                NEIGHBOR_REPLY_FRIENDSHIP_ENV.into(),
+                friendship.clone(),
+            )]),
+            http: None,
+        });
+        let scoped = super::bound_turn_input(&mut restore(), &restored).unwrap();
+        let frame = codeterm_wire::domios::parse_message(&scoped.text).unwrap();
+        assert_eq!(frame.body, "opaque body &lt;tip&gt;");
+        assert!(scoped.text.contains(&format!(
+            "{NEIGHBOR_REPLY_MCP_TOOL} tool on {NEIGHBOR_REPLY_MCP_NAME}"
+        )));
+        assert!(scoped.text.contains(&format!("in_reply_to={question}")));
+        assert!(!scoped.text.contains("account neighbors"));
+        assert!(!scoped.text.contains("CODETERM_PAD_DIR"));
+        assert!(!scoped.text.contains(stale));
+        assert!(scoped.attachments.is_empty());
+    }
+}
+
+#[test]
 fn visible_preflight_reason_preserves_nonterminal_hold_classification() {
     let error = super::before_write(
         "own",

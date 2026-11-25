@@ -10,7 +10,7 @@ import { createNoticePublisher } from "../../lib/notices";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { ChevronLeft, ChevronRight, ClipboardList, LogOut, PackagePlus, Pencil, UserPlus } from "lucide-react";
 import { SaveTemplateDialog } from "../TeamTemplates/SaveTemplateDialog";
 import { TemplateExportDialog } from "../TeamTemplates/TemplateExportDialog";
@@ -35,7 +35,7 @@ import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
 import { remoteTeamName } from "./remoteOwnership";
-import { TeamRunMachine } from "./RemoteTabPresentation";
+import { TeamMachinePill, useTeamMachine } from "./RemoteTabPresentation";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -495,6 +495,8 @@ export function TeamUnit({
   const displayTitle = team.remote_peer_id
     ? remoteTeamName(team.id, team.name, plan?.title, workspaceName) ?? "Remote workspace"
     : plan?.title.trim() || team.name?.trim() || "Team";
+  const machine = useTeamMachine(team.remote_peer_id, team.remote_peer_name);
+  const machineId = useId();
   const planStatus = useMemo(
     () => resolveTeamPlanStatus(plan, tabs, planCountMeta),
     [plan, tabs, planCountMeta],
@@ -597,6 +599,7 @@ export function TeamUnit({
       ) : (
         <span className="sidebar-team-title-row">
           <span data-testid="team-name" className={`sidebar-team-name ${lockedDimClass(lock)}`.trim()}>{displayTitle}</span>
+          {machine.identity && <TeamMachinePill id={machineId} {...machine} />}
           <LockBadge view={lock} />
           {closing && <span role="status" aria-label={`Closing ${displayTitle}`} aria-busy="true">Closing…</span>}
           {workingWorkerCount > 0 && (
@@ -644,7 +647,7 @@ export function TeamUnit({
 
   return (
     <section
-      aria-label={displayTitle}
+      aria-label={machine.identity ? `${displayTitle}, ${machine.name}` : displayTitle}
       data-testid="team-unit"
       data-team-id={team.id}
       data-expanded={expanded ? "true" : "false"}
@@ -658,6 +661,7 @@ export function TeamUnit({
           data-team-card-hit-target="team-card-activation"
           className="sidebar-team-card-activation"
           aria-label={`Open ${displayTitle}`}
+          aria-describedby={machine.identity ? machineId : undefined}
           onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
         />
       )}
@@ -671,7 +675,6 @@ export function TeamUnit({
           }
         }}
       >
-        {team.remote_peer_id && <TeamRunMachine peerId={team.remote_peer_id} fallbackName={team.remote_peer_name} />}
         {!editing ? (
           <div
             data-testid="team-card-title-area"

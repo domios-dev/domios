@@ -20,7 +20,10 @@ mod phases;
 #[cfg(test)]
 mod tests;
 
-pub use rem::{prepare_rem_data, DREAMING_TELEGRAM_STEP_DISABLED, DREAMING_TELEGRAM_STEP_ENABLED};
+pub use rem::{
+    prepare_rem_data, render_rem_prompt, DREAMING_TELEGRAM_STEP_DISABLED,
+    DREAMING_TELEGRAM_STEP_ENABLED,
+};
 pub use schedule::{
     ensure_dreaming_cron, remove_legacy_librarian_cron, DREAMING_CRON_NAME, LIBRARIAN_CRON_NAME,
 };

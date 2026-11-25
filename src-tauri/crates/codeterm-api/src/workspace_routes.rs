@@ -253,10 +253,20 @@ pub async fn rename_workspace(
 
 pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
+    axum::Extension(identity): axum::Extension<crate::auth::CallerIdentity>,
     headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     OptionalJson(body): OptionalJson<CloseWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !matches!(
+        identity,
+        crate::auth::CallerIdentity::Local | crate::auth::CallerIdentity::Tab(_)
+    ) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Workspace close requires a local caller".into(),
+        ));
+    }
     let body = body.unwrap_or_default();
     let result = match workspace_close_caller(&headers, &body, &id) {
         WorkspaceCloseCaller::AgentTab(caller_tab_id) => {

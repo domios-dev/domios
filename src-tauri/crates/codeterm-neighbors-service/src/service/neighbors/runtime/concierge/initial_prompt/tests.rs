@@ -235,6 +235,41 @@ fn authoritative_grants_precede_scope_and_preserve_opaque_area_workspace_and_fol
 }
 
 #[test]
+fn named_file_guidance_is_rendered_only_for_active_folder_and_full_grants() {
+    let fragment = "opaque-source-fragment-731";
+    let friend = "a".repeat(64);
+    let folder = "C:/opaque-source-root-7d2";
+    for (machine_access, folder, expects_guidance) in [
+        (MachineAccess::None, None, false),
+        (MachineAccess::ReadOnly, None, false),
+        (MachineAccess::Folder, Some(folder), true),
+        (MachineAccess::Full, None, true),
+    ] {
+        for allowed in [false, true] {
+            let permission = Permission {
+                allowed,
+                allow_files: false,
+                machine_access,
+                folder: folder.map(str::to_owned),
+                ..Default::default()
+            };
+            let initial = render_initial_prompt(&friend, &permission, fragment);
+            let grants: Value = serde_json::from_str(initial.lines().next().unwrap()).unwrap();
+            assert_eq!(grants["folder"], json!(folder));
+            assert_eq!(grants["commands"]["file_reads"], json!([]));
+            assert_eq!(
+                grants["commands"]["machine_read"].is_array(),
+                allowed && machine_access != MachineAccess::None
+            );
+            assert_eq!(
+                initial.lines().filter(|line| *line == fragment).count(),
+                usize::from(allowed && expects_guidance)
+            );
+        }
+    }
+}
+
+#[test]
 fn disabled_grants_have_no_read_or_spawn_commands_and_area_defaults_stay_distinct() {
     for allowed in [false, true] {
         for memory in [false, true] {

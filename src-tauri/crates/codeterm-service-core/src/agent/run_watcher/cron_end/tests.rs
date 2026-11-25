@@ -6,6 +6,8 @@ use super::*;
 use crate::cron::store::{commit, CronCreateParams, CronRunInfo, CronStorageOptions, CronStore};
 use crate::service::test_fixture::ServiceFixture;
 
+mod restart;
+
 const RUN_TAB: &str = "cron-run-tab";
 const REPORT_TAB: &str = "cron-report-tab";
 
@@ -40,10 +42,7 @@ fn oneshot_run_with_history(
     let fixture = ServiceFixture::new(mux);
     let cron: crate::CronState = Arc::new(Mutex::new(store(&fixture)));
     assert!(fixture.service.set_ext(cron.clone()).is_ok());
-    assert!(fixture
-        .service
-        .set_ext::<crate::CronWake>(Arc::new(std::sync::Condvar::new()))
-        .is_ok());
+    assert!(fixture.service.set_ext(crate::CronWake::default()).is_ok());
     let run_id = "oneshot-run".to_string();
     let params = CronCreateParams {
         name: "once".into(),
@@ -574,7 +573,7 @@ fn cron_restart_pending_finish_and_delivery_intent_remain_unknown_until_exact_ca
                     crate::cron::store::CronCancelReason::UserCancel
                 )
                 .unwrap(),
-            0
+            1
         );
         assert_eq!(
             run.cron.lock().run_receipt(&run.job_id, &run.run_id),
@@ -1045,7 +1044,7 @@ fn max_history_zero_retired_oneshot_acknowledges_only_confirmed_cleanup_without_
                 crate::cron::store::CronCancelReason::UserCancel
             )
             .unwrap(),
-        0
+        1
     );
     assert!(restarted
         .run_watcher

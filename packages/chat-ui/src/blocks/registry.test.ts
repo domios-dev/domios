@@ -4,8 +4,17 @@ import { parseChatBlock, parseChatBlocks, CHAT_BLOCKS } from "./registry";
 import { parsePluginId } from "./pluginBlockModel";
 import { parseDsBlocks } from "@codeterm/chat-core";
 
+test("appearance accepts only a stored proposal and machine", () => {
+  const id = "123456789012345678901234567890ab";
+  const tag = `<ds-appearance id="${id}" machine="BLACKSTAR" />`;
+  assert.equal(parseChatBlock(tag)?.source, tag);
+  assert.equal(parseChatBlock(`<ds-appearance id="${id}" machine="BLACKSTAR" apply="yes" />`), null);
+  assert.equal(parseChatBlock(`<ds-appearance id="${id}" />`), null);
+  assert.equal(parseDsBlocks(tag, { id: "pasted", trusted: false })[0].type, "inert");
+});
+
 test("every catalogued chat block uses the shared grammar", () => {
-  const tags = ['<ds-guide section="phone" />', '<ds-plugin id="git" />', '<ds-connect bridge="telegram" />', '<ds-setting key="plugins.git.enabled" />', '<ds-agent tab="e3ec9ee9" />', '<ds-job ref="nightly" />', '<ds-checklist id="getting-started" />', '<ds-choice options=\'["Yes","No"]\' />', '<ds-tasks plan="pl_alpha" />', '<ds-canvas src="/work/board.canvas.json" />'];
+  const tags = ['<ds-guide section="phone" />', '<ds-plugin id="git" />', '<ds-connect bridge="telegram" />', '<ds-setting key="plugins.git.enabled" />', '<ds-agent tab="e3ec9ee9" />', '<ds-job ref="nightly" />', '<ds-checklist id="getting-started" />', '<ds-choice options=\'["Yes","No"]\' />', '<ds-tasks plan="pl_alpha" />', '<ds-canvas src="/work/board.canvas.json" />', '<ds-appearance id="123456789012345678901234567890ab" machine="BLACKSTAR" />'];
   assert.equal(CHAT_BLOCKS.length, tags.length);
   assert.equal(parseChatBlocks(tags.join("\r\n"))?.length, tags.length);
   for (const tag of tags) assert.ok(parseChatBlock(tag));

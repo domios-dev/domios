@@ -13,7 +13,7 @@ Delegate flows over 10,000 output characters to a Worker for a short evidence re
 - **Ownership.** `open` creates `<YourName>'s Browser`, visible beneath your tab and available to workspace agents. `close`, closing your tab or closing your Team ends it.
 - **Profiles.**
   - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
-  - A **named profile** retains logins and cookies. Users create general profiles in the Browser profile menu. Agents select existing profiles with `open --profile NAME`; unknown names fail. For DEV QA, use the origin-bound session commands below, `profile list` and `profile remove NAME` for inactive profiles. Publishing, buying, deleting and sending messages require explicit user instruction.
+  - A **named profile** retains logins, cookies and session profile across Domios restarts. Users create profiles in the Browser profile menu; agents select existing ones with `open --profile NAME` (unknown names fail). For DEV QA, use origin-bound sessions below, `profile list` and `profile remove NAME` (inactive only). Publishing, buying, deleting and sending messages require explicit user instruction.
 - **Shared profiles.** Named-profile tabs share cookies/logins; pages and controls stay independent. Closing one leaves the others open.
 - **Another agent's browser.** Add `--of <title|tab-id>` to act there. Its owner sees your activity. It must already be open; you cannot close it. Use refs from its latest snapshot.
 - **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
@@ -38,14 +38,14 @@ Rules:
 - Snapshots show control states. Use `snapshot [limit]`, not `--limit`: default 200, maximum 2000; only included elements receive refs.
 - Prefer refs or role/name over coordinates/CSS. Wait on evidence with `wait --text T`, `--url U` or `--selector S`, never elapsed time; default deadline 15s.
 - Secrets: pipe exact text to `type <target> --stdin`. It requires a maskable HTML input, masks before insertion and redacts output, snapshots, events and annotations. Never put secrets in arguments or print them.
-- `type` focuses, clears and inserts, refusing hidden, disabled, readonly or unfocusable fields. `type --submit textbox "Search" "query"` holds the action through typing and Enter. Without navigation or submit evidence, it calls `requestSubmit()` on the focused field's form. Completion requires observed navigation or a submit event; inspect the page for application success. An unconfirmed result never replays typing. `press Enter` sends to the currently focused element.
+- `type` focuses, clears (through native selection and editing on contenteditable rich editors, keeping the native value setter on inputs/textareas), inserts and reads back rendered text, refusing hidden, disabled, readonly or unfocusable fields. A readback mismatch fails closed with `typing_unconfirmed` (secret inputs verify by length only and never echo the value); inspect before continuing and never replay. `type --submit textbox "Search" "query"` holds the action through typing and Enter. Without navigation or submit evidence, it calls `requestSubmit()` on the focused field's form. Completion requires observed navigation or a submit event; inspect the page for application success. An unconfirmed result never replays typing. `press Enter` sends to the currently focused element.
 - `text [limit] [--selector CSS] [--grep TEXT]` reads content. `--grep` keeps lines containing a literal case-insensitive substring before applying the character limit (default 4000, maximum 200000). `--selector` reads the first matching subtree and refuses a missing match. Sensitive subtrees are redacted. Screenshots are for visual claims only; show saved files with `<ds-image src="ABSOLUTE_PATH" />`.
 - Prove actions with a fresh snapshot or state wait: changed value, new heading or success message. Unread results remain unproven, especially sends, submissions, purchases or deletions.
 - Correct actionable argument errors. Never replay uncertain actions or switch browser tools to bypass a refusal. Report flaky behavior honestly.
 
 ## When the page needs the user
 
-Stop when `status` reports `needs human` other than `none`: captcha, missing login, consent you cannot decide, native file picker, permission prompt or JavaScript dialog. Name the blocker; the user can use *Take control*. Re-snapshot before continuing.
+Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Agents never answer page dialogs (`alert`, `confirm`, `prompt`, `beforeunload`). When a dialog is open or opens during page setup or a verb, the verb fails promptly with `dialog: <type>` (plus message), `status` shows `needs human: dialog` with that line, and `close` / profile switches refuse; ask the user to resolve it via *Take control*, then re-snapshot.
 
 ## User annotations
 
@@ -148,4 +148,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 25 -->
+<!-- revision: 28 -->

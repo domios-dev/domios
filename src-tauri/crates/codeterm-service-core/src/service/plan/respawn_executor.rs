@@ -1,5 +1,7 @@
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab, TabCloseReason};
+use crate::service::close_authority::OwnerTabCloseScope;
+use crate::service::tab::TabCloseCleanup;
 use crate::service::ServiceContext;
 use std::time::Duration;
 
@@ -33,6 +35,147 @@ impl ServiceContext {
         self.retire_executor_with(draft.into(), TabCloseReason::AgentRunEnded, |tabs| {
             self.terminate_executor_tabs(tabs)
         })
+    }
+
+    /// Returns false when the UI must confirm closing an unfinished Worker.
+    pub async fn close_tab_as_owner_async(
+        &self,
+        tab_id: &str,
+        confirmed: bool,
+    ) -> Result<bool, String> {
+        self.close_tab_as_owner_async_scoped(tab_id, confirmed, OwnerTabCloseScope::Local)
+            .await
+    }
+
+    pub async fn close_tab_as_owner_async_scoped(
+        &self,
+        tab_id: &str,
+        confirmed: bool,
+        scope: OwnerTabCloseScope,
+    ) -> Result<bool, String> {
+        let svc = self.clone();
+        let tab_id = tab_id.to_string();
+        crate::service::blocking::run(move || {
+            let tab_id = {
+                let mux = svc.mux.read();
+                let id = mux.resolve_tab_id(&tab_id).unwrap_or(tab_id);
+                scope.check(&mux, &id)?;
+                id
+            };
+            if !confirmed
+                && !svc
+                    .in_progress_assignments_for_tab(&tab_id)
+                    .map_err(|error| error.to_string())?
+                    .is_empty()
+            {
+                return Ok(false);
+            }
+            svc.close_tab_as_owner_scoped(&tab_id, scope)?;
+            Ok(true)
+        })
+        .await
+    }
+
+    pub(crate) fn close_tab_as_owner(&self, tab_id: &str) -> Result<(), String> {
+        self.close_tab_as_owner_scoped(tab_id, OwnerTabCloseScope::Local)
+    }
+
+    fn close_tab_as_owner_scoped(
+        &self,
+        tab_id: &str,
+        scope: OwnerTabCloseScope,
+    ) -> Result<(), String> {
+        let reserve = |mux: &mut MultiplexerState, id: &str| scope.reserve(mux, id);
+        let tabs = {
+            let mux = self.mux.read();
+            if !mux
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.role == Some(AgentRole::Worker))
+            {
+                drop(mux);
+                return self.close_tab_with_teardown_and_cleanup(
+                    tab_id,
+                    TabCloseReason::User,
+                    |mux, id| {
+                        if mux
+                            .get_tab(id)
+                            .is_some_and(|tab| tab.role == Some(AgentRole::Worker))
+                        {
+                            return Err("Tab became a Worker before close".into());
+                        }
+                        reserve(mux, id)
+                    },
+                    || Ok(()),
+                    |_, _| Ok(()),
+                    TabCloseCleanup::Standard,
+                );
+            }
+            closing_tabs(&mux, tab_id)
+        };
+        let tab = tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .ok_or("Tab not found")?;
+        let validate = |mux: &MultiplexerState, id: &str| {
+            if mux.get_tab(id).is_some_and(|tab| tab.protected) {
+                return Err("Cannot close protected Tab".into());
+            }
+            validate_closing_tabs(mux, id, &tabs)
+        };
+        self.close_tab_with_teardown_and_cleanup(
+            tab_id,
+            TabCloseReason::User,
+            |mux, id| {
+                validate(mux, id)?;
+                reserve(mux, id)
+            },
+            || {
+                self.terminate_executor_tabs(&tabs)?;
+                validate(&self.mux.read(), tab_id)?;
+                self.record_owner_worker_termination(tab)
+            },
+            |mux, id| validate(mux, id),
+            TabCloseCleanup::KeepWorkerLane,
+        )
+    }
+
+    fn record_owner_worker_termination(&self, tab: &Tab) -> Result<(), String> {
+        let mut tasks = self
+            .plan_store
+            .task_bindings_for_owner_tab_close(&tab.id)
+            .map_err(|error| error.to_string())?;
+        let binding = tab.task_binding.as_ref().and_then(|binding| {
+            Some((
+                binding.plan_id.as_ref()?,
+                binding.task_id.as_ref()?,
+                binding.attempt_id.as_deref(),
+            ))
+        });
+        if let Some((plan, task, _)) = binding {
+            if !tasks.iter().any(|(p, t)| p == plan && t == task) {
+                tasks.push((plan.clone(), task.clone()));
+            }
+        }
+        for (plan, task) in tasks {
+            let attempts = match self.plan_store.list_task_attempts(&plan, &task) {
+                Err(
+                    crate::service::plan::PlanError::NotFound
+                    | crate::service::plan::PlanError::TaskNotFound,
+                ) => continue,
+                result => result.map_err(|error| error.to_string())?,
+            };
+            for view in attempts {
+                let attempt = &view.attempt;
+                let bound = binding == Some((&plan, &task, Some(attempt.id.as_str())));
+                if attempt.executor_tab_id == tab.id
+                    && attempt.mesh_peer.is_none()
+                    && (attempt.closed_at.is_none() || bound)
+                {
+                    let _ = self.record_executor_termination(&plan, &task, attempt.into())?;
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn close_bound_worker_executor(
@@ -346,7 +489,11 @@ impl ServiceContext {
             || {
                 terminate(&tabs)?;
                 validate_snapshot(&self.mux.read(), tab_id, draft, &tabs)?;
-                missing_owner.set(self.record_executor_termination(draft)?);
+                missing_owner.set(self.record_executor_termination(
+                    draft.plan_id,
+                    draft.task_id,
+                    draft.source_attempt,
+                )?);
                 Ok(())
             },
             |mux, id| {
@@ -366,16 +513,18 @@ impl ServiceContext {
 
     fn record_executor_termination(
         &self,
-        draft: ExecutorSource<'_>,
+        plan_id: &str,
+        task_id: &str,
+        source_attempt: ExecutorSourceFields<'_>,
     ) -> Result<Option<&'static str>, String> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|error| error.to_string())?
             .as_millis() as u64;
         match self.plan_store.record_task_executor_termination(
-            draft.plan_id,
-            draft.task_id,
-            draft.source_attempt,
+            plan_id,
+            task_id,
+            source_attempt,
             now,
         ) {
             Ok(()) => Ok(None),

@@ -164,6 +164,8 @@ Errors: `404` if the session id isn't found; `400` if the located session has no
 
 The config is saved to disk and a `config-changed` Tauri event is emitted.
 
+Wallpaper writes through either patch mode return 400 with `error.code: wallpaper_route_required`, `error.method: PUT` and `error.path: /api/chat-wallpaper`. The wallpaper route validates the setting before applying it.
+
 **Where notifications go is not writable here.** Anything under the `notifications`
 subtree decides which surfaces a notification may reach, and switching a desktop
 toast or a push channel on is a capability the user never granted by typing a
@@ -219,4 +221,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->

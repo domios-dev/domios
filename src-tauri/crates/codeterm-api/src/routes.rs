@@ -83,6 +83,7 @@ pub(super) fn create_router_with_preview_admission(
     preview_read_admission: std::sync::Arc<super::local_preview_routes::Admission>,
     preview_check_admission: std::sync::Arc<super::local_preview_routes::Admission>,
 ) -> Router {
+    state.svc.install_live_transcript_capture();
     let router = Router::new()
         .route(
             "/api/tabs/{id}/preview/prepare",
@@ -266,7 +267,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .merge(plan_routes::router::router())
         .route("/api/app/restart", post(network_routes::restart_app))
-        .route("/api/serve-file", get(notification_routes::serve_file))
+        .merge(super::wallpaper_routes::routes())
         .route(
             "/api/notifications",
             get(notification_routes::list_notifications)
@@ -415,25 +416,9 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/output/stream", get(output_stream::output_stream))
         .merge(stream_mux::router())
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
-        .route(
-            "/api/dictation/start",
-            plugin_host_action_routes::owner_post(web_routes::dictation::start)
-                .layer(axum::extract::DefaultBodyLimit::max(1024)),
-        )
-        .route(
-            "/api/dictation/{session}/frame/{sequence}",
-            plugin_host_action_routes::owner_post(web_routes::dictation::frame).layer(
-                axum::extract::DefaultBodyLimit::max(codeterm_types::dictation::MAX_PCM_BYTES),
-            ),
-        )
-        .route(
-            "/api/dictation/{session}/finish/{sequence}",
-            plugin_host_action_routes::owner_post(web_routes::dictation::finish),
-        )
-        .route(
-            "/api/dictation/{session}/cancel",
-            plugin_host_action_routes::owner_post(web_routes::dictation::cancel),
-        )
+        .merge(web_routes::live_transcript_capture::router())
+        .merge(web_routes::live_transcript::router())
+        .merge(web_routes::dictation::router())
         .route(
             "/api/tabs/{id}/chat-raw/start",
             post(blocking_json(web_routes::chat_raw_start)),

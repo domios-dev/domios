@@ -31,7 +31,7 @@ async function run(paired: Array<Record<string, unknown>> = []) {
     agent_type: "configured-provider", agent_session_id: "main-session", session_binding_nonce: "main-nonce",
   };
   let snapshot: MultiplexerState = {
-    workspaces: [{ id: "general", name: "General", protected: true, cwd: "/instance/general", tabs: [main.id], active_tab_id: main.id }],
+    workspaces: [{ id: "general", name: "General", protected: true, cwd: "/instance", tabs: [main.id], active_tab_id: main.id }],
     tabs: { [main.id]: main }, active_workspace_id: "general", focused_tab_id: main.id, generation: 1,
   };
   let observed: MultiplexerState = snapshot;
@@ -149,7 +149,7 @@ async function run(paired: Array<Record<string, unknown>> = []) {
     await act(async () => document.querySelector('[data-testid="new-session-picker"]')?.dispatchEvent(new Event("animationend", { bubbles: true })));
     const spawns = requests.filter((request) => request.command === "spawn_general_agent_session");
     assert.deepEqual(spawns, [{ command: "spawn_general_agent_session", args: { params: {
-      workspaceId: "general", providerId: "chosen-provider", cwd: "/instance/general",
+      workspaceId: "general", providerId: "chosen-provider",
       model: "chosen-model", reasoningEffort: "high", preset: undefined, accountId: undefined,
       role: "general_agent", intent: "fresh_general",
     } } }]);

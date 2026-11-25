@@ -20,10 +20,17 @@ pub async fn mem_merge(
         .or_else(|| b.worker_id.clone());
     let ids = vec![b.keeper.clone(), b.lesser.clone()];
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
+    let request_actor = crate::auth::RequestActor::authenticate(&state, &headers)?;
+    let origin = codeterm_service_core::mem_host::WorkerWriteOrigin::capture(
+        &state.svc,
+        request_actor.local_tab(),
+    );
     let svc = state.svc.clone();
     let out = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::mem::store::with_author(author, || {
-            merge_items(&svc, &b, worker_id.as_deref())
+        origin.run(&svc, || {
+            codeterm_service_core::mem::store::with_author(author, || {
+                merge_items(&svc, &b, worker_id.as_deref())
+            })
         })
     })
     .await

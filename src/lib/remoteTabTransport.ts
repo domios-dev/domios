@@ -1,7 +1,7 @@
 import type { ApiConfig } from "./types";
 import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "./childTranscript";
 import type { MultiplexerState } from "./types";
-import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "./backgroundProcesses";
+import { backgroundProcessesSuffix, providerBackgroundOutputSuffix, type BackgroundProcessAuthority, type ProviderBackgroundWorkTarget } from "./backgroundProcesses";
 import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
 export interface RemoteTransportCall {
@@ -84,6 +84,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "agent_runtime_child_history": return call("GET", childHistorySuffix(String(args.threadId), args.request as ChildTranscriptAuthority & {cursor?:string}));
     case "agent_runtime_background_processes": return call("GET", backgroundProcessesSuffix(args.request as BackgroundProcessAuthority));
     case "agent_runtime_stop_background_process": return call("POST", "/agent/runtime/background-processes", args.request);
+    case "agent_provider_background_output": return call("GET", providerBackgroundOutputSuffix(args.request as ProviderBackgroundWorkTarget));
+    case "agent_provider_ask_stop_background_work": return call("POST", "/agent/background-work", args.request);
     case "agent_runtime_answer_question": return call("POST", `/agent/runtime/questions/${encodeURIComponent(String(args.itemId))}/answer`, { answers: args.answers });
     case "agent_runtime_goal": return call("POST", "/agent/runtime/goal", args.request);
     case "agent_runtime_thread_history": return call("POST", "/agent/runtime/thread-history", args.request);
@@ -98,7 +100,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "tab_todo_list": return call("GET", "/todos");
     case "tab_todo_review": return call("POST", "/todos/review", args.request);
     case "wake_tab": return call("POST", "/wake");
-    case "mux_close_tab": return call("POST", "/close");
+    case "mux_close_tab": return call("POST", args.force === true ? "/close?force=true" : "/close", { as_owner: true });
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
     case "mux_set_focused_tab": return call("POST", "/select");
     case "mux_rerun_restored_shell": return call("POST", "/rerun-restored-shell");

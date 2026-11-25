@@ -32,7 +32,6 @@ export interface SettingsSection {
   icon: LucideIcon;
 }
 
-// (secrets lives in the Extensions surface but still needs a breadcrumb icon).
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   account: UserRound,
   general: Sliders,
@@ -53,6 +52,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "mesh", label: "Mesh", desc: "Manage your machines", icon: SECTION_ICONS.mesh },
   { id: "notifications", label: "Notifications", desc: "The bell, desktop alerts, sound, and where each level may go", icon: SECTION_ICONS.notifications },
   { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-harness config", icon: SECTION_ICONS.agents },
+  { id: "secrets", label: "Secrets", desc: "Secret store, backend, and vault access", icon: SECTION_ICONS.secrets },
   { id: "jobs", label: "Jobs", desc: "Crons and Blueprints on this machine", icon: SECTION_ICONS.jobs },
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped", icon: SECTION_ICONS.logs },
   { id: "guide", label: "Guide", desc: "What Domios is and how to work with it", icon: SECTION_ICONS.guide },
@@ -63,7 +63,7 @@ export function sectionTitle(id: SectionId): string {
   return SETTINGS_SECTIONS.find((s) => s.id === id)?.label ?? id;
 }
 
-export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge" | "subscription-plans" | "team-channels" | "provider-accounts";
+export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge" | "subscription-plans" | "team-channels" | "provider-accounts" | "chat-wallpaper";
 
 export interface SettingsCardRoute {
   section: SectionId;
@@ -71,7 +71,7 @@ export interface SettingsCardRoute {
 }
 
 /** Links straight to one card inside a section. */
-export type CardLinkId = "messengers" | "plans" | "team-channels";
+export type CardLinkId = "messengers" | "plans" | "team-channels" | "chat-wallpaper" | "appearance-lab";
 export type SettingsLinkId = SectionId | CardLinkId | `accounts:${string}`;
 
 export interface SettingsLinkRoute {
@@ -84,6 +84,8 @@ const CARD_ROUTES: Record<CardLinkId, SettingsLinkRoute> = {
   messengers: { section: "general", card: "telegram-bridge" },
   plans: { section: "account", card: "subscription-plans" },
   "team-channels": { section: "agents", card: "team-channels" },
+  "chat-wallpaper": { section: "general", card: "chat-wallpaper" },
+  "appearance-lab": { section: "general" },
 };
 
 const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);

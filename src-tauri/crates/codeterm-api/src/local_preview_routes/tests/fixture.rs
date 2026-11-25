@@ -85,7 +85,7 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
                 fixture.temp.path().join("crons.json"),
             ),
         )),
-        cron_wake: Arc::new(std::sync::Condvar::new()),
+        cron_wake: Default::default(),
         api_port: 0,
         update_state: Arc::new(parking_lot::Mutex::new(codeterm_update::UpdateState {
             install_method: codeterm_update::InstallMethod::Unknown,
@@ -128,7 +128,8 @@ impl Fixture {
 
     pub fn with_clock(clock: Arc<dyn Fn() -> std::time::Instant + Send + Sync>) -> Self {
         let (mut mux, owner) = MultiplexerState::new();
-        let sibling = mux.create_tab_record();
+        let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+        let sibling = mux.create_tab(&workspace).unwrap();
         for id in [&owner, &sibling] {
             let tab = mux.get_tab_mut(id).unwrap();
             tab.agent_type = Some("preview-fixture".into());
@@ -316,6 +317,26 @@ impl Fixture {
             Some("Bearer preview-test-token"),
         )
         .await
+    }
+
+    pub(super) async fn send(
+        &self,
+        sender: &str,
+        recipient: &str,
+        mut body: serde_json::Value,
+    ) -> (Response, Vec<String>) {
+        let writes =
+            self._service
+                .bind_recorded_agent_recipient(recipient, recipient, "share-nonce");
+        body["source_tab"] = sender.into();
+        let request = Request::post(format!("/api/tabs/{recipient}/send"))
+            .header("content-type", "application/json")
+            .header("authorization", "Bearer preview-test-token")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = self.app.clone().oneshot(request).await.unwrap();
+        let delivered = writes.texts.lock().clone();
+        (response, delivered)
     }
 }
 

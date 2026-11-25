@@ -5,7 +5,7 @@ import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
-import { parseAttachmentMarkers } from "@codeterm/chat-core";
+import { attachmentMarkerSegments, formatAttachmentMarker, parseAttachmentMarkers, presentedAttachmentSegments } from "@codeterm/chat-core";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
 import { DraftStorageFixture } from "../../test/draftStorage.testdata";
@@ -13,15 +13,20 @@ import { useAttachments } from "./useAttachments";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { TabSessionChat } from "./TabSessionChat";
 import { clearTranscriptWindows } from "./transcriptStore";
+import { documentsFromTranscript } from "./chatDocuments";
 
-const fixture = vi.hoisted(() => ({ web: true, stored: [] as Blob[] }));
+const fixture = vi.hoisted(() => ({ web: true, stored: [] as Blob[], uploadName: "", uploadPath: "/uploads/pasted.png" }));
 vi.mock("../../lib/webApi", async (original) => ({
   ...await original<typeof import("../../lib/webApi")>(),
   get IS_WEB() { return fixture.web; },
 }));
 vi.mock("./voice/audio", async (original) => ({
   ...await original<typeof import("./voice/audio")>(),
-  storeBlob: async (blob: Blob) => { fixture.stored.push(blob); return "/uploads/pasted.png"; },
+  storeBlob: async (blob: Blob, name: string) => {
+    fixture.stored.push(blob);
+    fixture.uploadName = name;
+    return fixture.uploadPath;
+  },
 }));
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -99,6 +104,105 @@ it.each([
     fixture.web = true;
     Reflect.deleteProperty(navigator, "clipboard");
   }
+});
+
+const opaqueTextPath = "/tmp/codeterm-chat/0123456789abcdef0123456789abcdef.txt";
+const transcriptName = "Meeting transcript.txt";
+
+it.each([
+  { source: "paste", name: transcriptName, type: "text/plain", expected: transcriptName },
+  { source: "drop", name: transcriptName, type: "", expected: transcriptName },
+  { source: "pick", name: transcriptName, type: "text/plain", expected: transcriptName },
+  { source: "paste", name: "", type: "text/plain", expected: "Pasted text.txt" },
+  { source: "paste", name: "text.txt", type: "public.utf8-plain-text", expected: "Pasted text.txt" },
+  { source: "native paste", name: "text.txt", type: "public.utf8-plain-text", expected: transcriptName },
+])("keeps the filename through $source and transcript reload ($name / $type)", async ({ source, name, type, expected }) => {
+  const native = source === "native paste";
+  fixture.web = !native;
+  fixture.stored = [];
+  fixture.uploadPath = opaqueTextPath;
+  const send = vi.fn();
+  const materialize = nativeBridge.materializeDroppedFiles;
+  nativeBridge.materializeDroppedFiles = async () => [opaqueTextPath];
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "chat_send_text") {
+      send(args?.text);
+      return { send_id: "sent", tab_id: "filename", state: "delivered", ledger_id: "ledger", sequence: 1, retained_from: 0 } as T;
+    }
+    if (command === "read_clipboard_files") return [`/source/${transcriptName}`] as T;
+    if (command === "attachment_path_kinds") return ["file"] as T;
+    return [] as T;
+  });
+  __setListenForTest(async () => () => {});
+  const store = createMuxStateStore(() => ({
+    workspaces: [], tabs: { filename: { id: "filename", pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } },
+    teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [], tabStatuses: {}, toasts: [],
+    activeTabIds: {}, generation: 1, pendingCloses: [],
+  } satisfies ExtendedState));
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  function Harness() {
+    const chatRootRef = useRef<HTMLDivElement>(null);
+    const fail = (error: string) => { throw new Error(error); };
+    const paste = useAttachments({ chatRootRef, enabled: true, onError: fail });
+    return <div ref={chatRootRef} {...paste.webDropHandlers}><DraftStorageFixture><MuxStateStoreContext.Provider value={store}>
+      <ChatComposer tabId="filename" tabProvider={null} pendingPrompt={null}
+        attachments={paste.attachments} addAttachments={paste.addAttachments} removeAttachment={paste.removeAttachment}
+        clearAttachments={paste.clearAttachments} handlePasteEvent={paste.handlePasteEvent} inlineAttachmentSink={paste.inlineSinkRef}
+        onWillSendMessage={() => {}} addOptimistic={() => "sent"} updateOptimistic={() => {}}
+        observeChatSendStatus={() => {}} showComposerError={fail} />
+    </MuxStateStoreContext.Provider></DraftStorageFixture></div>;
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
+    editor.focus();
+    const file = new File(["meeting notes"], name, { type });
+    const data = new DataTransfer();
+    data.items.add(file);
+    await act(async () => {
+      if (source === "drop") {
+        const event = new Event("drop", { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "dataTransfer", { value: data });
+        editor.dispatchEvent(event);
+      } else if (source === "pick") {
+        const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+        Object.defineProperty(input, "files", { value: data.files });
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        data.getData = () => "";
+        editor.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+      }
+    });
+    if (!native) {
+      expect(fixture.stored).toHaveLength(1);
+      expect(fixture.uploadName).toBe(expected);
+    } else {
+      expect(fixture.stored).toHaveLength(0);
+    }
+    expect(host.querySelector(`[aria-label="File: ${expected}"]`)?.textContent?.replace(/\u00a0/g, " ")).toContain(expected);
+    await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true })));
+    expect(send.mock.calls).toEqual([[formatAttachmentMarker(opaqueTextPath, "file", expected)]]);
+    const restored = JSON.parse(JSON.stringify({ type: "user", content: send.mock.calls[0][0] }));
+    expect(presentedAttachmentSegments(attachmentMarkerSegments(restored.content))).toEqual([
+      { attachment: { kind: "file", path: opaqueTextPath, label: expected } },
+    ]);
+    expect(documentsFromTranscript([restored]).map(document => document.name)).toEqual([expected]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+    nativeBridge.materializeDroppedFiles = materialize;
+    fixture.uploadPath = "/uploads/pasted.png";
+    fixture.web = true;
+  }
+});
+
+it("gives an older text attachment with an opaque stored name a text label", () => {
+  const oldMarker = formatAttachmentMarker(opaqueTextPath, "file", "0123456789abcd…bcdef.txt");
+  expect(documentsFromTranscript([{ type: "user", content: oldMarker }])[0].name).toBe("Pasted text.txt");
 });
 
 it("keeps image paste available while a reactivated chat reacquires its transcript", async () => {

@@ -232,7 +232,12 @@ pub trait MemStore: BlueprintStore + EngineStore + Send + Sync {
     fn tail_recent(&self, since: Option<&str>, limit: usize) -> Result<Vec<TailEntry>, String>;
     fn dream_diaries_since(&self, since_ms: u64) -> Result<Vec<String>, String>;
     fn graph_create_entity(&self, ctx: &WriteContext, e: &Entity) -> Result<(), String>;
-    fn graph_relate(&self, ctx: &WriteContext, r: &Relation) -> Result<(), String>;
+    fn graph_introduce_topic(
+        &self,
+        ctx: &WriteContext,
+        options: codeterm_mem_store::graph::IntroduceTopicOptions,
+    ) -> Result<codeterm_mem_store::graph::IntroduceTopicReport, String>;
+    fn graph_relate(&self, ctx: &WriteContext, r: &Relation) -> Result<bool, String>;
     fn graph_insert_relation(&self, ctx: &WriteContext, r: &Relation) -> Result<(), String>;
     fn graph_related(
         &self,

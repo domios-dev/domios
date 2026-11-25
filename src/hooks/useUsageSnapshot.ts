@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { readUsageOnEvent } from "../lib/usageEventReads";
 import { DEV_BUILD } from "../lib/devBuild";
 import { invoke } from "../lib/bridge";
-import { listen } from "../lib/bridge";
+import { scopedUsageArgs, subscribeUsageUpdates, useUsageMachine } from "./usageMachine";
 import type { UsageSnapshot, UsageSnapshotEvent, UsageLatestView } from "../types/usage";
 import { nextResetAt, zeroExpiredResets } from "../components/Usage/cycle";
 
@@ -27,7 +27,8 @@ export interface UseUsageSnapshotResult {
 
 export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapshotResult {
   const { provider, accountId = null, enabled = true } = opts;
-  const scope = JSON.stringify([provider, accountId]);
+  const peerId = useUsageMachine();
+  const scope = JSON.stringify([peerId, provider, accountId]);
   const [reading, setReading] = useState<{ scope: string; snapshot: UsageLatestView | null } | null>(null);
   const [loadingScope, setLoadingScope] = useState<string | null>(null);
   const [readError, setReadError] = useState<{ scope: string; message: string } | null>(null);
@@ -48,37 +49,42 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       const row = await readUsageOnEvent<UsageLatestView | null>(event, "usage_latest", {
         provider,
         accountId: accountId ?? undefined,
+        ...scopedUsageArgs(peerId),
       }, invoke);
       if (!cancelledRef.current && read === readSequence.current) setReading({ scope, snapshot: row ?? null });
     } catch (e) {
       if (DEV_BUILD) console.debug("Background usage snapshot read failed", e);
-      if (!cancelledRef.current && read === readSequence.current) setReadError({ scope, message: String(e) });
+      if (!cancelledRef.current && read === readSequence.current) {
+        if (peerId) setReading(null);
+        setReadError({ scope, message: String(e) });
+      }
     } finally {
       if (!cancelledRef.current && read === readSequence.current) setLoadingScope(null);
     }
-  }, [provider, accountId, enabled, scope]);
+  }, [provider, accountId, enabled, peerId, scope]);
 
   const refresh = useCallback(async () => {
+    if (!enabled || peerId) return;
     setRefreshError(null);
     try {
-      await invoke("usage_refresh", { provider, accountId: accountId ?? undefined });
+      await invoke("usage_refresh", { provider, accountId: accountId ?? undefined, ...scopedUsageArgs(peerId) });
     } catch (e) {
       if (DEV_BUILD) console.debug("Background provider usage refresh failed", e);
       setRefreshError({ scope, message: String(e) });
     }
-  }, [provider, accountId, scope]);
+  }, [provider, accountId, enabled, peerId, scope]);
 
   useEffect(() => {
     cancelledRef.current = false;
     if (!enabled) return;
     let unlisten: (() => void) | null = null;
     let active = true;
-    listen<UsageSnapshotEvent>("usage-snapshot-updated", (evt) => {
-      if (!active) return;
-      if (evt.payload.provider !== provider) return;
-      const wantAcc = accountId ?? null;
-      if ((evt.payload.account_id ?? null) !== wantAcc) return;
-      refetch(evt.payload);
+    void subscribeUsageUpdates(peerId, provider, accountId, event => {
+      if (active) void refetch(event);
+    }, () => {
+      ++readSequence.current;
+      setReading(null);
+      setLoadingScope(null);
     }).then((fn) => {
       if (!active) fn();
       else {
@@ -92,10 +98,10 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       ++readSequence.current;
       unlisten?.();
     };
-  }, [provider, accountId, enabled, refetch]);
+  }, [provider, accountId, enabled, peerId, refetch]);
 
   useEffect(() => {
-    if (!enabled || !snapshot || snapshot.parsed_ok === undefined) return;
+    if (!enabled || peerId || !snapshot || snapshot.parsed_ok === undefined) return;
     const due = nextResetAt(snapshot, Date.now());
     if (due == null) return;
     const delay = Math.min(Math.max(0, due - Date.now()) + 500, MAX_RESET_DELAY_MS);
@@ -109,7 +115,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       setResetTick((v) => v + 1);
     }, delay);
     return () => clearTimeout(t);
-  }, [snapshotKey, enabled, refresh, resetTick, scope]);
+  }, [snapshotKey, enabled, peerId, refresh, resetTick, scope]);
 
   const error = [readError, refreshError].find(entry => entry?.scope === scope)?.message ?? null;
   return { snapshot, loading: enabled && loadingScope === scope, error: enabled ? error : null, refetch, refresh };
@@ -132,62 +138,9 @@ export interface UseUsageHistoryResult {
 }
 
 export function useUsageHistory(opts: UseUsageHistoryOptions): UseUsageHistoryResult {
-  const {
-    provider,
-    accountId = null,
-    sinceMs,
-    limit = 200,
-    enabled = true,
-    refetchToken = 0,
-  } = opts;
-  const [rows, setRows] = useState<UsageSnapshot[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const cancelledRef = useRef(false);
-
-  const refetch = useCallback(async (event?: UsageSnapshotEvent) => {
-    if (!enabled) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await readUsageOnEvent<UsageSnapshot[] | null>(event, "usage_history", {
-        provider,
-        since: sinceMs,
-        limit,
-        accountId: accountId ?? undefined,
-      }, invoke);
-      if (!cancelledRef.current) setRows(result ?? []);
-    } catch (e) {
-      if (DEV_BUILD) console.debug("Background usage history read failed", e);
-      if (!cancelledRef.current) setError(String(e));
-    } finally {
-      if (!cancelledRef.current) setLoading(false);
-    }
-  }, [provider, accountId, sinceMs, limit, enabled]);
-
-  useEffect(() => {
-    cancelledRef.current = false;
-    refetch();
-    let unlisten: (() => void) | null = null;
-    if (enabled) {
-      listen<UsageSnapshotEvent>("usage-snapshot-updated", (evt) => {
-        if (cancelledRef.current) return;
-        if (evt.payload.provider !== provider) return;
-        const wantAcc = accountId ?? null;
-        if ((evt.payload.account_id ?? null) !== wantAcc) return;
-        refetch(evt.payload);
-      }).then((fn) => {
-        if (cancelledRef.current) fn();
-        else unlisten = fn;
-      });
-    }
-    return () => {
-      cancelledRef.current = true;
-      unlisten?.();
-    };
-  }, [provider, accountId, enabled, refetch, refetchToken]);
-
-  return { rows, loading, error, refetch };
+  const { provider, accountId = null, sinceMs, limit = 200, enabled = true, refetchToken = 0 } = opts;
+  const read = useUsageRead<UsageSnapshot[]>("usage_history", provider, accountId, enabled, sinceMs, limit, refetchToken);
+  return { rows: read.value ?? [], loading: read.loading, error: read.error, refetch: read.refetch };
 }
 
 export type SessionProjection = import("../../gen/SessionProjection").SessionProjection;
@@ -213,49 +166,64 @@ export interface UseUsageProjectionResult {
 
 export function useUsageProjection(opts: UseUsageProjectionOptions): UseUsageProjectionResult {
   const { provider, accountId = null, enabled = true } = opts;
-  const [projection, setProjection] = useState<ProjectionResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const cancelledRef = useRef(false);
+  const read = useUsageRead<ProjectionResponse>("usage_projection", provider, accountId, enabled);
+  return { projection: read.value, loading: read.loading, error: read.error, refetch: read.refetch };
+}
+
+function useUsageRead<T>(
+  command: "usage_history" | "usage_projection", provider: string, accountId: string | null,
+  enabled: boolean, since?: number, limit?: number, refetchToken?: number,
+) {
+  const peerId = useUsageMachine();
+  const scope = JSON.stringify([peerId, provider, accountId, since, limit]);
+  const [reading, setReading] = useState<{ scope: string; value: T | null } | null>(null);
+  const [loadingScope, setLoadingScope] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ scope: string; error: string } | null>(null);
+  const sequence = useRef(0);
 
   const refetch = useCallback(async (event?: UsageSnapshotEvent) => {
     if (!enabled) return;
-    setLoading(true);
-    setError(null);
+    const read = ++sequence.current;
+    setLoadingScope(scope);
+    setFailure(null);
     try {
-      const result = await readUsageOnEvent<ProjectionResponse | null>(event, "usage_projection", {
-        provider,
-        accountId: accountId ?? undefined,
+      const value = await readUsageOnEvent<T | null>(event, command, {
+        provider, accountId: accountId ?? undefined, since, limit, ...scopedUsageArgs(peerId),
       }, invoke);
-      if (!cancelledRef.current) setProjection(result ?? null);
-    } catch (e) {
-      if (DEV_BUILD) console.debug("Background usage projection read failed", e);
-      if (!cancelledRef.current) setError(String(e));
+      if (read === sequence.current) setReading({ scope, value: value ?? null });
+    } catch (error) {
+      if (DEV_BUILD) console.debug("Background usage read failed", error);
+      if (read !== sequence.current) return;
+      if (peerId) setReading(null);
+      setFailure({ scope, error: String(error) });
     } finally {
-      if (!cancelledRef.current) setLoading(false);
+      if (read === sequence.current) setLoadingScope(null);
     }
-  }, [provider, accountId, enabled]);
+  }, [accountId, command, enabled, peerId, limit, provider, scope, since]);
 
   useEffect(() => {
-    cancelledRef.current = false;
     if (!enabled) return;
-    refetch();
-    let unlisten: (() => void) | null = null;
-    listen<UsageSnapshotEvent>("usage-snapshot-updated", (evt) => {
-      if (cancelledRef.current) return;
-      if (evt.payload.provider !== provider) return;
-      const wantAcc = accountId ?? null;
-      if ((evt.payload.account_id ?? null) !== wantAcc) return;
-      refetch(evt.payload);
-    }).then((fn) => {
-      if (cancelledRef.current) fn();
-      else unlisten = fn;
-    });
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void refetch();
+    void subscribeUsageUpdates(peerId, provider, accountId, event => {
+      if (active) void refetch(event);
+    }, () => {
+      ++sequence.current;
+      setReading(null);
+      setLoadingScope(null);
+    }).then(stop => { if (active) unlisten = stop; else stop(); });
     return () => {
-      cancelledRef.current = true;
+      active = false;
+      ++sequence.current;
       unlisten?.();
     };
-  }, [provider, accountId, enabled, refetch]);
+  }, [accountId, enabled, peerId, provider, refetch, refetchToken]);
 
-  return { projection, loading, error, refetch };
+  return {
+    value: enabled && reading?.scope === scope ? reading.value : null,
+    loading: enabled && loadingScope === scope,
+    error: enabled && failure?.scope === scope ? failure.error : null,
+    refetch,
+  };
 }

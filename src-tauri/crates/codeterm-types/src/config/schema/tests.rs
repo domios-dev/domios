@@ -1,9 +1,64 @@
 use super::{
-    reconcile_agent_levels, shipped_sound, AgentLevelChoice, IntegrationsConfig, MemoryConfig,
-    NotificationConfig, OrchestrationConfig, OrchestrationDigestsConfig, PushChannelConfig,
-    UiConfig, UsageConfig,
+    reconcile_agent_levels, shipped_sound, AgentLevelChoice, AppConfig, IntegrationsConfig,
+    MemoryConfig, NotificationConfig, OrchestrationConfig, OrchestrationDigestsConfig,
+    PushChannelConfig, UiConfig, UsageConfig,
 };
 use codeterm_notify_types::{NotifyDestination, NotifyLevel};
+
+#[test]
+fn appearance_tuning_reads_legacy_edges_and_writes_border_strength() {
+    let config: AppConfig = toml::from_str(
+        r#"
+appearance_active = "look"
+
+[appearance]
+roundness = 0.4
+shadow_strength = 0.5
+edges = "defined"
+font_size = 1
+
+[[appearance_proposals]]
+id = "look"
+rationale = "Saved look"
+state = "applied"
+
+[appearance_proposals.look.theme]
+name = "Current look"
+
+[appearance_proposals.look.tuning]
+roundness = 0.4
+shadow_strength = 0.5
+edges = "defined"
+font_size = 1
+
+[appearance_proposals.previous.theme]
+name = "Previous look"
+
+[appearance_proposals.previous.tuning]
+roundness = 1.0
+shadow_strength = 1.0
+edges = "subtle"
+font_size = 0
+"#,
+    )
+    .unwrap();
+    let current = config.appearance.unwrap();
+    let saved = &config.appearance_proposals[0];
+    assert_eq!(current.border_strength, 1.0);
+    assert_eq!(current.roundness, 0.4);
+    assert_eq!(current.shadow_strength, 0.5);
+    assert_eq!(current.font_size, 1);
+    assert_eq!(saved.look.tuning, Some(current));
+    assert_eq!(saved.previous.tuning.unwrap().border_strength, 0.25);
+
+    let toml = toml::to_string(&config).unwrap();
+    assert!(!toml.contains("edges ="));
+    let readback: AppConfig = toml::from_str(&toml).unwrap();
+    assert_eq!(readback.appearance_active.as_deref(), Some("look"));
+    assert_eq!(readback.appearance, config.appearance);
+    assert_eq!(readback.appearance_proposals[0].look, saved.look);
+    assert_eq!(readback.appearance_proposals[0].previous, saved.previous);
+}
 
 /// A channel id core has never heard of. Every column assertion below routes
 /// through one of these, so nothing here can pass by knowing a real channel.

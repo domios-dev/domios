@@ -1,5 +1,13 @@
 use super::*;
-use codeterm_util::autostart::{build_linux_unit, build_macos_plist, build_windows_task_command};
+use codeterm_util::autostart::{
+    build_linux_unit, build_macos_plist, build_windows_task_command, MacosLaunchAgent,
+};
+
+const MACOS_AGENT: MacosLaunchAgent<'_> = MacosLaunchAgent {
+    label: "com.domios.app",
+    bundle_id: "com.domios.app",
+    environment: &[],
+};
 
 #[test]
 fn installed_application_candidates_never_select_a_cli_command() {
@@ -37,7 +45,7 @@ fn installed_application_candidates_never_select_a_cli_command() {
 #[test]
 fn macos_plist_contains_label_and_binary_and_keepalive_and_runatload() {
     let plist = build_macos_plist(
-        "com.domios.app",
+        MACOS_AGENT,
         "/Users/me/.domios/bin/codeterm",
         "/Applications/Domios.app/Contents/MacOS/domios-app",
     );
@@ -76,7 +84,7 @@ fn linux_unit_handles_path_with_spaces() {
 #[test]
 fn macos_plist_escapes_xml_metacharacters() {
     let plist = build_macos_plist(
-        "com.domios.app",
+        MACOS_AGENT,
         "/Users/me/Code & Term/codeterm",
         "/Applications/Domios <App>.app/Contents/MacOS/domios-app",
     );

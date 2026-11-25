@@ -18,6 +18,7 @@ struct FakeConnection {
     state: Mutex<FakeState>,
     closed: watch::Sender<Option<String>>,
     fail_metrics: std::sync::atomic::AtomicBool,
+    attach_to: Mutex<Option<String>>,
 }
 
 impl FakeConnection {
@@ -26,6 +27,7 @@ impl FakeConnection {
             state: Mutex::new(FakeState::default()),
             closed: watch::channel(None).0,
             fail_metrics: std::sync::atomic::AtomicBool::new(false),
+            attach_to: Mutex::new(None),
         })
     }
 
@@ -124,14 +126,19 @@ impl CdpConnection for FakeConnection {
             "Target.attachToTarget" => {
                 let target = params["targetId"].as_str().unwrap();
                 let session = format!("S{target}");
+                let attached = self
+                    .attach_to
+                    .lock()
+                    .take()
+                    .unwrap_or_else(|| target.into());
                 self.state
                     .lock()
                     .sessions
-                    .insert(session.clone(), target.into());
+                    .insert(session.clone(), attached.clone());
                 self.emit(
                     "Target.attachedToTarget",
                     None,
-                    json!({ "sessionId": session, "targetInfo": { "targetId": target } }),
+                    json!({ "sessionId": session, "targetInfo": { "targetId": attached } }),
                 );
                 Ok(json!({ "sessionId": session }))
             }
@@ -149,9 +156,6 @@ impl CdpConnection for FakeConnection {
             "Page.getLayoutMetrics" => Ok(
                 json!({"cssLayoutViewport":{"pageX":0,"pageY":0,"clientWidth":390,"clientHeight":844},"cssContentSize":{"x":0,"y":0,"width":400,"height":1000}}),
             ),
-            "Runtime.evaluate" if params["expression"] == "window.devicePixelRatio" => {
-                Ok(json!({"result":{"type":"number","value":1.0}}))
-            }
             "Page.captureScreenshot" => {
                 Ok(json!({ "data": if session == Some("ST1") { "QQ==" } else { "Qg==" } }))
             }
@@ -312,6 +316,84 @@ async fn two_surfaces_share_connection_with_distinct_targets_frames_and_input() 
 }
 
 #[tokio::test]
+async fn mismatched_attachment_cannot_stream_another_surfaces_target() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("profile");
+    let connection = FakeConnection::new();
+    let launches = Arc::new(AtomicUsize::new(0));
+    let first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    let first = Arc::new(from_lease(first, Viewport::default(), hub()).await.unwrap());
+    let second = acquire(dir, connection.clone(), launches).await;
+    *connection.attach_to.lock() = Some(first.page.target_id().to_string());
+    let other_frames = hub();
+
+    let refused = from_lease(second, Viewport::default(), other_frames.clone()).await;
+
+    assert_eq!(
+        refused.err().as_deref(),
+        Some("CDP session was attached to a different target")
+    );
+    assert!(other_frames.latest().is_none());
+    assert_eq!(
+        connection.params("Target.closeTarget"),
+        vec![json!({ "targetId": "T2" })]
+    );
+    first
+        .page
+        .send("Page.getNavigationHistory", json!({}))
+        .await
+        .unwrap();
+    stop(first).await;
+}
+
+#[tokio::test]
+async fn already_closed_target_does_not_stop_another_owners_browser() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("profile");
+    let connection = FakeConnection::new();
+    let launches = Arc::new(AtomicUsize::new(0));
+    let first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    let second = acquire(dir, connection.clone(), launches).await;
+    let first = Arc::new(from_lease(first, Viewport::default(), hub()).await.unwrap());
+    let second = Arc::new(
+        from_lease(second, Viewport::default(), hub())
+            .await
+            .unwrap(),
+    );
+    assert!(connection
+        .state
+        .lock()
+        .targets
+        .remove(first.page.target_id()));
+    stop(first).await;
+    assert_eq!(connection.count("Browser.close"), 0);
+    assert!(second.is_alive());
+    stop(second).await;
+    assert_eq!(connection.count("Browser.close"), 1);
+}
+
+#[tokio::test]
+async fn browser_status_observes_connection_loss_with_its_reason() {
+    let root = tempfile::tempdir().unwrap();
+    let connection = FakeConnection::new();
+    let lease = acquire(
+        root.path().join("profile"),
+        connection.clone(),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let host = crate::BrowserHost::new(crate::BrowserHostConfig::under_data_dir(root.path()));
+    host.install(from_lease(lease, Viewport::default(), hub()).await.unwrap());
+    assert_eq!(host.status(), crate::BrowserStatus::Running);
+    connection.close("fixture Chromium connection ended");
+    assert_eq!(
+        host.status(),
+        crate::BrowserStatus::Error("fixture Chromium connection ended".into())
+    );
+    host.close().await;
+}
+
+#[tokio::test]
 async fn crash_retires_all_old_leases_and_relaunch_survives_stale_close() {
     let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
     let dead = FakeConnection::new();
@@ -416,8 +498,7 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
         assert_eq!(metrics[metrics.len() - 2]["mobile"], true);
         assert_eq!(
             metrics.last().unwrap(),
-            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false,
-                "viewport":{"x":0,"y":0,"width":1600,"height":900,"scale":1}})
+            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false,"screenWidth":1600,"screenHeight":900})
         );
         assert_eq!(host.viewport(), Viewport::default());
         assert_eq!(
@@ -549,7 +630,7 @@ async fn ordinary_owned_captures_resolve_css_bounds_but_attached_captures_pass_t
 }
 
 #[tokio::test]
-async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates() {
+async fn owned_hidpi_emulation_follows_scroll_and_keeps_frames_in_css_coordinates() {
     let root = tempfile::tempdir().unwrap();
     let connection = FakeConnection::new();
     let lease = acquire(
@@ -578,7 +659,7 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
         .unwrap();
     let page = runtime.page.clone();
     host.install(runtime);
-    for dpr in [1.25, 1.5] {
+    for dpr in [1.25, 1.5, 2.0] {
         if viewport.dpr != dpr {
             viewport.dpr = dpr;
             host.set_viewport(crate::ViewportRequest {
@@ -601,10 +682,11 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
             ),
             (1320.0, 996.0)
         );
+        // Chrome 157 reports CSS-pixel metadata at any emulated density once the viewport is unpinned.
         for ack in 1..=3 {
             connection.emit("Page.screencastFrame", Some(page.session_id()), json!({
                 "sessionId": ack, "data": "TA==",
-                "metadata": { "deviceWidth": 1320.0 * dpr, "deviceHeight": 996.0 * dpr, "scrollOffsetY": 222.0 }
+                "metadata": { "deviceWidth": 1320.0, "deviceHeight": 996.0, "scrollOffsetY": 4000.0 }
             }));
             let live = tokio::time::timeout(Duration::from_secs(1), viewer.next())
                 .await
@@ -619,7 +701,7 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
                 ),
                 (1320.0, 996.0)
             );
-            assert_eq!(live.frame.metadata.scroll_offset_y, 222.0);
+            assert_eq!(live.frame.metadata.scroll_offset_y, 4000.0);
         }
         let requests = connection.state.lock().requests.clone();
         let metrics = requests
@@ -628,9 +710,9 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
             .find(|(_, method, _)| method == "Emulation.setDeviceMetricsOverride")
             .unwrap();
         assert_eq!(metrics.2["deviceScaleFactor"], dpr);
-        assert_eq!(
-            metrics.2["viewport"],
-            json!({"x":0,"y":0,"width":1320,"height":996,"scale":1})
+        assert!(
+            metrics.2.get("viewport").is_none(),
+            "a pinned viewport rect blanks the page past one scroll height"
         );
         let start = requests
             .iter()

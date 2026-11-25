@@ -21,12 +21,14 @@ const REASON_DETAIL: Record<TabCloseRejectionReason, string> = {
 export function tabCloseRejectionNotice(error: unknown, workspaceId: string, tabId: string): Notice {
   const reason = tabCloseRejectionReason(error);
   const raw = error instanceof Error ? error.message : String(error ?? "");
+  const daemonMessage = raw.replace(/^.*? → HTTP \d{3}: /, "").trim();
+  const message = reason === "unknown" && daemonMessage ? daemonMessage : REASON_DETAIL[reason];
   return {
     kind: "toast",
     id: `tab-close-rejected:${tabId}`,
     severity: "Error",
     title: "Tab was not closed",
-    detail: JSON.stringify({ code: "tab_close_refused", message: REASON_DETAIL[reason], ...(raw ? { raw } : {}) }),
+    detail: JSON.stringify({ code: "tab_close_refused", message, ...(raw ? { raw } : {}) }),
     tabId,
     workspaceId,
   };

@@ -285,6 +285,7 @@ pub enum RuntimeFailureCode {
     ProcessUnavailable,
     ProtocolError,
     ProviderRefused,
+    ModelUnavailable,
     AuthenticationRequired,
     ThreadNotFound,
     SessionLoadRefused,

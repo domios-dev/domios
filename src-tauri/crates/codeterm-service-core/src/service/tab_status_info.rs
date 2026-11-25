@@ -56,13 +56,16 @@ impl ServiceContext {
         let tab = mux
             .get_tab(tab_id)
             .ok_or(format!("Tab not found: {}", tab_id))?;
-        let status =
-            crate::multiplexer::state::tab_status_label(tab, self.resolved_tab_status(tab))
-                .to_string();
+        let (status, browser_failure) = self.browser_tab_status_fields(tab).unwrap_or_else(|| {
+            (
+                crate::multiplexer::state::tab_status_label(tab, self.resolved_tab_status(tab)),
+                None,
+            )
+        });
         let children = mux.get_children_ids(tab_id);
         Ok(TabStatusInfo {
             tab_id: tab.id.clone(),
-            status,
+            status: status.into(),
             agent_type: tab.agent_type.clone(),
             agent_session_id: tab.agent_session_id.clone(),
             role: tab.role,
@@ -75,21 +78,30 @@ impl ServiceContext {
             title: tab.title.clone(),
             team_id: tab.team_id.clone(),
             pending_prompt: tab.pending_prompt.clone(),
-            failure: tab_failure(
-                tab.boot_stage,
-                tab.boot_failure_reason.as_deref(),
-                tab.agent_runtime_state.as_ref(),
-            )
-            .or_else(|| {
-                ack_failure.map(|reason| TabFailure {
+            failure: browser_failure
+                .map(|reason| TabFailure {
                     boot_stage: None,
                     runtime_state: None,
-                    code: Some(
-                        crate::service::worker_ack::ack_failure::WORKER_ACK_FAILED.to_string(),
-                    ),
-                    reason,
+                    code: None,
+                    reason: first_line(&reason).unwrap_or(reason),
                 })
-            }),
+                .or_else(|| {
+                    tab_failure(
+                        tab.boot_stage,
+                        tab.boot_failure_reason.as_deref(),
+                        tab.agent_runtime_state.as_ref(),
+                    )
+                })
+                .or_else(|| {
+                    ack_failure.map(|reason| TabFailure {
+                        boot_stage: None,
+                        runtime_state: None,
+                        code: Some(
+                            crate::service::worker_ack::ack_failure::WORKER_ACK_FAILED.to_string(),
+                        ),
+                        reason,
+                    })
+                }),
             full_access,
         })
     }

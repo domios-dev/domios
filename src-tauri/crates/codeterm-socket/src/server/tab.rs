@@ -342,6 +342,24 @@ pub(super) fn dispatch(
         "tab.send_text" => {
             let raw_tab_id = get_string_param(params, "tab_id")?;
             let raw_text = get_string_param(params, "text")?;
+            let attachments: codeterm_service_core::service::local_preview::PadAttachments = params
+                .as_ref()
+                .map(serde::Deserialize::deserialize)
+                .transpose()
+                .map_err(|error| JsonRpcError {
+                    code: -32602,
+                    message: error.to_string(),
+                    data: None,
+                })?
+                .unwrap_or_default();
+            let local = opt_string_param(params, "authenticated_mesh_peer_id").is_none();
+            if !local && !attachments.is_empty() {
+                return Err(JsonRpcError {
+                    code: -32003,
+                    message: "Pad attachments require a local tab message".into(),
+                    data: None,
+                });
+            }
             let enter = params
                 .as_ref()
                 .and_then(|p| p.get("enter"))
@@ -402,15 +420,20 @@ pub(super) fn dispatch(
                 }
             }
             let restored_send = writes_pty && svc.public_send_restores_agent(&resolved_target);
-            let response = if source_tab.is_some() || target_has_agent || system_context.is_some() {
+            let response = if source_tab.is_some()
+                || target_has_agent
+                || system_context.is_some()
+                || !attachments.is_empty()
+            {
                 let src = source_tab.as_deref().unwrap_or("");
-                let (from_label, model, from_agent) = {
+                let (from_label, model, from_agent, from_transcript_router) = {
                     let m = mux.read();
                     let source = m.get_tab(src);
                     (
                         m.display_label_for_tab(src),
                         source.and_then(|tab| tab.agent_session_model_label()),
                         source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
+                        source.is_some_and(|tab| tab.is_transcript_router()),
                     )
                 };
                 let envelope = codeterm_service_core::service::messenger::MessageEnvelope::tab(
@@ -418,8 +441,10 @@ pub(super) fn dispatch(
                     src.to_string(),
                 )
                 .model(model)
-                .from_agent(Some(from_agent));
+                .from_agent(Some(from_agent))
+                .from_transcript_router(from_transcript_router);
                 let envelope = signed_send_envelope(envelope, system_context);
+                let from_transcript_router = envelope.from_transcript_router;
                 let class = if envelope.kind
                     == codeterm_service_core::service::messenger::MessageKind::System
                 {
@@ -429,7 +454,13 @@ pub(super) fn dispatch(
                 };
                 let (delivery, pad_file) = svc
                     .as_ref()
-                    .gateway_deliver_with_pad_file(&resolved_target, envelope, &raw_text, class)
+                    .gateway_deliver_with_shares(
+                        &resolved_target,
+                        envelope,
+                        &raw_text,
+                        class,
+                        local.then_some(&attachments),
+                    )
                     .map_err(|e| JsonRpcError {
                         code: -32603,
                         message: e,
@@ -444,6 +475,15 @@ pub(super) fn dispatch(
                 } else {
                     svc.public_delivery_receipt(&resolved_target, delivery)
                 };
+                use codeterm_service_core::service::messenger::Delivery;
+                if from_transcript_router
+                    && matches!(
+                        delivery,
+                        Delivery::ChatBackend { .. } | Delivery::Pty { .. }
+                    )
+                {
+                    svc.record_live_transcript_forward(src, &resolved_target, &raw_text);
+                }
                 gateway_send_response(delivery, pad_file)
             } else {
                 let (text, pad_file) = svc

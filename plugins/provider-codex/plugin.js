@@ -2674,6 +2674,29 @@ function notificationAuth(value) {
   return { kind: "auth", state: "unknown" };
 }
 
+// plugins/provider-codex/src/modelRefusal.ts
+function httpError(message) {
+  const body = message?.startsWith("{") ? message : message?.match(/(?:^|unexpected status )400 Bad Request:\s*(\{.*\})(?:, url:|$)/s)?.[1];
+  if (!body) return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+function modelRefusal(value, requestedModel) {
+  const failure2 = object2(value);
+  const diagnostic = text2(failure2.additionalDetails) ?? text2(failure2.message);
+  const data = object2(failure2.data);
+  const body = [failure2, data, object2(httpError(diagnostic))].map((candidate) => object2(candidate.error)).find((candidate) => candidate.code === "model_not_found" && candidate.type === "invalid_request_error");
+  const message = text2(body?.message) ?? diagnostic;
+  const namedModel = message?.match(/^The '([^'\s]+)' model is not supported when using Codex with a ChatGPT account\.$/)?.[1];
+  if (!body && !namedModel) return;
+  const model = namedModel ?? text2(body?.model) ?? requestedModel;
+  if (!model || !message) return;
+  return { model, message };
+}
+
 // plugins/provider-codex/src/runtimeBackground.ts
 var identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0");
 function invalid(message) {
@@ -2883,6 +2906,27 @@ function restoreContextItems(raw) {
 
 // plugins/provider-codex/src/runtimeSettings.ts
 var windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+var neighborReplyMcp = "domios_neighbor_reply";
+function codexNeighborReplyMcpConfig(ctx) {
+  const server2 = ctx.hostMcp;
+  if (server2?.name !== neighborReplyMcp) return {};
+  return { [`mcp_servers.${neighborReplyMcp}`]: {
+    command: server2.command,
+    args: [...server2.args],
+    env: { ...server2.env ?? {} },
+    env_vars: ["CODETERM_API_TOKEN"],
+    required: true,
+    enabled_tools: ["reply"],
+    tools: { reply: { approval_mode: "approve" } }
+  } };
+}
+function codexNeighborReadInstructions(ctx, instructions) {
+  if (ctx.hostMcp?.name !== neighborReplyMcp) return instructions;
+  const readGuidance = `For an in-scope file, try a native file read or a read-only shell command before reporting it unavailable. Resolve relative file paths from the working directory ${JSON.stringify(ctx.cwd)}. The writable AgentPad is only for pad files.`;
+  return instructions ? `${instructions}
+
+${readGuidance}` : readGuidance;
+}
 function codexRestrictedCliConfig(ctx) {
   const policy = ctx.restrictedCli;
   if (!policy) return {};
@@ -2942,7 +2986,7 @@ function codexNeedsWindowsSandboxSelection(raw, needsSplitRoots = false) {
   return true;
 }
 function codexNeedsSplitWindowsRoots(ctx) {
-  return ctx.settings.mode === "read-only-with-writable-roots" && ctx.restrictedCli?.splitWindowsRoots === true;
+  return ctx.settings.mode === "read-only-with-writable-roots" && (ctx.restrictedCli?.splitWindowsRoots === true || ctx.hostMcp?.name === neighborReplyMcp && /^[A-Za-z]:[\\/]/.test(ctx.hostMcp.command));
 }
 function codexManagedMxcRefusal(error) {
   const prefix = "failed to load configuration: invalid value for `windows.sandbox`: `Some(Mxc)` is not in the allowed set windows.allow_mxc = false (set by ";
@@ -3520,6 +3564,13 @@ function mapItem(state, method, params) {
   }
   return stamp(state, stampToolLifecycle(row3, previous, method, params), params);
 }
+function turnError(state, turnId, failure2, willRetry, model) {
+  const row3 = { id: `${turnId}:error`, seq: state.seq + 1, type: "system" };
+  const refusal = willRetry ? void 0 : modelRefusal(failure2, model);
+  if (refusal) return { ...row3, content: refusal.message, systemSubtype: "model_unavailable", toolInput: { model: refusal.model } };
+  const error = runtimeError(failure2, willRetry, state.rateLimitSnapshot);
+  return { ...row3, content: error.message, systemSubtype: willRetry ? "provider_retry" : "api_error", toolInput: error.metadata };
+}
 function runtimeReduce(ctx, raw, frames) {
   var _a;
   const state = initial(ctx, raw);
@@ -3623,8 +3674,7 @@ function runtimeReduce(ctx, raw, frames) {
         delete state.compacting;
         const failure2 = outputLimit(params.turn) ? object2(params.turn) : object2(object2(params.turn).error);
         if (Object.keys(failure2).length) {
-          const error = runtimeError(failure2, false, state.rateLimitSnapshot);
-          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
+          events.push({ kind: "chatItem", threadId, item: stamp(state, turnError(state, turnId, failure2, false, ctx.settings.model), params) });
         }
         const outcome2 = turnOutcome(params.turn);
         events.push({ kind: "turnState", threadId, turnId, state: "idle", ...outcome2 ? { detail: outcome2 } : {}, ...timing(params) });
@@ -3690,8 +3740,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "error": {
-        const error = runtimeError(params.error, params.willRetry === true, state.rateLimitSnapshot);
-        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: params.willRetry === true ? "provider_retry" : "api_error", toolInput: error.metadata }, params) });
+        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, turnError(state, turnId, params.error, params.willRetry === true, ctx.settings.model), params) });
         break;
       }
       default: {
@@ -3784,7 +3833,7 @@ function request(method, params, state = { stage: method }) {
   return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
 }
 function settingsParams(ctx, settings, instructions, windowsSandbox) {
-  instructions = codexRestrictedCliInstructions(ctx, instructions);
+  instructions = codexNeighborReadInstructions(ctx, codexRestrictedCliInstructions(ctx, instructions));
   const policies = codexRuntimePolicy(settings);
   const sandbox = object2(policies.sandboxPolicy).type;
   return {
@@ -3792,7 +3841,7 @@ function settingsParams(ctx, settings, instructions, windowsSandbox) {
     model: settings.model,
     ...codexServiceTier(settings),
     threadSource: "user",
-    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
+    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...codexNeighborReplyMcpConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
     ...policies.runtimeWorkspaceRoots ? { runtimeWorkspaceRoots: policies.runtimeWorkspaceRoots } : {},
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,
@@ -3994,6 +4043,10 @@ function respondOperation(ctx, op, raw, reply) {
     return pagedHistoryResponse(op, state, reply);
   }
   if (reply.kind === "error") {
+    const model = op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume" || op.kind === "submitTurn" && state.stage === "turn/start" ? op.settings.model : void 0;
+    const refusal = model && modelRefusal(reply.error, model);
+    if (refusal && refusal.model === model)
+      return { kind: "refused", reason: { code: "model_unavailable", message: refusal.message }, beforeAcceptance: true };
     if ((op.kind === "openThread" && state.stage === "thread/start" || op.kind === "resumeThread" && state.stage === "thread/resume") && state.windowsSandbox === "mxc" && codexNeedsSplitWindowsRoots(ctx) && codexManagedMxcRefusal(reply.error))
       return continuation(threadPlan(ctx, op, void 0, state.unarchived === true));
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error, op.threadId))
@@ -5641,7 +5694,17 @@ function* checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseIn
 var codexSelfUpdateCapability = {
   npmPackage: "@openai/codex",
   standaloneDirectory: "packages/standalone",
-  standaloneArgs: ["update"]
+  standaloneArgs: ["update"],
+  macosAppBundle: {
+    bundleIdentifier: "com.openai.codex",
+    teamIdentifier: "2DC432GLL2",
+    executablePaths: [
+      "Contents/Resources/codex",
+      "Contents/Resources/codex-cli/bin/codex",
+      "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+    ],
+    updateGuidance: "This CLI comes with Codex Desktop. Open the desktop app and use its built-in update option."
+  }
 };
 function* checkCodexUpdate(host2) {
   return yield* checkProviderUpdate(host2, "codex", `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`, void 0, installedVersion);

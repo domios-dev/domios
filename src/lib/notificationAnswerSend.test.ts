@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { sendNotificationAnswer, type AnswerResult } from "./notificationAnswerSend";
 import { updateNotificationAnswer } from "./notificationAnswer";
 import type { Notification } from "./types";
+import { TransportError } from "./transportClient";
 
 async function run() {
   let notification: Notification = {
@@ -36,9 +37,11 @@ async function run() {
   assert.equal(notification.answer?.delivered, true);
 
   notification = { ...notification, answer: { asked_from_tab: "asker", answered: null, delivered: false } };
-  await sendNotificationAnswer("question", "A", pending, notification, async () => { throw new Error("Tab unavailable"); }, update);
+  await sendNotificationAnswer("question", "A", pending, notification, async () => {
+    throw new TransportError(409, "/api/notifications/question/answer", "The tab that asked this question is gone");
+  }, update);
   assert.equal(notification.answer_pending, false);
-  assert.match(notification.answer_error ?? "", /Tab unavailable/);
+  assert.match(notification.answer_error ?? "", /The tab that asked this question is gone/);
   assert.equal(pending.size, 0);
   await sendNotificationAnswer("question", "A", pending, notification, async () => ({ answered: "A", delivered: false, deliveryError: "No agent" }), update);
   assert.equal(notification.answer_pending, false);

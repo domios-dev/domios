@@ -11,7 +11,6 @@ import { decideKey, type PagePoint, type PageRect, type Rect, type StreamInput }
 import {
   addressSubmission,
   askPopoverPosition,
-  blockedNotice,
   canOpenExternally,
   CHROME_ITEM,
   elementCard,
@@ -345,6 +344,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
         picking={picking}
         snipping={snipping}
         frames={stream.frames}
+        subscribeCursor={stream.subscribeCursor}
         decode={decode}
         onViewport={stream.onViewport}
         onHidden={stream.onHidden}
@@ -353,7 +353,11 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
         onPaste={chrome.clipboard ? pasteText : undefined}
         onPick={onPick}
         onHover={(point) => { if (!picked) hover.current?.push(point); }}
-        onBlocked={() => setNotice(stream.unavailable ?? { text: inputFailure ?? blockedNotice(state.owner) })}
+        onBlocked={() => {
+          // The canvas hint already says "Press Take control"; only real failures get a toast.
+          const failure = stream.unavailable ?? (inputFailure ? { text: inputFailure } : null);
+          if (failure) setNotice(failure);
+        }}
         onExitInteraction={() => setInteractive(false)}
         onCancelPick={cancelPick}
         onSnip={onSnip}

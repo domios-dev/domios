@@ -539,6 +539,53 @@ Quit the exact local application after successful server cleanup and observed ex
 
 - `--exact`
 
+#### `domios appearance`
+
+Propose, review, apply and undo a machine's appearance
+
+#### `domios appearance apply`
+
+Apply a reviewed proposal on the selected machine
+
+- `<id>`
+- `--machine`
+
+#### `domios appearance current`
+
+Read the current look and available presets on one machine
+
+- `--machine`
+
+#### `domios appearance propose`
+
+Validate and store a complete look for review
+
+- `--from-pad` — TOML in your Agent Pad with [theme], [appearance] and wallpaper
+- `--machine`
+- `--rationale` — One-line colour-harmony rationale
+
+#### `domios appearance show`
+
+Read a stored proposal and its measured contrast
+
+- `<id>`
+- `--machine`
+
+#### `domios appearance tweak`
+
+Apply tuning controls immediately from this machine's bound General Main session
+
+- `--from-pad` — Tuning-only TOML in your Agent Pad
+- `--machine`
+- `--revision` — Revision returned by appearance current
+
+#### `domios appearance undo`
+
+Restore the look that was active before applying this proposal
+
+- `<id>`
+- `--machine`
+
 #### `domios blueprint`
 
 Cheap hash-gated watchers with closed-set routes
@@ -1117,6 +1164,84 @@ Show current keep-awake status (default)
 #### `domios keepawake stop`
 
 Stop the current keep-awake session
+
+#### `domios live-transcript`
+
+Work with a tab's committed microphone transcript and routing
+
+#### `domios live-transcript ack`
+
+Acknowledge a fully consumed committed sequence
+
+- `--revision` — Active binding revision advertised by the owner or route
+- `--tab` — Exact live transcript owner tab ID
+- `--through-seq` — Advance through this fully consumed sequence
+
+#### `domios live-transcript attach`
+
+Select the attached router, an external tab, or the routing mode (owner only)
+
+- `--external-tab` — Exact external destination tab ID, including the owner tab itself
+- `--from-beginning` — Start a newly selected external consumer from the beginning
+- `--mode-only` — Set the trigger without replacing the active binding
+- `--tab` — Exact live transcript owner tab ID
+- `--trigger` — Set a deliberate trigger mode
+
+#### `domios live-transcript mark-seen`
+
+Mark a sequence seen without acknowledging consumption
+
+- `--revision` — Active binding revision advertised by the owner or route
+- `--tab` — Exact live transcript owner tab ID
+- `--through-seq` — Advance through this fully consumed sequence
+
+#### `domios live-transcript overview`
+
+Show the owner transcript's status, cursor and retained size
+
+- `--tab` — Exact live transcript owner tab ID
+
+#### `domios live-transcript pause`
+
+Flush and pause an exact live capture lease (owner only)
+
+- `--client` — Capture client UUID
+- `--lease` — Capture lease UUID
+- `--sequence` — Next capture frame sequence
+- `--tab` — Exact live transcript owner tab ID
+
+#### `domios live-transcript read`
+
+Read a page as the owner or the exact active consumer
+
+- `--char-offset` — Character offset from the previous Agent Format page
+- `--from-seq` — Sequence where the page starts
+- `--max-chars` — Character budget for an Agent Format page
+- `--revision` — Active binding revision, required for tab credentials
+- `--tab` — Exact live transcript owner tab ID
+- `--through-seq` — Last sequence to return for a routed range
+
+#### `domios live-transcript resume`
+
+Admit a new capture lease in resume mode (owner only)
+
+- `--client` — Capture client UUID that will provide the microphone frames
+- `--tab` — Exact live transcript owner tab ID
+
+#### `domios live-transcript search`
+
+Search retained speech and summaries (owner only)
+
+- `--from-seq` — Sequence where the search starts
+- `--limit` — Maximum rows to scan
+- `<query>` — Case-sensitive search text
+- `--tab` — Exact live transcript owner tab ID
+
+#### `domios live-transcript status`
+
+Show capture setup and routing readiness (owner only)
+
+- `--tab` — Exact live transcript owner tab ID
 
 #### `domios mcp`
 
@@ -3539,6 +3664,8 @@ Send text to a tab (default: current tab)
 
 - `--actions` — Terminal actions to run after optional text, comma-separated. Keys: literal characters, enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--attach` — Share a relative file from the current tab's pad in the recipient's chat. Repeat to share several files
+- `--copy` — Put a snapshot of each attachment in the receiving tab's pad inbox
 - `--count` — Stop after this many delivered or skipped ticks
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--every` — Repeat delivery to this existing tab at an anchored interval (minimum 1m)
@@ -4500,6 +4627,21 @@ Re-read usage from the provider's own quota-free source (never spends quota)
 
 - `--account-id`
 - `--provider`
+
+#### `domios wallpaper`
+
+Per-machine chat wallpaper
+
+#### `domios wallpaper clear`
+
+Restore the active theme's wallpaper on this machine
+
+#### `domios wallpaper set`
+
+Apply a static SVG to this machine or submit an owner-requested General draft
+
+- `--from-pad` — Read the SVG from your current agent pad, or use - for stdin
+- `--request` — Single-use request ID supplied to the target machine's General Agent
 
 #### `domios web`
 

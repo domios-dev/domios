@@ -52,6 +52,19 @@ impl CdpConnection for FieldConnection {
             {
                 json!({"result":{"value":match params["arguments"][0]["value"].as_str() {Some("begin") => "ready", Some("finish") if self.submitted => "submitted", Some("finish") => "no_form", _ => "cleaned"}}})
             }
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosTypeReadback")) =>
+            {
+                let secret = params["arguments"][0]["value"].as_bool().unwrap_or(false);
+                let field = self.field.lock().clone();
+                if secret {
+                    json!({"result":{"value":{"ok":true,"length":field.encode_utf16().count()}}})
+                } else {
+                    json!({"result":{"value":{"ok":true,"text":field}}})
+                }
+            }
             "Runtime.callFunctionOn" => {
                 json!({"result":{"value":if self.maskable {"focused"} else {"unmaskable"}}})
             }

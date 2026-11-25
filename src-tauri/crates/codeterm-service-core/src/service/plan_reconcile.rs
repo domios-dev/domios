@@ -114,6 +114,10 @@ impl ServiceContext {
     }
 
     pub fn flag_bound_tasks_for_gone_tab(&self, tab_id: &str, now_ms: u64) {
+        self.flag_gone_tab(tab_id, now_ms, false);
+    }
+
+    pub(crate) fn flag_gone_tab(&self, tab_id: &str, now_ms: u64, owner_closed: bool) {
         let losses = match self.worker_losses_for_tab(
             tab_id,
             crate::service::worker_loss::WorkerLossCause::TabGone,
@@ -124,7 +128,7 @@ impl ServiceContext {
                 return;
             }
         };
-        if let Err(error) = self.flag_bound_tasks_without_report(tab_id, now_ms) {
+        if let Err(error) = self.flag_bound_tasks_without_report(tab_id, now_ms, owner_closed) {
             log::warn!("[plan-reconcile] task binding lookup failed for {tab_id}: {error}");
             return;
         }
@@ -135,8 +139,13 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         now_ms: u64,
+        owner_closed: bool,
     ) -> Result<Vec<String>, super::plan::PlanError> {
-        let bindings = self.plan_store.task_bindings_for_tab(tab_id)?;
+        let bindings = if owner_closed {
+            self.plan_store.task_bindings_for_owner_tab_close(tab_id)?
+        } else {
+            self.plan_store.task_bindings_for_tab(tab_id)?
+        };
         if bindings.is_empty() {
             return Ok(Vec::new());
         }

@@ -302,6 +302,22 @@ impl SocketClient {
         }
     }
 
+    pub(crate) fn connect_bound_socket(
+        socket_path: &str,
+        credential: &str,
+    ) -> std::io::Result<Self> {
+        let name = normalize_socket_path(socket_path);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let name = name.strip_prefix('@').unwrap_or(&name);
+        let name = name.to_ns_name::<GenericNamespaced>()?;
+        let stream = interprocess::local_socket::Stream::connect(name)?;
+        Ok(Self {
+            transport: ClientTransport::Socket(BufReader::new(stream)),
+            credential: credential.into(),
+            next_id: 1,
+        })
+    }
+
     pub fn connect_socket_only() -> Result<(Self, ResolvedSocket), String> {
         let _ = resolve_socket_selection(
             std::env::var("CODETERM_SOCKET_PATH").ok().as_deref(),

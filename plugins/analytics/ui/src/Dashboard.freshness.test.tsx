@@ -15,6 +15,7 @@ let host: HTMLElement | null = null;
 const calls: AnalyticsQuery[] = [];
 let reading: Partial<AnalyticsSnapshot> = {};
 let hold: Promise<void> | null = null;
+let heldGroup: AnalyticsGroupBy | null = null;
 let frames = new Map<number, FrameRequestCallback>();
 let nextFrame = 0;
 let clock = 0;
@@ -35,7 +36,7 @@ function installHarness() {
   (window as unknown as { ct: unknown }).ct = {
     invoke: vi.fn(async (_method: string, args: { query: AnalyticsQuery }) => {
       calls.push(args.query);
-      if (hold) await hold;
+      if (hold && (heldGroup === null || args.query.group_by === heldGroup)) await hold;
       const outcome: QueryOutcome = { kind: "snapshot", snapshot: snapshotFor(args.query.group_by as AnalyticsGroupBy, reading) };
       return outcome;
     }),
@@ -85,6 +86,7 @@ beforeEach(() => {
   calls.length = 0;
   reading = {};
   hold = null;
+  heldGroup = null;
   frames = new Map();
   nextFrame = 0;
   clock = 0;
@@ -99,6 +101,23 @@ afterEach(async () => {
 });
 
 describe("analytics freshness", () => {
+  it("shows selected totals and accepts a range change while another grouping is pending", async () => {
+    let release!: () => void;
+    hold = new Promise<void>((resolve) => { release = resolve; });
+    heldGroup = "workspace";
+    const view = await render();
+    try {
+      expect(figure(view, "turns").textContent).toBe("3");
+      const range = view.querySelector<HTMLButtonElement>('[role="tab"][data-value="30d"]')!;
+      await act(async () => range.click());
+      expect(range.getAttribute("aria-selected")).toBe("true");
+      expect(view.querySelector("main")?.getAttribute("aria-busy")).toBe("false");
+      expect(figure(view, "turns").textContent).toBe("3");
+    } finally {
+      await act(async () => release());
+    }
+  });
+
   it("coalesces a burst of KPI notices into one re-query", async () => {
     await render();
     expect(passes()).toBe(1);

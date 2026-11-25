@@ -226,18 +226,16 @@ describe("tab menu model", () => {
   });
 });
 
-it("offers Detach on a remote tab and names the machine its Close acts on", () => {
+it.each(["sidebar", "header"] as const)("offers Close without Detach for a shared tab", (surface) => {
   const remote = tab({ id: "mesh:peer/one", remote_peer_id: "peer", remote_peer_name: "PEER-NAME", remote_tab_id: "one" });
-  const entries = buildTabMenu(input("sidebar", { tab: remote }));
-  const detach = entries.find((entry) => entry.id === "detach");
-  expect(detach?.kind === "item" ? detach.action?.type : null).toBe("detach");
+  const entries = buildTabMenu(input(surface, { tab: remote }));
+  expect(entries.some((entry) => entry.id === "detach")).toBe(false);
   const close = entries.find((entry) => entry.id === "close");
+  expect(close).toMatchObject({ action: { type: "close" } });
   expect(close?.kind === "item" ? close.label : null).toContain("PEER-NAME");
-  const guarded = buildTabMenu(input("sidebar", { tab: { ...remote, protected: true } }));
-  expect(guarded.some((entry) => entry.id === "detach")).toBe(true);
+  const guarded = buildTabMenu(input(surface, { tab: { ...remote, protected: true } }));
   expect(guarded.some((entry) => entry.id === "close")).toBe(false);
-  const local = buildTabMenu(input("sidebar"));
-  expect(local.some((entry) => entry.id === "detach")).toBe(false);
+  const local = buildTabMenu(input(surface));
   const localClose = local.find((entry) => entry.id === "close");
   expect(localClose?.kind === "item" ? localClose.label : null).not.toContain("PEER-NAME");
 });

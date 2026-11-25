@@ -11,6 +11,8 @@ use super::channel_ask::PushMessage;
 use super::push;
 use super::store::{Notification, NotificationProvenance};
 
+pub(crate) const MAX_PLACEMENTS_PER_NOTIFICATION: usize = 64;
+
 /// One channel's own address for a message it placed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct ChannelPlacement {
@@ -38,6 +40,9 @@ pub fn remember(
     }
     if target.placements.contains(&placement) {
         return true;
+    }
+    if target.placements.len() >= MAX_PLACEMENTS_PER_NOTIFICATION {
+        return false;
     }
     target.placements.push(placement);
     true
@@ -168,6 +173,20 @@ mod tests {
         let (mut store, _) = one_record();
         assert!(!store.remember_channel_placement("no-such-record", "telegram", "5:9"));
         assert!(store.channel_placements("no-such-record").is_empty());
+    }
+
+    #[test]
+    fn placement_cap_keeps_existing_callback_authority() {
+        let (mut store, id) = one_record();
+        for index in 0..MAX_PLACEMENTS_PER_NOTIFICATION {
+            assert!(store.remember_channel_placement(&id, "telegram", &index.to_string()));
+        }
+        assert!(!store.remember_channel_placement(&id, "telegram", "overflow"));
+        assert!(store.remember_channel_placement(&id, "telegram", "0"));
+        assert_eq!(
+            store.channel_placements(&id).len(),
+            MAX_PLACEMENTS_PER_NOTIFICATION
+        );
     }
 
     #[test]

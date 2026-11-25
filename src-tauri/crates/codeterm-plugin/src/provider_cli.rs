@@ -47,6 +47,40 @@ pub struct ProviderCliStatus {
     pub updater_prerequisites: Vec<CommandPrerequisite>,
 }
 
+impl ProviderCliStatus {
+    pub fn apply_self_update(
+        &mut self,
+        capability: &crate::provider_self_update::ProviderSelfUpdateCapability,
+        platform: &str,
+    ) {
+        use crate::provider_self_update::{detect_installation, update_command, Installation};
+
+        self.updater = None;
+        self.updater_prerequisites.clear();
+        let Some(path) = &self.resolved_path else {
+            return;
+        };
+        let installation = detect_installation(capability, path, platform);
+        if let Some(Installation::AppManaged { guidance }) = installation {
+            self.installer = None;
+            self.installer_prerequisites.clear();
+            self.latest_version = None;
+            self.update_job = None;
+            self.update_refusal = Some(guidance);
+            return;
+        }
+        self.updater =
+            installation.and_then(|owner| update_command(capability, path, &owner, platform));
+        self.updater_prerequisites = prerequisites::observe(self.updater.as_deref());
+        if self.updater.is_none() {
+            self.update_refusal = Some(
+                "Installation method is unknown or unsupported. Update with the installer that owns this binary."
+                    .into(),
+            );
+        }
+    }
+}
+
 pub fn observe_cli(
     binary: String,
     installer: Option<String>,

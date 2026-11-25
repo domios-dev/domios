@@ -31,10 +31,13 @@ function loaded(tab:string) {
   const step=response(ctx,op,plan.state,{id:ctx.threadId,directory:ctx.cwd});
   assert.equal(step.kind,"complete");return ctx;
 }
-function prepared(tab:string) {
-  const ctx=loaded(tab), op:Operation={kind:"submitTurn",threadId:ctx.threadId!,sendId:"send-owned",input:{text:"opaque prompt",attachments:[]},settings:ctx.settings};
+function prepared(tab:string, text="opaque prompt") {
+  const ctx=loaded(tab), input={text,attachments:[]};
+  ctx.claimedSends[0].input=input;
+  const op:Operation={kind:"submitTurn",threadId:ctx.threadId!,sendId:"send-owned",input,settings:ctx.settings};
   const plan=runtimePlan(ctx,op), wire=call(plan), message=String((wire.params as Record<string,JsonValue>).body && ((wire.params as Record<string,JsonValue>).body as Record<string,JsonValue>).messageID);
-  const frames=JSON.parse(JSON.stringify(fixture.frames).replaceAll("@message",message)) as RuntimeFrame[];
+  const frames=JSON.parse(JSON.stringify(fixture.frames).replaceAll("@message",message)
+    .replaceAll(JSON.stringify("opaque prompt"),()=>JSON.stringify(text))) as RuntimeFrame[];
   ctx.streamWindow={frameSequences:frames.map((_,index)=>101+index),turnRequests:[{sendId:"send-owned",turnId:message,afterSequence:100,written:true}]};
   return {ctx,op,plan,wire,message,frames};
 }
@@ -51,6 +54,19 @@ check("shared fixture projects exact user evidence, stream, tool lifecycle and u
   JSON.stringify(reduced,(_key,value)=>{assert.notEqual(value,undefined);return value;});
   const again=runtimeReduce(ctx,reduced.state,frames);
   assert.equal(again.events.filter(event=>event.kind === "sendEvidence").length,0);
+});
+check("preserves exact large echoed parts through assistant output and idle",()=>{
+  const text="opaque λ\n".repeat(32_000);
+  assert.ok(Buffer.byteLength(text) > 256*1024);
+  const {ctx,frames,message}=prepared("fixture-large-echo",text);
+  const {events}=runtimeReduce(ctx,null,frames);
+  const evidence=events.filter(event=>event.kind === "sendEvidence");
+  assert.deepEqual(evidence,[{kind:"sendEvidence",threadId:ctx.threadId,sendId:"send-owned",turnId:message,itemId:message}]);
+  const user=events.find(event=>event.kind === "chatItem" && event.item.type === "user");
+  assert.ok(user?.kind === "chatItem");
+  assert.equal(user.item.content,text);
+  assert.ok(events.some(event=>event.kind === "chatItem" && event.item.type === "assistant"));
+  assert.equal(events.filter(event=>event.kind === "turnState" && event.state === "idle").length,1);
 });
 check("unknown, foreign and prewrite user events never confirm sends",()=>{
   for (const kind of ["foreign","prewrite","unwritten"]) {

@@ -33,9 +33,6 @@ export interface MultiplexerActionsContextType {
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   createTab: (workspaceId: string, cwd?: string, shell?: string) => Promise<{ id: string } | void>;
   attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number], status?: TabStatus) => void;
-  /** Removes this machine's attachment of a remote tab; the tab keeps running on its peer. */
-  detachRemoteTab?: (tabId: string) => void;
-  removeRemoteMachineTabs?: (peerId: string, tabIds: readonly string[]) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed tab (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
