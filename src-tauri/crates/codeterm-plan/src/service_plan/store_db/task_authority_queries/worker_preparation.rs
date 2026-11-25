@@ -15,7 +15,7 @@ impl PlanDatabase {
             "{SELECTED_TASK_IN_PLAN} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
                 (SELECT json_object('task_id',t.task_id,'personality',json_extract(t.row_json,'$.personality'),
                     'speed',json_extract(t.row_json,'$.speed'),'lane_base',json_extract(t.row_json,'$.lane.base'),
-                    'brief',json_object('name',json_extract(t.row_json,'$.name'),'parent_task_id',json_extract(t.row_json,'$.parent_task_id'),
+                    'brief',json_object('id',t.task_id,'name',json_extract(t.row_json,'$.name'),'parent_task_id',json_extract(t.row_json,'$.parent_task_id'),
                         'body',CASE WHEN json_type(t.row_json,'$.body') IS NULL THEN '' ELSE json_extract(t.row_json,'$.body') END,
                         'intent',json_extract(t.row_json,'$.intent'),'correctness',json_extract(t.row_json,'$.correctness'),
                         'test_plan',json_extract(t.row_json,'$.test_plan'),'role_guidance',json_extract(t.row_json,'$.role_guidance'),
@@ -53,10 +53,28 @@ impl PlanDatabase {
         read.brief.sections = rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
         drop(statement);
         record_query();
-        let mut statement=tx.prepare("SELECT json_object('kind',json_extract(row_json,'$.kind'),'text',CASE WHEN json_type(row_json,'$.text') IS NULL THEN '' ELSE json_extract(row_json,'$.text') END)
-            FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq").map_err(db_error)?;
+        let mut statement=tx.prepare(
+            "SELECT json_object('id',coalesce(json_extract(row_json,'$.id'),''),'kind',json_extract(row_json,'$.kind'),
+                'text',CASE WHEN json_type(row_json,'$.text') IS NULL THEN '' ELSE json_extract(row_json,'$.text') END,
+                'ts',json(row_json->'$.ts'))
+             FROM plan_task_milestones
+             WHERE plan_id=?1 AND task_id=?2
+                AND domios_worker_stride_rank(json_extract(row_json,'$.kind')) IS NOT NULL
+                AND trim(coalesce(json_extract(row_json,'$.text'),''),?3)<>''
+             ORDER BY domios_worker_stride_rank(json_extract(row_json,'$.kind')),
+                domios_u64_order(row_json->'$.ts') DESC,json_extract(row_json,'$.id') DESC,seq
+             LIMIT ?4"
+        ).map_err(db_error)?;
         let rows = statement
-            .query_map(params![plan, read.task_id], |row| column::<String>(row, 0))
+            .query_map(
+                params![
+                    plan,
+                    read.task_id,
+                    super::super::status_queries::WHITESPACE,
+                    crate::service_plan::stride_context::WORKER_STRIDE_LIMIT
+                ],
+                |row| column::<String>(row, 0),
+            )
             .map_err(db_error)?;
         read.brief.strides = rows
             .map(|row| decode::<TaskBriefStrideRead>(plan, &row.map_err(db_error)?))
