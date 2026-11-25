@@ -18,6 +18,7 @@ import type { TabUsageSource } from "./usageTracking";
 import { resolveTabProvider } from "../../lib/tabProvider";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ModelGroup, Tab } from "../../lib/types";
+import type { RestoreStageView } from "../../lib/restoreStageView";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { TabLockMark } from "./TabLockMark";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
@@ -71,6 +72,7 @@ interface TabTopBarProps {
   isActive?: boolean;
   workspaceId?: string | null;
   tabMenu?: HeaderTabMenu;
+  restore?: RestoreStageView | null;
 }
 
 function RemoteViewerPill({ tabId, tab }: { tabId: string; tab?: Tab }) {
@@ -129,6 +131,7 @@ export function TabTopBar({
   isActive = false,
   workspaceId,
   tabMenu,
+  restore,
 }: TabTopBarProps) {
   useEffect(() => { if (isActive) planSidePanelStore.activateTab(tabId); }, [isActive, tabId]);
   const [reconnecting, setReconnecting] = useState(false);
@@ -304,7 +307,7 @@ export function TabTopBar({
           />
         ) : <>
           {showSwitch && <TabModeSwitch tabId={tabId} />}
-          {showTitle && <TabHeaderTitle tab={titleTab} />}
+          {showTitle && <TabHeaderTitle tab={titleTab} restore={restore} />}
         </>}
         <TabLockMark tab={menuTab} />
       </div>

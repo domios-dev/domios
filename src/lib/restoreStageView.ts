@@ -55,6 +55,21 @@ export function transcriptLoadingStageView(tab: Partial<Tab>): RestoreStageView 
     steps: view.steps.map((step, index) => ({ ...step, state: index < current ? "complete" : index === current ? "current" : "pending" })) };
 }
 
+/** Restore stage shown in the tab header subtitle while an in-place restore or startup is active. */
+export function headerRestoreStageView(
+  tab: Partial<Tab>,
+  wake: Partial<WakeRequestView> | undefined,
+  view: RestoreStageView,
+): RestoreStageView | null {
+  if (view.phase === "restoring") {
+    return tab.frozen || tab.slept_at_ms != null || wake?.requested ? view : transcriptLoadingStageView(tab);
+  }
+  if (view.phase === "ready" && wake?.pending) {
+    return { ...view, phase: "restoring", label: "Restoring…" };
+  }
+  return null;
+}
+
 export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestView>): RestoreStageView {
   const chat = tab.backing?.kind === "chat_backend";
   const agent = Boolean(tab.agent_type) || chat;
