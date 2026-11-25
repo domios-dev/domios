@@ -5,7 +5,7 @@ import { boundedMessageLayout } from "./boundedMessageModel";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useMemo, useContext, useRef, useState, useId } from "react";
 import type { SlashCommand, EditPair, DsFenceSpan } from "@codeterm/chat-core";
-import { attachmentPathName, parseMarker } from "@codeterm/chat-core";
+import { attachmentPathName, hasTaskStrides, parseMarker, splitTaskStrides } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownLink, markdownUrlTransform } from "./MarkdownLink";
@@ -35,6 +35,7 @@ import { pickUiFontScaleValue } from "./uiFontScale";
 export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolParsing";
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 import { parseAttachedDiscussionDoc } from "./discussionDoc";
+import { TaskStridesBlock } from "./TaskStridesBlock";
 import { decodeCliMessageText } from "./codeterm/messageText";
 import { orderedListGutterCh } from "./orderedListGutter";
 
@@ -798,6 +799,22 @@ export function renderUserContent(rawContent: string, parseTransport = true, ren
 
 function renderPlainUserContent(rawContent: string, parseTransport: boolean, renderText?: (text: string) => React.ReactNode): React.ReactNode {
   const content = decodeCliMessageText(rawContent);
+  if (hasTaskStrides(content)) {
+    const strideParts = splitTaskStrides(content);
+    if (strideParts.some((part) => part.type === "strides")) {
+      return (
+        <>
+          {strideParts.map((part, index) =>
+            part.type === "strides" ? (
+              <TaskStridesBlock key={index} block={part.block} />
+            ) : (
+              <React.Fragment key={index}>{renderPlainUserContent(part.text, parseTransport, renderText)}</React.Fragment>
+            ),
+          )}
+        </>
+      );
+    }
+  }
   const discussion = parseAttachedDiscussionDoc(content);
   if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
   const voice = parseTransport ? parseVoiceMessage(content) : null;
