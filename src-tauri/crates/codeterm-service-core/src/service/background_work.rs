@@ -243,12 +243,13 @@ pub(crate) fn apply_observed(
             && tab.agent_session_id.as_deref() == Some(session)
             && tab.session_binding_nonce.as_deref() == Some(nonce)
     };
-    let Some(initial_fork_source) = {
+    let initial_fork_source = {
         let mux = svc.mux.read();
         mux.get_tab(tab_id)
             .filter(|tab| matches_binding(tab))
             .map(|tab| tab.fork_source_session_id.clone())
-    } else {
+    };
+    let Some(initial_fork_source) = initial_fork_source else {
         return;
     };
     let (has_roster_events, tool_labels) = record_and_resolve_tool_labels(
@@ -404,9 +405,13 @@ fn observe_background_records(
                     .into_iter()
                     .find_map(|field| input[field].as_str().filter(|text| !text.trim().is_empty()))
             });
-            let label = lookup_label(observation.tool_use_id.as_deref(), &batch_labels, tool_labels)
-                .or(block_label)
-                .unwrap_or("");
+            let label = lookup_label(
+                observation.tool_use_id.as_deref(),
+                &batch_labels,
+                tool_labels,
+            )
+            .or(block_label)
+            .unwrap_or("");
             let mut observation = observation.clone();
             if record.provider_session_id.as_deref() != Some(session) {
                 observation.output_path = None;
