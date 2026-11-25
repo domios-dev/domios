@@ -547,11 +547,23 @@ fn remote_task_bound_runtime_launch_refuses_signed_out_provider_instead_of_login
                 .unwrap();
         }
     });
-    let error = transport::launch(&fixture.service, &session.provider, &id, json!({}))
-        .expect_err("remote task-bound runtime launch must refuse signed-out provider");
+    let error = transport::launch_with_context(
+        &fixture.service,
+        &session.provider,
+        &id,
+        json!({}),
+        transport::LaunchContext {
+            require_signed_in: true,
+            ..Default::default()
+        },
+    )
+    .expect_err("remote task-bound runtime launch must refuse signed-out provider");
     assert!(
         transport::is_sign_in_required_launch_error(&error),
         "unexpected error: {error}"
     );
+    transport::launch(&fixture.service, &session.provider, &id, json!({}))
+        .expect("ordinary relaunch can attach the signed-out worker");
+    assert_eq!(session.state.lock().snapshot().state, "loginPending");
     server.abort();
 }

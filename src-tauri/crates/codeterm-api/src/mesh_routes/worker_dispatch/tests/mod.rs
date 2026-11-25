@@ -159,6 +159,18 @@ fn worker_dispatch_status_recovers_spawn_and_refuses_foreign_attempt() {
         brief: String::new(),
         clone_url: None,
     };
+    let in_flight = state.svc.ext_or_init(super::InFlightDispatches::default);
+    let pending = in_flight.begin("peer-origin", &request.attempt_id).unwrap();
+    assert!(in_flight.begin("peer-origin", &request.attempt_id).is_err());
+    assert_eq!(
+        super::observed_worker_dispatch(&state, "peer-origin", &request).unwrap_err(),
+        (
+            axum::http::StatusCode::CONFLICT,
+            super::DISPATCH_PENDING.into()
+        )
+    );
+    drop(pending);
+    let _other_peer = in_flight.begin("other-peer", &request.attempt_id).unwrap();
     let response = super::observed_worker_dispatch(&state, "peer-origin", &request)
         .unwrap()
         .0;
@@ -166,6 +178,18 @@ fn worker_dispatch_status_recovers_spawn_and_refuses_foreign_attempt() {
     assert_eq!(response["session_binding_nonce"], "worker-nonce");
     assert_eq!(response["branch"], "lane/remote-test");
     assert_eq!(response["base_commit"], request.base_commit);
+    fixture.service.emit_boot_stage(
+        &tab_id,
+        codeterm_types::pty::BootStage::SpawnFailed,
+        Some("launch rolled back"),
+    );
+    assert_eq!(
+        super::observed_worker_dispatch(&state, "peer-origin", &request).unwrap_err(),
+        (
+            axum::http::StatusCode::CONFLICT,
+            "peer_worker_spawn_failed: launch rolled back".into()
+        )
+    );
     request.attempt_id = "foreign-attempt".into();
     assert_eq!(
         super::observed_worker_dispatch(&state, "peer-origin", &request)
@@ -366,6 +390,26 @@ fn await_remote_launch_outcome_surfaces_ready_failure_and_signed_out_state() {
     )
     .unwrap_err();
     assert!(error.contains("Sign-in required"));
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    drop(sender);
+    assert!(await_remote_launch_outcome(
+        &fixture.service,
+        &tab_id,
+        receiver,
+        std::time::Duration::from_secs(1)
+    )
+    .unwrap_err()
+    .contains("without a readiness result"));
+    let (_sender, receiver) = tokio::sync::oneshot::channel();
+    assert!(await_remote_launch_outcome(
+        &fixture.service,
+        &tab_id,
+        receiver,
+        std::time::Duration::ZERO
+    )
+    .unwrap_err()
+    .contains("readiness deadline elapsed"));
 
     fixture
         .service
