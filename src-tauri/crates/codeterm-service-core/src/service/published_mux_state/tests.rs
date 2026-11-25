@@ -263,3 +263,59 @@ fn versioned_read_pairs_generation_with_the_same_published_body() {
         generation
     );
 }
+
+#[test]
+fn status_delta_stays_compact_for_snapshots_with_hoisted_runtime_assets() {
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_types::pty::TabStatus;
+
+    let (mut state, first) = MultiplexerState::new();
+    let workspace = state.list_workspaces()[0].id.clone();
+    let second = state.create_tab(&workspace).unwrap();
+    for id in [&first, &second] {
+        let tab = state.get_tab_mut(id).unwrap();
+        tab.agent_type = Some("fixture-runtime".into());
+        tab.agent_runtime_state = Some(json!({
+            "state": "loaded",
+            "epoch": 1,
+            "iconSvg": "<svg><path d=\"M0 0\"/></svg>",
+            "controls": {
+                "commands": [{"name": "plan", "description": "Plan work"}],
+                "configOptions": [{"id": "model", "name": "Model", "currentValue": "m1", "options": [{"value": "m1", "name": "M1"}]}]
+            }
+        }));
+    }
+    let snap = |state: &MultiplexerState, status: TabStatus| {
+        let mut s = state.snapshot();
+        s.tab_statuses.insert(first.clone(), status);
+        s.tab_statuses.insert(second.clone(), TabStatus::Idle);
+        s
+    };
+    let initial = snap(&state, TabStatus::Idle);
+    let published = PublishedMuxState::new(initial.generation, &initial).unwrap();
+    let next = snap(&state, TabStatus::Working);
+    let delta = published
+        .publish_change(next.generation, &next)
+        .unwrap()
+        .unwrap();
+    assert_eq!(delta["base_generation"], initial.generation);
+    assert!(delta.get("status_deltas").is_some());
+    assert_eq!(delta["status_deltas"][&first]["status"], "Working");
+
+    // Mutating a per-tab configOption currentValue invalidates status_delta and triggers refetch.
+    state.get_tab_mut(&first).unwrap().agent_runtime_state = Some(json!({
+        "state": "loaded",
+        "epoch": 1,
+        "iconSvg": "<svg><path d=\"M0 0\"/></svg>",
+        "controls": {
+            "commands": [{"name": "plan", "description": "Plan work"}],
+            "configOptions": [{"id": "model", "name": "Model", "currentValue": "m2", "options": [{"value": "m1", "name": "M1"}, {"value": "m2", "name": "M2"}]}]
+        }
+    }));
+    let changed = snap(&state, TabStatus::Working);
+    let signal = published
+        .publish_change(changed.generation, &changed)
+        .unwrap()
+        .unwrap();
+    assert_eq!(signal, json!({"generation": changed.generation}));
+}

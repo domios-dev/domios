@@ -477,3 +477,47 @@ it("transports provider handoff selection and explicit stop without losing the t
   await transport.switch_agent_provider({tabId: "owned", providerId: "target", model: "model-token", reasoningEffort: "effort-token", force: true});
   expect(calls).toMatchObject([{method: "POST", path: "/api/tabs/owned/agent/switch-provider", body: {provider: "target", model: "model-token", reasoning_effort: "effort-token", force: true}}]);
 });
+
+it("hydrates hoisted runtime_assets on local and relayed /api/mux/state reads", async () => {
+  const wireSnapshot = {
+    generation: 5,
+    workspaces: [],
+    active_workspace_id: null,
+    focused_tab_id: null,
+    tabs: {
+      owned: {
+        id: "owned",
+        pty_id: null,
+        tab_type: "Terminal",
+        title: "Agent",
+        cwd: null,
+        agent_runtime_state: {
+          state: "loaded",
+          epoch: 1,
+          iconRef: "ic0",
+          controls: { commandsRef: "cm0" },
+        },
+      },
+    },
+    runtime_assets: {
+      icons: { ic0: "<svg/>" },
+      commands: { cm0: [{ name: "help", description: "Help" }] },
+    },
+  };
+  const { transport } = fixture([
+    wireSnapshot,
+    { ok: true, peer: { instance_id: "peer-a", instance_name: "Peer A" }, data: wireSnapshot },
+    { ok: true, peer: { instance_id: "peer-a", instance_name: "Peer A" }, data: wireSnapshot },
+  ]);
+  const local = await transport.mux_get_state({});
+  expect(local.tabs.owned.agent_runtime_state?.iconSvg).toBe("<svg/>");
+  expect(local.tabs.owned.agent_runtime_state?.controls?.commands).toEqual([{ name: "help", description: "Help" }]);
+  expect("runtime_assets" in local).toBe(false);
+
+  const peerTabs = await transport.mesh_peer_tabs_list({ peerId: "peer-a" });
+  expect(peerTabs.tabs[0].agent_runtime_state?.iconSvg).toBe("<svg/>");
+  expect(peerTabs.tabs[0].agent_runtime_state?.controls?.commands).toEqual([{ name: "help", description: "Help" }]);
+
+  const peerMux = await transport.mesh_peer_mux_state({ peerId: "peer-a" }) as { tabs: Record<string, { agent_runtime_state?: { iconSvg?: string } }> };
+  expect(peerMux.tabs.owned.agent_runtime_state?.iconSvg).toBe("<svg/>");
+});
