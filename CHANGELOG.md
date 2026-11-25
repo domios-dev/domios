@@ -7,6 +7,22 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.23.2]
+
+### Highlights
+
+- Applying a look sweeps the new theme across the whole interface. The reveal starts at the Apply button or, for chat commands, at the center of the chat. With reduced motion enabled, the theme fades in.
+- The default team's Curator flags outstanding cleanup in each review round.
+
+### Fixed
+
+- Claude background-process chips clear when completion or stop notifications arrive, even while the agent is idle or when one notification covers several processes.
+- Claude opens Domios-owned data folders without a trust prompt. The approval applies to the resolved Domios folder.
+
+### Known issues
+
+- A restored General tab with a mismatched provider and session can refuse incoming messages, including a look proposal forwarded from another machine.
+
 ## [1.23.1]
 
 ### Highlights
