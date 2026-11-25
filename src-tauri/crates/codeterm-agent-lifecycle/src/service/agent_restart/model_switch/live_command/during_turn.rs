@@ -1,6 +1,43 @@
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandTurnState {
+    pub buffering: bool,
+    pub report_incident: bool,
+}
+
+impl CommandTurnState {
+    pub(super) fn resolve(during_turn_declared: bool, mid_turn: bool, working: bool) -> Self {
+        let buffering = during_turn_declared && working;
+        Self {
+            buffering,
+            report_incident: during_turn_declared && (mid_turn || buffering),
+        }
+    }
+}
+
+pub(super) fn command_failure_error(
+    turn: CommandTurnState,
+    stage: String,
+    screen: String,
+    not_ready_unwritten: bool,
+    reason: String,
+) -> ModelSwitchError {
+    if turn.report_incident {
+        return ModelSwitchError::DuringTurnIncident {
+            stage,
+            screen,
+            reason,
+        };
+    }
+    if not_ready_unwritten {
+        ModelSwitchError::InputNotReady(reason)
+    } else {
+        ModelSwitchError::LiveCommandFailed(reason)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ScreenStage {
     Admission,
     Picker,

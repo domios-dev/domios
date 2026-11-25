@@ -18,14 +18,26 @@ function pattern(template: string, model: string, effort = "", displayName?: str
 
 const modelScreen = fixture("model-picker.txt");
 const modelPicker = commands.model.picker;
-for (const file of ["live-2.1.318-picker.txt", "live-2.1.327-picker.txt"]) {
+for (const file of ["live-2.1.318-picker.txt", "live-2.1.327-picker.txt", "live-2.1.332-picker.txt"]) {
   const capturedPicker = fixture(file);
   const screen = pattern(modelPicker.screenRegex, "sonnet");
-  assert.ok(screen.test(capturedPicker));
+  assert.ok(screen.test(capturedPicker), file);
+  assert.ok(screen.test(capturedPicker.replace(/\r?\n/g, "\r\n")), `${file} crlf`);
   assert.equal(pattern(modelPicker.selectedRegex, "sonnet").exec(capturedPicker)?.groups?.position, "5");
   assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(capturedPicker)?.groups?.position, "4");
   assert.equal(screen.test(capturedPicker.replace("s to use this session only · ", "")), false);
 }
+const currentPicker = fixture("live-2.1.332-picker.txt");
+assert.equal(
+  pattern(modelPicker.screenRegex, "sonnet").test(
+    currentPicker.replace("s to use this session only · Enter to save · Esc to cancel", "Enter to expand · Esc to cancel"),
+  ),
+  false,
+);
+assert.equal(
+  pattern(modelPicker.screenRegex, "sonnet").test(currentPicker.split("  s to use this session only")[0]),
+  false,
+);
 assert.equal(commands.model.command, "/model");
 assert.equal(modelPicker.responseKey, "s");
 assert.ok(pattern(modelPicker.screenRegex, "opus").test(modelScreen));

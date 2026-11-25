@@ -69,23 +69,28 @@ fn idle_model_and_effort_switch_uses_current_session_only_picker() {
         "/effort medium"
     );
 
-    let screen = captured_picker!("live-2.1.327-picker.txt");
-    let mut picker = CommandPicker::new(model.picker.as_ref().unwrap(), &target, None).unwrap();
-    picker.injected();
-    let mut keys = Vec::new();
-    let mut respond = |screen: &str| {
-        picker
-            .respond(screen, |key| {
-                keys.push(key.to_vec());
-                Ok(())
-            })
-            .unwrap();
-    };
-    respond(screen);
-    let selected = screen.replace("❯ 5.", "  5.").replace("  4.", "❯ 4.");
-    respond(&selected);
-    respond(&selected);
-    assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec()]);
+    for screen in [
+        captured_picker!("live-2.1.327-picker.txt"),
+        captured_picker!("live-2.1.332-picker.txt"),
+    ] {
+        let mut picker = CommandPicker::new(model.picker.as_ref().unwrap(), &target, None).unwrap();
+        picker.injected();
+        let mut keys = Vec::new();
+        let mut respond = |screen: &str| {
+            picker
+                .respond(screen, |key| {
+                    keys.push(key.to_vec());
+                    Ok(())
+                })
+                .unwrap();
+        };
+        respond(screen);
+        let selected = screen.replace("❯ 5.", "  5.").replace("  4.", "❯ 4.");
+        respond(&selected);
+        respond(&selected);
+        assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec()]);
+        assert!(!picker.present(&screen.replace("s to use this session only · ", "")));
+    }
 
     let confirms = |template: &str, effort: Option<&str>, output: &str| {
         let pattern =
