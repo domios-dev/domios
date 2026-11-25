@@ -612,7 +612,15 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
     expect(calls).toEqual([tab.id]);
     expect(host.textContent).toContain("persisted-fixture-content");
     expect(host.querySelector('[data-testid="session-status-row"]')?.children.length).toBe(0);
+    const waitingStatus = host.querySelector('[data-testid="tab-top-bar"] [role="status"]');
+    expect(waitingStatus?.closest('[aria-hidden="true"]')).not.toBeNull();
+    await act(async () => {
+      const event = new Event("animationstart", { bubbles: true });
+      Object.defineProperty(event, "animationName", { value: "ct-presence-enter" });
+      waitingStatus!.parentElement!.dispatchEvent(event);
+    });
     const headerStatus = host.querySelector('[data-testid="tab-top-bar"] [role="status"]');
+    expect(headerStatus?.closest('[aria-hidden="true"]')).toBeNull();
     expect(headerStatus?.getAttribute("aria-live")).toBe("polite");
     expect(headerStatus?.getAttribute("aria-label")).toBe("Restoring…");
     expect(host.querySelector('[role="progressbar"][aria-label="Restore progress"]')).toBeNull();
@@ -626,7 +634,8 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
     tab.boot_stage = "agent_ready";
     await render(true);
     expect(host.querySelector('[data-testid="session-status-row"]')?.children.length).toBe(0);
-    expect(host.querySelector('[data-testid="tab-top-bar"] [role="status"]')).toBeNull();
+    const settledHeaderStatus = host.querySelector('[data-testid="tab-top-bar"] [role="status"]');
+    expect(settledHeaderStatus === null || settledHeaderStatus.closest('[aria-hidden="true"]') !== null).toBe(true);
     expect(host.querySelector("textarea")).toBe(composer);
     expect(host.textContent).toContain("persisted-fixture-content");
   } finally {
