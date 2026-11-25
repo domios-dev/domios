@@ -3,7 +3,7 @@ use crate::types::{PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, Web
 
 #[test]
 fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_tampered_values() {
-    use crate::machine_identity::{MachineColor, MachineIdentity, MachineKind};
+    use crate::machine_identity::{MachineIdentity, MachineKind};
     let (private_key, public_key) = crown::generate_peer_keypair();
     let source = Arc::new(parking_lot::Mutex::new(MeshManager::in_memory(
         types::MeshIdentity {
@@ -19,7 +19,6 @@ fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_t
     let initial = source.lock().build_announce();
     let choice = MachineIdentity {
         kind: MachineKind::Laptop,
-        color: MachineColor::Teal,
     };
     assert!(set_machine_identity(&source, choice, None).unwrap());
     let updated = source.lock().build_announce();
@@ -40,14 +39,13 @@ fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_t
     assert!(set_machine_identity(
         &source,
         MachineIdentity {
-            color: MachineColor::Pink,
-            ..choice
+            kind: MachineKind::Server,
         },
         None
     )
     .unwrap());
     let mut tampered = serde_json::to_value(source.lock().build_announce()).unwrap();
-    tampered["machine_identity"]["revision"]["identity"]["color"] = serde_json::json!("violet");
+    tampered["machine_identity"]["revision"]["identity"]["kind"] = serde_json::json!("vm");
     assert!(
         !target
             .apply_announce("peer", &serde_json::from_value(tampered).unwrap())

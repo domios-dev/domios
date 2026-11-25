@@ -4,7 +4,6 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use codeterm_util::persisted_state::{Loaded, StateFile};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
@@ -20,39 +19,15 @@ pub enum MachineKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "snake_case")]
-pub enum MachineColor {
-    Blue,
-    Teal,
-    Green,
-    Yellow,
-    Pink,
-    Violet,
-    Graphite,
-}
-
-const COLORS: [MachineColor; 7] = [
-    MachineColor::Blue,
-    MachineColor::Teal,
-    MachineColor::Green,
-    MachineColor::Yellow,
-    MachineColor::Pink,
-    MachineColor::Violet,
-    MachineColor::Graphite,
-];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct MachineIdentity {
     pub kind: MachineKind,
-    pub color: MachineColor,
 }
 
 impl MachineIdentity {
-    pub(crate) fn inferred(id: &str, os: &str, headless: bool) -> Self {
+    pub(crate) fn inferred(os: &str, headless: bool) -> Self {
         Self {
             kind: MachineFacts::detect(os, headless).kind(),
-            color: COLORS[usize::from(Sha256::digest(id.as_bytes())[0]) % COLORS.len()],
         }
     }
 }
@@ -181,18 +156,25 @@ struct SavedIdentity {
     revision: Revision,
 }
 
+fn parse_saved(text: &str) -> Result<SavedIdentity, String> {
+    let mut value: serde_json::Value =
+        serde_json::from_str(text).map_err(|error| error.to_string())?;
+    if let Some(identity) = value
+        .get_mut("revision")
+        .and_then(|revision| revision.get_mut("identity"))
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        identity.remove("color");
+    }
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
 fn state_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(|text| {
-        serde_json::from_str::<SavedIdentity>(text)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    })
+    StateFile::new(path).with_validator(|text| parse_saved(text).map(|_| ()))
 }
 
 pub(crate) fn load(path: &Path, instance_id: &str) -> Option<Revision> {
-    match state_file(path)
-        .load(|text| serde_json::from_str::<SavedIdentity>(text).map_err(|error| error.to_string()))
-    {
+    match state_file(path).load(parse_saved) {
         Loaded::Parsed(saved) | Loaded::Recovered { value: saved, .. }
             if saved.instance_id == instance_id =>
         {

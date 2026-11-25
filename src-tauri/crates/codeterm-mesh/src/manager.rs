@@ -104,7 +104,6 @@ impl MeshManager {
         let ident = identity::IdentityManager::new(identity, instance_name);
         let machine_identity = crate::machine_identity::Revision {
             identity: crate::machine_identity::MachineIdentity::inferred(
-                &ident.identity.instance_id,
                 std::env::consts::OS,
                 std::env::var_os("DISPLAY").is_none()
                     && std::env::var_os("WAYLAND_DISPLAY").is_none(),

@@ -18,7 +18,6 @@ export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpe
   const theme = selected?.appearance.theme ?? config.theme;
   const wallpaper = (selected ? selected.appearance.wallpaper : config.chat_wallpaper) ?? undefined;
   const active = effectiveWallpaper(theme, wallpaper);
-  const identity = selected?.identity?.color;
   const light = isLightColor(theme.background);
   const group = useId();
   const asset = useWallpaperAsset(selected?.peerId, wallpaper?.asset);
@@ -28,7 +27,7 @@ export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpe
   const style = (paper?: ChatWallpaper, url?: string, intensity?: number) => ({
     "--ct-bg": theme.background,
     "--ct-fg": theme.foreground,
-    ...wallpaperRenderStyle(theme, paper, light, url, identity, intensity),
+    ...wallpaperRenderStyle(theme, paper, light, url, intensity),
   }) as CSSProperties;
   const choose = async (pattern: typeof choices[number][0]) => {
     if (!ready || busy) return;

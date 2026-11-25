@@ -79,8 +79,8 @@ test("remote toast origin uses the exact installation glyph when machine names c
   setupDom();
   rememberMachineIdentities({
     machine_identities: {
-      "install-a": { kind: "laptop", color: "blue" },
-      "install-b": { kind: "server", color: "pink" },
+      "install-a": { kind: "laptop" },
+      "install-b": { kind: "server" },
     },
     paired: [
       { instance_id: "install-a", instance_name: "Same name" },

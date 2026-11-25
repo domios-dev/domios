@@ -104,8 +104,8 @@ it("picks up the instance name once mesh peers load after a failed first fetch",
 it("names a paired machine using its announced kind and offline state", async () => {
   peersResponse.mockResolvedValue({
     local_instance_name: "BLACKSTAR",
-    local_machine_identity: { kind: "laptop", color: "blue" },
-    machine_identities: { rog: { kind: "desktop", color: "teal" } },
+    local_machine_identity: { kind: "laptop" },
+    machine_identities: { rog: { kind: "desktop" } },
     paired: [{ instance_id: "rog", instance_name: "ROG [dev-qa]", addresses: [], api_port: 7685, online: false }],
   });
   const chip = await mount();
@@ -162,7 +162,7 @@ it("offers only machine selections and commits the focused option from the keybo
   vi.mocked(readMachineAppearance).mockResolvedValue({ theme: DEFAULT_THEME, wallpaper: null });
   peersResponse.mockResolvedValue({
     local_instance_name: "Desk [dev-main]",
-    local_machine_identity: { kind: "desktop", color: "blue" },
+    local_machine_identity: { kind: "desktop" },
     paired: [{ instance_id: "peer", instance_name: "Air", online: false }],
   });
   const chip = await mount();

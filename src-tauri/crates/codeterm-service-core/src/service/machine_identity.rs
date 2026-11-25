@@ -42,7 +42,7 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
         let notification_id = self.publish_daemon_question(
             format!("{MACHINE_IDENTITY_REQUEST}{payload}"),
-            format!("Change icon and colour for {name}?"),
+            format!("Change icon for {name}?"),
             format!(
                 "Apply the requested machine identity on {name}?\n\n{}",
                 json!(identity)
