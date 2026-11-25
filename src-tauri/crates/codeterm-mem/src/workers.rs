@@ -485,13 +485,23 @@ impl GraphWorkerRegistry {
         report: Option<String>,
         end: ExecutionEnd,
     ) -> Result<GraphWorkerInfo, String> {
+        self.finish_execution_checked(worker_id, report, end)
+            .map(|(info, _)| info)
+    }
+
+    fn finish_execution_checked(
+        &self,
+        worker_id: &str,
+        report: Option<String>,
+        end: ExecutionEnd,
+    ) -> Result<(GraphWorkerInfo, bool), String> {
         let info = {
             let mut map = self.inner.write();
             let w = map
                 .get_mut(worker_id)
                 .ok_or_else(|| format!("worker not found: {}", worker_id))?;
             if w.status.is_terminal() && w.execution_end.is_some() {
-                return Ok(w.clone());
+                return Ok((w.clone(), false));
             }
             let ended_at = now_ms();
             let reason = end.detail().map(str::to_string).or_else(|| match end {
@@ -525,7 +535,7 @@ impl GraphWorkerRegistry {
             w.clone()
         };
         self.persist();
-        Ok(info)
+        Ok((info, true))
     }
 
     /// Bind this run to the artifact it produced and store the reconciled
@@ -603,14 +613,24 @@ impl GraphWorkerRegistry {
             .map(|w| w.worker_id.clone())
     }
 
-    pub fn kill(&self, worker_id: &str) -> Result<GraphWorkerInfo, String> {
-        if let Some(worker) = self
-            .get(worker_id)
-            .filter(|worker| worker.status.is_terminal())
+    /// Transition a live worker to `ExecutionEnd::Cancelled`. Returns `(info, true)`
+    /// only when this call performed the transition; already-terminal workers return
+    /// `(info, false)` without mutating state.
+    pub fn cancel(&self, worker_id: &str) -> Result<(GraphWorkerInfo, bool), String> {
         {
-            return Ok(worker);
+            let map = self.inner.read();
+            if let Some(worker) = map
+                .get(worker_id)
+                .filter(|worker| worker.status.is_terminal())
+            {
+                return Ok((worker.clone(), false));
+            }
         }
-        self.finish_execution(worker_id, None, ExecutionEnd::Cancelled)
+        self.finish_execution_checked(worker_id, None, ExecutionEnd::Cancelled)
+    }
+
+    pub fn kill(&self, worker_id: &str) -> Result<GraphWorkerInfo, String> {
+        self.cancel(worker_id).map(|(info, _)| info)
     }
 }
 

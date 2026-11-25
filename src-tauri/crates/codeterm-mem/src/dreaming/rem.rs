@@ -48,17 +48,27 @@ pub fn format_calibration_preface(calibration: Option<&serde_json::Value>) -> St
     )
 }
 
-/// Compose the supervisor preface injected into the REM prompt from server-side
-/// calibration results and the candidate snapshot (`prepare_rem_data`).
-pub fn render_supervisor_preface(
-    rem_data: Option<&str>,
-    calibration: Option<&serde_json::Value>,
-) -> String {
-    let cal_block = format_calibration_preface(calibration);
-    match rem_data.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(data) => format!("{cal_block}\n\n{data}"),
-        None => cal_block,
+/// Escape any closing candidate-data fence in untrusted memory text so a crafted
+/// record title cannot break out of the delimited candidate-data block.
+pub fn format_candidate_data(rem_data: Option<&str>) -> String {
+    const CLOSE_TAG: &str = "</untrusted-candidate-data";
+    let Some(trimmed) = rem_data.map(str::trim).filter(|s| !s.is_empty()) else {
+        return "(none)".to_string();
+    };
+    let mut out = String::with_capacity(trimmed.len());
+    let mut rest = trimmed;
+    while let Some(pos) = rest
+        .as_bytes()
+        .windows(CLOSE_TAG.len())
+        .position(|w| w.eq_ignore_ascii_case(CLOSE_TAG.as_bytes()))
+    {
+        out.push_str(&rest[..pos]);
+        out.push_str("&lt;");
+        out.push_str(&rest[pos + 1..pos + CLOSE_TAG.len()]);
+        rest = &rest[pos + CLOSE_TAG.len()..];
     }
+    out.push_str(rest);
+    out
 }
 
 pub const DREAMING_TELEGRAM_STEP_ENABLED: &str = r#"Then push the INSIGHT (only the insight prose, not the log block) to
@@ -79,10 +89,12 @@ pub fn render_rem_prompt(
     started_at: chrono::DateTime<chrono::Utc>,
     telegram_step: &str,
     supervisor_preface: &str,
+    candidate_data: &str,
 ) -> String {
+    // Substitute host-controlled tokens before supervisor preface and untrusted
+    // candidate data so record titles containing placeholder tokens are never rewritten.
+    let fenced_candidates = format_candidate_data(Some(candidate_data));
     crate::prompt_text::DREAMING_REM
-        .replace("{telegram_notify_step}", telegram_step)
-        .replace("{supervisor_preface}", supervisor_preface)
         .replace(
             "{started_at}",
             &started_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
@@ -96,4 +108,7 @@ pub fn render_rem_prompt(
             "{diary_title}",
             &format!("dream: {}", started_at.format("%Y-%m-%d %H:%M")),
         )
+        .replace("{telegram_notify_step}", telegram_step)
+        .replace("{supervisor_preface}", supervisor_preface)
+        .replace("{candidate_data}", &fenced_candidates)
 }

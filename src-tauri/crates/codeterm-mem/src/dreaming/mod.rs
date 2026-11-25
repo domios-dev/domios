@@ -21,8 +21,8 @@ mod phases;
 mod tests;
 
 pub use rem::{
-    ensure_dreams_anchor, format_calibration_preface, prepare_rem_data, render_rem_prompt,
-    render_supervisor_preface, DREAMING_TELEGRAM_STEP_DISABLED, DREAMING_TELEGRAM_STEP_ENABLED,
+    ensure_dreams_anchor, format_calibration_preface, format_candidate_data, prepare_rem_data,
+    render_rem_prompt, DREAMING_TELEGRAM_STEP_DISABLED, DREAMING_TELEGRAM_STEP_ENABLED,
 };
 pub use schedule::{
     ensure_dreaming_cron, remove_legacy_librarian_cron, DREAMING_CRON_NAME, LIBRARIAN_CRON_NAME,
