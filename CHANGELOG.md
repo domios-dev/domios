@@ -13,11 +13,13 @@ lives in `git log` with no aggregated narrative.
 
 - Applying a look sweeps the new theme across the whole interface. The reveal starts at the Apply button or, for chat commands, at the center of the chat. With reduced motion enabled, the theme fades in.
 - The default team's Curator flags outstanding cleanup in each review round.
+- Remove another machine from your account in Mesh Inventory or with `domios mesh remove`. If the machine is online, Domios signs it out first.
 
 ### Fixed
 
 - Claude background-process chips clear when completion or stop notifications arrive, even while the agent is idle or when one notification covers several processes.
 - Claude opens Domios-owned data folders without a trust prompt. The approval applies to the resolved Domios folder.
+- The machine switcher shows each machine's state below its name.
 
 ### Known issues
 
