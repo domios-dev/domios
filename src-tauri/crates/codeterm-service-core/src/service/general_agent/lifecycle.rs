@@ -478,19 +478,14 @@ fn start_general_agent_inner(
         let prepared = state::prepare_with_fresh_session_requirement(
             &state::fresh_session_path(),
             |force_fresh| {
-                let session = pty_handoff::prepare(
+                prepare_chat_to_pty_session(
                     svc,
                     &source,
                     provider_name,
                     resume_sessions_enabled && !force_fresh,
                     &general_cwd,
-                )?;
-                if let Some(id) = session.as_deref() {
-                    state::persist_session_id(provider_name, id);
-                } else {
-                    state::clear_session_id();
-                }
-                Ok(session)
+                    &state::session_state_path(),
+                )
             },
         );
         match prepared {
@@ -532,6 +527,64 @@ fn start_general_agent_inner(
     );
 }
 
+fn prepare_chat_to_pty_session(
+    svc: &crate::service::ServiceContext,
+    source: &crate::multiplexer::types::Tab,
+    provider_name: &str,
+    resume: bool,
+    general_cwd: &str,
+    state_path: &std::path::Path,
+) -> Result<Option<String>, String> {
+    if let (Some(prev_provider), Some(prev_session)) = (
+        source.agent_type.as_deref(),
+        source.agent_session_id.as_deref(),
+    ) {
+        if prev_provider != provider_name && !prev_session.is_empty() {
+            state::persist_session_id_to(state_path, prev_provider, prev_session);
+        }
+    }
+    let session = pty_handoff::prepare(svc, source, provider_name, resume, general_cwd)?;
+    let session = match session {
+        Some(id) => {
+            state::persist_session_id_to(state_path, provider_name, &id);
+            Some(id)
+        }
+        None if resume && source.agent_type.as_deref() != Some(provider_name) => {
+            let exclude = svc.mux.read().other_session_ids(&source.id);
+            let restored = state::load_session_record_from(
+                &svc.agent_registry,
+                provider_name,
+                general_cwd,
+                &exclude,
+                state_path,
+            )
+            .filter(|stored| {
+                state::session_id_is_owned(
+                    &svc.agent_registry,
+                    provider_name,
+                    general_cwd,
+                    &stored.session_id,
+                    (None, None),
+                    Some(stored),
+                )
+            })
+            .map(|stored| stored.session_id);
+            if let Some(id) = restored.as_deref() {
+                svc.set_agent_session_id(&source.id, Some(id.to_string()));
+                state::persist_session_id_to(state_path, provider_name, id);
+            } else {
+                state::clear_session_id_for_provider_in(state_path, provider_name);
+            }
+            restored
+        }
+        None => {
+            state::clear_session_id_for_provider_in(state_path, provider_name);
+            None
+        }
+    };
+    Ok(session)
+}
+
 fn main_pty_session(
     svc: &crate::ServiceState,
     mux: &crate::MuxState,
@@ -554,7 +607,7 @@ fn main_pty_session(
     let session_id = match session_plan {
         GeneralAgentSessionPlan::FirstRunFresh => {
             svc.set_agent_session_id(tab_id, None);
-            state::clear_session_id();
+            state::clear_session_id_for_provider(provider_name);
             log::info!("[general-agent] First-run launch requires a fresh provider session");
             None
         }
@@ -562,7 +615,7 @@ fn main_pty_session(
             if snapshot_session_id.is_some() {
                 svc.set_agent_session_id(tab_id, None);
             }
-            state::clear_session_id();
+            state::clear_session_id_for_provider(provider_name);
             None
         }
         GeneralAgentSessionPlan::Restore(session_id) => Some(session_id),
@@ -625,7 +678,7 @@ fn main_pty_session(
                 provider_name
             );
             svc.set_agent_session_id(tab_id, None);
-            state::clear_session_id();
+            state::clear_session_id_for_provider(provider_name);
             let exclude = mux.write().other_session_ids(tab_id);
             let fresh = state::detect_owned_session_id(
                 &svc.agent_registry,
@@ -952,13 +1005,28 @@ fn clear_stale_general_binding(
     tab_id: &str,
 ) {
     let provider = svc.configuration().general_agent.agent_provider;
-    let same_provider = mux
+    let previous = mux
         .read()
         .get_tab(tab_id)
-        .is_some_and(|tab| tab.agent_type.as_deref() == Some(provider.as_str()));
+        .map(|tab| (tab.agent_type.clone(), tab.agent_session_id.clone()));
+    let same_provider = previous
+        .as_ref()
+        .is_some_and(|(agent_type, _)| agent_type.as_deref() == Some(provider.as_str()));
     if !same_provider {
+        if let Some((Some(prev_provider), Some(prev_session))) = previous.as_ref() {
+            if !prev_session.is_empty() {
+                state::persist_session_id(prev_provider, prev_session);
+            }
+        }
         svc.set_tab_agent_type(tab_id, None);
         svc.set_agent_session_id(tab_id, None);
+        if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+            let auto_approve = tab.auto_approve;
+            crate::service::provider_handoff::reset_tab_identity_for_provider_change(
+                tab,
+                auto_approve,
+            );
+        }
     }
     mux.write().unlink_pty(tab_id);
 }

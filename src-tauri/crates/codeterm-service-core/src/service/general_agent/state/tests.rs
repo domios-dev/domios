@@ -38,6 +38,83 @@ fn provider_switch_preserves_each_providers_recorded_session_id() {
 }
 
 #[test]
+fn provider_switch_clear_preserves_other_providers_and_roundtrips_chat_to_pty_to_chat() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state").join("general-agent-session.json");
+    let registry = crate::agent::registry::AgentRegistry::new();
+    let runtime_provider = crate::agent::test_provider::MockProvider::new("provider-runtime")
+        .with_agent_runtime(super::super::provider_choice::test_support::profile_runtime());
+    registry.register_provider(Box::new(runtime_provider));
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session("provider-pty", "pty-session-1"),
+    ));
+
+    // Legacy single-provider state from before multi-provider switching.
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        r#"{"provider":"provider-runtime","session_id":"runtime-session-1"}"#,
+    )
+    .unwrap();
+
+    // Switching chat -> PTY when the PTY provider has no session yet clears only the PTY entry.
+    clear_session_id_for_provider_in(&path, "provider-pty");
+    let preserved_runtime =
+        load_session_record_from(&registry, "provider-runtime", "cwd", &[], &path)
+            .expect("clearing target provider must never erase the outgoing provider's session");
+    assert_eq!(preserved_runtime.session_id, "runtime-session-1");
+
+    // PTY provider boots fresh and persists its own hook-bound session.
+    persist_session_id_to(&path, "provider-pty", "pty-session-1");
+
+    // Switching back PTY -> chat resumes the original runtime session after ownership/exclusion checks.
+    assert!(
+        load_session_record_from(
+            &registry,
+            "provider-runtime",
+            "cwd",
+            &["runtime-session-1".into()],
+            &path
+        )
+        .is_none(),
+        "excluded sessions must still be refused"
+    );
+    let resumed_runtime =
+        load_session_record_from(&registry, "provider-runtime", "cwd", &[], &path).expect(
+            "switching back to the original runtime provider must resume its recorded session",
+        );
+    assert_eq!(resumed_runtime.session_id, "runtime-session-1");
+
+    // Switching again chat -> PTY resumes the recorded PTY session after ownership and existence checks.
+    let resumed_pty = load_session_record_from(&registry, "provider-pty", "cwd", &[], &path)
+        .expect("switching back to the PTY provider must resume its recorded session");
+    assert_eq!(resumed_pty.session_id, "pty-session-1");
+    assert!(session_id_is_owned(
+        &registry,
+        "provider-pty",
+        "cwd",
+        &resumed_pty.session_id,
+        (None, None),
+        Some(&resumed_pty),
+    ));
+
+    // Clearing one provider removes only that entry; clearing the last removes the state file.
+    clear_session_id_for_provider_in(&path, "provider-runtime");
+    assert!(load_session_record_from(&registry, "provider-runtime", "cwd", &[], &path).is_none());
+    assert_eq!(
+        load_session_record_from(&registry, "provider-pty", "cwd", &[], &path)
+            .expect("other provider's session survives")
+            .session_id,
+        "pty-session-1"
+    );
+    clear_session_id_for_provider_in(&path, "provider-pty");
+    assert!(
+        !path.exists(),
+        "clearing the final provider removes the empty state file"
+    );
+}
+
+#[test]
 fn first_seen_is_durable_and_never_moves() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(first_seen_at(dir.path(), 100).unwrap(), 100);

@@ -44,7 +44,7 @@ pub(super) fn load_session_record(
     )
 }
 
-fn load_session_record_from(
+pub(super) fn load_session_record_from(
     registry: &crate::agent::registry::AgentRegistry,
     provider_name: &str,
     cwd: &str,
@@ -84,7 +84,7 @@ pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
     persist_session_id_to(&session_state_path(), provider_name, session_id);
 }
 
-fn persist_session_id_to(path: &Path, provider_name: &str, session_id: &str) {
+pub(super) fn persist_session_id_to(path: &Path, provider_name: &str, session_id: &str) {
     let mut by_provider = std::fs::read_to_string(path)
         .ok()
         .and_then(|text| serde_json::from_str::<GeneralAgentSessionState>(&text).ok())
@@ -104,6 +104,10 @@ fn persist_session_id_to(path: &Path, provider_name: &str, session_id: &str) {
         session_id: session_id.to_string(),
         by_provider,
     };
+    write_session_state(path, &state);
+}
+
+fn write_session_state(path: &Path, state: &GeneralAgentSessionState) {
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             log::warn!(
@@ -115,7 +119,7 @@ fn persist_session_id_to(path: &Path, provider_name: &str, session_id: &str) {
         }
     }
     let tmp = path.with_extension("json.tmp");
-    let Ok(body) = serde_json::to_string_pretty(&state) else {
+    let Ok(body) = serde_json::to_string_pretty(state) else {
         return;
     };
     if let Err(e) = std::fs::write(&tmp, body) {
@@ -197,9 +201,12 @@ pub(super) fn clear_bootstrap_dispatched_in(dir: &Path) {
     }
 }
 
-pub(super) fn clear_session_id() {
-    let path = session_state_path();
-    if let Err(e) = std::fs::remove_file(&path) {
+pub(super) fn clear_all_session_ids() {
+    clear_all_session_ids_at(&session_state_path());
+}
+
+fn clear_all_session_ids_at(path: &Path) {
+    if let Err(e) = std::fs::remove_file(path) {
         if e.kind() != std::io::ErrorKind::NotFound {
             log::warn!(
                 "[general-agent] failed to remove session state {}: {}",
@@ -207,6 +214,35 @@ pub(super) fn clear_session_id() {
                 e
             );
         }
+    }
+}
+
+pub(super) fn clear_session_id_for_provider(provider_name: &str) {
+    clear_session_id_for_provider_in(&session_state_path(), provider_name);
+}
+
+pub(super) fn clear_session_id_for_provider_in(path: &Path, provider_name: &str) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(mut state) = serde_json::from_str::<GeneralAgentSessionState>(&text) else {
+        return;
+    };
+    if !state.provider.is_empty() && !state.session_id.is_empty() {
+        state
+            .by_provider
+            .entry(state.provider.clone())
+            .or_insert_with(|| state.session_id.clone());
+    }
+    state.by_provider.remove(provider_name);
+    if state.provider == provider_name {
+        state.provider.clear();
+        state.session_id.clear();
+    }
+    if state.session_id.is_empty() && state.by_provider.is_empty() {
+        clear_all_session_ids_at(path);
+    } else {
+        write_session_state(path, &state);
     }
 }
 
@@ -320,7 +356,7 @@ pub(super) fn session_id_is_owned(
         .unwrap_or(false)
 }
 
-fn session_state_path() -> std::path::PathBuf {
+pub(super) fn session_state_path() -> std::path::PathBuf {
     general_dir()
         .join("state")
         .join("general-agent-session.json")

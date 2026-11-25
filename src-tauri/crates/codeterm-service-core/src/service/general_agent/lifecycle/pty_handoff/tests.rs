@@ -132,3 +132,67 @@ fn fresh_request_survives_a_failed_handoff_and_skips_the_resumable_session() {
     assert_eq!(tab.backing, TabBacking::Pty);
     assert!(tab.agent_session_id.is_none());
 }
+
+#[test]
+fn chat_to_pty_switch_preserves_runtime_session_for_return_and_resumes_pty_on_reentry() {
+    let (fixture, source) = main_with_chat_route("provider-runtime", Some("runtime-session-1"));
+    let svc = &fixture.service;
+    svc.agent_registry.register_provider(Box::new(
+        MockProvider::new("provider-runtime").with_agent_runtime(
+            super::super::super::provider_choice::test_support::profile_runtime(),
+        ),
+    ));
+    let dir = tempfile::tempdir().unwrap();
+    let state_path = dir.path().join("state").join("general-agent-session.json");
+    state::persist_session_id_to(&state_path, "provider-runtime", "runtime-session-1");
+
+    // 1. Switch runtime -> PTY when PTY has no saved session yet: starts fresh without erasing runtime.
+    let first_pty = super::super::prepare_chat_to_pty_session(
+        svc,
+        &source,
+        "terminal",
+        true,
+        "cwd",
+        &state_path,
+    )
+    .unwrap();
+    assert_eq!(first_pty, None);
+
+    // PTY binds and persists its own session ("owned-session").
+    state::persist_session_id_to(&state_path, "terminal", "owned-session");
+
+    // 2. Switch back PTY -> runtime: recorded runtime session is still intact and resumes.
+    let exclude = svc.mux.read().other_session_ids(&source.id);
+    let resumed_runtime = state::load_session_record_from(
+        &svc.agent_registry,
+        "provider-runtime",
+        "cwd",
+        &exclude,
+        &state_path,
+    )
+    .expect("original runtime session must survive chat-to-PTY switch and resume on return");
+    assert_eq!(resumed_runtime.session_id, "runtime-session-1");
+
+    // 3. Re-enter PTY from runtime: resumes the PTY provider's own recorded session.
+    {
+        let mut mux = svc.mux.write();
+        let tab = mux.get_tab_mut(&source.id).unwrap();
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "structured".into(),
+            session_id: "runtime-session-1".into(),
+        };
+        tab.agent_type = Some("provider-runtime".into());
+        tab.agent_session_id = Some("runtime-session-1".into());
+    }
+    let runtime_source = svc.mux.read().get_tab(&source.id).unwrap().clone();
+    let resumed_pty = super::super::prepare_chat_to_pty_session(
+        svc,
+        &runtime_source,
+        "terminal",
+        true,
+        "cwd",
+        &state_path,
+    )
+    .unwrap();
+    assert_eq!(resumed_pty.as_deref(), Some("owned-session"));
+}
