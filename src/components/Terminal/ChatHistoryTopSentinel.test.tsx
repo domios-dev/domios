@@ -141,11 +141,12 @@ describe("ChatHistoryTopSentinel", () => {
 
     const loadingButton = host.querySelector<HTMLButtonElement>('[data-testid="chat-load-older"]');
     expect(loadingButton?.getAttribute("aria-disabled")).toBe("true");
+    expect(loadingButton?.hasAttribute("aria-busy")).toBe(false);
     await act(async () => loadingButton!.click());
     expect(loads()).toBe(1);
   });
 
-  it("moves focus to the first transcript row when a focused load control unmounts at exhaustion", async () => {
+  it("keeps the focused button visible with inline dots and aria-busy during loading, then hands off focus at exhaustion", async () => {
     const { host, render } = await mount(
       {},
       <div data-message-id="m-1" tabIndex={-1}>
@@ -158,6 +159,11 @@ describe("ChatHistoryTopSentinel", () => {
 
     await render({ loading: true });
     expect(document.activeElement).toBe(button);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.querySelector('[data-testid="chat-history-loading-inline"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="chat-history-loading"]')).toBeNull();
+    expect(host.querySelectorAll('[role="status"]')).toHaveLength(0);
 
     await render({ loading: false, hasMore: false });
     const firstRow = host.querySelector<HTMLElement>('[data-message-id="m-1"]');

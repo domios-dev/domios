@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { ActivityDots } from "../shared/ActivityDots";
 import { BusyState } from "../shared/BusyState";
 import { Button } from "../shared/Button";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -87,6 +88,7 @@ export function ChatHistoryTopSentinel({
   createObserver,
 }: ChatHistoryTopSentinelProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [buttonFocused, setButtonFocused] = useState(false);
   const buttonFocusedRef = useRef(false);
   const showHistoryRail = railsVisible && hasMore;
   const previousShowHistoryRailRef = useRef(showHistoryRail);
@@ -111,6 +113,7 @@ export function ChatHistoryTopSentinel({
     previousShowHistoryRailRef.current = showHistoryRail;
     if (!wasShown || showHistoryRail || !buttonFocusedRef.current) return;
     buttonFocusedRef.current = false;
+    setButtonFocused(false);
     const scroller = scrollRef.current;
     if (!scroller) return;
     const ownerDoc = scroller.ownerDocument;
@@ -120,6 +123,8 @@ export function ChatHistoryTopSentinel({
   }, [scrollRef, showHistoryRail]);
 
   if (!showHistoryRail && !stalled) return null;
+
+  const focusedLoading = loading && buttonFocused;
 
   return (
     <div className="flex flex-col items-center">
@@ -131,17 +136,21 @@ export function ChatHistoryTopSentinel({
             data-testid="chat-history-sentinel"
             className="pointer-events-none absolute inset-0"
           />
-          <div className={loading ? "sr-only" : "sr-only focus-within:not-sr-only"}>
+          <div className="sr-only focus-within:not-sr-only">
             <Button
               variant="ghost"
               size="sm"
+              className="gap-2"
               data-testid="chat-load-older"
               aria-disabled={loading || undefined}
+              aria-busy={focusedLoading || undefined}
               onFocus={() => {
                 buttonFocusedRef.current = true;
+                setButtonFocused(true);
               }}
               onBlur={() => {
                 buttonFocusedRef.current = false;
+                setButtonFocused(false);
               }}
               onClick={() => {
                 if (loading) return;
@@ -149,10 +158,18 @@ export function ChatHistoryTopSentinel({
                 onLoadOlder();
               }}
             >
+              {focusedLoading && (
+                <ActivityDots
+                  size="small"
+                  tone="accent"
+                  rhythm="work"
+                  data-testid="chat-history-loading-inline"
+                />
+              )}
               {olderMessageLabel}
             </Button>
           </div>
-          {loading && (
+          {loading && !buttonFocused && (
             <DeferredLoader
               state="present"
               className="pointer-events-none absolute inset-0 flex items-center justify-center"
