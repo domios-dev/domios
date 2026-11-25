@@ -5,7 +5,7 @@ import { remoteTeamName } from "../../components/Sidebar/remoteOwnership";
 import { cleanMachineName } from "../../lib/machineIdentity";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { invoke } from "../../lib/bridge";
-import type { MeshPeersResponse, MultiplexerState, Tab } from "../../lib/types";
+import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
 import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { pairedGeneralCacheScope, readPairedGeneralCache, writePairedGeneralCache, type CachedPeerGeneral } from "./pairedGeneralCache";
 import type { PairedRoster } from "./useMeshPeerProjection";
