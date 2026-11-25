@@ -5,13 +5,21 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::{
-    authorized_cwd, eligible_cwd_with_root, for_tab_with_root, is_domios_owned_directory,
-    tab_provenance_authorized,
+    authorized_cwd, domios_owned_canonical_directory, eligible_target_with_root, for_tab_with_root,
+    for_tab_with_root_and_hook, is_domios_owned_directory, tab_provenance_authorized,
+    PreTrustTarget,
 };
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_plugin::provider_account::{with_context, InvocationContext};
+
+fn remove_directory_link(link: &Path) {
+    #[cfg(windows)]
+    std::fs::remove_dir(link).unwrap();
+    #[cfg(not(windows))]
+    std::fs::remove_file(link).unwrap();
+}
 
 #[test]
 fn directory_pre_trust_requires_authority_and_the_exact_launch_cwd() {
@@ -71,18 +79,59 @@ fn domios_data_root_and_children_are_owned_while_outside_and_siblings_are_not() 
     ));
 }
 
-#[cfg(unix)]
 #[test]
-fn symlink_inside_domios_root_pointing_outside_is_not_domios_owned() {
+fn directory_link_inside_domios_root_pointing_outside_is_not_domios_owned() {
     let temp = tempfile::tempdir().unwrap();
     let domios_root = temp.path().join(".domios");
+    let pad = domios_root.join("runtime").join("agent-pads").join("tab-1");
     let outside = temp.path().join("outside");
-    std::fs::create_dir_all(&domios_root).unwrap();
+    std::fs::create_dir_all(&pad).unwrap();
     std::fs::create_dir_all(&outside).unwrap();
-    let escape = domios_root.join("escape");
-    std::os::unix::fs::symlink(&outside, &escape).unwrap();
+    let escape = pad.join("escape");
+    codeterm_util::fs_links::directory_link(&outside, &escape).unwrap();
 
+    assert!(domios_owned_canonical_directory(&escape, &domios_root).is_none());
     assert!(!is_domios_owned_directory(&escape, &domios_root));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_case_and_separator_variations_match_domios_root_and_reject_siblings() {
+    let temp = tempfile::tempdir().unwrap();
+    let domios_root = temp.path().join(".Domios");
+    let child = domios_root.join("WorkSpaces").join("Fresh");
+    let sibling = temp.path().join(".Domios-Other");
+    std::fs::create_dir_all(&child).unwrap();
+    std::fs::create_dir_all(&sibling).unwrap();
+
+    let canonical_child = domios_owned_canonical_directory(&child, &domios_root).unwrap();
+    let varied_child = child
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .replace('\\', "/");
+    let varied_root = domios_root.to_string_lossy().to_ascii_uppercase();
+    let varied_sibling = sibling.to_string_lossy().to_ascii_uppercase();
+
+    assert_eq!(
+        domios_owned_canonical_directory(Path::new(&varied_child), Path::new(&varied_root)),
+        Some(canonical_child.clone())
+    );
+    assert_eq!(
+        eligible_target_with_root(
+            false,
+            Some(&varied_child),
+            Some(&varied_child),
+            Path::new(&varied_root),
+        ),
+        Some(PreTrustTarget::DomiosOwned {
+            raw_cwd: varied_child,
+            canonical_cwd: canonical_child,
+        })
+    );
+    assert!(
+        domios_owned_canonical_directory(Path::new(&varied_sibling), Path::new(&varied_root))
+            .is_none()
+    );
 }
 
 #[test]
@@ -97,27 +146,102 @@ fn domios_owned_cwd_is_eligible_without_provenance_and_outside_keeps_provenance_
     let root_str = domios_root.to_str().unwrap();
     let child_str = child.to_str().unwrap();
     let outside_str = outside.to_str().unwrap();
+    let canonical_root = domios_owned_canonical_directory(&domios_root, &domios_root).unwrap();
+    let canonical_child = domios_owned_canonical_directory(&child, &domios_root).unwrap();
 
     assert_eq!(
-        eligible_cwd_with_root(false, Some(root_str), Some(root_str), &domios_root),
-        Some(root_str)
+        eligible_target_with_root(false, Some(root_str), Some(root_str), &domios_root),
+        Some(PreTrustTarget::DomiosOwned {
+            raw_cwd: root_str.to_string(),
+            canonical_cwd: canonical_root,
+        })
     );
     assert_eq!(
-        eligible_cwd_with_root(false, Some(child_str), Some(child_str), &domios_root),
-        Some(child_str)
+        eligible_target_with_root(false, Some(child_str), Some(child_str), &domios_root),
+        Some(PreTrustTarget::DomiosOwned {
+            raw_cwd: child_str.to_string(),
+            canonical_cwd: canonical_child,
+        })
     );
     assert_eq!(
-        eligible_cwd_with_root(false, Some(child_str), Some(root_str), &domios_root),
+        eligible_target_with_root(false, Some(child_str), Some(root_str), &domios_root),
         None
     );
     assert_eq!(
-        eligible_cwd_with_root(false, Some(outside_str), Some(outside_str), &domios_root),
+        eligible_target_with_root(false, Some(outside_str), Some(outside_str), &domios_root),
         None
     );
     assert_eq!(
-        eligible_cwd_with_root(true, Some(outside_str), Some(outside_str), &domios_root),
-        Some(outside_str)
+        eligible_target_with_root(true, Some(outside_str), Some(outside_str), &domios_root),
+        Some(PreTrustTarget::Provenance(outside_str.to_string()))
     );
+}
+
+#[test]
+fn retargeted_domios_alias_never_grants_outside_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let domios_root = temp.path().join(".domios");
+    let pad = domios_root.join("runtime").join("agent-pads").join("tab-1");
+    let inside = domios_root.join("inside-target");
+    let outside = temp.path().join("outside-target");
+    for dir in [&pad, &inside, &outside] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let alias = pad.join("link");
+    codeterm_util::fs_links::directory_link(&inside, &alias).unwrap();
+
+    let alias_str = alias.to_string_lossy().to_string();
+    let canonical_inside = domios_owned_canonical_directory(&inside, &domios_root).unwrap();
+
+    // Authorization binds to the canonical inside directory, never the mutable alias path.
+    let approved =
+        eligible_target_with_root(false, Some(&alias_str), Some(&alias_str), &domios_root)
+            .expect("inside alias authorized");
+    assert_eq!(approved.write_cwd(), canonical_inside);
+
+    // Unmodified alias passes the canonical inside path (not the alias) to pre_trust_directory.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let (mut mux, tab_id) = MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture".into());
+        tab.cwd = Some(alias_str.clone());
+    }
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("fixture").with_pre_trust_log(log.clone()),
+    ));
+    for_tab_with_root(
+        &fixture.service,
+        &fixture.service.agent_registry,
+        "fixture",
+        &tab_id,
+        Some(&alias_str),
+        &domios_root,
+    );
+    assert_eq!(*log.lock(), vec![(canonical_inside.clone(), None)]);
+    log.lock().clear();
+
+    // Retargeting the alias to an outside folder between authorization and trust write
+    // skips the trust write and never grants the outside directory.
+    for_tab_with_root_and_hook(
+        &fixture.service,
+        &fixture.service.agent_registry,
+        "fixture",
+        &tab_id,
+        Some(&alias_str),
+        &domios_root,
+        || {
+            remove_directory_link(&alias);
+            codeterm_util::fs_links::directory_link(&outside, &alias).unwrap();
+        },
+    );
+    assert!(log.lock().is_empty());
+
+    // Even after retargeting, the previously approved write target still names the canonical
+    // inside directory, never the alias or outside folder.
+    assert_eq!(approved.write_cwd(), canonical_inside);
+    assert!(!approved.still_valid_for_write(&domios_root));
 }
 
 #[test]
@@ -134,6 +258,8 @@ fn pre_trust_dispatches_for_domios_dirs_and_selected_account_only() {
     for dir in [&domios_root, &child, &outside, &default_home, &named_home] {
         std::fs::create_dir_all(dir).unwrap();
     }
+    let canonical_root = domios_owned_canonical_directory(&domios_root, &domios_root).unwrap();
+    let canonical_child = domios_owned_canonical_directory(&child, &domios_root).unwrap();
 
     let log = Arc::new(Mutex::new(Vec::new()));
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -172,8 +298,8 @@ fn pre_trust_dispatches_for_domios_dirs_and_selected_account_only() {
     assert_eq!(
         *log.lock(),
         vec![
-            (domios_root.to_string_lossy().to_string(), None),
-            (child.to_string_lossy().to_string(), None),
+            (canonical_root.clone(), None),
+            (canonical_child.clone(), None)
         ]
     );
     log.lock().clear();
@@ -206,14 +332,8 @@ fn pre_trust_dispatches_for_domios_dirs_and_selected_account_only() {
     assert_eq!(
         *log.lock(),
         vec![
-            (
-                domios_root.to_string_lossy().to_string(),
-                Some("work".to_string()),
-            ),
-            (
-                child.to_string_lossy().to_string(),
-                Some("work".to_string()),
-            ),
+            (canonical_root, Some("work".to_string())),
+            (canonical_child, Some("work".to_string())),
         ]
     );
 

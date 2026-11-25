@@ -20,6 +20,37 @@ pub fn for_tab(
     );
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PreTrustTarget {
+    Provenance(String),
+    DomiosOwned {
+        raw_cwd: String,
+        canonical_cwd: String,
+    },
+}
+
+impl PreTrustTarget {
+    fn write_cwd(&self) -> &str {
+        match self {
+            Self::Provenance(cwd) => cwd,
+            Self::DomiosOwned { canonical_cwd, .. } => canonical_cwd,
+        }
+    }
+
+    fn still_valid_for_write(&self, domios_root: &Path) -> bool {
+        match self {
+            Self::Provenance(_) => true,
+            Self::DomiosOwned {
+                raw_cwd,
+                canonical_cwd,
+            } => {
+                domios_owned_canonical_directory(Path::new(raw_cwd), domios_root).as_deref()
+                    == Some(canonical_cwd.as_str())
+            }
+        }
+    }
+}
+
 fn for_tab_with_root(
     service: &ServiceContext,
     registry: &AgentRegistry,
@@ -27,6 +58,26 @@ fn for_tab_with_root(
     tab_id: &str,
     launch_cwd: Option<&str>,
     domios_root: &Path,
+) {
+    for_tab_with_root_and_hook(
+        service,
+        registry,
+        provider_id,
+        tab_id,
+        launch_cwd,
+        domios_root,
+        || {},
+    );
+}
+
+fn for_tab_with_root_and_hook(
+    service: &ServiceContext,
+    registry: &AgentRegistry,
+    provider_id: &str,
+    tab_id: &str,
+    launch_cwd: Option<&str>,
+    domios_root: &Path,
+    before_write: impl FnOnce(),
 ) {
     if provider_id.is_empty() {
         return;
@@ -46,7 +97,7 @@ fn for_tab_with_root(
     else {
         return;
     };
-    let Some(cwd) = eligible_cwd_with_root(
+    let Some(target) = eligible_target_with_root(
         provenance_authorized,
         tab_cwd.as_deref(),
         launch_cwd,
@@ -54,8 +105,7 @@ fn for_tab_with_root(
     ) else {
         return;
     };
-    let run = || registry.with_provider(provider_id, |provider| provider.pre_trust_directory(cwd));
-    let result = if codeterm_plugin::provider_account::current().is_none()
+    let resolved_invocation = if codeterm_plugin::provider_account::current().is_none()
         && selected_account != codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT
     {
         match resolve_tab_account_invocation(
@@ -64,7 +114,7 @@ fn for_tab_with_root(
             &selected_account,
             account_namespace.as_deref(),
         ) {
-            Ok(invocation) => codeterm_plugin::provider_account::with_context(invocation, run),
+            Ok(invocation) => Some(invocation),
             Err(error) => {
                 log::warn!(
                     "[directory-pre-trust] tab={tab_id} account context unavailable ({error}); skipping pre-trust"
@@ -73,7 +123,24 @@ fn for_tab_with_root(
             }
         }
     } else {
-        run()
+        None
+    };
+    before_write();
+    if !target.still_valid_for_write(domios_root) {
+        log::warn!(
+            "[directory-pre-trust] tab={tab_id} launch cwd target changed before trust write; skipping"
+        );
+        return;
+    }
+    let write_cwd = target.write_cwd();
+    let run = || {
+        registry.with_provider(provider_id, |provider| {
+            provider.pre_trust_directory(write_cwd)
+        })
+    };
+    let result = match resolved_invocation {
+        Some(invocation) => codeterm_plugin::provider_account::with_context(invocation, run),
+        None => run(),
     };
     match result {
         Some(Ok(outcome)) => log::info!("[directory-pre-trust] tab={tab_id} outcome={outcome:?}"),
@@ -109,16 +176,22 @@ fn tab_provenance_authorized(tab: &crate::multiplexer::types::Tab) -> bool {
     tab.team_id.is_some() || super::directory_trust::directory_trust_provenance(tab).is_ok()
 }
 
-fn eligible_cwd_with_root<'a>(
+fn eligible_target_with_root(
     provenance_authorized: bool,
-    tab_cwd: Option<&'a str>,
+    tab_cwd: Option<&str>,
     launch_cwd: Option<&str>,
     domios_root: &Path,
-) -> Option<&'a str> {
+) -> Option<PreTrustTarget> {
     let cwd = exact_launch_cwd(tab_cwd, launch_cwd)?;
-    let authorized =
-        provenance_authorized || is_domios_owned_directory(Path::new(cwd), domios_root);
-    authorized.then_some(cwd)
+    if provenance_authorized {
+        return Some(PreTrustTarget::Provenance(cwd.to_string()));
+    }
+    domios_owned_canonical_directory(Path::new(cwd), domios_root).map(|canonical_cwd| {
+        PreTrustTarget::DomiosOwned {
+            raw_cwd: cwd.to_string(),
+            canonical_cwd,
+        }
+    })
 }
 
 #[cfg(test)]
@@ -138,24 +211,25 @@ fn exact_launch_cwd<'a>(tab_cwd: Option<&'a str>, launch_cwd: Option<&str>) -> O
     ServiceContext::paths_equal(cwd, launch_cwd.unwrap_or(cwd)).then_some(cwd)
 }
 
-/// True iff `cwd` resolves to an existing directory equal to or inside `data_root`.
-pub(crate) fn is_domios_owned_directory(cwd: &Path, data_root: &Path) -> bool {
-    let Ok(canonical_root) = std::fs::canonicalize(data_root) else {
-        return false;
-    };
-    let Ok(canonical_cwd) = std::fs::canonicalize(cwd) else {
-        return false;
-    };
+/// Returns the canonical directory path iff `cwd` resolves to an existing directory
+/// equal to or inside `data_root`.
+pub(crate) fn domios_owned_canonical_directory(cwd: &Path, data_root: &Path) -> Option<String> {
+    let canonical_root = std::fs::canonicalize(data_root).ok()?;
+    let canonical_cwd = std::fs::canonicalize(cwd).ok()?;
     if !canonical_root.is_dir() || !canonical_cwd.is_dir() {
-        return false;
+        return None;
     }
     let root = PathBuf::from(codeterm_paths::strip_verbatim_prefix(
         &canonical_root.to_string_lossy(),
     ));
-    let target = PathBuf::from(codeterm_paths::strip_verbatim_prefix(
-        &canonical_cwd.to_string_lossy(),
-    ));
-    path_is_same_or_descendant(&target, &root)
+    let target_str = codeterm_paths::strip_verbatim_prefix(&canonical_cwd.to_string_lossy());
+    let target = PathBuf::from(&target_str);
+    path_is_same_or_descendant(&target, &root).then_some(target_str)
+}
+
+#[cfg(test)]
+pub(crate) fn is_domios_owned_directory(cwd: &Path, data_root: &Path) -> bool {
+    domios_owned_canonical_directory(cwd, data_root).is_some()
 }
 
 fn path_is_same_or_descendant(candidate: &Path, root: &Path) -> bool {
