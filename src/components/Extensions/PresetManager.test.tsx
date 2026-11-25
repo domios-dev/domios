@@ -270,19 +270,21 @@ test("temperature input uses locale-independent dot-decimal format and round-tri
   });
   const tempInput = byTestId(host, "preset-temperature") as HTMLInputElement;
   assert(tempInput, "temperature input should render");
+  const readTempValue = () => tempInput.value;
+  const saveCount = () => saves.length;
   assert(tempInput.type === "text" && tempInput.inputMode === "decimal", "temperature input should be decimal text input");
-  assert(tempInput.value === "0.2", `initial temperature should display '0.2', got '${tempInput.value}'`);
+  assert(readTempValue() === "0.2", `initial temperature should display '0.2', got '${readTempValue()}'`);
 
   await setInputValue(tempInput, "0,7");
   await flush();
-  assert(saves.length === 0, "locale comma temperature must not persist");
+  assert(saveCount() === 0, "locale comma temperature must not persist");
 
   await setInputValue(tempInput, "0.7");
   await flush();
-  assert(saves.length >= 1, "dot-decimal temperature should persist");
+  assert(saveCount() >= 1, "dot-decimal temperature should persist");
   const updated = saves[saves.length - 1].presets.find((p: Preset) => p.id === "p1");
   assert(updated?.params?.temperature === 0.7, `temperature should persist as 0.7, got ${updated?.params?.temperature}`);
-  assert(tempInput.value === "0.7", `temperature should display '0.7', got '${tempInput.value}'`);
+  assert(readTempValue() === "0.7", `temperature should display '0.7', got '${readTempValue()}'`);
 
   await setInputValue(tempInput, "");
   await flush();
