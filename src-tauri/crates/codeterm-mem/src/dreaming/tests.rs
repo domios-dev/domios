@@ -656,21 +656,161 @@ mod cron_task {
 }
 
 #[test]
-fn rem_prompt_injects_host_time_without_a_shell_clock() {
+fn rem_prompt_injects_host_time_and_supervisor_preface() {
     let start = chrono::DateTime::parse_from_rfc3339("2026-11-24T05:26:54Z")
         .unwrap()
         .with_timezone(&chrono::Utc);
-    let rendered = render_rem_prompt(start, "opaque_notify_fragment_519");
+    let rendered = render_rem_prompt(
+        start,
+        "opaque_notify_fragment_519",
+        "opaque_preface_fragment_803",
+    );
     assert!(rendered.contains("2026-11-24T05:26:54Z"));
     assert!(rendered.contains("2026-11-24T04:26:54Z"));
     assert!(rendered.contains("dream: 2026-11-24 05:26"));
     assert!(rendered.contains("opaque_notify_fragment_519"));
+    assert!(rendered.contains("opaque_preface_fragment_803"));
     for placeholder in [
         "{started_at}",
         "{calibration_since}",
         "{diary_title}",
         "{telegram_notify_step}",
+        "{supervisor_preface}",
     ] {
         assert!(!rendered.contains(placeholder));
     }
+}
+
+#[test]
+fn calibration_preface_formats_skipped_ran_and_unavailable_outcomes() {
+    let skipped = serde_json::json!({
+        "day_of_week": "3",
+        "examined": 0,
+        "applied": 0,
+        "archived": 0,
+        "skipped_reason": "not_sunday",
+        "stale": {
+            "enabled": false,
+            "skipped_reason": "disabled",
+            "archived": []
+        }
+    });
+    let skipped_text = format_calibration_preface(Some(&skipped));
+    assert!(skipped_text.contains("skipped=not_sunday"));
+    assert!(skipped_text.contains("examined=0 applied=0 archived=0"));
+    assert!(skipped_text.contains("stale_archive: skipped=disabled archived=0"));
+
+    let ran = serde_json::json!({
+        "day_of_week": "0",
+        "examined": 12,
+        "applied": 0,
+        "archived": 0,
+        "stale": {
+            "enabled": true,
+            "archived": ["item_a", "item_b"]
+        }
+    });
+    let ran_text = format_calibration_preface(Some(&ran));
+    assert!(ran_text.contains("skipped=none examined=12 applied=0 archived=0"));
+    assert!(ran_text.contains("stale_archive: skipped=none archived=2"));
+
+    assert!(format_calibration_preface(None).contains("unavailable"));
+
+    let combined = render_supervisor_preface(Some("opaque_rem_snapshot_771"), Some(&skipped));
+    assert!(combined.contains("skipped=not_sunday"));
+    assert!(combined.contains("opaque_rem_snapshot_771"));
+    assert_eq!(
+        render_supervisor_preface(Some("   "), None),
+        format_calibration_preface(None)
+    );
+}
+
+#[tokio::test]
+async fn ensure_dreams_anchor_preserves_and_revives_diary_links_across_normalize() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let diary = mem
+        .save(NewMemItem {
+            kind: MemKind::Daily,
+            scope: MemScope::Global,
+            title: "dream: 2026-11-25 06:11".into(),
+            summary: Some("summary".into()),
+            area: Some("_dreams".into()),
+            tags: vec!["dream-diary".into()],
+            body: "<insight>ok</insight><log>STARTED: 2026-11-25T06:11:00Z</log>".into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+    let anchor = codeterm_mem_store::hubs::DREAMS_ANCHOR_ID;
+    mem.graph_relate(&crate::graph::Relation {
+        from_id: diary.clone(),
+        relation_type: "belongs_to".into(),
+        to_id: anchor.into(),
+        scope: "global".into(),
+        valid_from: chrono::Utc::now().to_rfc3339(),
+        valid_to: None,
+        confidence: 1.0,
+        properties: serde_json::json!({}),
+        reason: Some("dreamer-diary-link".into()),
+    })
+    .unwrap();
+
+    // Without the anchor entity, normalize invalidates the dangling diary link.
+    normalize_phase(&mem).await.unwrap();
+    assert!(mem
+        .graph_related(&diary, None, None, false)
+        .unwrap()
+        .is_empty());
+
+    // Ensuring the anchor entity before normalize revives and preserves the edge.
+    ensure_dreams_anchor(&mem).unwrap();
+    normalize_phase(&mem).await.unwrap();
+    let active = mem.graph_related(&diary, None, None, false).unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].to_id, anchor);
+}
+
+#[test]
+fn pending_extraction_skips_dream_diaries() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let dream = mem
+        .save(NewMemItem {
+            kind: MemKind::Daily,
+            scope: MemScope::Global,
+            title: "dream: 2026-11-25 19:14".into(),
+            summary: Some("WIP".into()),
+            area: Some("_dreams".into()),
+            tags: vec!["dream-diary".into()],
+            body: "<insight></insight><log>STARTED: 2026-11-25T19:14:00Z</log>".into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+    let ordinary = mem
+        .save(NewMemItem {
+            kind: MemKind::Daily,
+            scope: MemScope::Global,
+            title: "ordinary daily log".into(),
+            summary: None,
+            area: Some("work".into()),
+            tags: vec![],
+            body: "regular daily note".into(),
+            source: None,
+            importance: 2.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+
+    let pending = crate::auto_extract::find_pending_items(&mem, 20).unwrap();
+    let ids: Vec<&str> = pending.iter().map(|(id, _, _, _)| id.as_str()).collect();
+    assert!(
+        !ids.contains(&dream.as_str()),
+        "dream diary must not be queued for auto-extraction"
+    );
+    assert!(ids.contains(&ordinary.as_str()));
 }
