@@ -618,18 +618,18 @@ mod tests {
             }
         }
 
-        let prod = resolve_paired_peer(&peers, &installations, link_of, "studio")
+        let prod = resolve_paired_peer(&peers, &installations, |id| link_of(id), "studio")
             .expect("exact prod name must beat DEV-suffixed peer");
         assert_eq!(prod.instance_id, "peer-prod");
 
-        let dev = resolve_paired_peer(&peers, &installations, link_of, "studio [dev-qa]")
+        let dev = resolve_paired_peer(&peers, &installations, |id| link_of(id), "studio [dev-qa]")
             .expect("explicit DEV name resolves to DEV peer");
         assert_eq!(dev.instance_id, "peer-dev");
 
         // Even when prod is offline, exact "studio" must not fall through to DEV.
         peers.get_mut("peer-prod").unwrap().online = false;
         assert!(matches!(
-            resolve_paired_peer(&peers, &installations, link_of, "studio"),
+            resolve_paired_peer(&peers, &installations, |id| link_of(id), "studio"),
             Err(ResolvePairedError::NoOnlineCandidate { .. })
         ));
 
