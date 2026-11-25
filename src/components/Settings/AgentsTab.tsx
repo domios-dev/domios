@@ -22,6 +22,7 @@ import type { SettingsCardAnchorId } from "./sections";
 import { RemoteLocalOnlyNotice, SettingsCard, SettingsPill, Toggle } from "./shared";
 import { useSettingsRemoteTarget } from "./useSettingsTarget";
 import { AgentIcon } from "../AgentIcon";
+import { PresetManager } from "../Extensions/PresetManager";
 import { NumericInput } from "../shared/NumericInput";
 
 export function AgentsOverview({
@@ -169,6 +170,7 @@ export function AgentProviderScreen({
   const providerCfg = fullConfig.agents?.[provider.id] ?? {};
   const visibleInMenu = providerCfg.visible_in_menu !== false;
   const sections = providerPageSections(provider);
+  const supportsPresets = provider.behavior_config?.model === "presets_and_system_prompt";
 
   return (
     <div className="flex flex-col gap-5" data-testid="settings-agent-provider-screen" data-provider-id={provider.id}>
@@ -225,6 +227,19 @@ export function AgentProviderScreen({
           onChange={(v) => onProviderConfigChange(provider.id, { visible_in_menu: v })}
         />
       </SettingsCard>
+      {supportsPresets && (
+        remoteTarget ? (
+          <SettingsCard
+            icon={<Boxes size={16} />}
+            title="Presets"
+            description="Pair a system prompt, model, and sampling parameters for chat sessions."
+          >
+            <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="Chat presets" />
+          </SettingsCard>
+        ) : (
+          <PresetManager pluginId={provider.id} models={provider.available_models ?? []} />
+        )
+      )}
       <SchemaRenderer
         schema={provider.settings_schema}
         providerId={provider.id}

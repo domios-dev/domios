@@ -1,7 +1,14 @@
 // Run: npx tsx src/components/shared/numericInputModel.test.ts
 
 import { describe, expect, finish, it } from "../../test/standaloneTest";
-import { formatNumericInput, parseNumericInput, stepNumericValue } from "./numericInputModel";
+import {
+  formatNumericInput,
+  lastCommittedNumeric,
+  parseNumericInput,
+  reconcileExternalNumericValue,
+  stepNumericValue,
+  type PendingNumericEmission,
+} from "./numericInputModel";
 
 describe("numericInputModel", () => {
   it("formats finite numbers in locale-independent dot-decimal form", () => {
@@ -42,6 +49,36 @@ describe("numericInputModel", () => {
     expect(stepNumericValue(0.05, -1, { step: 0.01, min: 0.05, max: 0.5 })).toBe(0.05);
     expect(stepNumericValue(0.5, 1, { step: 0.01, min: 0.05, max: 0.5 })).toBe(0.5);
     expect(stepNumericValue(60, 1, { integer: true, min: 5, max: 1440 })).toBe(61);
+  });
+
+  it("reconciles delayed echoes without overwriting focused or pending local drafts", () => {
+    const queue: PendingNumericEmission[] = [
+      { kind: "value", value: 0.19 },
+      { kind: "value", value: 0.18 },
+      { kind: "value", value: 0.15 },
+    ];
+    expect(lastCommittedNumeric(queue, 0.2)).toEqual({ kind: "value", value: 0.15 });
+
+    const focusedEarlyEcho = reconcileExternalNumericValue(queue, 0.19, true);
+    expect(focusedEarlyEcho.nextDraft).toBeNull();
+    expect(focusedEarlyEcho.pending).toEqual([
+      { kind: "value", value: 0.18 },
+      { kind: "value", value: 0.15 },
+    ]);
+
+    const blurredEarlyEcho = reconcileExternalNumericValue(focusedEarlyEcho.pending, 0.18, false);
+    expect(blurredEarlyEcho.nextDraft).toBeNull();
+    expect(blurredEarlyEcho.pending).toEqual([{ kind: "value", value: 0.15 }]);
+
+    const blurredFinalEcho = reconcileExternalNumericValue(blurredEarlyEcho.pending, 0.15, false);
+    expect(blurredFinalEcho.nextDraft).toBe("0.15");
+    expect(blurredFinalEcho.pending).toEqual([]);
+
+    const blurredExternalChange = reconcileExternalNumericValue([], 0.35, false);
+    expect(blurredExternalChange.nextDraft).toBe("0.35");
+
+    const focusedExternalChange = reconcileExternalNumericValue([], 0.35, true);
+    expect(focusedExternalChange.nextDraft).toBeNull();
   });
 });
 
