@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { AppConfig } from "./types";
 import type { AppearanceProposal } from "./appearance";
 import { APPEARANCE_CHANGED, type AppearanceTarget } from "./appearanceClient";
@@ -26,7 +26,7 @@ export function useMachineViewerTheme() {
 }
 
 type Target = ReturnType<typeof useWorkspaceBrowseTarget>;
-type PeerAppearance = { target: NonNullable<Target>; appearance: MachineAppearance };
+type PeerAppearance = { targetId: string; appearance: MachineAppearance };
 
 export function useMachineAppearance(config: AppConfig, ready: boolean): SelectedMachineAppearance {
   const target = useWorkspaceBrowseTarget();
@@ -34,9 +34,12 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
   const peerId = target?.id ?? relay;
   const identity = useMeshMachineIdentity(peerId);
   const [peer, setPeer] = useState<PeerAppearance | null>(null);
+  const remoteId = target && target.id !== relay ? target.id : null;
+  const targetRef = useRef<Target>(target);
+  targetRef.current = target;
 
   useEffect(() => {
-    if (!target || target.id === relay) return;
+    if (!remoteId) return;
     const controller = new AbortController();
     let readController: AbortController | undefined;
     let version = 0;
@@ -44,20 +47,21 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
     const publish = (appearance: MachineAppearance) => {
       if (controller.signal.aborted) return;
       settled = true;
-      setPeer({ target, appearance });
+      setPeer({ targetId: remoteId, appearance });
     };
     const refresh = () => {
       readController?.abort();
       const request = new AbortController();
       readController = request;
       const requestVersion = ++version;
-      void readMachineAppearance(target.id, request.signal).then(appearance => {
+      void readMachineAppearance(remoteId, request.signal).then(appearance => {
         if (!controller.signal.aborted && !request.signal.aborted && requestVersion === version) {
           publish(appearance);
         }
       }).catch(() => {
         if (!controller.signal.aborted && !request.signal.aborted && !settled) {
-          discardWorkspaceSwitchOrigin(target);
+          const current = targetRef.current;
+          if (current?.id === remoteId) discardWorkspaceSwitchOrigin(current);
         }
       });
     };
@@ -66,7 +70,7 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
       const receipt = detail?.receipt;
       if (!receipt) return;
       const changedPeer = detail.target?.peer ?? receipt.machine?.id;
-      if (changedPeer !== target.id) return;
+      if (changedPeer !== remoteId) return;
       const next = receipt.state === "undone" ? receipt.previous : receipt.look;
       if (!next?.theme) return;
       readController?.abort();
@@ -74,7 +78,7 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
       version++;
       publish({ theme: next.theme, wallpaper: next.wallpaper ?? null, tuning: next.tuning ?? null });
     };
-    const stopRail = peerEventRail.observe(target.id, event => {
+    const stopRail = peerEventRail.observe(remoteId, event => {
       if (event.type === "config-changed" || event.type === "reconcile") refresh();
     });
     window.addEventListener(APPEARANCE_CHANGED, onAppearanceChanged);
@@ -85,18 +89,18 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
       stopRail();
       window.removeEventListener(APPEARANCE_CHANGED, onAppearanceChanged);
     };
-  }, [target, relay]);
+  }, [remoteId]);
 
-  const remote = target && target.id !== relay;
-  const selected = remote && peer?.target === target ? peer.appearance : null;
+  const remote = remoteId !== null;
+  const selected = remote && peer?.targetId === remoteId ? peer.appearance : null;
   return {
     appearance: selected ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null, tuning: config.appearance ?? null },
     peerId,
     identity,
     ready: remote ? selected !== null : ready,
     projectWallpaper(wallpaper) {
-      if (remote) setPeer(previous => previous?.target === target
-        ? { target, appearance: { ...previous.appearance, wallpaper } }
+      if (remote) setPeer(previous => previous?.targetId === remoteId
+        ? { targetId: remoteId, appearance: { ...previous.appearance, wallpaper } }
         : previous);
     },
   };
