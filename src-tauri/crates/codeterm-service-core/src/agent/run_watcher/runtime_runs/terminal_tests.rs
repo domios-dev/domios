@@ -675,3 +675,105 @@ fn runtime_cron_completion_materializes_bounded_nonrereadable_cache_evidence() {
 fn runtime_completion_projection_bounds_scalar_escaping_depth_and_utf8_before_serialization() {
     recovery::runtime_completion_projection_bounds_scalar_escaping_depth_and_utf8_before_serialization();
 }
+
+#[test]
+fn worker_cancellation_retires_runtime_deadline_and_prevents_stale_overwrite() {
+    let scene = Scene::new();
+    let svc = &scene.fixture.service;
+    let workspace = svc.mux.read().list_workspaces()[0].id.clone();
+    let tab = svc.mux.write().create_tab(&workspace).unwrap();
+    let _nonce = svc.ensure_session_binding_nonce(&tab);
+    {
+        let mut mux = svc.mux.write();
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.agent_type = Some(PROVIDER.into());
+        target.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+            plugin_id: PROVIDER.into(),
+            session_id: String::new(),
+        };
+    }
+
+    let worker_id = "gw_cancel_rt";
+    svc.workers.register(crate::mem::workers::make_info(
+        worker_id.into(),
+        tab.clone(),
+        "dreaming:rem".into(),
+        "system:dreaming".into(),
+        "hsl(0,0%,0%)".into(),
+    ));
+    let diary = svc
+        .mem
+        .save(crate::mem::NewMemItem {
+            kind: crate::mem::MemKind::Daily,
+            scope: crate::mem::MemScope::Global,
+            title: "dream: cancelled".into(),
+            summary: Some("WIP: dreaming".into()),
+            area: Some("_dreams".into()),
+            tags: vec!["dream-diary".into()],
+            body: "<insight></insight><log>STARTED: 2026-11-25T00:00:00Z\nCALIBRATION: pending\n</log>"
+                .into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+    svc.workers.bind_diary(worker_id, &diary);
+    let diary_before = svc.mem.get(&diary).unwrap().unwrap().body;
+
+    svc.run_watcher
+        .register_runtime(
+            svc,
+            &tab,
+            AgentRunKind::MemWorker {
+                worker_id: worker_id.into(),
+            },
+            2700,
+        )
+        .unwrap();
+    let cancelled = svc
+        .run_watcher
+        .runtime_runs
+        .lock()
+        .get(&tab)
+        .unwrap()
+        .cancelled
+        .subscribe();
+
+    let svc_arc = Arc::new(svc.clone());
+    crate::mem_host::cancel_worker(&svc_arc, worker_id).unwrap();
+
+    assert!(
+        *cancelled.borrow(),
+        "cancelling a worker must signal its runtime deadline watcher to exit"
+    );
+    assert!(!svc.run_watcher.has_runtime_run(&tab));
+
+    // Even if a timeout callback raced cancellation, it must leave the cancelled
+    // worker's log and diary untouched.
+    worker_lifecycle::finish_runtime_mem_worker(
+        svc,
+        worker_lifecycle::RuntimeMemWorkerEnd {
+            tab: &tab,
+            worker_id,
+            reported: false,
+            success: false,
+            timed_out: true,
+            summary: "hard timeout after 2700s".into(),
+            output: "[]",
+            session: None,
+            cwd: None,
+        },
+    );
+    let worker = svc.workers.get(worker_id).unwrap();
+    assert_eq!(
+        worker.execution_end,
+        Some(codeterm_mem::dream_status::ExecutionEnd::Cancelled)
+    );
+    assert_eq!(
+        worker.finalization,
+        codeterm_mem::dream_status::DiaryFinalization::Pending
+    );
+    assert_eq!(worker.log_path, None);
+    assert_eq!(svc.mem.get(&diary).unwrap().unwrap().body, diary_before);
+}

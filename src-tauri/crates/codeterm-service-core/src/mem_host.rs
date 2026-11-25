@@ -618,6 +618,7 @@ pub fn spawn_rem_worker(
     svc: &Arc<ServiceContext>,
     mem_cfg: &codeterm_types::config::MemoryConfig,
     default_agent: &str,
+    calibration: Option<serde_json::Value>,
 ) {
     use codeterm_mem::dreaming::{DREAMING_TELEGRAM_STEP_DISABLED, DREAMING_TELEGRAM_STEP_ENABLED};
     use codeterm_mem::workers::DREAMING_INTENT_PREFIX;
@@ -637,7 +638,25 @@ pub fn spawn_rem_worker(
     } else {
         DREAMING_TELEGRAM_STEP_DISABLED
     };
-    let prompt = codeterm_mem::dreaming::render_rem_prompt(chrono::Utc::now(), telegram_step);
+    if let Err(e) = codeterm_mem::dreaming::ensure_dreams_anchor(&svc.mem) {
+        log::warn!("[dreaming] failed to ensure project_dreams anchor: {}", e);
+    }
+    let rem_data = match codeterm_mem::dreaming::prepare_rem_data(&svc.mem) {
+        Ok(data) => Some(data),
+        Err(e) => {
+            log::warn!("[dreaming] failed to prepare REM supervisor preface: {}", e);
+            None
+        }
+    };
+    let supervisor_preface = codeterm_mem::dreaming::render_supervisor_preface(
+        rem_data.as_deref(),
+        calibration.as_ref(),
+    );
+    let prompt = codeterm_mem::dreaming::render_rem_prompt(
+        chrono::Utc::now(),
+        telegram_step,
+        &supervisor_preface,
+    );
     match spawn_headless(
         svc,
         format!("{DREAMING_INTENT_PREFIX}rem"),
@@ -682,6 +701,7 @@ pub fn cancel_worker(
             return None;
         }
     };
+    svc.run_watcher.retire_worker(worker_id);
     if !info.tab_id.is_empty() {
         if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
             log::warn!("[graph-workers] cancel Tab {}: {}", info.tab_id, e);

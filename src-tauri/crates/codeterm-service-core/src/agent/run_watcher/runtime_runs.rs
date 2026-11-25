@@ -8,6 +8,7 @@ use codeterm_plugin::agent_runtime::RuntimeContext;
 use std::time::Duration;
 
 mod cron_ownership;
+mod worker_lifecycle;
 
 pub(super) struct RuntimeRun {
     nonce: String,
@@ -1024,45 +1025,20 @@ impl RunWatcherRegistry {
                     },
                 )
             }
-            AgentRunKind::MemWorker { worker_id } => {
-                if let Ok(path) = crate::mem::workers::save_worker_log(&worker_id, &output) {
-                    svc.workers
-                        .set_log_path(&worker_id, path.to_string_lossy().into_owned());
-                }
-                if let Some(session) = session {
-                    svc.workers.set_run_session(&worker_id, session, cwd);
-                }
-                if !run.reported {
-                    let end = if timed_out {
-                        codeterm_mem::dream_status::ExecutionEnd::TimedOut {
-                            detail: summary.clone(),
-                        }
-                    } else {
-                        codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
-                            detail: if success {
-                                format!("execution ended without mem worker report: {summary}")
-                            } else {
-                                summary.clone()
-                            },
-                        }
-                    };
-                    let _ = svc
-                        .workers
-                        .finish_execution(&worker_id, Some(summary.clone()), end);
-                    if timed_out {
-                        crate::mem::dream_runs::finalize_dream_at_deadline(
-                            svc, &worker_id, &summary,
-                        );
-                    }
-                }
-                let _ = svc.close_tab_with_reason(tab, TabCloseReason::AgentRunEnded);
-                if let Some(info) = svc.workers.get(&worker_id) {
-                    svc.ui.emit(
-                        "graph-worker-done",
-                        serde_json::to_value(info).unwrap_or_default(),
-                    );
-                }
-            }
+            AgentRunKind::MemWorker { worker_id } => worker_lifecycle::finish_runtime_mem_worker(
+                svc,
+                worker_lifecycle::RuntimeMemWorkerEnd {
+                    tab,
+                    worker_id: &worker_id,
+                    reported: run.reported,
+                    success,
+                    timed_out,
+                    summary,
+                    output: &output,
+                    session,
+                    cwd,
+                },
+            ),
         }
         None
     }

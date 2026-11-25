@@ -51,6 +51,21 @@ pub async fn mem_dream(
         other => return Err((StatusCode::BAD_REQUEST, format!("unknown phase: {}", other))),
     };
 
+    if phase == "all" || phase == "normalize" {
+        let svc = state.svc.clone();
+        let anchor = tokio::task::spawn_blocking(move || dreaming::ensure_dreams_anchor(&svc.mem))
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("dreams anchor join: {}", e),
+                )
+            })?;
+        if let Err(e) = anchor {
+            log::warn!("[dreaming] failed to ensure project_dreams anchor: {}", e);
+        }
+    }
+
     let mut reports = Vec::new();
     for kind in &phases {
         let report = state
@@ -71,6 +86,7 @@ pub async fn mem_dream(
     }
 
     // Run calibration directly in daemon to ensure results are real and history rows are durable.
+    let mut calibration_for_rem: Option<serde_json::Value> = None;
     if phase == "all" {
         let svc = state.svc.clone();
         let hygiene = state.svc.configuration().memory.dream_hygiene;
@@ -90,6 +106,7 @@ pub async fn mem_dream(
                 format!("calibration: {}", e),
             )
         })?;
+        calibration_for_rem = Some(calib.clone());
         let mut tagged = calib;
         if let Some(obj) = tagged.as_object_mut() {
             obj.insert(
@@ -105,7 +122,9 @@ pub async fn mem_dream(
         let svc = state.svc.clone();
         let mem_cfg = state.svc.configuration().memory;
         let default_agent = state.svc.configuration().general_agent.agent_provider;
-        std::thread::spawn(move || dreaming::spawn_rem_worker(&svc, &mem_cfg, &default_agent));
+        std::thread::spawn(move || {
+            dreaming::spawn_rem_worker(&svc, &mem_cfg, &default_agent, calibration_for_rem)
+        });
     }
 
     Ok(Json(serde_json::json!({ "phases": reports })))

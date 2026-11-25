@@ -47,6 +47,10 @@ After EVERY stage, `domios mem update <diary_id> --body '...'` with the full
 log so far (stages not reached yet stay `pending`). If the run is cut short,
 the diary still says what happened.
 
+## SUPERVISOR PREFACE
+
+{supervisor_preface}
+
 ## STAGE 0 — Start
 
 The host supplied start time `{started_at}`, diary title `{diary_title}` and
@@ -139,9 +143,12 @@ For each island, top to bottom, until the cap:
   or `mem graph alias` when the name is a duplicate entity.
 
 Orphans: link a `rule`/`skill`/`preference` with a clear area to its area's
-topic with `relate`; leave `peer` and Librarian `document` items alone;
-archive `conversation`/`summary` flush stubs and `auto:` scaffolding facts.
-Density is not the goal: every node findable through its topic is.
+topic with `relate` (first ensure the `topic_<area>` entity exists with
+`domios mem graph create --id topic_<area> --entity-type Topic --scope global`
+since `relate` does not create missing targets); leave `peer` and Librarian
+`document` items alone; archive `conversation`/`summary` flush stubs and `auto:`
+scaffolding facts. Density is not the goal: every node findable through its
+topic is.
 
 Verify: re-run both commands; `ISLANDS_AFTER` = `total_components`,
 `ORPHANS_AFTER` = `count`. If you created topics, run
@@ -244,9 +251,13 @@ invoke the sweep. Read what it did using the host calibration window:
 `APPLIED` = rows whose `changed_by` ends in promote or demote; archived = rows
 with `change_type` archive. The `dreamer-calibration:stale` rows are the
 nightly stale archive, and each carries its `reason`.
-Log `CALIBRATION: skipped=none applied=<APPLIED> archived=<archived>`, or
-`skipped=<reason>` when the task preface says the server skipped it. With no
-fresh evidence, write `CALIBRATION: pending`; never invent `not_sunday`.
+Log `CALIBRATION: skipped=<reason> applied=<APPLIED> archived=<archived>`
+using the supervisor preface's `CALIBRATION` result (`skipped=none` when the
+weekly sweep ran, or `skipped=<reason>` when the preface reports one) and
+counts verified from `mem calibration log` (0 rows when `applied=0` and
+`archived=0` is a verified zero result, not `pending`). Write
+`CALIBRATION: pending` only if `mem calibration log` failed or the preface
+says calibration was unavailable; never invent `not_sunday`.
 Log `ARCHIVED: <item_id> (<reason>); ...` for every archive row, or
 `ARCHIVED: none`.
 
@@ -294,11 +305,11 @@ terminal code lock database wifi home bot cpu message music map hammer
 headphones wand bug branch ship mountain waves wind anchor heart coffee
 activity. `<mood>` is optional, one or two lowercase words (not the area name).
 
-Self-link the diary (an orphaned diary is a failed run):
+Self-link the diary (an orphaned diary is a failed run; `graph create` is
+idempotent and must run before `relate` so `project_dreams` exists as an entity):
 
-    domios mem graph relate --from <diary_id> --rel belongs_to --to project_dreams
-    # if project_dreams is missing (404):
     domios mem graph create --id project_dreams --entity-type Project --scope global
+    domios mem graph relate --from <diary_id> --rel belongs_to --to project_dreams
     domios mem graph related --id <diary_id>     # must show >= 1 edge
 
 {telegram_notify_step}
@@ -324,4 +335,4 @@ The daemon checks your claim against the stored diary either way.
 - If a call needs more than five sub-decisions to justify, pick the simpler
   routing and move on.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
