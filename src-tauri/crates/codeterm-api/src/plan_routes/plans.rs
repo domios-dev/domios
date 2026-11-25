@@ -513,28 +513,39 @@ fn find_section<'a>(
 #[cfg(test)]
 mod tests;
 
+#[derive(Deserialize, Default)]
+pub struct GetPlanQuery {
+    #[serde(default, deserialize_with = "de_truthy")]
+    pub(crate) full: Option<bool>,
+}
+
 pub async fn get(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
+    Query(query): Query<GetPlanQuery>,
 ) -> PlanRouteResult {
-    tokio::task::spawn_blocking(move || {
+    let full = query.full == Some(true);
+    let _export_permit = if full {
+        Some(super::acquire_plan_export_permit().await?)
+    } else {
+        None
+    };
+    crate::plan_routes::run_blocking(move || {
         codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
             .map_err(team_plan_err)?;
-        let plan = state
-            .svc
-            .plan_store
-            .export_plan_document(&id)
-            .map_err(plan_err)?;
+        let plan = if full {
+            state.svc.plan_store.export_plan_document(&id)
+        } else {
+            state.svc.plan_store.export_plan_document_bounded(
+                &id,
+                codeterm_service_core::service::plan::BoundedPlanExportLimits::default(),
+            )
+        }
+        .map_err(plan_err)?;
         Ok(Json(plan))
     })
     .await
-    .map_err(|_| {
-        text_err(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed",
-        )
-    })?
 }
 
 pub async fn state(

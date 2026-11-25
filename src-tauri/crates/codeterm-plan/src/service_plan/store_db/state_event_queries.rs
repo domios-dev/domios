@@ -1,11 +1,16 @@
+#[cfg(test)]
 use super::db_error;
+#[cfg(test)]
 use super::read_projections::{column, record_query};
-use crate::service_plan::state::mission_control::{
-    EventLog, LinkedEventTask, PlanEvent, EVENT_LOG_LIMIT,
-};
+#[cfg(test)]
+use crate::service_plan::state::mission_control::LinkedEventTask;
+use crate::service_plan::state::mission_control::{EventLog, PlanEvent, EVENT_LOG_LIMIT};
 use crate::service_plan::PlanError;
-use rusqlite::{params, Connection};
+#[cfg(test)]
+use rusqlite::params;
+use rusqlite::Connection;
 
+#[cfg(test)]
 const EVENT_SQL: &str = r#"
 WITH task_facts AS MATERIALIZED (
     SELECT task_id,position,coalesce(json_extract(row_json,'$.created_at'),0) AS created_at,
@@ -121,6 +126,7 @@ pub(super) fn legacy_event_window(
     Ok(result)
 }
 
+#[cfg(test)]
 fn event_whitespace() -> String {
     [
         '\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '\u{85}', '\u{a0}', '\u{1680}', '\u{2000}',
@@ -132,6 +138,7 @@ fn event_whitespace() -> String {
     .collect()
 }
 
+#[cfg(test)]
 fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(PlanEvent, String)> {
     Ok((
         PlanEvent {
@@ -150,6 +157,7 @@ fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(PlanEvent, Strin
     ))
 }
 
+#[cfg(test)]
 fn decode_event_links(
     plan_id: &str,
     mut event: PlanEvent,
@@ -178,36 +186,34 @@ pub(super) fn event_page(
     limit: usize,
     cursor: Option<(u64, &str, &str)>,
 ) -> Result<Vec<(usize, PlanEvent)>, PlanError> {
-    let sql=format!("WITH projection(recorded,groups,ts,last_ts,count,kind,author,author_tab,task_id,task_name,line,links,first_ordinal) AS ({EVENT_SQL}),
-        numbered AS (SELECT *,row_number() OVER(ORDER BY first_ordinal)-1 AS ordinal FROM projection),
-        page AS (SELECT *, 'stored-'||ordinal||'-'||kind||'-'||ts||'-'||coalesce(task_id,'') AS event_id FROM numbered)
-        SELECT recorded,groups,ts,last_ts,count,kind,author,author_tab,task_id,task_name,line,links,ordinal
-        FROM page WHERE ?5 IS NULL OR printf('%20s',ts)<?5 OR (printf('%20s',ts)=?5 AND (?1>?6 OR (?1=?6 AND event_id>?7)))
-        ORDER BY ts DESC,event_id LIMIT ?8");
-    let (at, plan, event) = match cursor {
-        Some((at, plan, event)) => (Some(format!("{at:>20}")), Some(plan), Some(event)),
-        None => (None, None, None),
-    };
-    record_query();
-    let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
-    let rows = statement
-        .query_map(
-            params![
-                plan_id,
-                event_whitespace(),
-                EVENT_LOG_LIMIT,
-                0,
-                at,
-                plan,
-                event,
-                limit.min(101)
-            ],
-            |row| Ok((row.get::<_, usize>(12)?, event_from_row(row)?)),
-        )
-        .map_err(db_error)?;
-    rows.map(|row| {
-        let (ordinal, (event, links)) = row.map_err(db_error)?;
-        Ok((ordinal, decode_event_links(plan_id, event, &links)?))
-    })
-    .collect()
+    let window = super::state_event_window::event_window(connection, plan_id, EVENT_LOG_LIMIT, 0)?;
+    let mut page: Vec<(usize, String, PlanEvent)> = window
+        .entries
+        .into_iter()
+        .enumerate()
+        .filter_map(|(ordinal, event)| {
+            let event_id = format!(
+                "stored-{ordinal}-{}-{}-{}",
+                event.kind,
+                event.ts,
+                event.task_id.as_deref().unwrap_or("")
+            );
+            let after_cursor = match cursor {
+                None => true,
+                Some((cursor_ts, cursor_plan, cursor_event)) => {
+                    event.ts < cursor_ts
+                        || (event.ts == cursor_ts
+                            && (plan_id > cursor_plan
+                                || (plan_id == cursor_plan && event_id.as_str() > cursor_event)))
+                }
+            };
+            after_cursor.then_some((ordinal, event_id, event))
+        })
+        .collect();
+    page.sort_by(|a, b| b.2.ts.cmp(&a.2.ts).then_with(|| a.1.cmp(&b.1)));
+    page.truncate(limit.min(101));
+    Ok(page
+        .into_iter()
+        .map(|(ordinal, _, event)| (ordinal, event))
+        .collect())
 }

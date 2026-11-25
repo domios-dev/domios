@@ -4,7 +4,7 @@ use crate::plan::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, ts_rs::TS)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct PlanBoardState {
     pub plan_id: String,
     pub revision: String,
@@ -15,7 +15,7 @@ pub struct PlanBoardState {
     pub event_window_loaded: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize, ts_rs::TS)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 pub struct PlanBoardControlLoop {
     pub mode: ControlLoopMode,
     pub heartbeat_interval_secs: Option<u64>,
@@ -31,12 +31,12 @@ pub struct PlanBoardControlLoop {
     pub suspended_reason: Option<Option<CuratorSuspension>>,
 }
 
-#[derive(Debug, Deserialize, Serialize, ts_rs::TS)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 pub struct PlanBoardCuratorRun {
     pub number: u64,
 }
 
-#[derive(Debug, Serialize, ts_rs::TS)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct PlanBoardMissionControl {
     pub bounces: mission_control::BounceSummary,
     pub event_log: mission_control::EventLog,

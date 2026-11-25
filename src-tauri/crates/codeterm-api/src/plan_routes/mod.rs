@@ -185,11 +185,14 @@ fn tag_facets_from_body(
 /// excess callers park as zero-thread async futures and cancel cleanly on disconnect.
 pub(super) const PLAN_LIST_CONCURRENCY: usize = 8;
 const PLAN_BLOCKING_CONCURRENCY: usize = 24;
+const PLAN_EXPORT_CONCURRENCY: usize = 2;
 
 static PLAN_LIST_GATE: std::sync::LazyLock<tokio::sync::Semaphore> =
     std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(PLAN_LIST_CONCURRENCY));
 static PLAN_BLOCKING_GATE: std::sync::LazyLock<tokio::sync::Semaphore> =
     std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(PLAN_BLOCKING_CONCURRENCY));
+static PLAN_EXPORT_GATE: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(PLAN_EXPORT_CONCURRENCY));
 
 pub(super) async fn acquire_plan_list_permit(
 ) -> Result<tokio::sync::SemaphorePermit<'static>, (StatusCode, Json<Value>)> {
@@ -197,6 +200,14 @@ pub(super) async fn acquire_plan_list_permit(
         .acquire()
         .await
         .map_err(|_| text_err(StatusCode::SERVICE_UNAVAILABLE, "plan list gate closed"))
+}
+
+pub(super) async fn acquire_plan_export_permit(
+) -> Result<tokio::sync::SemaphorePermit<'static>, (StatusCode, Json<Value>)> {
+    PLAN_EXPORT_GATE
+        .acquire()
+        .await
+        .map_err(|_| text_err(StatusCode::SERVICE_UNAVAILABLE, "plan export gate closed"))
 }
 
 pub(crate) async fn acquire_plan_blocking_permit(

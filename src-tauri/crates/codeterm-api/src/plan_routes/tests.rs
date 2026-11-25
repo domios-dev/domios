@@ -1,4 +1,4 @@
-use super::plans::ListPlansQuery;
+use super::plans::{GetPlanQuery, ListPlansQuery};
 use super::*;
 
 #[test]
@@ -8,7 +8,12 @@ fn full_and_unowned_query_accept_1_and_true() {
         let uri: axum::http::Uri = raw.parse().unwrap();
         let q: Query<ListPlansQuery> = Query::try_from_uri(&uri).unwrap();
         assert_eq!(q.full, Some(true), "full from {raw}");
+        let gq: Query<GetPlanQuery> = Query::try_from_uri(&uri).unwrap();
+        assert_eq!(gq.full, Some(true), "get plan full from {raw}");
     }
+    let default_uri: axum::http::Uri = "/".parse().unwrap();
+    let gq: Query<GetPlanQuery> = Query::try_from_uri(&default_uri).unwrap();
+    assert_eq!(gq.full, None, "GET /api/plans/{{id}} defaults to bounded");
     let uri: axum::http::Uri = "/?unowned=1".parse().unwrap();
     let q: Query<ListPlansQuery> = Query::try_from_uri(&uri).unwrap();
     assert_eq!(q.unowned, Some(true));

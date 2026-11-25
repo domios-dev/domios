@@ -57,6 +57,7 @@ fn board_queries_use_covering_indexes() {
         ("SELECT SUM(input_tokens) FROM kpi_events WHERE plan_id = 'p' AND kind != 'tab_created'", "idx_kpi_plan_totals"),
         ("SELECT provider, model, SUM(input_tokens) FROM kpi_events WHERE kind = 'token_usage' GROUP BY provider, model", "idx_kpi_model_totals"),
         ("SELECT ts / 86400, plan_id, provider, model, SUM(input_tokens) FROM kpi_events WHERE kind = 'token_usage' AND ts / 86400 >= 1 AND ts / 86400 <= 2 AND ts >= 86400 AND ts < 259200 GROUP BY ts / 86400, plan_id, provider, model", "idx_kpi_token_days"),
+        ("SELECT SUM(output_tokens) FROM kpi_events WHERE tab_id = 'tab-a' AND kind = 'token_usage'", "idx_kpi_tab_output_tokens"),
     ] {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let details = stmt.query_map([], |row| row.get::<_, String>(3)).unwrap().collect::<Result<Vec<_>, _>>().unwrap().join(" ");
