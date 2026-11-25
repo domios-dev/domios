@@ -1,6 +1,9 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
+use parking_lot::Mutex;
+use std::time::SystemTime;
+
 const MAX_NPMRC_BYTES: u64 = 64 * 1024;
 
 pub fn expand_install_dirs(
@@ -29,7 +32,9 @@ pub fn expand_install_dir(
         return None;
     }
     if trimmed == "~" {
-        return home.map(Path::to_path_buf);
+        return home
+            .map(Path::to_path_buf)
+            .filter(|path| valid_install_path(path));
     }
     if let Some(rest) = trimmed
         .strip_prefix("~/")
@@ -79,14 +84,19 @@ pub fn expand_install_dir(
         return join_safe_subpath(base, rest.trim_start_matches(['/', '\\']));
     }
     let path = PathBuf::from(trimmed);
-    if !path.is_absolute()
-        || path
+    valid_install_path(&path).then_some(path)
+}
+
+fn valid_install_path(path: &Path) -> bool {
+    path.is_absolute()
+        && !path
             .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return None;
-    }
-    Some(path)
+            .any(|component| component == Component::ParentDir)
+        && !path
+            .as_os_str()
+            .as_encoded_bytes()
+            .iter()
+            .any(u8::is_ascii_control)
 }
 
 pub(super) fn npm_global_bin_dirs(
@@ -119,18 +129,50 @@ fn push_npm_prefix(dirs: &mut Vec<PathBuf>, prefix: PathBuf, windows: bool) {
 }
 
 fn push_unique(dirs: &mut Vec<PathBuf>, dir: PathBuf) {
-    if !dir.as_os_str().is_empty() && !dirs.contains(&dir) {
+    if valid_install_path(&dir) && !dirs.contains(&dir) {
         dirs.push(dir);
     }
 }
 
+struct CachedPrefix {
+    path: PathBuf,
+    modified: SystemTime,
+    size: u64,
+    prefix: Option<PathBuf>,
+}
+
 fn read_npmrc_prefix(path: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    static CACHE: Mutex<Option<CachedPrefix>> = Mutex::new(None);
+    use std::io::Read;
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > MAX_NPMRC_BYTES {
         return None;
     }
-    let content = std::fs::read_to_string(path).ok()?;
-    parse_npmrc_prefix(&content, home)
+    let modified = metadata.modified().ok()?;
+    let mut cache = CACHE.lock();
+    if let Some(hit) = cache
+        .as_ref()
+        .filter(|hit| hit.path == path && hit.modified == modified && hit.size == metadata.len())
+    {
+        return hit.prefix.clone();
+    }
+    let mut content = String::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(MAX_NPMRC_BYTES + 1)
+        .read_to_string(&mut content)
+        .ok()?;
+    if content.len() as u64 > MAX_NPMRC_BYTES {
+        return None;
+    }
+    let prefix = parse_npmrc_prefix(&content, home);
+    *cache = Some(CachedPrefix {
+        path: path.to_owned(),
+        modified,
+        size: metadata.len(),
+        prefix: prefix.clone(),
+    });
+    prefix
 }
 
 pub(super) fn parse_npmrc_prefix(content: &str, home: Option<&Path>) -> Option<PathBuf> {
@@ -158,7 +200,7 @@ pub(super) fn parse_npmrc_prefix(content: &str, home: Option<&Path>) -> Option<P
         } else {
             PathBuf::from(value)
         };
-        last = Some(resolved);
+        last = valid_install_path(&resolved).then_some(resolved);
     }
     last
 }
@@ -180,7 +222,7 @@ fn join_safe_subpath(mut base: PathBuf, subpath: &str) -> Option<PathBuf> {
         }
         base.push(part);
     }
-    Some(base)
+    valid_install_path(&base).then_some(base)
 }
 
 #[cfg(test)]

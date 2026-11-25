@@ -264,12 +264,13 @@ pub fn provider_auth_preflight(
     provider_id: &str,
     workspace_id: Option<&str>,
 ) -> Result<ProviderAuthPreflightOutcome, ProviderSignInRequired> {
-    let Some((display_name, binary, probe)) = svc
+    let Some((display_name, binary, dirs, probe)) = svc
         .agent_registry
         .with_provider(provider_id, |provider| {
             Some((
                 provider.display_name().to_string(),
                 provider.binary_name().to_string(),
+                provider.cli_search_dirs(),
                 provider.auth_status_probe()?,
             ))
         })
@@ -286,11 +287,13 @@ pub fn provider_auth_preflight(
             .ok()
             .flatten();
     let probe_result = codeterm_plugin::provider_account::with_context(invocation, || {
-        crate::service::provider_signals_probe::capture_result(&binary, &probe).map(|record| {
-            svc.agent_registry
-                .with_provider(provider_id, |provider| provider.parse_auth_status(&record))
-                .flatten()
-        })
+        crate::service::provider_signals_probe::capture_result_in(&binary, &dirs, &probe).map(
+            |record| {
+                svc.agent_registry
+                    .with_provider(provider_id, |provider| provider.parse_auth_status(&record))
+                    .flatten()
+            },
+        )
     });
     classify_auth_probe_result(provider_id, &display_name, probe_result)
 }

@@ -253,12 +253,18 @@ pub trait ChatBackendProvider: Send + Sync {
     /// plugin VM and can block unrelated session loading.
     fn describe(&self) -> ProviderDescriptor {
         let catalog = model_catalog::registered_snapshot(self.id());
+        let runtime = self.agent_runtime();
+        let availability = if runtime.is_none() {
+            ProviderAvailability::Available
+        } else {
+            ProviderAvailability::Unknown
+        };
         ProviderDescriptor {
             accounts: None,
             general_agent_offer_when_absent: self.general_agent_offer_when_absent(),
             attachments: Default::default(),
             remote_task: self.remote_task_capability(),
-            agent_runtime: self.agent_runtime(),
+            agent_runtime: runtime,
             cli_login: None,
             supports_session_fork: false,
             supports_initial_prompt_update_on_resume: false,
@@ -309,7 +315,7 @@ pub trait ChatBackendProvider: Send + Sync {
                 SystemPromptDelivery::External
             },
             context_owner: self.context_owner(),
-            availability: ProviderAvailability::default(),
+            availability,
         }
     }
 }

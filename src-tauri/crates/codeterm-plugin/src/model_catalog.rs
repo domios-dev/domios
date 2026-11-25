@@ -184,9 +184,7 @@ fn fingerprint_bin_in(bin: &str, extra_dirs: &[PathBuf]) -> Option<BinaryFingerp
 }
 
 fn fingerprint_provider_bin(provider: &dyn AgentProvider) -> Option<BinaryFingerprint> {
-    let bin = provider.cli_binary()?;
-    let install_dirs = provider.cli_install_dirs(crate::provider::current_platform_tag());
-    fingerprint_bin_in(bin, &install_dirs)
+    fingerprint_path(&provider.resolved_cli_path()?)
 }
 
 /// Fingerprint the provider's declared credential files. A file that does not

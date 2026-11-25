@@ -78,12 +78,15 @@ fn receipt_is_durable_outside_workspace_and_declaration_bound() {
         read_receipt(&root, "fixture", &profile).unwrap(),
         Some(saved)
     );
-    assert_eq!(detect(&root, "fixture", &profile), InstallState::Installed);
+    assert_eq!(
+        detect(&root, "fixture", &profile, &[]),
+        InstallState::Installed
+    );
     assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 0);
     profile.args.push("changed".into());
     assert!(read_receipt(&root, "fixture", &profile).unwrap().is_none());
     assert_eq!(
-        detect(&root, "fixture", &profile),
+        detect(&root, "fixture", &profile, &[]),
         InstallState::NotInstalled
     );
 }
@@ -140,6 +143,7 @@ fn exact_version_and_explicit_local_confirmation_are_required() {
             binary: "sh".into(),
             args: vec![]
         },
+        &[],
         true
     )
     .is_err());
@@ -151,6 +155,7 @@ fn exact_version_and_explicit_local_confirmation_are_required() {
             binary: "/fake/agent".into(),
             args: vec![]
         },
+        &[],
         false
     )
     .is_err());
@@ -271,7 +276,7 @@ fn an_install_from_an_earlier_declaration_starts_under_todays_resolved_declarati
         Some(saved)
     );
     assert_eq!(
-        detect(&root, &earlier_text("profileId"), &today),
+        detect(&root, &earlier_text("profileId"), &today, &[]),
         InstallState::Installed
     );
     today.install.as_mut().unwrap().package = earlier_text("nextPackage");

@@ -131,6 +131,10 @@ pub fn begin(
     let _mutation = mutation()?;
     let profile = profiles::declaration(svc, &provider, &id)?;
     let root = profiles::profile_root(&provider)?;
+    let adapter = svc
+        .agent_registry
+        .provider_arc(&provider)
+        .ok_or("Runtime provider unavailable")?;
     if command.is_none() && profile.install.is_none() {
         return Err("Profile has no supported installer".into());
     }
@@ -139,7 +143,14 @@ pub fn begin(
     }
     start(svc, provider, id.clone(), move || {
         if let Some(command) = command {
-            profiles::confirm_local(&root, &id, &profile, command, true)
+            profiles::confirm_local(
+                &root,
+                &id,
+                &profile,
+                command,
+                &adapter.cli_search_dirs(),
+                true,
+            )
         } else {
             crate::async_runtime::block_on(profiles::install(&root, &id, &profile, true))
         }

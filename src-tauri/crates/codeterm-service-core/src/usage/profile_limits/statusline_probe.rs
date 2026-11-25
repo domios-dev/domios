@@ -7,7 +7,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use codeterm_plugin::agent_runtime::limits_source;
-use codeterm_plugin::js_runtime::{probe_bin, BinResolution};
+use codeterm_plugin::js_runtime::BinResolution;
 use codeterm_usage::contract::BillingMode;
 use portable_pty::{cmdbuilder::WindowsJobPolicy, native_pty_system, CommandBuilder, PtySize};
 use serde_json::{json, Value};
@@ -385,10 +385,11 @@ fn run_command_probe(
 pub(super) fn read_profile(
     provider: &str,
     profile: &str,
+    resolution: BinResolution,
     binary: &str,
     env: &BTreeMap<String, String>,
 ) -> Result<UsageSnapshot, (UsageFailureKind, String)> {
-    let resolved = match probe_bin(binary).resolution {
+    let resolved = match resolution {
         BinResolution::Found(path) => path,
         BinResolution::Missing => {
             return Err((

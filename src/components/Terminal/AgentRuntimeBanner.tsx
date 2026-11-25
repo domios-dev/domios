@@ -24,6 +24,8 @@ export function AgentRuntimeBanner({ state, onRetry, tabId, startupOwned = false
   const notInstalled = parseProviderNotInstalled(view.details ?? view.reason);
   if (notInstalled) {
     return <ProviderNotInstalledNotice
+      key={tabId}
+      tabId={tabId}
       info={notInstalled}
       rawReason={view.details ?? view.reason}
       inline
