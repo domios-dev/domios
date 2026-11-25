@@ -26,8 +26,8 @@ afterEach(() => {
 it("keeps the local machine first and exposes offline and incompatible peers as unavailable", () => {
   const response = {
     local_instance_name: "LOCAL [fixture]",
-    local_machine_identity: { kind: "desktop", color: "blue" },
-    machine_identities: { offline: { kind: "laptop", color: "teal" } },
+    local_machine_identity: { kind: "desktop" },
+    machine_identities: { offline: { kind: "laptop" } },
     paired: [
       { instance_id: "z-online", instance_name: "Zulu [fixture]", online: true, access_level: "full", relay_protocol_version: RELAY_PROTOCOL_VERSION },
       { instance_id: "offline", instance_name: "Alpha [fixture]", online: false, access_level: "full", relay_protocol_version: RELAY_PROTOCOL_VERSION },

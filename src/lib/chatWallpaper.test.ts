@@ -24,8 +24,8 @@ assert.match(dark["--ct-wallpaper-mask"], /domios-domios\.svg.*360px 360px repea
 assert.equal(dark["--ct-wallpaper-fill"], "linear-gradient(160deg, var(--ct-bg), #141b33)");
 assert.equal(wallpaperRenderStyle(theme, setting, true)["--ct-wallpaper-ink"],
   "linear-gradient(180deg, #0a7ea4, #2b8a3e, #6d48c8)");
-assert.equal(wallpaperRenderStyle(theme, setting, true, undefined, undefined, 1.6)["--ct-wallpaper-opacity"], "0.384");
-const unset = wallpaperRenderStyle(DEFAULT_THEME, undefined, false, undefined, "blue");
+assert.equal(wallpaperRenderStyle(theme, setting, true, undefined, 1.6)["--ct-wallpaper-opacity"], "0.384");
+const unset = wallpaperRenderStyle(DEFAULT_THEME, undefined, false);
 assert.equal(unset["--ct-wallpaper-fill"], "none");
 assert.equal(unset["--ct-wallpaper-mask"], "none");
 assert.doesNotMatch(Object.values(unset).join(" "), /ct-machine-/);

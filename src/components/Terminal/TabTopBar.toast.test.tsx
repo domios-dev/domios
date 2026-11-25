@@ -43,7 +43,7 @@ const otherInstallation = {
 };
 const localMesh: MeshPeersResponse = {
   local_instance_name: "Local",
-  local_machine_identity: { kind: "desktop", color: "blue" },
+  local_machine_identity: { kind: "desktop" },
   machine_identities: {},
   installations: [],
   paired: [],

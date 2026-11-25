@@ -62,7 +62,7 @@ pub enum MeshAction {
         #[command(subcommand)]
         action: MeshPeerAction,
     },
-    /// Manage the kind icon and colour of an installation.
+    /// Manage the kind icon of an installation.
     Identity {
         #[command(subcommand)]
         action: MeshIdentityAction,
@@ -83,12 +83,10 @@ pub enum MeshAction {
 
 #[derive(Subcommand)]
 pub enum MeshIdentityAction {
-    /// Set the machine's kind and colour. Requires owner authority.
+    /// Set the machine's kind icon. Requires owner authority.
     Set {
         #[arg(long, value_parser = ["laptop", "desktop", "server", "mac", "phone", "vm", "small", "other"])]
         kind: String,
-        #[arg(long, value_parser = ["blue", "teal", "green", "yellow", "pink", "violet", "graphite"])]
-        color: String,
         /// Set the identity on this paired machine by name or ID.
         #[arg(long)]
         peer: Option<String>,
