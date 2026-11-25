@@ -17,7 +17,9 @@ import {
   choiceForSessionSection,
   type NewSessionSection,
   defaultNewSessionChoice,
+  firstSelectableProvider,
   initialProviderChoice,
+  isProviderSelectable,
   readPersistedNewSessionChoice,
   reconcilePresetSelection,
   resolveEffort,
@@ -111,8 +113,18 @@ export function NewSessionPicker({
   const [execution, setExecution] = useState({providerId: "", location: "local" as ExecutionLocation, environmentId: ""});
   const allowedModes = allowedNewSessionModes(section);
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
+  const disabledProviderIds = useMemo(
+    () => new Set(
+      visibleProviders
+        .filter((p) => installMap[p.id] === false || (installMap[p.id] !== true && p.availability === "unavailable"))
+        .map((p) => p.id),
+    ),
+    [visibleProviders, installMap],
+  );
   const [templatePreviewRequested] = useState(hasPendingTemplatePreview);
-  const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
+  const [choice, setChoice] = useState<NewSessionChoice>(
+    () => choiceForSessionSection(defaultNewSessionChoice(visibleProviders, disabledProviderIds), section, visibleProviders, disabledProviderIds),
+  );
   const localId = choice.mode === "single" ? choice.providerId : "";
   const selectedProvider = visibleProviders.find(provider => provider.id === localId);
   const singleProfile = useLaunchProfileSelection(selectedProvider, "picker-profile-single");
@@ -132,10 +144,6 @@ export function NewSessionPicker({
   const [startError, setStartError] = useState<StartErrorView | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
-  const disabledProviderIds = useMemo(
-    () => new Set(visibleProviders.filter((p) => installMap[p.id] === false).map((p) => p.id)),
-    [visibleProviders, installMap],
-  );
 
   const selectedWorkspace = useMemo(
     () => state.workspaces.find((w) => w.id === workspaceId),
@@ -196,28 +204,42 @@ export function NewSessionPicker({
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;
+    const localDisabled = location === "cloud" ? undefined : disabledProviderIds;
     if (hasRestoredRef.current) {
-      setChoice((current) => choiceForSessionSection(resolvePersistedChoice(visibleProviders, current), section, visibleProviders));
+      setChoice((current) => choiceForSessionSection(
+        resolvePersistedChoice(visibleProviders, current, current.mode === "single" ? localDisabled : disabledProviderIds),
+        section,
+        visibleProviders,
+        disabledProviderIds,
+      ));
       return;
     }
-    const restored = readPersistedNewSessionChoice(visibleProviders);
-    const initialLocalId = initialProviderId;
-    if (initialLocalId && visibleProviders.some((provider) => provider.id === initialLocalId)) {
-      setChoice(initialProviderChoice(visibleProviders.find((candidate) => candidate.id === initialLocalId)!));
+    const restored = readPersistedNewSessionChoice(visibleProviders, disabledProviderIds);
+    const initialCandidate = initialProviderId
+      ? visibleProviders.find((candidate) => candidate.id === initialProviderId && isProviderSelectable(candidate, disabledProviderIds))
+      : undefined;
+    if (initialCandidate) {
+      setChoice(initialProviderChoice(initialCandidate));
     } else {
-      const fitted = choiceForSessionSection(restored, section, visibleProviders);
-      const fallback = visibleProviders[0] ? initialProviderChoice(visibleProviders[0]) : undefined;
+      const fitted = choiceForSessionSection(restored, section, visibleProviders, disabledProviderIds);
+      const selectableFallback = firstSelectableProvider(visibleProviders, disabledProviderIds);
+      const fallback = selectableFallback ? initialProviderChoice(selectableFallback) : undefined;
       setChoice(templatePreviewRequested && allowedNewSessionModes(section).includes("pair")
         ? pairChoice(fitted, fallback?.mode === "single" ? fallback : undefined)
         : fitted);
     }
     hasRestoredRef.current = true;
-  }, [initialProviderId, visibleProviders, section, menuProviders, templatePreviewRequested]);
+  }, [initialProviderId, visibleProviders, section, menuProviders, templatePreviewRequested, disabledProviderIds, location]);
 
   useEffect(() => {
     if (!hasRestoredRef.current) return;
+    if (choice.mode === "single" && location === "local" && (!choice.providerId || disabledProviderIds.has(choice.providerId))) return;
+    if (choice.mode === "pair" && (
+      !choice.orchestratorProviderId || !choice.plannerProviderId
+      || disabledProviderIds.has(choice.orchestratorProviderId) || disabledProviderIds.has(choice.plannerProviderId)
+    )) return;
     writePersistedNewSessionChoice(choice);
-  }, [choice]);
+  }, [choice, disabledProviderIds, location]);
 
   useEffect(() => {
     if (!presetsLoading && !presetsError) setChoice((current) => reconcilePresetSelection(current, presets));
@@ -455,22 +477,23 @@ export function NewSessionPicker({
     setChoice((prev) => {
       if (prev.mode === mode) return prev;
       if (mode === "terminal") return { mode: "terminal" };
-      const fallback = visibleProviders[0] ? initialProviderChoice(visibleProviders[0]) : undefined;
+      const selectableFallback = firstSelectableProvider(visibleProviders, disabledProviderIds);
+      const fallback = selectableFallback ? initialProviderChoice(selectableFallback) : undefined;
       const fallbackSingle = fallback?.mode === "single" ? fallback : undefined;
       if (mode === "single") {
         if (prev.mode === "pair") {
-          return {
+          return resolvePersistedChoice(visibleProviders, {
             mode: "single",
             providerId: prev.orchestratorProviderId,
             modelId: prev.orchestratorModelId,
             effortId: prev.orchestratorEffortId,
-          };
+          }, disabledProviderIds);
         }
         return fallbackSingle ?? { mode: "single", providerId: "" };
       }
-      return pairChoice(prev, fallbackSingle);
+      return resolvePersistedChoice(visibleProviders, pairChoice(prev, fallbackSingle), disabledProviderIds);
     });
-  }, [section, visibleProviders]);
+  }, [section, visibleProviders, disabledProviderIds]);
 
   const remoteCanStart = location === "cloud" && remote?.remote_task?.availability.status === "available"
     && remote.remote_task.environments.some(environment => environment.id === environmentId);

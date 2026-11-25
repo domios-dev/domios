@@ -289,6 +289,35 @@ async function main(): Promise<void> {
   await act(async () => persisted.root.unmount());
   persisted.host.remove();
 
+  // Narrow-width layout contract: communication report/update headers wrap their labels and chips
+  // inside a clipped flex region so verdicts ("sent"/"partial") never spill over the Show Tab action.
+  const narrowUpdate = await mount(
+    <OutboundReportCard
+      report={{
+        ...descriptor,
+        reportId: "9a3d1c2e-5f4b-4a8c-9e12-3b7c8d9e0f1a",
+        recipient: "Elgar",
+        task: null,
+        status: "Partial",
+        sha: null,
+        message: "Progress note",
+        taskOutcome: null,
+      }}
+      onFocusTab={() => {}}
+    />,
+  );
+  const updateHeader = narrowUpdate.host.querySelector(".ct-card__header");
+  const updateToggle = updateHeader?.querySelector<HTMLButtonElement>("button:first-child");
+  const updateLabels = updateToggle?.querySelector(".ct-tool-labels");
+  const updateShowTab = [...(updateHeader?.querySelectorAll("button") ?? [])].find((node) => node.textContent === "Show Tab");
+  const updateChip = narrowUpdate.host.querySelector(".ct-card__chip");
+  assert(updateToggle?.className.includes("overflow-hidden"), "report header toggle must clip overflowing labels away from Show Tab");
+  assert(updateLabels?.className.includes("flex-wrap") && updateLabels?.className.includes("overflow-hidden"), "communication card header labels must wrap cleanly instead of colliding with actions");
+  assert(updateChip?.parentElement?.className.includes("flex-wrap") && updateChip?.parentElement?.className.includes("max-w-full"), "report verdict chips must wrap within the bounded label lane");
+  assert(updateShowTab && !updateToggle?.contains(updateShowTab), "Show Tab action must remain a sibling outside the label toggle");
+  await act(async () => narrowUpdate.root.unmount());
+  narrowUpdate.host.remove();
+
   console.log("PASS report cards: one dense header row, summary first, rejection truth on both sides");
 }
 
