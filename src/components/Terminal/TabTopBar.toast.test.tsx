@@ -29,6 +29,7 @@ vi.mock("../Extensions/PluginBubbles", () => ({ PluginBubbles: () => null }));
 import { TabTopBar, type HeaderTabMenu } from "./TabTopBar";
 import { TabHeaderOverflow } from "./TabHeaderOverflow";
 import { TabHeaderTitle } from "./TabHeaderTitle";
+import { restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const otherInstallation = {
@@ -82,6 +83,56 @@ it.each([
     await act(async () => root.unmount());
     rememberMachineIdentities({ ...localMesh, local_instance_name: "" });
     rememberAccountMachineNames(null);
+  }
+});
+
+it("announces restoring and starting stages in the header subtitle and reverts on ready, sleeping, attention, and failure", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const tab = {
+    id: "tab-restore-subtitle",
+    title: "Main",
+    role: "Manager",
+    role_profile: "general_agent",
+    agent_type: "fixture",
+    agent_session_id: "session-a",
+    frozen: true,
+  } as Tab;
+  try {
+    await act(async () => {
+      rememberMachineIdentities({ ...localMesh, installations: [otherInstallation] });
+      root.render(<TabHeaderTitle tab={tab} restore={restoreStageView(tab, { requested: true })} />);
+    });
+    const restoringStatus = host.querySelector('[role="status"]');
+    expect(restoringStatus?.getAttribute("aria-live")).toBe("polite");
+    expect(restoringStatus?.getAttribute("aria-label")).toBe("Restoring…");
+    expect(restoringStatus?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(host.textContent).toBe("MainGeneral Agent · Restoring…");
+
+    const startingTab = { ...tab, frozen: false, boot_stage: "agent_launching" as const, agent_booting: true };
+    await act(async () => {
+      root.render(<TabHeaderTitle tab={startingTab} restore={transcriptLoadingStageView(startingTab)} />);
+    });
+    const startingStatus = host.querySelector('[role="status"]');
+    expect(startingStatus?.getAttribute("aria-live")).toBe("polite");
+    expect(startingStatus?.getAttribute("aria-label")).toBe("Starting…");
+    expect(host.textContent).toBe("MainGeneral Agent · Starting…");
+
+    for (const view of [
+      restoreStageView(tab),
+      restoreStageView({ ...tab, frozen: false, boot_stage: "spawn_failed", boot_failure_reason: "opaque" }),
+      restoreStageView({ ...tab, frozen: false, boot_stage: "awaiting_owner_prompt" }),
+      restoreStageView({ ...tab, frozen: false, boot_stage: "agent_ready" }),
+    ]) {
+      await act(async () => {
+        root.render(<TabHeaderTitle tab={tab} restore={view} />);
+      });
+      expect(host.querySelector('[role="status"]')).toBeNull();
+      expect(host.textContent).toBe("MainGeneral Agent · Local");
+    }
+  } finally {
+    await act(async () => root.unmount());
+    rememberMachineIdentities({ ...localMesh, local_instance_name: "" });
   }
 });
 

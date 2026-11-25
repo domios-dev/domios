@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "./restoreStageView";
+import { headerRestoreStageView, restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "./restoreStageView";
 import type { Tab } from "./types";
 
 const tab: Partial<Tab> = { agent_type: "fixture", agent_session_id: "saved", frozen: true,
@@ -88,4 +88,14 @@ assert.equal(restoreActivityVisible(deadlineRuntime, {}, terminalRuntime, true),
 assert.equal(restoreStageView({ boot_stage: "shell_ready" }).phase, "ready");
 assert.equal(restoreStageView({ boot_stage: "pty_spawned" }).phase, "restoring");
 assert.equal(restoreStageView({ boot_stage: "launch_deadline_elapsed", boot_failure_reason: "still connecting" }).phase, "restoring");
+assert.equal(headerRestoreStageView(tab, {}, restoreStageView(tab)), null);
+assert.equal(headerRestoreStageView(tab, { requested: true }, queued)?.label, "Restoring…");
+const wakingUnfrozen: Partial<Tab> = { ...awake, slept_at_ms: 1000, boot_stage: "agent_launching" };
+assert.equal(headerRestoreStageView(wakingUnfrozen, { requested: true }, restoreStageView(wakingUnfrozen, { requested: true }))?.label, "Restoring…");
+const freshLaunch: Partial<Tab> = { ...awake, slept_at_ms: null, boot_stage: "agent_launching", agent_booting: true };
+assert.equal(headerRestoreStageView(freshLaunch, {}, restoreStageView(freshLaunch))?.label, "Starting…");
+assert.equal(headerRestoreStageView(awake, { pending: true }, restoreStageView(awake))?.label, "Restoring…");
+assert.equal(headerRestoreStageView(awake, {}, restoreStageView(awake)), null);
+assert.equal(headerRestoreStageView(awake, {}, failed), null);
+assert.equal(headerRestoreStageView(signInTab, {}, signInView), null);
 console.log("restore stages: sleeping, requested, backend, session, connection, readiness, prompt and failure passed");
