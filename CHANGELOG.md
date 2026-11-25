@@ -15,8 +15,15 @@ lives in `git log` with no aggregated narrative.
 - The default team's Curator flags outstanding cleanup in each review round.
 - Remove another machine from your account in Mesh Inventory or with `domios mesh remove`. If the machine is online, Domios signs it out first.
 
+### Changed
+
+- The tab header's Chat/Terminal switch uses the shared animated, icon-only segmented control.
+- When you apply a look to the remote machine you're viewing, the new theme sweeps across the interface immediately. Changes to that machine's look also appear live.
+
 ### Fixed
 
+- Mouse Back and Alt+Left no longer unload Domios and return you to the startup page. Thanks to [@zuev93](https://github.com/domios-dev/domios/pull/778) for the original fix.
+- The sidebar highlights a single tab while you're viewing another machine. Switching machines selects that machine's last active tab, and returning restores yours.
 - Claude background-process chips clear when completion or stop notifications arrive, even while the agent is idle or when one notification covers several processes.
 - Claude opens Domios-owned data folders without a trust prompt. The approval applies to the resolved Domios folder.
 - The machine switcher shows each machine's state below its name.
