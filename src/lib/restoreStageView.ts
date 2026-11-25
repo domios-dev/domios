@@ -64,9 +64,6 @@ export function headerRestoreStageView(
   if (view.phase === "restoring") {
     return tab.frozen || tab.slept_at_ms != null || wake?.requested ? view : transcriptLoadingStageView(tab);
   }
-  if (view.phase === "ready" && wake?.pending) {
-    return { ...view, phase: "restoring", label: "Restoring…" };
-  }
   return null;
 }
 

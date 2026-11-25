@@ -94,7 +94,7 @@ const wakingUnfrozen: Partial<Tab> = { ...awake, slept_at_ms: 1000, boot_stage: 
 assert.equal(headerRestoreStageView(wakingUnfrozen, { requested: true }, restoreStageView(wakingUnfrozen, { requested: true }))?.label, "Restoring…");
 const freshLaunch: Partial<Tab> = { ...awake, slept_at_ms: null, boot_stage: "agent_launching", agent_booting: true };
 assert.equal(headerRestoreStageView(freshLaunch, {}, restoreStageView(freshLaunch))?.label, "Starting…");
-assert.equal(headerRestoreStageView(awake, { pending: true }, restoreStageView(awake))?.label, "Restoring…");
+assert.equal(headerRestoreStageView(awake, { pending: true }, restoreStageView(awake)), null);
 assert.equal(headerRestoreStageView(awake, {}, restoreStageView(awake)), null);
 assert.equal(headerRestoreStageView(awake, {}, failed), null);
 assert.equal(headerRestoreStageView(signInTab, {}, signInView), null);
