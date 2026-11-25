@@ -17,10 +17,12 @@
 
 <a href="https://domios.dev/#try">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/hero-dark.png">
-  <img src="docs/readme/hero-light.png" alt="Domios workspace with a team sidebar and agent chat, using sample data" width="886" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/readme/hero-light.gif">
+  <img src="docs/readme/hero-dark.gif" alt="Domios switching between three machines, each with its own theme and doodles, while agents reply (sample data)" width="100%" />
 </picture>
 </a>
+
+<p align="center"><sub>One team across your machines. Switch from the titlebar; every machine keeps its own look.</sub></p>
 
 <p align="center"><a href="https://youtu.be/kMZJDku4xcE">Watch the 3-minute film</a></p>
 
