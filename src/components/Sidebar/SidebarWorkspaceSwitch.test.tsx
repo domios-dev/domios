@@ -547,7 +547,7 @@ it("clears an off-screen General cue when filtering hides the selected row in pl
   const { host, root } = mountHost();
   await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
     browse: null,
-    generals: [{ peerId: "peer", name: "Desk", availability: "online", sessions: [{ viewerId: "mesh:peer/main", tab: main }] }],
+    generals: [{ peerId: "peer", name: "Desk", availability: "offline", cached: true, sessions: [{ viewerId: "mesh:peer/main", tab: main }] }],
   }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
   const selected = row(host, main.id)!;
   await intersections.observerFor(selected).emit(selected, -28);
@@ -565,6 +565,159 @@ it("clears an off-screen General cue when filtering hides the selected row in pl
   await intersections.observerFor(selected).emit(selected, 100);
   expect(selectionCue(host)?.getAttribute("aria-label")).toBe("Show selected tab, main, below");
   expect(mux.state.activeTabIds).toEqual({ general: main.id });
+});
+
+it("keeps exactly one selected row across General and remote Team cards and auto-selects per machine on switch", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localMain = member("local-main", "general", { protected: true, role: "Manager", role_profile: "general_agent" });
+  const localWorker = worker("local-worker", "Local home");
+  const general = { ...workspaceOf("general", [localMain]), protected: true };
+  const localHome = workspaceOf("Local home", [localWorker]);
+  setMux([general, localHome], [localMain, localWorker], "Local home");
+  mux.state = { ...mux.state, activeTabIds: { general: localMain.id, "Local home": localWorker.id } };
+
+  const remoteMain = member("main", "remote-general", { title: "Main", protected: true, role: "Manager", role_profile: "general_agent" });
+  const keats = manager("keats", "sauron");
+  const verdi = worker("verdi", "sauron");
+  const sauronWorkspace = workspaceOf("sauron", [keats, verdi]);
+  const otherRemoteTab = worker("other-tab", "other-ws");
+  const otherRemoteWorkspace = workspaceOf("other-ws", [otherRemoteTab]);
+
+  const inventory = {
+    browse: null,
+    generals: [
+      {
+        peerId: "eight",
+        name: "eight",
+        availability: "online" as const,
+        sessions: [{ viewerId: "mesh:eight/main", tab: remoteMain }],
+        lastActiveTab: { viewerId: "mesh:eight/keats", workspaceId: "sauron" },
+      },
+      {
+        peerId: "nine",
+        name: "nine",
+        availability: "online" as const,
+        sessions: [{ viewerId: "mesh:nine/main", tab: remoteMain }],
+        lastActiveTab: null,
+      },
+    ],
+    peerWorkspaces: [
+      {
+        peerId: "eight",
+        workspace: otherRemoteWorkspace,
+        teams: [team("other-ws")],
+        tabs: [{ viewerId: "mesh:eight/other-tab", tab: otherRemoteTab }],
+      },
+      {
+        peerId: "eight",
+        workspace: sauronWorkspace,
+        teams: [team("sauron")],
+        tabs: [{ viewerId: "mesh:eight/keats", tab: keats }, { viewerId: "mesh:eight/verdi", tab: verdi }],
+        selected: true,
+      },
+    ],
+  };
+
+  const activeRows = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('[data-testid="tab-item"]')]
+    .filter(el => !el.closest("[hidden]") && el.querySelector('button[aria-current="page"]') !== null)
+    .map(el => el.dataset.tabId);
+
+  const { host, root } = mountHost();
+  await act(async () => root.render(
+    <PairedWorkspaceInventoryContext.Provider value={inventory}>
+      <Sidebar config={config} />
+    </PairedWorkspaceInventoryContext.Provider>,
+  ));
+  expect(activeRows(host)).toEqual(["local-worker"]);
+
+  await act(async () => setSidebarMachineFilter({ id: "eight", name: "eight" }));
+  expect(activeRows(host)).toEqual(["mesh:eight/keats"]);
+  expect(host.querySelector('[data-testid="workspace-detail"]')?.getAttribute("data-workspace-id")).toBe("sauron");
+
+  const eightMainButton = row(host, "mesh:eight/main")?.querySelector<HTMLButtonElement>("button");
+  expect(eightMainButton).toBeTruthy();
+  await act(async () => eightMainButton!.click());
+  expect(activeRows(host)).toEqual(["mesh:eight/main"]);
+  expect(row(host, "mesh:eight/keats")?.querySelector('button[aria-current="page"]')).toBeNull();
+
+  const keatsButton = row(host, "mesh:eight/keats")?.querySelector<HTMLButtonElement>("button");
+  expect(keatsButton).toBeTruthy();
+  await act(async () => keatsButton!.click());
+  expect(activeRows(host)).toEqual(["mesh:eight/keats"]);
+  expect(row(host, "mesh:eight/main")?.querySelector('button[aria-current="page"]')).toBeNull();
+
+  await act(async () => setSidebarMachineFilter({ id: "nine", name: "nine" }));
+  expect(activeRows(host)).toEqual(["mesh:nine/main"]);
+
+  await act(async () => setSidebarMachineFilter("local"));
+  expect(activeRows(host)).toEqual(["local-worker"]);
+  expect(host.querySelector('[data-testid="workspace-detail"]')?.getAttribute("data-workspace-id")).toBe("Local home");
+
+  await act(async () => row(host, "local-main")!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(activeRows(host)).toEqual(["local-main"]);
+  await act(async () => setSidebarMachineFilter({ id: "eight", name: "eight" }));
+  expect(activeRows(host)).toEqual(["mesh:eight/keats"]);
+  await act(async () => setSidebarMachineFilter("local"));
+  expect(activeRows(host)).toEqual(["local-main"]);
+});
+
+it("waits for fresh peer sync before auto-selecting and respects a manual click during sync", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localMain = member("local-main", "general", { protected: true, role: "Manager", role_profile: "general_agent" });
+  const general = { ...workspaceOf("general", [localMain]), protected: true };
+  setMux([general], [localMain], "general");
+  mux.state = { ...mux.state, activeTabIds: { general: localMain.id } };
+
+  const remoteMain = member("main", "remote-general", { title: "Main", protected: true, role: "Manager", role_profile: "general_agent" });
+  const staleTab = manager("stale", "sauron");
+  const freshTab = worker("fresh", "sauron");
+  const sauron = {
+    peerId: "eight",
+    workspace: workspaceOf("sauron", [staleTab, freshTab]),
+    teams: [team("sauron")],
+    tabs: [{ viewerId: "mesh:eight/stale", tab: staleTab }, { viewerId: "mesh:eight/fresh", tab: freshTab }],
+    selected: true,
+  };
+
+  const activeRows = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('[data-testid="tab-item"]')]
+    .filter(el => !el.closest("[hidden]") && el.querySelector('button[aria-current="page"]') !== null)
+    .map(el => el.dataset.tabId);
+
+  const { host, root } = mountHost();
+  const renderWith = (synced: boolean, lastActiveTab: { viewerId: string; workspaceId: string | null }) =>
+    act(async () => root.render(
+      <PairedWorkspaceInventoryContext.Provider value={{
+        browse: { target: { id: "eight", name: "eight" }, availability: "online", workspaces: [sauron], synced },
+        generals: [{
+          peerId: "eight",
+          name: "eight",
+          availability: "online",
+          sessions: [{ viewerId: "mesh:eight/main", tab: remoteMain }],
+          lastActiveTab,
+        }],
+        peerWorkspaces: [sauron],
+      }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>,
+    ));
+
+  await renderWith(false, { viewerId: "mesh:eight/stale", workspaceId: "sauron" });
+  await act(async () => setSidebarMachineFilter({ id: "eight", name: "eight" }));
+  expect(activeRows(host)).toEqual([]);
+
+  await renderWith(true, { viewerId: "mesh:eight/fresh", workspaceId: "sauron" });
+  expect(activeRows(host)).toEqual(["mesh:eight/fresh"]);
+
+  await act(async () => setSidebarMachineFilter("local"));
+  expect(activeRows(host)).toEqual(["local-main"]);
+
+  await renderWith(false, { viewerId: "mesh:eight/stale", workspaceId: "sauron" });
+  await act(async () => setSidebarMachineFilter({ id: "eight", name: "eight" }));
+  await act(async () => row(host, "mesh:eight/main")!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(activeRows(host)).toEqual(["mesh:eight/main"]);
+
+  await renderWith(true, { viewerId: "mesh:eight/fresh", workspaceId: "sauron" });
+  expect(activeRows(host)).toEqual(["mesh:eight/main"]);
 });
 
 it("wires the selected peer's authoritative Team summary into the real sidebar card", async () => {

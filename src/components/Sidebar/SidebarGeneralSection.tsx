@@ -14,6 +14,7 @@ import {
   type SidebarWorkspaceDetailData,
 } from "./SidebarWorkspaceDetail";
 import { isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
+import { isWorkspaceTabActive } from "./sidebarSelection";
 import { useAppearingTabs } from "./useAppearingTabs";
 import { projectUtilityShells } from "../General/generalOverviewModel";
 import { isSurfaceTab, surfaceOwnerId } from "../../lib/surfaceTab";
@@ -92,7 +93,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
             key={session.viewerId}
             tab={attached ?? { ...session.tab, id: session.viewerId }}
             index={index}
-            isActive={isActiveVisual && !data.workspaceCanvasActive && data.activeTabIds[workspaceId] === session.viewerId}
+            isActive={isWorkspaceTabActive(isActiveVisual, data.workspaceCanvasActive, session.viewerId, data.activeTabIds[workspaceId])}
             onClick={() => activateTab(session.viewerId)}
             onClose={() => closeTab(session.viewerId)}
             onRename={attached ? title => renameTab(session.viewerId, title) : undefined}

@@ -2,6 +2,7 @@ import { isFirstRunGeneralTab } from "../../components/AgentPicker/constants";
 import { isGeneralAgent } from "../../lib/roleKind";
 import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { isConciergeTab } from "../../lib/tabInputPolicy";
 import { relayPeerUsable } from "../../lib/webApi";
 import type { MeshPeersResponse, MultiplexerState, PairedPeer, Tab, TabStatus, Team, Workspace } from "../../lib/types";
 
@@ -14,12 +15,18 @@ export interface ObservedPeerTab {
   peerId?: string;
 }
 
+export interface PeerLastActiveSelection {
+  viewerId: string;
+  workspaceId: string | null;
+}
+
 export interface PairedGeneral {
   peerId: string;
   name: string;
   availability: GeneralAvailability;
   sessions: ObservedPeerTab[];
   teamNames?: ReadonlyMap<string, string>;
+  lastActiveTab?: PeerLastActiveSelection | null;
   cached?: boolean;
 }
 
@@ -135,4 +142,42 @@ export function projectBrowsedWorkspaces(
       tabs: sessions.filter(({ tab }) => !tab.hidden && tab.show_in_tabbar !== false),
     };
   });
+}
+
+export type PeerOrdinaryTabSummary = Tab & { focused?: boolean };
+
+export function resolvePeerLastActiveTab(
+  snapshot: MultiplexerState,
+  generalSessions: readonly ObservedPeerTab[],
+  browsedWorkspaces: readonly BrowsedWorkspace[],
+  ordinaryTabs: readonly PeerOrdinaryTabSummary[] = [],
+): PeerLastActiveSelection | null {
+  const byRawId = new Map<string, PeerLastActiveSelection>();
+  for (const session of generalSessions) {
+    byRawId.set(session.tab.id, { viewerId: session.viewerId, workspaceId: null });
+  }
+  for (const workspace of browsedWorkspaces) {
+    for (const session of workspace.tabs) {
+      if (session.peerId || isConciergeTab(session.tab) || byRawId.has(session.tab.id)) continue;
+      byRawId.set(session.tab.id, { viewerId: session.viewerId, workspaceId: workspace.workspace.id });
+    }
+  }
+  const liveFocused = ordinaryTabs.find(tab => tab.focused === true && !tab.remote_peer_id && !tab.id.startsWith("mesh:"));
+  if (liveFocused) {
+    const match = byRawId.get(liveFocused.id);
+    if (match) return match;
+  }
+  const activeWorkspace = snapshot.active_workspace_id
+    ? snapshot.workspaces.find(workspace => workspace.id === snapshot.active_workspace_id)
+    : undefined;
+  if (activeWorkspace?.active_tab_id) {
+    const match = byRawId.get(activeWorkspace.active_tab_id);
+    if (match) return match;
+  }
+  if (snapshot.focused_tab_id) {
+    const match = byRawId.get(snapshot.focused_tab_id);
+    if (match) return match;
+  }
+  const main = generalSessions.find(session => session.tab.protected) ?? generalSessions[0];
+  return main ? { viewerId: main.viewerId, workspaceId: null } : null;
 }
