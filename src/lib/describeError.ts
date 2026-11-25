@@ -1,3 +1,5 @@
+import { parseProviderNotInstalled } from "./providerNotInstalled";
+
 export type ErrorAction = "choose-folder" | "retry" | "sign-in" | "check-access" | "choose-smaller-file" | "check-executable" | "start-new-conversation";
 export interface ErrorDescription {
   title: string;
@@ -197,6 +199,16 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   }
   if (isPendingRuntimeDeadline(input)) {
     return result("The agent runtime is taking longer than usual", "The runtime response is still pending.", [], true);
+  }
+  const notInstalled = parseProviderNotInstalled(raw);
+  if (notInstalled) {
+    return result(
+      `${notInstalled.displayName} isn't installed`,
+      notInstalled.installCommand
+        ? `Install ${notInstalled.displayName} to start this agent, then retry.`
+        : `Install ${notInstalled.displayName} on this machine, then retry.`,
+      ["check-executable", "retry"],
+    );
   }
   if (kind === "executable_missing" || inferred && spawn && /enoent|os error 2\b|executable.*(?:not found|missing)/i.test(raw)) {
     return result("The program could not be found", "The shell or agent program is unavailable. Check that it is installed and its path is correct.", ["check-executable", "retry"]);

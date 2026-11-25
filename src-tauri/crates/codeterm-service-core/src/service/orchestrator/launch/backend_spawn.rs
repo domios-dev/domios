@@ -23,8 +23,15 @@ pub(super) fn spawn_backend_pty(
         let gate = svc.pty.lock().spawn_gate();
         let built = match direct {
             Some((pty_id, spec)) => {
-                let resolved = codeterm_plugin::provider::resolve_launch_spec(spec)
-                    .map_err(LaunchFailure::PtySpawn)?;
+                let install_dirs = svc
+                    .agent_registry
+                    .with_provider(provider_id, |provider| {
+                        provider.cli_install_dirs(crate::agent::provider::current_platform_tag())
+                    })
+                    .unwrap_or_default();
+                let resolved =
+                    codeterm_plugin::provider::resolve_launch_spec_in(spec, &install_dirs)
+                        .map_err(LaunchFailure::PtySpawn)?;
                 crate::startup::boot_timing::mark(
                     tab_id,
                     Some(pty_id),
@@ -44,13 +51,18 @@ pub(super) fn spawn_backend_pty(
                     .get_tab(tab_id)
                     .and_then(|tab| tab.session_binding_nonce.clone())
                     .ok_or_else(|| LaunchFailure::PtySpawn("direct launch nonce missing".into()))?;
+                let base_path = codeterm_plugin::js_runtime::merged_search_path_with_extra_dirs(
+                    &install_dirs,
+                )
+                .or_else(|| std::env::var_os("PATH"))
+                .unwrap_or_default();
                 let env_vars = super::super::launch_env::direct_environment(
                     env_vars,
                     &resolved.spec,
                     &nonce,
                     pty_id,
                     crate::service::instance_env::instance_cli_binary_path().as_deref(),
-                    &std::env::var_os("PATH").unwrap_or_default(),
+                    &base_path,
                 )
                 .map_err(LaunchFailure::PtySpawn)?;
                 crate::pty::manager::build_direct_session(

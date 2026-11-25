@@ -530,6 +530,25 @@
     "linux": "curl -fsSL https://opencode.ai/install | bash",
     "windows": "npm install -g opencode-ai"
   },
+  "cliInstallDirs": {
+    "macos": [
+      "$OPENCODE_INSTALL_DIR",
+      "~/.opencode/bin",
+      "$XDG_BIN_DIR"
+    ],
+    "linux": [
+      "$OPENCODE_INSTALL_DIR",
+      "~/.opencode/bin",
+      "$XDG_BIN_DIR"
+    ],
+    "windows": [
+      "%OPENCODE_INSTALL_DIR%",
+      "%NPM_CONFIG_PREFIX%",
+      "%APPDATA%/npm",
+      "~/AppData/Roaming/npm",
+      "~/.opencode/bin"
+    ]
+  },
   "updater": {
     "macos": "opencode upgrade {version}",
     "linux": "opencode upgrade {version}",

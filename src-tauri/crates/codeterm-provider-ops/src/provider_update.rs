@@ -375,7 +375,8 @@ fn install(service: impl ProviderUpdateHost, key: String, provider_id: String, u
         "update_started",
         "provider_update_command",
     ) {
-        command::run_update_command(&update.command).map_err(|failure| {
+        let install_dirs = update.provider.cli_install_dirs(command::platform_key());
+        command::run_update_command(&update.command, &install_dirs).map_err(|failure| {
             child_stopped = failure.child_stopped;
             failure.reason
         })

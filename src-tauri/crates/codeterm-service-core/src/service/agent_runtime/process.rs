@@ -282,19 +282,35 @@ pub(super) fn spawn(
         command.env_remove(key);
     }
     command.envs(&env);
-    if let Some(cli) = env.get("CODETERM_CLI_PATH") {
-        if let Some(dir) = codeterm_pty::pty::manager::cli_dir_of(std::ffi::OsStr::new(cli)) {
-            let inherited = env
-                .get("PATH")
-                .map(std::ffi::OsString::from)
-                .or_else(|| std::env::var_os("PATH"))
-                .unwrap_or_default();
-            if let Some(path) =
-                codeterm_pty::pty::manager::path_with_cli_dir_first(&inherited, &dir)
-            {
-                command.env("PATH", path);
-            }
+    let has_explicit_path = env.keys().any(|key| key.eq_ignore_ascii_case("PATH"));
+    let merged_path = if has_explicit_path {
+        None
+    } else {
+        let mut extra = launch.extra_bin_dirs.clone();
+        if let Some(parent) = binary
+            .parent()
+            .filter(|dir| dir.is_absolute() && !dir.as_os_str().is_empty())
+        {
+            extra.push(parent.to_path_buf());
         }
+        codeterm_plugin::js_runtime::merged_search_path_with_extra_dirs(&extra)
+    };
+    if let Some(dir) = env
+        .get("CODETERM_CLI_PATH")
+        .and_then(|cli| codeterm_pty::pty::manager::cli_dir_of(std::ffi::OsStr::new(cli)))
+    {
+        let inherited = env
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .map(|(_, value)| std::ffi::OsString::from(value))
+            .or(merged_path)
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default();
+        if let Some(path) = codeterm_pty::pty::manager::path_with_cli_dir_first(&inherited, &dir) {
+            command.env("PATH", path);
+        }
+    } else if let Some(path) = merged_path {
+        command.env("PATH", path);
     }
     let effective = effective_env(command.as_std());
     let credential = effective

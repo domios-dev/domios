@@ -661,12 +661,17 @@ impl ProviderSwitchExt for ServiceContext {
             .with_provider(target, |provider| {
                 Some((
                     provider.binary_name().to_owned(),
+                    provider.cli_install_dirs(crate::agent::provider::current_platform_tag()),
                     provider.auth_status_probe()?,
                 ))
             })
             .flatten();
-        if let Some((binary, probe)) = probe {
-            let record = crate::service::provider_signals_probe::capture_result(&binary, &probe)
+        if let Some((binary, install_dirs, probe)) = probe {
+            let record = crate::service::provider_signals_probe::capture_result_in(
+                &binary,
+                &install_dirs,
+                &probe,
+            )
                 .map_err(|failure| match failure {
                     crate::service::provider_signals_probe::ProbeFailure::TimedOut =>
                         "provider_switch_auth_timeout: target authentication check timed out; retry the switch",

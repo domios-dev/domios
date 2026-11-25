@@ -20,13 +20,17 @@ impl UpdateCommandFailure {
     }
 }
 
-pub(super) fn run_update_command(command: &str) -> Result<(), UpdateCommandFailure> {
+pub(super) fn run_update_command(
+    command: &str,
+    extra_dirs: &[PathBuf],
+) -> Result<(), UpdateCommandFailure> {
     parse_update_command(command)
         .map_err(|error| UpdateCommandFailure::before_spawn(FailureStage::Resolve, error))?;
     codeterm_plugin::js_runtime::refresh_user_path();
-    let (executable, args) = update_argv(command)
+    let policy = ResolutionPolicy::Production(extra_dirs.to_vec());
+    let (executable, args) = update_argv_with_policy(command, &policy)
         .map_err(|error| UpdateCommandFailure::before_spawn(FailureStage::Resolve, error))?;
-    let search_path = child_search_path(&executable, &ResolutionPolicy::Production);
+    let search_path = child_search_path(&executable, &policy);
     run_invocation(Invocation {
         executable,
         args,
@@ -538,7 +542,7 @@ fn captured(capture: Option<&Capture>) -> String {
 }
 
 enum ResolutionPolicy {
-    Production,
+    Production(Vec<PathBuf>),
     #[cfg(test)]
     Confined(codeterm_plugin::js_runtime::BinSearchEnvironment),
 }
@@ -546,7 +550,10 @@ enum ResolutionPolicy {
 impl ResolutionPolicy {
     fn resolve(&self, executable: &str) -> codeterm_plugin::js_runtime::BinResolution {
         match self {
-            Self::Production => codeterm_plugin::js_runtime::probe_bin(executable).resolution,
+            Self::Production(extra_dirs) => {
+                codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(executable, extra_dirs)
+                    .resolution
+            }
             #[cfg(test)]
             Self::Confined(environment) => {
                 codeterm_plugin::js_runtime::probe_bin_with_environment(
@@ -587,15 +594,12 @@ fn child_search_path(executable: &Path, policy: &ResolutionPolicy) -> Option<OsS
         .filter(|dir| dir.is_absolute() && !dir.as_os_str().is_empty())
         .map(Path::to_path_buf);
     match policy {
-        ResolutionPolicy::Production => {
-            let mut extra = codeterm_plugin::js_runtime::well_known_bin_dirs();
+        ResolutionPolicy::Production(extra_dirs) => {
+            let mut extra = extra_dirs.clone();
             if let Some(parent) = extra_parent {
                 extra.push(parent);
             }
-            codeterm_plugin::js_runtime::merged_search_path(
-                &codeterm_plugin::js_runtime::BinSearchEnvironment::current(),
-                &extra,
-            )
+            codeterm_plugin::js_runtime::merged_search_path_with_extra_dirs(&extra)
         }
         #[cfg(test)]
         ResolutionPolicy::Confined(environment) => {
@@ -605,8 +609,9 @@ fn child_search_path(executable: &Path, policy: &ResolutionPolicy) -> Option<OsS
     }
 }
 
+#[cfg(test)]
 fn update_argv(command: &str) -> Result<(PathBuf, Vec<OsString>), String> {
-    update_argv_with_policy(command, &ResolutionPolicy::Production)
+    update_argv_with_policy(command, &ResolutionPolicy::Production(Vec::new()))
 }
 
 fn update_argv_with_policy(

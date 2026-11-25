@@ -216,6 +216,7 @@ pub fn launch_with_dispatch(
     let service = svc.clone();
     let version_path = status.resolved_path.clone();
     let monitor_tab = tab_id.clone();
+    let monitor_pty = svc.resolve_pty_id(&tab_id).ok();
     let provider = provider.to_owned();
     if explicit_update {
         update::record(
@@ -235,13 +236,22 @@ pub fn launch_with_dispatch(
         let completion = waiter.wait(std::time::Duration::from_secs(600)).await;
         let _ = tokio::task::spawn_blocking(move || {
             let _permit = permit;
+            let failure_output = monitor_pty
+                .as_deref()
+                .and_then(|pty_id| service.screen_state.get_screen_text(pty_id))
+                .and_then(|screen| extract_failure_tail(&screen));
             if completion.is_none() {
                 let _ = service.close_tab_with_reason(&monitor_tab, crate::multiplexer::types::TabCloseReason::SpawnRollback);
             }
-            codeterm_plugin::js_runtime::refresh_user_path();
             crate::agent::model_catalog::invalidate(&provider);
             let old_version = target.as_ref().map(|v| v.current_version.clone());
-            let status = super::provider_cli::provider_cli_status(&service.provider_registry, &provider, platform).ok();
+            let status = super::provider_cli::provider_cli_status_with_refresh(
+                &service.provider_registry,
+                &provider,
+                platform,
+                true,
+            )
+            .ok();
             // An update may install a copy that now wins on PATH; verify the binary resolved after it, not before.
             let verified_path = status.as_ref().and_then(|s| s.resolved_path.clone()).or(version_path);
             let new_version = if explicit_update { verified_path.as_deref().and_then(|path| codeterm_plugin::provider_version::refresh(path).version) } else { None };
@@ -250,8 +260,12 @@ pub fn launch_with_dispatch(
             } else { completion.and_then(ExecCompletion::exit_code) == Some(0) && status.as_ref().and_then(|s| s.installed) == Some(true) };
             let summary = if explicit_update {
                 if success { format!("{} CLI updated to {}", provider, new_version.as_deref().unwrap_or_default()) }
-                else { format!("{}; installed version could not be verified as the requested target", completion_summary(&provider, operation, completion, status.as_ref())) }
-            } else { completion_summary(&provider, operation, completion, status.as_ref()) };
+                else { format!("{}; installed version could not be verified as the requested target", completion_summary_with_output(&provider, operation, completion, status.as_ref(), failure_output.as_deref())) }
+            } else if success {
+                completion_summary(&provider, operation, completion, status.as_ref())
+            } else {
+                completion_summary_with_output(&provider, operation, completion, status.as_ref(), failure_output.as_deref())
+            };
             if explicit_update {
                 update::record(&provider, codeterm_plugin::provider_cli::ProviderCliUpdateJob {
                     tab_id: monitor_tab.clone(), state: if success { "succeeded" } else { "failed" }.into(), summary: summary.clone(),
@@ -342,6 +356,65 @@ fn completion_summary(
         }
     }
     summary
+}
+
+fn completion_summary_with_output(
+    provider: &str,
+    operation: CliOperation,
+    completion: Option<ExecCompletion>,
+    status: Option<&ProviderCliStatus>,
+    failure_output: Option<&str>,
+) -> String {
+    let mut summary = completion_summary(provider, operation, completion, status);
+    if let Some(detail) = failure_output.map(str::trim).filter(|text| !text.is_empty()) {
+        summary.push_str(&format!("\n{detail}"));
+    }
+    summary
+}
+
+fn extract_failure_tail(screen: &str) -> Option<String> {
+    let lines: Vec<&str> = screen
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let end = if lines.last().is_some_and(|line| is_shell_prompt_line(line)) {
+        lines.len().saturating_sub(1)
+    } else {
+        lines.len()
+    };
+    let tail: Vec<&str> = lines[..end]
+        .iter()
+        .rev()
+        .filter(|line| !line.starts_with("$env:Path ="))
+        .take(4)
+        .copied()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if tail.is_empty() {
+        return None;
+    }
+    let joined = tail.join("\n");
+    let max_chars = 400;
+    if joined.chars().count() <= max_chars {
+        Some(joined)
+    } else {
+        let mut clipped: String = joined.chars().take(max_chars - 1).collect();
+        clipped.push('…');
+        Some(clipped)
+    }
+}
+
+fn is_shell_prompt_line(line: &str) -> bool {
+    (line.starts_with("PS ") && line.ends_with('>'))
+        || line.ends_with('$')
+        || line.ends_with('%')
+        || line.ends_with('#')
 }
 
 // The full guidance stays in the launch warnings and the completion report.

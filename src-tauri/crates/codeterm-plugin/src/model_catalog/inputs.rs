@@ -41,7 +41,7 @@ fn stamp(provider: &dyn AgentProvider, generation: u64) -> String {
         })
         .collect();
     let inputs = serde_json::json!({
-        "binary": provider.cli_binary().and_then(fingerprint_bin),
+        "binary": fingerprint_provider_bin(provider),
         "files": files,
         "generation": generation,
         "account": crate::provider_account::cache_key(provider.id()),

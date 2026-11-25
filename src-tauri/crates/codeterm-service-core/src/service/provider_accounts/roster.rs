@@ -475,9 +475,15 @@ pub(super) fn read_status(
             let binary = adapter
                 .cli_binary()
                 .ok_or("This harness cannot check sign-in".to_owned())?;
+            let install_dirs =
+                adapter.cli_install_dirs(crate::agent::provider::current_platform_tag());
             Some(
-                crate::service::provider_signals_probe::capture_result(binary, &probe)
-                    .map_err(|_| "The harness sign-in check failed or timed out".to_owned())?,
+                crate::service::provider_signals_probe::capture_result_in(
+                    binary,
+                    &install_dirs,
+                    &probe,
+                )
+                .map_err(|_| "The harness sign-in check failed or timed out".to_owned())?,
             )
         } else {
             None

@@ -227,8 +227,11 @@ async fn authenticated(provider: Arc<dyn AgentProvider>) -> Result<bool, String>
         let binary = provider
             .cli_binary()
             .ok_or("Provider has no authentication binary")?;
-        let record = crate::service::provider_signals_probe::capture(binary, &probe)
-            .ok_or("Authentication status could not be verified")?;
+        let install_dirs =
+            provider.cli_install_dirs(crate::agent::provider::current_platform_tag());
+        let record =
+            crate::service::provider_signals_probe::capture_in(binary, &install_dirs, &probe)
+                .ok_or("Authentication status could not be verified")?;
         provider
             .parse_auth_status(&record)
             .map(|auth| auth.logged_in)

@@ -59,6 +59,7 @@ fn sandbox_environment_overrides_profile_collision() {
             ("SANDBOX_POLICY".into(), "profile-override".into()),
             ("PROFILE".into(), "fixed".into()),
         ]),
+        extra_bin_dirs: Vec::new(),
         working_directory: None,
         profile: Some("selected".into()),
         nonce: "nonce".into(),
@@ -156,4 +157,48 @@ fn earlier_receipt_script_paths_are_simplified_at_launch() {
         assert_eq!(launched.binary, stored.binary);
         assert_eq!(launched.args, [expected, "--stdio", r"\\?\C:\literal"]);
     }
+}
+
+#[test]
+fn missing_runtime_binary_reports_provider_not_installed_with_install_hint() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+
+    let platform = crate::agent::provider::current_platform_tag();
+    let manifest_json = json!({
+        "id": "missing-runtime-fixture",
+        "version": "1.0.0",
+        "displayName": "Missing Runtime Fixture",
+        "binaryName": "domios-missing-runtime-fixture-bin",
+        "cliBinary": "domios-missing-runtime-fixture-bin",
+        "installer": { platform: "opaque-install-command" },
+        "capabilities": {
+            "agentProvider": true,
+            "chatBackend": { "spawnable": true, "sessionConfig": true, "agentTasks": false },
+            "agentRuntime": {
+                "runtime": "stdio-jsonrpc",
+                "command": { "binary": "domios-missing-runtime-fixture-bin", "args": [] },
+                "requestMethods": { "initialize": ["initialize"] },
+                "notificationMethods": []
+            }
+        },
+        "permissions": { "subprocess": { "allow": ["domios-missing-runtime-fixture-bin"] } }
+    })
+    .to_string();
+    let manifest = PluginManifest::from_json_str(&manifest_json).unwrap();
+    let vm = PluginVm::from_source("missing-runtime-fixture", "module.exports = {};".into())
+        .unwrap();
+    let adapter = JsProvider::new(manifest, std::sync::Arc::new(vm));
+
+    let failure = runtime_binary_failure(
+        &adapter,
+        "domios-missing-runtime-fixture-bin",
+        codeterm_plugin::js_runtime::manifest::RuntimeManifestError::BinaryUnavailable,
+    );
+    let RuntimeFailure::SpawnFailed { reason } = failure else {
+        panic!("expected SpawnFailed, got {failure:?}");
+    };
+    assert!(reason.contains("Provider not installed:"), "{reason}");
+    assert!(reason.contains("Missing Runtime Fixture"), "{reason}");
+    assert!(reason.contains("opaque-install-command"), "{reason}");
+    assert!(reason.contains("domios agent cli install missing-runtime-fixture"), "{reason}");
 }

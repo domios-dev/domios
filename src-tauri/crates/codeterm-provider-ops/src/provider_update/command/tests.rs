@@ -312,7 +312,7 @@ fn provider_update_command_job_waits_for_child_after_parent_and_closed_streams()
 
 #[test]
 fn provider_update_command_pre_spawn_refusal_has_no_running_child() {
-    let failure = run_update_command("updater update; injected")
+    let failure = run_update_command("updater update; injected", &[])
         .err()
         .unwrap();
     assert!(failure.child_stopped);

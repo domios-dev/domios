@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { runtimeStatusPresentation, type AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { describeRuntimeConnectionError, isMissingRuntimeConversation } from "../../lib/describeError";
+import { parseProviderNotInstalled } from "../../lib/providerNotInstalled";
+import { ProviderNotInstalledNotice } from "./ProviderNotInstalledNotice";
 import { runtimeSignInRequired } from "./RuntimeLoginActions";
 import { useStartNewSession } from "./useStartNewSession";
 import { RuntimeTranscriptNotice } from "./TranscriptNotice";
@@ -19,6 +21,20 @@ export function AgentRuntimeBanner({ state, onRetry, tabId, startupOwned = false
   const previous = useRef(actionable);
   const view = retrying ? previous.current : actionable;
   if (!view) return null;
+  const notInstalled = parseProviderNotInstalled(view.details ?? view.reason);
+  if (notInstalled) {
+    return <ProviderNotInstalledNotice
+      info={notInstalled}
+      rawReason={view.details ?? view.reason}
+      inline
+      onRetry={async () => {
+        previous.current = view;
+        setRetrying(true);
+        try { await Promise.resolve(onRetry()); }
+        finally { setRetrying(false); }
+      }}
+    />;
+  }
   const missing = Boolean(tabId && isMissingRuntimeConversation(view.details));
   const sentence = missing ? "This conversation is no longer available."
     : view.label === "Agent runtime unavailable" ? describeRuntimeConnectionError(view.details).title : view.reason;

@@ -152,6 +152,7 @@ pub(super) struct PluginSandbox {
     plugin_id: String,
     /// `host.exec` binary allowlist (host_api v2). Empty unless declared.
     exec_allow: Vec<String>,
+    extra_bin_dirs: Vec<PathBuf>,
     /// `host.fetch` host allowlist (host_api v2). Empty unless declared.
     net_allow: Vec<String>,
     pub(super) transfer: super::host_transfer::TransferRuntime,
@@ -194,6 +195,7 @@ impl PluginSandbox {
             denials: std::sync::atomic::AtomicU64::new(0),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
+            extra_bin_dirs: Vec::new(),
             net_allow: Vec::new(),
             transfer: super::host_transfer::TransferRuntime::default(),
             token_mode: TokenMode::None,
@@ -225,6 +227,7 @@ impl PluginSandbox {
             denials: std::sync::atomic::AtomicU64::new(0),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
+            extra_bin_dirs: Vec::new(),
             net_allow: Vec::new(),
             transfer: super::host_transfer::TransferRuntime::default(),
             token_mode: TokenMode::None,
@@ -240,6 +243,15 @@ impl PluginSandbox {
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
+    }
+
+    pub(super) fn with_extra_bin_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.extra_bin_dirs = dirs;
+        self
+    }
+
+    pub(super) fn extra_bin_dirs(&self) -> &[PathBuf] {
+        &self.extra_bin_dirs
     }
 
     /// Stamp the plugin identity + its effective permissions (manifest request

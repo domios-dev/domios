@@ -78,6 +78,10 @@ macro_rules! agent_provider_catalogue_tail {
             None
         }
 
+        fn cli_install_dirs(&self, _platform: &str) -> Vec<PathBuf> {
+            Vec::new()
+        }
+
         fn update_command(&self, _platform: &str) -> Option<String> {
             None
         }
