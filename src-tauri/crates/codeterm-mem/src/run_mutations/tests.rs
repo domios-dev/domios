@@ -155,6 +155,10 @@ fn topic_routing_records_actual_edges_and_ignores_failed_operations() {
 }
 
 #[test]
+#[cfg_attr(
+    all(target_os = "macos", feature = "embeddings"),
+    ignore = "macOS embeddings test binaries abort instead of unwinding (error 5); tracked for 1.23.2"
+)]
 fn stage_updates_use_fixed_ids_and_scoped_origin_restores_after_unwind() {
     let temp = tempfile::tempdir().unwrap();
     let registry = GraphWorkerRegistry::load(temp.path().join("workers.json"));
