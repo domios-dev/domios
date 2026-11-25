@@ -6,14 +6,18 @@ import { ConfirmDialog } from "../Extensions/ConfirmDialog";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import type { HelpSectionId } from "../../help/types";
 import { GuideInfoButton } from "./GuideInfoButton";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
-export function GeneralAgentProviderChoice({ current, enabled, onSwitch, onOpenGuide }: {
+export function GeneralAgentProviderChoice({ current, enabled, onSwitch, onOpenGuide, peerId }: {
   current: string | undefined;
   enabled: boolean;
   onSwitch: (provider: string) => Promise<void>;
   onOpenGuide?: (section: HelpSectionId) => void;
+  peerId?: string;
 }) {
-  const { providers } = useAgentProviders();
+  const remoteTarget = useSettingsRemoteTarget();
+  const targetPeerId = peerId !== undefined ? peerId : remoteTarget?.id;
+  const { providers } = useAgentProviders(targetPeerId);
   const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);

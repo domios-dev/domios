@@ -26,6 +26,7 @@ import type {
   BadgeStyle,
   BadgeVariant,
   ProviderConfig,
+  ProviderDescriptor,
   SettingField,
 } from "../../lib/types";
 
@@ -35,6 +36,7 @@ type ObjectArrayItemField = ArraySettingField["item"]["fields"][number];
 interface SchemaRendererProps {
   schema: SettingField[];
   providerId: string;
+  providerDescriptor?: ProviderDescriptor;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
   /**
@@ -45,16 +47,21 @@ interface SchemaRendererProps {
    */
   values?: Record<string, unknown>;
   hideActions?: boolean;
+  disableActions?: boolean;
+  remoteMachineName?: string;
   hidePathLinks?: boolean;
 }
 
 export function SchemaRenderer({
   schema,
   providerId,
+  providerDescriptor,
   config,
   onChange,
   values,
   hideActions,
+  disableActions,
+  remoteMachineName,
   hidePathLinks,
 }: SchemaRendererProps) {
   const providerConfig = (values ?? config.agents?.[providerId] ?? {}) as ProviderConfig;
@@ -63,11 +70,14 @@ export function SchemaRenderer({
       <FieldList
         fields={schema}
         providerId={providerId}
+        providerDescriptor={providerDescriptor}
         providerConfig={providerConfig}
         config={config}
         onChange={onChange}
         agentNamespace={values === undefined}
         hideActions={hideActions}
+        disableActions={disableActions}
+        remoteMachineName={remoteMachineName}
         hidePathLinks={hidePathLinks}
       />
     </div>
@@ -84,11 +94,14 @@ function globalToggleFallback(key: string, config: AppConfig, agentNamespace: bo
 interface FieldRendererProps {
   field: SettingField;
   providerId: string;
+  providerDescriptor?: ProviderDescriptor;
   providerConfig: ProviderConfig;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
   agentNamespace: boolean;
   hideActions?: boolean;
+  disableActions?: boolean;
+  remoteMachineName?: string;
   hidePathLinks?: boolean;
 }
 
@@ -101,7 +114,7 @@ function FieldList({ fields, ...rest }: FieldListProps) {
     <>
       {segmentActionRuns(fields).map((segment, i) =>
         segment.kind === "actions"
-          ? (rest.hideActions ? null : <SchemaActionBar key={i} actions={segment.actions} />)
+          ? (rest.hideActions ? null : <SchemaActionBar key={i} actions={segment.actions} disabled={rest.disableActions} remoteMachineName={rest.remoteMachineName} />)
           : <FieldRenderer key={i} field={segment.field} {...rest} />,
       )}
     </>
@@ -111,11 +124,14 @@ function FieldList({ fields, ...rest }: FieldListProps) {
 function FieldRenderer({
   field,
   providerId,
+  providerDescriptor,
   providerConfig,
   config,
   onChange,
   agentNamespace,
   hideActions,
+  disableActions,
+  remoteMachineName,
   hidePathLinks,
 }: FieldRendererProps) {
   const fieldId = useId();
@@ -137,11 +153,14 @@ function FieldRenderer({
                 <div className="flex flex-none items-center gap-1.5">
                   <FieldList fields={badges}
                     providerId={providerId}
+                    providerDescriptor={providerDescriptor}
                     providerConfig={providerConfig}
                     config={config}
                     onChange={onChange}
                     agentNamespace={agentNamespace}
                     hideActions={hideActions}
+                    disableActions={disableActions}
+                    remoteMachineName={remoteMachineName}
                     hidePathLinks={hidePathLinks}
                   />
                 </div>
@@ -154,11 +173,14 @@ function FieldRenderer({
           <FieldList
             fields={body}
             providerId={providerId}
+            providerDescriptor={providerDescriptor}
             providerConfig={providerConfig}
             config={config}
             onChange={onChange}
             agentNamespace={agentNamespace}
             hideActions={hideActions}
+            disableActions={disableActions}
+            remoteMachineName={remoteMachineName}
             hidePathLinks={hidePathLinks}
           />
         </section>
@@ -224,7 +246,7 @@ function FieldRenderer({
       if (agentNamespace && field.key === "default_model") {
         return <div data-testid="settings-schema-field" data-settings-field={field.key}>
           <FormRow label={field.label} hint={field.description}>
-            <DefaultModelPicker providerId={providerId} value={value} serviceTier={typeof providerConfig.default_service_tier === "string" ? {id:providerConfig.default_service_tier || null} : undefined}
+            <DefaultModelPicker providerId={providerId} descriptor={providerDescriptor} value={value} serviceTier={typeof providerConfig.default_service_tier === "string" ? {id:providerConfig.default_service_tier || null} : undefined}
               onChange={(model, serviceTier) => onChange(providerId, { [field.key]: model, ...(serviceTier !== undefined ? { default_service_tier: serviceTier.id ?? "" } : {}) })} />
           </FormRow>
         </div>;
@@ -294,6 +316,7 @@ function FieldRenderer({
       return <PathLinkField label={field.label} path={field.path} />;
 
     case "badge":
+      if (disableActions) return null;
       return (
         <BadgeField
           queryCommand={field.query_command}
@@ -304,7 +327,7 @@ function FieldRenderer({
 
     case "action":
       if (hideActions) return null;
-      return <SchemaActionBar actions={[field]} />;
+      return <SchemaActionBar actions={[field]} disabled={disableActions} remoteMachineName={remoteMachineName} />;
 
     case "when": {
       const dependent = providerConfig[field.field];
@@ -315,11 +338,14 @@ function FieldRenderer({
           <FieldList
             fields={field.then}
             providerId={providerId}
+            providerDescriptor={providerDescriptor}
             providerConfig={providerConfig}
             config={config}
             onChange={onChange}
             agentNamespace={agentNamespace}
             hideActions={hideActions}
+            disableActions={disableActions}
+            remoteMachineName={remoteMachineName}
             hidePathLinks={hidePathLinks}
           />
         </>

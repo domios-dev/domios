@@ -1,5 +1,5 @@
 import { Cpu, RefreshCcw } from "lucide-react";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, ProviderDescriptor } from "../../lib/types";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import { modelDefaultGuideSection, modelDefaultPatch, modelDefaultRows } from "./modelDefaultsModel";
 import { GeneralAgentProviderChoice } from "./GeneralAgentProviderChoice";
@@ -8,13 +8,16 @@ import { SettingsCard } from "./shared";
 import type { HelpSectionId } from "../../help/types";
 import { GuideInfoButton } from "./GuideInfoButton";
 
-export function ModelDefaultsCard({ config, onUpdate, onSwitchGeneralProvider, onOpenGuide }: {
+export function ModelDefaultsCard({ config, peerId, providers, onUpdate, onSwitchGeneralProvider, onOpenGuide }: {
   config: AppConfig;
+  peerId?: string;
+  providers?: ProviderDescriptor[];
   onSwitchGeneralProvider?: (provider: string) => Promise<void>;
   onOpenGuide?: (section: HelpSectionId) => void;
   onUpdate?: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
-  const descriptors = useAgentDescriptors();
+  const localDescriptors = useAgentDescriptors();
+  const descriptors = providers ?? localDescriptors;
   const rows = modelDefaultRows(config);
   const providerName = (id: string) => descriptors.find((provider) => provider.id === id)?.display_name ?? id;
   return (
@@ -24,7 +27,7 @@ export function ModelDefaultsCard({ config, onUpdate, onSwitchGeneralProvider, o
       description="Models used when nothing else picks one. When a harness stops offering a model, its default moves to the closest model it still offers."
     >
       {onSwitchGeneralProvider && <div className="mb-2 border-b border-[var(--ct-border)] pb-5">
-        <GeneralAgentProviderChoice current={config.general_agent?.agent_provider} onOpenGuide={onOpenGuide}
+        <GeneralAgentProviderChoice current={config.general_agent?.agent_provider} peerId={peerId} onOpenGuide={onOpenGuide}
           enabled={config.general_agent?.enabled ?? true} onSwitch={onSwitchGeneralProvider} />
       </div>}
       {rows.some((row) => row.key.startsWith("memory.")) && <h3 className="mt-2 text-sm font-medium text-[var(--ct-fg)]">Background models</h3>}
@@ -44,7 +47,9 @@ export function ModelDefaultsCard({ config, onUpdate, onSwitchGeneralProvider, o
                 {onOpenGuide && <GuideInfoButton label={row.subject} section={modelDefaultGuideSection(row)} onOpen={onOpenGuide} />}
               </span>
               <span className="flex min-w-0 flex-col items-end gap-0.5 text-right">
-                {onUpdate ? <DefaultModelPicker providerId={row.provider} value={row.model}
+                {onUpdate ? <DefaultModelPicker providerId={row.provider}
+                  descriptor={providers?.find((provider) => provider.id === row.provider)}
+                  value={row.model}
                   serviceTier={typeof config.agents?.[row.provider]?.default_service_tier === "string" ? {id: (config.agents[row.provider].default_service_tier as string) || null} : undefined}
                   onChange={(model, serviceTier) => {
                   const patch = modelDefaultPatch(config, row, model, serviceTier);

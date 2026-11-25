@@ -98,7 +98,7 @@ export function attachModelCatalogueChangedRefresh(
   };
 }
 
-export function useAgentProviders(): {
+export function useAgentProviders(peerId?: string): {
   providers: ProviderDescriptor[];
   loading: boolean;
   error: string | null;
@@ -120,22 +120,27 @@ export function useAgentProviders(): {
       if (!active.current) return;
       const current = generation.current;
       setLoading(true);
-      void catalogueResource.load().then((next) => {
+      const read = peerId
+        ? invoke<unknown>("list_agent_providers", { metadataOnly: true, peerId }).then(agentProvidersFromResponse)
+        : catalogueResource.load();
+      void read.then((next) => {
         if (!active.current || generation.current !== current) return;
-        persistProviderIcons(next);
+        if (!peerId) persistProviderIcons(next);
         hasLoaded.current = true;
         setItems(next);
         setError(null);
-        for (const provider of next.filter(provider => provider.availability_checking)) {
-          void probeProvider(provider.id).then(status => {
-            if (!active.current || generation.current !== current) return;
-            setItems(items => items.map(item => item.id === provider.id ? {
-              ...item,
-              availability_checking: false,
-              availability: status?.availability ?? "unknown",
-              cli_status: status ?? undefined,
-            } : item));
-          });
+        if (!peerId) {
+          for (const provider of next.filter(provider => provider.availability_checking)) {
+            void probeProvider(provider.id).then(status => {
+              if (!active.current || generation.current !== current) return;
+              setItems(items => items.map(item => item.id === provider.id ? {
+                ...item,
+                availability_checking: false,
+                availability: status?.availability ?? "unknown",
+                cli_status: status ?? undefined,
+              } : item));
+            });
+          }
         }
       }).catch((reason: unknown) => {
         if (!active.current || generation.current !== current) return;
@@ -145,13 +150,24 @@ export function useAgentProviders(): {
         if (active.current && generation.current === current) setLoading(false);
       });
     });
-  }, []);
+  }, [peerId]);
   const refetch = useCallback(() => {
-    invalidateAgentProviders();
+    if (!peerId) invalidateAgentProviders();
     load();
-  }, [load]);
+  }, [load, peerId]);
   useEffect(() => {
     active.current = true;
+    hasLoaded.current = false;
+    setItems([]);
+    setError(null);
+    setLoading(true);
+    if (peerId) {
+      load();
+      return () => {
+        active.current = false;
+        generation.current++;
+      };
+    }
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
     let serverIdentity: ProviderCatalogueRevision | undefined;
@@ -202,7 +218,7 @@ export function useAgentProviders(): {
       window.removeEventListener("codeterm-peer-switch-rebind", rebind);
       window.removeEventListener(WEB_BOOT_CHANGED_EVENT, serverChanged);
     };
-  }, [refetch, load]);
+  }, [refetch, load, peerId]);
   return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
 }
 

@@ -224,8 +224,11 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
   }
 }
 
-export function checkProviderIntegration(providerId: string): Promise<ProviderIntegrationHealth> {
-  return invoke<ProviderIntegrationHealth>("check_provider_integration", { provider_id: providerId });
+export function checkProviderIntegration(providerId: string, peerId?: string): Promise<ProviderIntegrationHealth> {
+  return invoke<ProviderIntegrationHealth>(
+    "check_provider_integration",
+    peerId ? { provider_id: providerId, peerId } : { provider_id: providerId },
+  );
 }
 
 export function installProviderIntegration(

@@ -7,7 +7,8 @@ import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import { setPendingCommand } from "../../lib/pendingCommands";
 import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
-import { SettingsCard, SettingsPill } from "./shared";
+import { RemoteLocalOnlyNotice, SettingsCard, SettingsPill } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
 
 type SecretsBackend = "local" | "bitwarden" | "mock";
@@ -34,7 +35,34 @@ interface SecretListItem {
   last_modified?: number | null;
 }
 
-export function SecretsTab({
+export function SecretsTab(props: {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+  onCloseSettings?: () => void;
+}) {
+  const remoteTarget = useSettingsRemoteTarget();
+  if (remoteTarget) {
+    return (
+      <div className="flex flex-col gap-5" data-testid="settings-secrets-tab">
+        <SettingsCard
+          icon={<KeyRound size={16} />}
+          title="Secret store"
+          description={
+            <>
+              Pluggable backend for the <code className="font-mono">codeterm mem secret</code> command family.
+              Secrets do not cross the mesh — only the local machine's vault is reachable.
+            </>
+          }
+        >
+          <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="The secret store" />
+        </SettingsCard>
+      </div>
+    );
+  }
+  return <LocalSecretsTab {...props} />;
+}
+
+function LocalSecretsTab({
   config,
   onUpdate,
   onCloseSettings,

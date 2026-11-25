@@ -7,12 +7,32 @@ import { useUpdate } from "../../hooks/useUpdate";
 import { BusySpinner } from "../shared/BusyState";
 import { UI_BUTTON } from "../shared/design";
 import type { AppConfig } from "../../lib/types";
-import { SettingsCard, SettingsPill, Toggle } from "./shared";
+import { RemoteLocalOnlyNotice, SettingsCard, SettingsPill, Toggle } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 export function UpdateSection({ config, onUpdate }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
+  const remoteTarget = useSettingsRemoteTarget();
+  const providerToggle = <Toggle label="Update harness CLIs automatically"
+    checked={config.updater?.auto_update_provider_clis ?? true}
+    onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
+  />;
+  if (remoteTarget) {
+    return (
+      <SettingsCard icon={<Download size={16} />} title="Updates">
+        <div className="flex flex-col gap-3">
+          {providerToggle}
+          <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="Domios app updates" />
+        </div>
+      </SettingsCard>
+    );
+  }
+  return <LocalUpdateSection providerToggle={providerToggle} />;
+}
+
+function LocalUpdateSection({ providerToggle }: { providerToggle: React.ReactNode }) {
   const unified = useOptionalUpdatePanel();
   const {
     status,
@@ -35,10 +55,6 @@ export function UpdateSection({ config, onUpdate }: {
 
   const checking = status === "checking" && !installing;
   const updateAvailable = status === "available" && latestVersion && latestVersion !== currentVersion;
-  const providerToggle = <Toggle label="Update harness CLIs automatically"
-    checked={config.updater?.auto_update_provider_clis ?? true}
-    onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
-  />;
   const notes = updateAvailable && releaseNotes?.trim() ? <ReleaseNotes notes={releaseNotes} url={releaseUrl} /> : null;
 
   if (unified) return <UpdatePanel waves={false}>{providerToggle}{notes}</UpdatePanel>;

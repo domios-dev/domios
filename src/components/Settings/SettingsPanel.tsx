@@ -10,15 +10,18 @@ import { HYDRATED_GENERATION } from "../../store/multiplexer/initialState";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
   ChevronRight,
+  Network,
   Palette,
   MousePointer,
   Power,
   Keyboard,
 } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Loader } from "../shared/Loader";
 
-import { Toggle, SettingsPage, SettingsCard } from "./shared";
+import { RemoteLocalOnlyNotice, SettingsCard, SettingsPage, SettingsPill, Toggle } from "./shared";
+import { useSettingsConfig, useSettingsRemoteTarget } from "./useSettingsTarget";
 import { KeybindGroup } from "./KeybindGroup";
 import { AboutPage } from "./AboutPage";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
@@ -68,12 +71,22 @@ const selectTabs = (state: ExtendedState) => state.tabs;
 const selectTeams = (state: ExtendedState) => state.teams;
 const selectNavigationReady = (state: ExtendedState) => state.generation > HYDRATED_GENERATION;
 
-function MachineJobsView({ onClose }: { onClose: () => void }) {
+function MachineJobsView({ onClose, remotePeerId }: { onClose: () => void; remotePeerId?: string }) {
   const workspaces = useMuxSelector(selectWorkspaces);
   const tabs = useMuxSelector(selectTabs);
   const teams = useMuxSelector(selectTeams);
   const ready = useMuxSelector(selectNavigationReady);
-  return ready ? <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} /> : <Loader label="Reading jobs…" />;
+  return ready ? (
+    <JobsView
+      key={remotePeerId ?? "local"}
+      workspaces={workspaces}
+      teams={teams}
+      tabs={tabs}
+      initialFilter={jobsEntryFilter({ kind: "machine" })}
+      initialMachineId={remotePeerId}
+      onClose={onClose}
+    />
+  ) : <Loader label="Reading jobs…" />;
 }
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
@@ -119,10 +132,15 @@ export function SettingsPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const [draft, setDraft] = useState({ config, save: onUpdateConfig });
-  const localConfig = draft.save === onUpdateConfig ? draft.config : config;
+  const remoteTarget = useSettingsRemoteTarget();
+  const settingsConfig = useSettingsConfig(config, onUpdateConfig, remoteTarget);
+  const activeConfig = settingsConfig.config;
+  const activeUpdateConfig = settingsConfig.onUpdateConfig;
+
+  const [draft, setDraft] = useState({ config: activeConfig, save: activeUpdateConfig });
+  const localConfig = draft.save === activeUpdateConfig ? draft.config : activeConfig;
   const draftRef = useRef(draft);
-  draftRef.current = draft.save === onUpdateConfig ? draft : { config, save: onUpdateConfig };
+  draftRef.current = draft.save === activeUpdateConfig ? draft : { config: activeConfig, save: activeUpdateConfig };
   const [themes, setThemes] = useState<string[]>([]);
   const machineAppearance = useContext(MachineAppearanceContext);
   const theme = machineAppearance?.appearance.theme ?? localConfig.theme;
@@ -132,14 +150,15 @@ export function SettingsPanel({
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
-  const themeIds = machineAppearance?.peerId ? builtinThemes : themes;
+  const appearancePeerId = machineAppearance?.peerId ?? remoteTarget?.id;
+  const themeIds = appearancePeerId ? builtinThemes : themes;
   const selectedThemeId = themeIds.find(name => presetThemeName(name) === theme.name) ?? theme.name;
   const chooseTheme = async (name: string) => {
     if (themeBusy) return;
     setThemeError("");
     setThemeBusy(true);
     try {
-      const peer = machineAppearance?.peerId;
+      const peer = appearancePeerId;
       await switchAppearanceTheme({ machine: peer ?? "local", peer }, { kind: "settings", name });
     } catch (failure) {
       setThemeError(appearanceError(failure));
@@ -153,8 +172,8 @@ export function SettingsPanel({
   }, []);
 
   useEffect(() => {
-    setDraft({ config, save: onUpdateConfig });
-  }, [config, onUpdateConfig]);
+    setDraft({ config: activeConfig, save: activeUpdateConfig });
+  }, [activeConfig, activeUpdateConfig]);
 
   useEffect(() => {
     refreshThemes();
@@ -178,12 +197,12 @@ export function SettingsPanel({
   }, []);
 
   const saveDraft = useCallback((next: AppConfig) => {
-    if (draftRef.current.save !== onUpdateConfig) return;
-    const updated = { config: next, save: onUpdateConfig };
+    if (draftRef.current.save !== activeUpdateConfig) return;
+    const updated = { config: next, save: activeUpdateConfig };
     draftRef.current = updated;
     setDraft(updated);
-    void onUpdateConfig(next).catch(() => {});
-  }, [onUpdateConfig]);
+    void activeUpdateConfig(next).catch(() => {});
+  }, [activeUpdateConfig]);
 
   const update = useCallback(
     <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => {
@@ -196,16 +215,23 @@ export function SettingsPanel({
   const switchGeneralProvider = useCallback(async (provider: string) => {
     const previous = draftRef.current.config;
     const next = { ...previous, general_agent: { ...previous.general_agent, agent_provider: provider } };
-    await onUpdateConfig(next);
-    const updated = { config: next, save: onUpdateConfig };
+    await activeUpdateConfig(next);
+    const updated = { config: next, save: activeUpdateConfig };
     draftRef.current = updated;
     setDraft(updated);
-    if (next.general_agent.enabled !== false) await invoke("restart_general_agent");
-  }, [onUpdateConfig]);
+    if (next.general_agent.enabled !== false) {
+      await invoke("restart_general_agent", remoteTarget ? { peerId: remoteTarget.id } : undefined);
+    }
+  }, [activeUpdateConfig, remoteTarget]);
 
   const headerTitle = routeTitle(top);
   const jobsPage = top.kind === "section" && top.id === "jobs";
   const appearancePage = top.kind === "appearance-lab";
+  const needsRemoteConfig = Boolean(remoteTarget) && (
+    top.kind === "agent-provider"
+    || (top.kind === "section" && (top.id === "general" || top.id === "notifications" || top.id === "agents" || top.id === "about"))
+  );
+  const remoteConfigBlocked = needsRemoteConfig && !settingsConfig.ready;
 
   return (
     <div
@@ -227,6 +253,11 @@ export function SettingsPanel({
             <h2 id={SETTINGS_TITLE_ID} className="ct-settings-head__title" data-testid="settings-header-title">
               {headerTitle}
             </h2>
+            {remoteTarget && (
+              <span className="ml-auto" data-testid="settings-remote-target">
+                <SettingsPill tone="accent">{remoteTarget.name}</SettingsPill>
+              </span>
+            )}
           </div>
         )}
 
@@ -258,10 +289,40 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "account" && <AccountTab focusCard={top.card} />}
-            {top.kind === "section" && top.id === "mesh" && <MeshSettings />}
+            {top.kind === "section" && top.id === "mesh" && (
+              remoteTarget ? (
+                <SettingsPage title="Mesh">
+                  <SettingsCard
+                    icon={<Network size={16} />}
+                    title="My machines"
+                    description="Machines signed in to your Domios account connect automatically when both are online."
+                  >
+                    <RemoteLocalOnlyNotice
+                      machineName={remoteTarget.name}
+                      subject="Mesh pairing and machine enrollment"
+                    />
+                  </SettingsCard>
+                </SettingsPage>
+              ) : <MeshSettings />
+            )}
             {appearancePage && <Loader label="Opening Appearance Lab…" />}
 
-            {top.kind === "section" && top.id === "general" && (
+            {remoteConfigBlocked && remoteTarget && (
+              <SettingsPage title={headerTitle}>
+                {settingsConfig.loading ? (
+                  <Loader label={`Loading settings for ${remoteTarget.name}…`} />
+                ) : (
+                  <InlineErrorNotice
+                    error={settingsConfig.error ?? "Settings are unavailable"}
+                    operation={`loading settings for ${remoteTarget.name}`}
+                    actions={[{ label: "Try again", onClick: settingsConfig.retry }]}
+                    blocking
+                  />
+                )}
+              </SettingsPage>
+            )}
+
+            {!remoteConfigBlocked && top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">
                 <AnalyticsToggle />
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
@@ -273,8 +334,10 @@ export function SettingsPanel({
                 >
                   {nativeBridge.autostart && <Toggle
                     label="Launch Domios on system start"
-                    checked={autostartEnabled ?? false}
-                    onChange={handleAutostartToggle}
+                    checked={remoteTarget ? false : (autostartEnabled ?? false)}
+                    disabled={Boolean(remoteTarget)}
+                    description={remoteTarget ? `Only available directly on ${remoteTarget.name}.` : undefined}
+                    onChange={remoteTarget ? () => {} : handleAutostartToggle}
                   />}
                   <Toggle
                     label="Enable Librarian (background skill vectorizer)"
@@ -283,11 +346,11 @@ export function SettingsPanel({
                   />
                 </SettingsCard>
 
-                <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
+                <GeneralAgentCard config={localConfig} peerId={remoteTarget?.id} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
 
                 <SettingsCard icon={<Palette size={16} />} title="Appearance" description="Theme and wallpaper for this machine"
                   headerRight={onOpenAppearance && <button type="button" autoFocus={focusAppearance} className="ct-settings-link" onClick={() => onOpenAppearance()}>Open Appearance Lab ›</button>}>
-                  <AppearanceLabUndo key={machineAppearance?.peerId ?? "local"} peer={machineAppearance?.peerId} disabled={themeBusy} />
+                  <AppearanceLabUndo key={appearancePeerId ?? "local"} peer={appearancePeerId} disabled={themeBusy} />
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
                     <div className="w-56 min-w-0">
@@ -326,7 +389,7 @@ export function SettingsPanel({
                         />
                       ))}
                     </div>
-                    {themesDir && nativeBridge.window && !machineAppearance?.peerId && (
+                    {themesDir && nativeBridge.window && !appearancePeerId && (
                       <button
                         type="button"
                         data-testid="settings-open-themes-folder"
@@ -337,7 +400,7 @@ export function SettingsPanel({
                         Themes folder
                       </button>
                     )}
-                    {!machineAppearance?.peerId && themes.includes(theme.name) && !builtinThemes.includes(theme.name) && (
+                    {!appearancePeerId && themes.includes(theme.name) && !builtinThemes.includes(theme.name) && (
                       <button
                         type="button"
                         data-testid="settings-delete-custom-theme"
@@ -389,8 +452,8 @@ export function SettingsPanel({
 
                 <ShellProfilesCard config={localConfig} onUpdate={update} />
                 <BrowserUploadFolders config={localConfig} onSave={async next => {
-                  await onUpdateConfig(next);
-                  const updated = { config: next, save: onUpdateConfig };
+                  await activeUpdateConfig(next);
+                  const updated = { config: next, save: activeUpdateConfig };
                   draftRef.current = updated;
                   setDraft(updated);
                 }} />
@@ -459,7 +522,7 @@ export function SettingsPanel({
               </SettingsPage>
             )}
 
-            {top.kind === "section" && top.id === "notifications" && (
+            {!remoteConfigBlocked && top.kind === "section" && top.id === "notifications" && (
               <SettingsPage title="Notifications">
                 <NotificationsOverview
                   config={localConfig}
@@ -469,7 +532,7 @@ export function SettingsPanel({
               </SettingsPage>
             )}
 
-            {top.kind === "section" && top.id === "agents" && (
+            {!remoteConfigBlocked && top.kind === "section" && top.id === "agents" && (
               <SettingsPage title="Agents">
                 <AgentsOverview
                   onSwitchGeneralProvider={switchGeneralProvider}
@@ -482,7 +545,7 @@ export function SettingsPanel({
               </SettingsPage>
             )}
 
-            {top.kind === "agent-provider" && (
+            {!remoteConfigBlocked && top.kind === "agent-provider" && (
               <div className="max-w-[720px] mx-auto">
                 <AgentProviderScreen
                   providerId={top.providerId}
@@ -506,7 +569,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "jobs" && (
               <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="jobs">
-                <MachineJobsView onClose={back} />
+                <MachineJobsView onClose={back} remotePeerId={remoteTarget?.id} />
               </div>
             )}
 
@@ -536,7 +599,7 @@ export function SettingsPanel({
               </div>
             )}
 
-            {top.kind === "section" && top.id === "about" && <AboutPage config={localConfig} onUpdate={update} />}
+            {!remoteConfigBlocked && top.kind === "section" && top.id === "about" && <AboutPage config={localConfig} onUpdate={update} />}
           </div>
         </div>
 

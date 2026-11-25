@@ -3,12 +3,14 @@ import { TerminalSquare } from "lucide-react";
 import { useShellProfiles } from "../../hooks/useShellProfiles";
 import type { AppConfig } from "../../lib/types";
 import { SettingsCard } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 export function ShellProfilesCard({ config, onUpdate }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
-  const { profiles, error, loading, refresh } = useShellProfiles();
+  const remoteTarget = useSettingsRemoteTarget();
+  const { profiles, error, loading, refresh } = useShellProfiles(remoteTarget?.id);
   const selected = config.terminal.default_shell ?? "";
   return (
     <SettingsCard icon={<TerminalSquare size={16} />} title="Shell">

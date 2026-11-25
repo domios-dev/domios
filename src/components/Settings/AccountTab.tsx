@@ -15,7 +15,8 @@ import { usePurchaseIntent } from "../billing/usePurchaseIntent";
 import { usePurchasesEnabled } from "../billing/purchaseSwitch";
 import { CommunityKeysNotice } from "../shared/CommunityLinks";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
-import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
+import { CopyRow, RemoteLocalOnlyNotice, SettingsCard, SettingsPage, SettingsPill } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 import { useAccountPlan } from "./useAccountPlan";
 import { unverifiedPlanNotice } from "./accountPlanModel";
 import { useAccount } from "./useAccount";
@@ -31,7 +32,24 @@ import { useMachineJoin } from "../MeshPanel/MachineIdentityEditor";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
-export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusCard?: SettingsCardAnchorId; purchases?: boolean }) {
+export function AccountTab(props: { focusCard?: SettingsCardAnchorId; purchases?: boolean }) {
+  const remoteTarget = useSettingsRemoteTarget();
+  if (remoteTarget) {
+    return (
+      <SettingsPage title="Account">
+        <SettingsCard icon={<UserRound size={16} />} title="Domios account">
+          <RemoteLocalOnlyNotice
+            machineName={remoteTarget.name}
+            subject="Account sign-in and plan settings"
+          />
+        </SettingsCard>
+      </SettingsPage>
+    );
+  }
+  return <LocalAccountTab {...props} />;
+}
+
+function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCard?: SettingsCardAnchorId; purchases?: boolean }) {
   const remotePurchases = usePurchasesEnabled();
   const purchases = explicitPurchases ?? remotePurchases;
   const { upsertToast } = useMultiplexer();
