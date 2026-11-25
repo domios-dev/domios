@@ -203,6 +203,14 @@ pub(super) fn peer_rail_frame(event: &SystemEvent) -> Option<(&'static str, serd
             let mut payload = serde_json::json!({
                 "provider": data.get("provider").and_then(serde_json::Value::as_str).unwrap_or(""),
             });
+            if name == "provider-cli-completed"
+                && data.get("operation").and_then(serde_json::Value::as_str) == Some("install")
+            {
+                if let Some(tab_id) = data.get("tab_id").and_then(serde_json::Value::as_str) {
+                    payload["operation"] = serde_json::json!("install");
+                    payload["tab_id"] = serde_json::json!(tab_id);
+                }
+            }
             if let Some(summary) = data.get("summary").and_then(serde_json::Value::as_str) {
                 payload["summary"] = serde_json::json!(summary);
             }

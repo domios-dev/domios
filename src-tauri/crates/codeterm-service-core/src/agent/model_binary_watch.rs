@@ -398,12 +398,7 @@ fn install_admitted(provider: Arc<dyn AgentProvider>, admission: Admission) {
         .model_catalogue_capability()
         .fingerprint_files(provider.model_credential_files());
     let fingerprinted = started.elapsed();
-    let binary = provider.cli_binary().and_then(|binary| {
-        match codeterm_plugin::js_runtime::probe_bin(binary).resolution {
-            codeterm_plugin::js_runtime::BinResolution::Found(path) => Some(path),
-            _ => None,
-        }
-    });
+    let binary = provider.resolved_cli_path();
     let probed = started.elapsed();
     if let Some(binary) = &binary {
         targets.push(binary.clone());

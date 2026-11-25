@@ -140,10 +140,6 @@ pub fn revision() -> u64 {
     REVISION.load(Ordering::Acquire)
 }
 
-pub fn observe(binary: &str) -> VersionObservation {
-    observe_in(binary, &[])
-}
-
 pub fn observe_in(binary: &str, extra_dirs: &[PathBuf]) -> VersionObservation {
     if binary.trim().is_empty() {
         return VersionObservation::unknown(ProbeStatus::Missing);

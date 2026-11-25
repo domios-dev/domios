@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::js_runtime::{probe_bin, probe_bin_with_extra_dirs, BinResolution};
+use crate::js_runtime::{probe_bin_with_extra_dirs, BinResolution};
 
 /// The three answers an observation can give. `Unknown` is what a probe that
 /// could not run reports: `Unavailable` means the ladder searched and found
@@ -105,12 +105,12 @@ pub fn resolve_launch_spec_in(
         }
     };
     let powershell = || {
-        ["pwsh", "powershell"]
-            .into_iter()
-            .find_map(|program| match probe_bin(program).resolution {
+        ["pwsh", "powershell"].into_iter().find_map(|program| {
+            match probe_bin_with_extra_dirs(program, &[]).resolution {
                 BinResolution::Found(path) => Some(path),
                 _ => None,
-            })
+            }
+        })
     };
     resolve_launch_target(spec, &target, cfg!(windows), powershell)
 }

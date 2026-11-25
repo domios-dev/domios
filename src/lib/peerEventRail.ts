@@ -16,7 +16,7 @@ export type PeerEvent =
   | { type: "appearance-committed"; data: { event: string; machine: string; proposal: string | null; undo: boolean } }
   | {
       type: "provider-cli-started" | "provider-cli-completed" | "provider-cli-update-available";
-      data: { provider: string; summary?: string; success?: boolean };
+      data: { provider: string; tab_id?: string; operation?: string; summary?: string; success?: boolean };
     };
 
 interface Cursor { boot: string; seq: number }
@@ -111,12 +111,14 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
         || frame.event_type === "provider-cli-completed"
         || frame.event_type === "provider-cli-update-available"
       ) {
-        const data = frame.data as { provider?: unknown; summary?: unknown; success?: unknown } | null;
+        const data = frame.data as { provider?: unknown; tab_id?: unknown; operation?: unknown; summary?: unknown; success?: unknown } | null;
         if (typeof data?.provider === "string" && data.provider) {
           publish({
             type: frame.event_type,
             data: {
               provider: data.provider,
+              ...(typeof data.tab_id === "string" ? { tab_id: data.tab_id } : {}),
+              ...(typeof data.operation === "string" ? { operation: data.operation } : {}),
               ...(typeof data.summary === "string" ? { summary: data.summary } : {}),
               ...(typeof data.success === "boolean" ? { success: data.success } : {}),
             },
