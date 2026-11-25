@@ -89,7 +89,7 @@ mod tests {
         );
         assert_eq!(
             dispatch_error_state(
-                "HTTP error: 409 Conflict: peer_provider_auth_required: Codex ('codex') is not signed in on peer 'ROG'"
+                "HTTP error: 409 Conflict: peer_provider_auth_required: Provider A ('prov-a') is not signed in on peer 'ROG'"
             ),
             (
                 RemoteDispatchState::PeerRefused,

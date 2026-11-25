@@ -280,9 +280,9 @@ fn completed_and_failed_summaries_drop_once_detected_version_supersedes_target()
 
     let mut state = Coordinator::default();
     state.runs.insert(
-        "codex:0.162.1".into(),
+        "prov-a:0.162.1".into(),
         UpdateRun {
-            provider: "codex".into(),
+            provider: "prov-a".into(),
             current: "0.160.0".into(),
             target: "0.162.1".into(),
             started_at: 0,
@@ -291,22 +291,22 @@ fn completed_and_failed_summaries_drop_once_detected_version_supersedes_target()
         },
     );
     assert_eq!(
-        super::summarize_runs(&state, "codex", None).as_deref(),
+        super::summarize_runs(&state, "prov-a", None).as_deref(),
         Some("CLI updater completed for target 0.162.1; applies at next launch")
     );
     assert_eq!(
-        super::summarize_runs(&state, "codex", Some("0.162.1")).as_deref(),
+        super::summarize_runs(&state, "prov-a", Some("0.162.1")).as_deref(),
         Some("CLI updater completed for target 0.162.1; applies at next launch")
     );
     assert_eq!(
-        super::summarize_runs(&state, "codex", Some("0.172.0")),
+        super::summarize_runs(&state, "prov-a", Some("0.172.0")),
         None
     );
 
     state.runs.insert(
-        "claude:2.1.325".into(),
+        "prov-b:2.1.325".into(),
         UpdateRun {
-            provider: "claude".into(),
+            provider: "prov-b".into(),
             current: "2.1.320".into(),
             target: "2.1.325".into(),
             started_at: 100,
@@ -315,7 +315,7 @@ fn completed_and_failed_summaries_drop_once_detected_version_supersedes_target()
         },
     );
     assert_eq!(
-        super::summarize_runs(&state, "claude", Some("2.1.330")),
+        super::summarize_runs(&state, "prov-b", Some("2.1.330")),
         None
     );
 

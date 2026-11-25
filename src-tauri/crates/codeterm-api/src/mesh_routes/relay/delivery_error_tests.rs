@@ -101,18 +101,18 @@ fn exec_relay_keeps_delivery_budget_dedupe_and_classified_restart_outcomes() {
         SEND_FORWARD_DEADLINE
     );
     assert_eq!(
-        local_forward_deadline("POST", "/api/agents/providers/claude/cli"),
+        local_forward_deadline("POST", "/api/agents/providers/prov-a/cli"),
         SEND_FORWARD_DEADLINE
     );
     assert_eq!(
-        local_forward_deadline("POST", "/api/agents/providers/claude/install-in-tab"),
+        local_forward_deadline("POST", "/api/agents/providers/prov-a/install-in-tab"),
         SEND_FORWARD_DEADLINE
     );
     assert_eq!(
-        local_forward_deadline("GET", "/api/agents/providers/claude/cli"),
+        local_forward_deadline("GET", "/api/agents/providers/prov-a/cli"),
         READ_FORWARD_DEADLINE
     );
-    assert!(!is_tab_delivery("POST", "/api/agents/providers/claude/cli"));
+    assert!(!is_tab_delivery("POST", "/api/agents/providers/prov-a/cli"));
     assert!(is_tab_delivery("POST", "/api/tabs/shell-1/exec"));
     assert!(relay_send_delivery_id("POST", "/api/tabs/shell-1/exec").is_some());
 
