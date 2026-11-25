@@ -53,17 +53,22 @@ impl RunWatcherRegistry {
 }
 
 pub(super) fn finish_runtime_mem_worker(svc: &ServiceContext, end: RuntimeMemWorkerEnd<'_>) {
-    // A worker already terminated outside this watcher (e.g. cancelled) must not
-    // have its log overwritten with empty runtime messages or its diary rewritten
-    // as a deadline cut-short.
+    let existing = svc.workers.get(end.worker_id);
+    // A cancelled worker's tab is already closed; a raced watcher callback must
+    // not overwrite its log with empty messages or rewrite its diary as a deadline.
     if !end.reported
-        && svc
-            .workers
-            .get(end.worker_id)
-            .is_some_and(|w| w.status.is_terminal() && w.execution_end.is_some())
+        && existing.as_ref().is_some_and(|w| {
+            matches!(
+                w.execution_end,
+                Some(codeterm_mem::dream_status::ExecutionEnd::Cancelled)
+            )
+        })
     {
         return;
     }
+    let already_terminal = existing
+        .as_ref()
+        .is_some_and(|w| w.status.is_terminal() && w.execution_end.is_some());
     if let Ok(path) = crate::mem::workers::save_worker_log(end.worker_id, end.output) {
         svc.workers
             .set_log_path(end.worker_id, path.to_string_lossy().into_owned());
@@ -71,7 +76,7 @@ pub(super) fn finish_runtime_mem_worker(svc: &ServiceContext, end: RuntimeMemWor
     if let Some(session) = end.session {
         svc.workers.set_run_session(end.worker_id, session, end.cwd);
     }
-    if !end.reported {
+    if !end.reported && !already_terminal {
         let execution_end = if end.timed_out {
             codeterm_mem::dream_status::ExecutionEnd::TimedOut {
                 detail: end.summary.clone(),

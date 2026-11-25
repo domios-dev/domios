@@ -648,14 +648,13 @@ pub fn spawn_rem_worker(
             None
         }
     };
-    let supervisor_preface = codeterm_mem::dreaming::render_supervisor_preface(
-        rem_data.as_deref(),
-        calibration.as_ref(),
-    );
+    let supervisor_preface =
+        codeterm_mem::dreaming::format_calibration_preface(calibration.as_ref());
     let prompt = codeterm_mem::dreaming::render_rem_prompt(
         chrono::Utc::now(),
         telegram_step,
         &supervisor_preface,
+        rem_data.as_deref().unwrap_or(""),
     );
     match spawn_headless(
         svc,
@@ -694,13 +693,16 @@ pub fn cancel_worker(
     svc: &std::sync::Arc<crate::service::ServiceContext>,
     worker_id: &str,
 ) -> Option<codeterm_mem::workers::GraphWorkerInfo> {
-    let info = match svc.workers.kill(worker_id) {
-        Ok(info) => info,
+    let (info, transitioned) = match svc.workers.cancel(worker_id) {
+        Ok(outcome) => outcome,
         Err(e) => {
             log::warn!("[graph-workers] cancel {}: {}", worker_id, e);
             return None;
         }
     };
+    if !transitioned {
+        return Some(info);
+    }
     svc.run_watcher.retire_worker(worker_id);
     if !info.tab_id.is_empty() {
         if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {

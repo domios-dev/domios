@@ -222,7 +222,8 @@ fn rem_worker_uses_native_shell_and_host_start_time() {
     args.task = codeterm_mem::dreaming::render_rem_prompt(
         start,
         "opaque_notify_fragment_519",
-        "opaque_preface_fragment_803",
+        "opaque_preface_fragment_612",
+        "opaque_candidate_fragment_803",
     );
     let spec = build_mem_worker_spawn_spec(&chatbackends, worker_cwd(), args).unwrap();
     assert!(spec.shell.is_none());
@@ -231,6 +232,7 @@ fn rem_worker_uses_native_shell_and_host_start_time() {
     };
     let task = agent.task.as_deref().unwrap();
     assert!(task.contains("2026-11-24T05:26:54Z"));
-    assert!(task.contains("opaque_preface_fragment_803"));
+    assert!(task.contains("opaque_preface_fragment_612"));
+    assert!(task.contains("opaque_candidate_fragment_803"));
     assert_eq!(agent.worker_id.as_deref(), Some("wk-42"));
 }

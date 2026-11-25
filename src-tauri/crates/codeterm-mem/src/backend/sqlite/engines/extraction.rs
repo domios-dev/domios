@@ -14,7 +14,7 @@ impl SqliteMemStore {
                FROM mem_items m
                WHERE m.kind IN ('conversation','note','daily','learning','fact')
                  AND m.tags_json NOT LIKE '%auto-extracted%'
-                 AND m.tags_json NOT LIKE '%dream-diary%'
+                 AND m.tags_json NOT LIKE '%"dream-diary"%'
                  AND COALESCE(m.area, '') != '_dreams'
                  AND NOT EXISTS (
                    SELECT 1 FROM relations r
