@@ -13,7 +13,11 @@ export type PeerEvent =
   | { type: "plans-loaded" }
   | { type: "mux-state-changed"; data: { generation?: number } }
   | { type: "config-changed" }
-  | { type: "appearance-committed"; data: { event: string; machine: string; proposal: string | null; undo: boolean } };
+  | { type: "appearance-committed"; data: { event: string; machine: string; proposal: string | null; undo: boolean } }
+  | {
+      type: "provider-cli-started" | "provider-cli-completed" | "provider-cli-update-available";
+      data: { provider: string; summary?: string; success?: boolean };
+    };
 
 interface Cursor { boot: string; seq: number }
 type Listener = (event: PeerEvent) => void;
@@ -98,6 +102,23 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
               machine: data.machine,
               proposal: typeof data.proposal === "string" ? data.proposal : null,
               undo: data.undo === true,
+            },
+          });
+        }
+      }
+      if (
+        frame.event_type === "provider-cli-started"
+        || frame.event_type === "provider-cli-completed"
+        || frame.event_type === "provider-cli-update-available"
+      ) {
+        const data = frame.data as { provider?: unknown; summary?: unknown; success?: unknown } | null;
+        if (typeof data?.provider === "string" && data.provider) {
+          publish({
+            type: frame.event_type,
+            data: {
+              provider: data.provider,
+              ...(typeof data.summary === "string" ? { summary: data.summary } : {}),
+              ...(typeof data.success === "boolean" ? { success: data.success } : {}),
             },
           });
         }

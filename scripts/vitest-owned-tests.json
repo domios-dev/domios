@@ -469,5 +469,8 @@
   "src/components/Terminal/ComposerContextMeter.test.tsx",
   "src/components/Terminal/ComposerQueueTray.test.tsx",
   "src/lib/teamTemplates/peerStartOutcome.test.ts",
-  "src/components/Terminal/useChatActivationReconcile.test.tsx"
+  "src/components/Terminal/useChatActivationReconcile.test.tsx",
+  "src/lib/providerCliTarget.test.ts",
+  "src/lib/providerUpdate.test.ts",
+  "src/hooks/useProviderCliStatus.test.tsx"
 ]

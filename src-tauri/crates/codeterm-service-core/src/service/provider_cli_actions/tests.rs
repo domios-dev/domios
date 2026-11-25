@@ -86,3 +86,65 @@ fn result_never_confuses_dispatch_timeout_or_failure_with_success() {
     .contains("exit code 7"));
     assert!(completion_summary("fixture", CliOperation::Install, None, None).contains("timed out"));
 }
+
+#[test]
+fn explicit_update_timeout_binds_only_to_a_live_agent_owner() {
+    let (mut mux, owner) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.snapshot().workspaces[0].id.clone();
+    let shell_tab = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&owner).unwrap().agent_type = Some("fixture-provider".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    assert_eq!(
+        update_shell_timeout(&fixture.service, true, Some(&owner)).as_deref(),
+        Some("10m")
+    );
+    assert_eq!(
+        update_shell_timeout(&fixture.service, false, Some(&owner)),
+        None
+    );
+    assert_eq!(update_shell_timeout(&fixture.service, true, None), None);
+    assert_eq!(
+        update_shell_timeout(&fixture.service, true, Some(&shell_tab)),
+        None
+    );
+    assert_eq!(
+        update_shell_timeout(&fixture.service, true, Some("mesh:peer/missing")),
+        None
+    );
+
+    let settings_shell = fixture
+        .service
+        .spawn_visible_shell_impl(SpawnTabSpec {
+            timeout: update_shell_timeout(&fixture.service, true, None),
+            purpose: crate::multiplexer::types::ShellPurpose::Deploy,
+            creator_tab_id: None,
+            title: Some("CliUpdate".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(fixture
+        .service
+        .utility_deadline_snapshot(&settings_shell.tab_id)
+        .is_none());
+    fixture.service.close_tab(&settings_shell.tab_id).unwrap();
+
+    let agent_shell = fixture
+        .service
+        .spawn_visible_shell_impl(SpawnTabSpec {
+            timeout: update_shell_timeout(&fixture.service, true, Some(&owner)),
+            purpose: crate::multiplexer::types::ShellPurpose::Deploy,
+            creator_tab_id: Some(owner),
+            title: Some("CliUpdate".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .utility_deadline_snapshot(&agent_shell.tab_id)
+            .unwrap()["duration_ms"],
+        600_000
+    );
+    fixture.service.close_tab(&agent_shell.tab_id).unwrap();
+}

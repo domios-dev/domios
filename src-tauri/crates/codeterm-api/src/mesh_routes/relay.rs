@@ -603,8 +603,28 @@ const SEND_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_sec
 /// Reads answer in milliseconds; they keep the short failure deadline.
 const READ_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
+fn is_provider_cli_launch(method: &str, path: &str) -> bool {
+    let bare = path.split('?').next().unwrap_or(path);
+    if !method.eq_ignore_ascii_case("POST") {
+        return false;
+    }
+    let Some(rest) = bare.strip_prefix("/api/agents/providers/") else {
+        return false;
+    };
+    let Some(provider) = rest
+        .strip_suffix("/cli")
+        .or_else(|| rest.strip_suffix("/install-in-tab"))
+    else {
+        return false;
+    };
+    !provider.is_empty() && !provider.contains('/')
+}
+
 pub(crate) fn local_forward_deadline(method: &str, path: &str) -> std::time::Duration {
-    if is_tab_delivery(method, path) || crate::mesh_attachment::is_attachment_ingest(method, path) {
+    if is_tab_delivery(method, path)
+        || crate::mesh_attachment::is_attachment_ingest(method, path)
+        || is_provider_cli_launch(method, path)
+    {
         SEND_FORWARD_DEADLINE
     } else {
         READ_FORWARD_DEADLINE

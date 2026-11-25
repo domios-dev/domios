@@ -167,7 +167,7 @@ pub fn launch_with_dispatch(
     let prerequisite_hint = codeterm_plugin::provider_cli::missing_prerequisite_hint(prerequisites);
     let handle = svc.spawn_tab(SpawnTabSpec {
         shell: None,
-        timeout: explicit_update.then(|| "10m".into()),
+        timeout: update_shell_timeout(svc, explicit_update, caller.as_deref()),
         purpose: crate::multiplexer::types::ShellPurpose::Deploy,
         creator_tab_id: caller.clone(),
         title: Some(
@@ -354,6 +354,25 @@ fn fit_tab_description(text: &str) -> String {
     let mut fitted: String = flat.chars().take(limit - 1).collect();
     fitted.push('…');
     fitted
+}
+
+fn update_shell_timeout(
+    svc: &ServiceContext,
+    explicit_update: bool,
+    caller: Option<&str>,
+) -> Option<String> {
+    if !explicit_update {
+        return None;
+    }
+    // Utility shell deadlines require a live owning agent tab; Settings/owner updates
+    // are bounded by the 600s waiter rollback below instead.
+    let has_live_agent_owner = caller.is_some_and(|id| {
+        svc.mux
+            .read()
+            .get_tab(id)
+            .is_some_and(|tab| tab.agent_type.is_some())
+    });
+    has_live_agent_owner.then(|| "10m".into())
 }
 
 #[cfg(test)]

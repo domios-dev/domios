@@ -6,6 +6,7 @@ import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import { providerCliView, type ProviderCliState } from "../../lib/providerCli";
+import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
 import { ProviderUpdateBubble } from "../Terminal/ProviderUpdateBubble";
 
@@ -17,8 +18,12 @@ const STATE_DOT: Record<ProviderCliState, string> = {
   unknown: "var(--ct-muted)",
 };
 
-export function ProviderCliControls({ providerId, compact = false }: { providerId: string; compact?: boolean }) {
-  const { status, error, probeFailed, summary, refresh } = useProviderCliStatus(providerId);
+export function ProviderCliControls({ providerId, compact = false, peerId }: {
+  providerId: string; compact?: boolean; peerId?: string | null;
+}) {
+  const browseTarget = useWorkspaceBrowseTarget();
+  const targetPeerId = peerId !== undefined ? peerId : browseTarget?.id;
+  const { status, error, probeFailed, summary, refresh } = useProviderCliStatus(providerId, targetPeerId);
   const [busy, setBusy] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const view = providerCliView(status, error);
@@ -28,7 +33,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
   const install = async () => {
     setBusy(true);
     setLaunchError(null);
-    try { await launchProviderInstaller(providerId); }
+    try { await launchProviderInstaller(providerId, targetPeerId); }
     catch (error) { setLaunchError(String(error)); }
     finally { setBusy(false); }
   };
@@ -61,7 +66,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
         )}
       </div>
       {view.compatibilityHint && <p role="status" aria-label="CLI compatibility" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{view.compatibilityHint}</p>}
-      {showUpdate && <ProviderUpdateBubble providerId={providerId} />}
+      {showUpdate && <ProviderUpdateBubble providerId={providerId} peerId={targetPeerId} />}
       {!showUpdate && status?.update_refusal && (
         <p role="status" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{status.update_refusal}</p>
       )}
