@@ -351,6 +351,222 @@ fn start_failure_page_carries_its_reason_without_changing_the_permitted_document
 }
 
 #[test]
+fn unsolicited_history_back_to_starting_or_brand_is_cancelled_once_frontend_is_active() {
+    let origin = Some("http://127.0.0.1:7686");
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    let starting = starting_url().unwrap();
+    let start_failed = start_failure_url(Some("opaque-cause")).unwrap();
+    let frontend = Url::parse("http://127.0.0.1:7686/bundled/index.html").unwrap();
+    let external = Url::parse("https://example.com/path").unwrap();
+    let decide = |url: &Url, state: ShellNavigationState| {
+        shell_navigation_decision(url, origin, None, &unavailable, &fallback, state)
+    };
+    let active = ShellNavigationState {
+        frontend_active: true,
+        permit: None,
+    };
+
+    let starting_back = decide(&starting, active);
+    let reconnecting_back = decide(&unavailable, active);
+    let start_failed_back = decide(&start_failed, active);
+    assert!(
+        !starting_back.allowed
+            && !starting_back.open_externally
+            && !reconnecting_back.allowed
+            && !reconnecting_back.open_externally
+            && !start_failed_back.allowed
+            && !start_failed_back.open_externally,
+        "unsolicited navigation while frontend is active was allowed: starting={starting_back:?} reconnecting={reconnecting_back:?} start_failure={start_failed_back:?}"
+    );
+
+    let startup_starting = decide(
+        &starting,
+        ShellNavigationState {
+            frontend_active: false,
+            permit: None,
+        },
+    );
+    assert!(startup_starting.allowed && !startup_starting.open_externally);
+
+    for (url, permit) in [
+        (&starting, GuardedShellDocument::Starting),
+        (&unavailable, GuardedShellDocument::Reconnecting),
+        (&start_failed, GuardedShellDocument::StartFailed),
+    ] {
+        let permitted = decide(
+            url,
+            ShellNavigationState {
+                frontend_active: true,
+                permit: Some(permit),
+            },
+        );
+        assert!(
+            permitted.allowed && !permitted.open_externally,
+            "{permit:?} {permitted:?}"
+        );
+    }
+
+    for permit in [None, Some(GuardedShellDocument::Starting)] {
+        let same_origin = decide(
+            &frontend,
+            ShellNavigationState {
+                frontend_active: true,
+                permit,
+            },
+        );
+        assert!(same_origin.allowed && !same_origin.open_externally);
+    }
+
+    let opened = decide(&external, active);
+    assert!(!opened.allowed && opened.open_externally);
+    let packaged = decide(&fallback, active);
+    assert!(packaged.allowed && !packaged.open_externally);
+}
+
+#[test]
+fn start_failure_fragment_update_and_frontend_reuse_deny_unsolicited_failure_navigation() {
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    initialize(app.handle()).unwrap();
+    let starting = starting_url().unwrap();
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    let origin = Some("http://127.0.0.1:7686");
+    let frontend = Url::parse("http://127.0.0.1:7686/bundled/index.html").unwrap();
+    let external = Url::parse("https://example.com/path").unwrap();
+    let window =
+        WebviewWindowBuilder::new(app.handle(), "main", WebviewUrl::External(starting.clone()))
+            .build()
+            .unwrap();
+    let supervisor = app.state::<ShellSupervisor>();
+    supervisor
+        .active_view_generation
+        .store(1, Ordering::Release);
+
+    let eval = |url: &Url| {
+        evaluate_main_navigation(app.handle(), url, origin, None, &unavailable, &fallback)
+    };
+
+    assert!(eval(&starting).allowed);
+    navigate_frontend(app.handle(), &window, frontend.clone()).unwrap();
+    assert!(supervisor.navigation_guard.is_frontend_active());
+    assert_eq!(supervisor.navigation_guard.pending_permit(), None);
+
+    let first_failure = start_failure_url(Some("first-cause")).unwrap();
+    surfaces::show_start_failure_recorded(&window, "first-cause");
+    assert_eq!(
+        supervisor.navigation_guard.pending_permit(),
+        Some(GuardedShellDocument::StartFailed)
+    );
+    let first_decision = eval(&first_failure);
+    assert!(first_decision.allowed && !first_decision.open_externally);
+    assert_eq!(supervisor.navigation_guard.pending_permit(), None);
+
+    // Same-document fragment update: WebView2 does not fire NavigationStarting,
+    // so no new permit may be granted.
+    let second_failure = start_failure_url(Some("second-cause")).unwrap();
+    surfaces::show_start_failure_recorded(&window, "second-cause");
+    assert_eq!(supervisor.navigation_guard.pending_permit(), None);
+
+    // Manual retry reuses the main window and activates the frontend again.
+    navigate_frontend(app.handle(), &window, frontend.clone()).unwrap();
+    assert!(supervisor.navigation_guard.is_frontend_active());
+    assert_eq!(supervisor.navigation_guard.pending_permit(), None);
+
+    for unsolicited in [&second_failure, &first_failure, &starting, &unavailable] {
+        let decision = eval(unsolicited);
+        assert!(
+            !decision.allowed && !decision.open_externally,
+            "unsolicited guarded navigation was allowed after recovery: {decision:?}"
+        );
+    }
+
+    let frontend_decision = eval(&frontend);
+    assert!(frontend_decision.allowed && !frontend_decision.open_externally);
+    let external_decision = eval(&external);
+    assert!(!external_decision.allowed && external_decision.open_externally);
+}
+
+#[test]
+fn frontend_activation_clears_unconsumed_shell_permit_and_revocation_is_operation_scoped() {
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    initialize(app.handle()).unwrap();
+    let starting = starting_url().unwrap();
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    let origin = Some("http://127.0.0.1:7686");
+    let frontend = Url::parse("http://127.0.0.1:7686/bundled/index.html").unwrap();
+    let window = WebviewWindowBuilder::new(app.handle(), "main", WebviewUrl::External(starting))
+        .build()
+        .unwrap();
+    let supervisor = app.state::<ShellSupervisor>();
+    supervisor
+        .active_view_generation
+        .store(1, Ordering::Release);
+
+    navigate_frontend(app.handle(), &window, frontend.clone()).unwrap();
+    // Grant a StartFailed permit whose NavigationStarting event never fires before retry.
+    surfaces::show_start_failure_recorded(&window, "unconsumed-cause");
+    assert_eq!(
+        supervisor.navigation_guard.pending_permit(),
+        Some(GuardedShellDocument::StartFailed)
+    );
+
+    navigate_frontend(app.handle(), &window, frontend).unwrap();
+    assert_eq!(supervisor.navigation_guard.pending_permit(), None);
+    let failure = start_failure_url(Some("unconsumed-cause")).unwrap();
+    let decision = evaluate_main_navigation(
+        app.handle(),
+        &failure,
+        origin,
+        None,
+        &unavailable,
+        &fallback,
+    );
+    assert!(!decision.allowed && !decision.open_externally);
+
+    // Operation-scoped revocation never clears a newer navigation's permit.
+    let first_op = supervisor
+        .navigation_guard
+        .grant_for_navigation(GuardedShellDocument::StartFailed, false)
+        .unwrap();
+    let second_op = supervisor
+        .navigation_guard
+        .grant_for_navigation(GuardedShellDocument::Reconnecting, false)
+        .unwrap();
+    assert_ne!(first_op, second_op);
+    supervisor.navigation_guard.revoke_operation(first_op);
+    assert_eq!(
+        supervisor.navigation_guard.pending_permit(),
+        Some(GuardedShellDocument::Reconnecting)
+    );
+    supervisor.navigation_guard.revoke_operation(second_op);
+    assert_eq!(supervisor.navigation_guard.pending_permit(), None);
+
+    // Fragment-only detection distinguishes fragment updates from query or document changes.
+    assert!(same_document_without_fragment(
+        &start_failure_url(Some("cause-a")).unwrap(),
+        &start_failure_url(Some("cause-b")).unwrap(),
+    ));
+    assert!(same_document_without_fragment(
+        &start_failure_url(None).unwrap(),
+        &start_failure_url(Some("cause-a")).unwrap(),
+    ));
+    assert!(!same_document_without_fragment(
+        &unavailable,
+        &start_failure_url(Some("cause-a")).unwrap(),
+    ));
+    assert!(!same_document_without_fragment(
+        &Url::parse("http://127.0.0.1:7686/bundled/index.html?v=1#a").unwrap(),
+        &Url::parse("http://127.0.0.1:7686/bundled/index.html?v=2#a").unwrap(),
+    ));
+}
+
+#[test]
 fn external_link_decision_table() {
     let origin = Some("http://127.0.0.1:7686");
     for (target, expected) in [
