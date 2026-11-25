@@ -256,7 +256,7 @@ fn provider_cli_install_dirs_resolve_binary_outside_path_without_restart() {
 
 #[test]
 fn bundled_providers_with_installers_declare_install_locations() {
-    let plugins_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let plugins_dir = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut checked = 0usize;
     for entry in std::fs::read_dir(&plugins_dir).expect("plugins dir") {
         let manifest_path = entry.unwrap().path().join("plugin.json");

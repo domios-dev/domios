@@ -92,8 +92,8 @@ test("asynchronous requested task expansion completes before prepared content re
 
 test("draft-less remote send with an inline attachment marker transfers before delivery", async () => {
   const tab = "mesh:blackstar/orch-inline";
-  const localImg = "C:\\Users\\viewer\\.domios\\uploads\\shot.png";
-  const remoteImg = "C:\\Users\\User\\.domios\\uploads\\remote-shot.png";
+  const localImg = "C:\\Users\\source-user\\.domios\\uploads\\shot.png";
+  const remoteImg = "C:\\Users\\peer-user\\.domios\\uploads\\remote-shot.png";
   addChatSend(tab, { id: "inline-1", correlationId: "inline-1", content: `look ${formatAttachmentMarker(localImg, "image", "image1")}`, sentAtMs: 30 });
   const original = readChatSends(tab)[0];
   const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];

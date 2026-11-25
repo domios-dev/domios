@@ -120,7 +120,7 @@ mod tests {
             crate::types::PairedPeer {
                 instance_id: peer_id.clone(),
                 instance_name: "Peer".into(),
-                addresses: vec![crate::types::PeerAddress::from_ip("100.64.0.2")],
+                addresses: vec![crate::types::PeerAddress::from_ip("192.0.2.10")],
                 api_port: 7685,
                 public_key: "key".into(),
                 paired_at: "2026-01-01T00:00:00Z".into(),
