@@ -714,6 +714,67 @@ async fn account_mesh_revoke_releases_the_slot_and_delegates_pairing_removal() {
 }
 
 #[tokio::test]
+async fn account_mesh_revoke_and_remove_refuse_current_installation() {
+    let harness = enrolled().await;
+    let own = harness.state().self_installation.clone().unwrap();
+    let target = wire::MeshTarget {
+        installation_id: own.installation_id,
+        key_id: own.key_id,
+        key_generation: own.key_generation,
+        slot_revision: own.slot_revision,
+    };
+    assert_eq!(
+        harness.mesh.revoke(target.clone()).await,
+        Err(AccountMeshRefusal::Forbidden)
+    );
+    assert_eq!(
+        harness.mesh.remove(target.clone(), false).await,
+        Err(AccountMeshRefusal::Forbidden)
+    );
+    assert_eq!(
+        harness.mesh.remove(target, true).await,
+        Err(AccountMeshRefusal::Forbidden)
+    );
+    assert_eq!(harness.calls("revoke"), 0);
+    assert_eq!(harness.calls("session_revoke"), 0);
+    assert!(harness.state().current_membership(START).is_some());
+}
+
+#[tokio::test]
+async fn account_mesh_remove_signs_out_online_machine_before_revoking() {
+    let harness = enrolled().await;
+    let target = wire::MeshTarget {
+        installation_id: PEER.into(),
+        key_id: "c".repeat(64),
+        key_generation: 1,
+        slot_revision: 1,
+    };
+    let removed = harness.mesh.remove(target, true).await.unwrap();
+    assert_eq!(removed.installation_id, PEER);
+    assert_eq!(removed.slot_revision, 2);
+    assert!(removed.signed_out);
+    assert_eq!(harness.calls("session_revoke"), 1);
+    assert_eq!(harness.calls("revoke"), 1);
+    assert!(
+        position(&harness.log, "registry:session_revoke:")
+            < position(&harness.log, "registry:revoke:")
+    );
+    assert!(harness.state().revoked_installations.contains(PEER));
+
+    let offline = enrolled().await;
+    let target = wire::MeshTarget {
+        installation_id: PEER.into(),
+        key_id: "c".repeat(64),
+        key_generation: 1,
+        slot_revision: 1,
+    };
+    let removed = offline.mesh.remove(target, false).await.unwrap();
+    assert!(!removed.signed_out);
+    assert_eq!(offline.calls("session_revoke"), 0);
+    assert_eq!(offline.calls("revoke"), 1);
+}
+
+#[tokio::test]
 async fn account_mesh_session_revoke_uses_a_signed_request_and_keeps_the_pairing() {
     let harness = enrolled().await;
     let before = harness.state();

@@ -6,9 +6,10 @@ import { UNKNOWN_MACHINE } from "../../lib/machineIdentity";
 import { sameMachineNameDescription } from "./DuplicateMachineNameHint";
 import { MachineIdentityPopover, type MachineRename } from "./MachineIdentityEditor";
 
-export function MachineSessionControls({ name, busy, onSignOut, onRemove, renderRow, identityPeer, rename, sameNameOthers }: {
+export function MachineSessionControls({ name, busy, online = false, onSignOut, onRemove, renderRow, identityPeer, rename, sameNameOthers }: {
   name: string;
   busy: boolean;
+  online?: boolean;
   onSignOut?: () => Promise<boolean>;
   onRemove?: (alsoSignOut: boolean) => Promise<boolean>;
   renderRow?: (menu: ReactNode) => ReactNode;
@@ -36,15 +37,17 @@ export function MachineSessionControls({ name, busy, onSignOut, onRemove, render
   const submit = async () => {
     setActing(true);
     try {
-      const succeeded = confirm === "remove" && onRemove ? await onRemove(alsoSignOut) : await onSignOut?.();
+      const succeeded = confirm === "remove" && onRemove ? await onRemove(online || alsoSignOut) : await onSignOut?.();
       if (succeeded) { setConfirm(null); setAlsoSignOut(false); }
     } finally {
       setActing(false);
     }
   };
   if (confirm) return <div role="group" aria-label={`${confirm === "remove" ? "Remove" : "Sign out"} ${name}`} className="flex flex-col gap-2 px-3.5 py-2.5">
-    <p className={UI_TEXT.meta}>{confirm === "remove" ? `Remove ${name} from mesh?` : `Sign out ${name}? It will need to sign in again to use your account.`}</p>
-    {confirm === "remove" && onSignOut && <label className={UI_TEXT.meta}>
+    <p className={UI_TEXT.meta}>{confirm === "remove"
+      ? (online ? `Remove ${name} from mesh? It will be signed out first.` : `Remove ${name} from mesh?`)
+      : `Sign out ${name}? It will need to sign in again to use your account.`}</p>
+    {confirm === "remove" && !online && onSignOut && <label className={UI_TEXT.meta}>
       <input type="checkbox" checked={alsoSignOut} disabled={disabled} onChange={(event) => setAlsoSignOut(event.target.checked)} /> Also sign it out
     </label>}
     <div className="flex gap-2">

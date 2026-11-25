@@ -157,15 +157,16 @@ Local callers only.
 | POST | `/api/account/mesh/list` | — | Read the account's machines online into the snapshot |
 | POST | `/api/account/mesh/rename` | `{expected_metadata_revision, display_name}` | Rename this machine |
 | POST | `/api/account/mesh/session-revoke` | `{installation_id?: string | null}` | Revoke a machine's account sessions; omitted installation selects this machine; retains the installation key and pairings |
-| POST | `/api/account/mesh/revoke` | `{target}` | Release a machine's account slot; local unpair stays `/api/mesh/peers/disconnect` |
+| POST | `/api/account/mesh/revoke` | `{target}` | Release another machine's account slot (refuses this machine); local unpair stays `/api/mesh/peers/disconnect` |
+| POST | `/api/account/mesh/remove` | `{machine}` | Resolve and remove another machine from the account mesh (signs out an online machine first; refuses this machine) |
 | POST | `/api/account/mesh/limit-notice/ack` | `{request_id}` | Mark a `mesh.machines` notice as shown |
 
 Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not. A machine refused that way reports `traffic: "plan_limit_locked"` in the snapshot: its Mesh edges stay blocked, its rows stay listed, and a plan change re-enrolls it live.
 
-Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
+Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Removing an online machine signs it out first; removing an offline machine offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
 
 Headless sign-in: `domios account login --no-browser` prints an authorization URL. Open it on another machine, then paste the whole redirected callback URL into stdin; it must include both code and state. A failed loopback navigation still leaves that URL in the browser's address bar. Bare codes are refused. EOF on stdin leaves the flow pending in the daemon until its normal timeout. In a Domios tab, `domios account login --no-browser --code-from-pad callback.txt` completes that pending flow from the calling tab's pad without replacing its state/verifier. Keep callback values out of logs and shell history. The existing timeout and single-use checks apply.
 
 Browser sign-in progress and completion arrive through the `account-sign-in` event with `attempt_id`. Account status reports `pending` and `login_attempt_id`, so a reconnect can recover the current attempt.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
