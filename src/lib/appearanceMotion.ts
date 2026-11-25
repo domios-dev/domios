@@ -4,7 +4,7 @@ import type { AppearanceCommit } from "./appearanceClient";
 import "../components/Settings/appearanceMotion.css";
 
 type Origin = { x: number; y: number };
-type Motion = Pick<AppearanceCommit, "look" | "proposal" | "undo"> & { origin?: Origin; drawDoodles?: boolean };
+type Motion = Pick<AppearanceCommit, "proposal" | "undo"> & { look: AppearanceLook; origin?: Origin; drawDoodles?: boolean };
 type ViewTransition = { ready: Promise<void>; finished: Promise<void>; skipTransition(): void };
 type ViewTransitionDocument = Document & { startViewTransition?: (update: () => void) => ViewTransition };
 

@@ -1,4 +1,5 @@
 import { daemonTransportForPeer } from "./daemonBootstrap";
+import { peerEventRail } from "./peerEventRail";
 import { TransportError } from "./transportClient";
 import { listen } from "./bridge";
 import { relayTarget } from "./webApi";
@@ -13,13 +14,13 @@ export interface AppearanceCommit {
   machine: string;
   proposal: string | null;
   undo: boolean;
-  look: AppearanceLook;
+  look?: AppearanceLook;
 }
 
 export async function listenAppearanceCommit(handler: (commit: AppearanceCommit) => void, peer?: string) {
   if (peer && peer !== relayTarget()?.id) {
-    return daemonTransportForPeer(peer).subscribe("/api/events/stream", (name, data) => {
-      if (name === "appearance-committed") handler(data as AppearanceCommit);
+    return peerEventRail.observe(peer, event => {
+      if (event.type === "appearance-committed") handler(event.data);
     });
   }
   return listen<AppearanceCommit>("appearance-committed", event => handler(event.payload));

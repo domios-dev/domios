@@ -11,7 +11,9 @@ export type PeerEvent =
   | { type: "chat-send-status"; data: { tab_id: string } }
   | { type: "plan-changed"; data: CommittedPlanChange }
   | { type: "plans-loaded" }
-  | { type: "mux-state-changed"; data: { generation?: number } };
+  | { type: "mux-state-changed"; data: { generation?: number } }
+  | { type: "config-changed" }
+  | { type: "appearance-committed"; data: { event: string; machine: string; proposal: string | null; undo: boolean } };
 
 interface Cursor { boot: string; seq: number }
 type Listener = (event: PeerEvent) => void;
@@ -85,6 +87,21 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
         }
       }
       if (frame.event_type === "plans-loaded") publish({ type: "plans-loaded" });
+      if (frame.event_type === "config-changed") publish({ type: "config-changed" });
+      if (frame.event_type === "appearance-committed") {
+        const data = frame.data as { event?: unknown; machine?: unknown; proposal?: unknown; undo?: unknown } | null;
+        if (typeof data?.machine === "string") {
+          publish({
+            type: "appearance-committed",
+            data: {
+              event: typeof data.event === "string" ? data.event : "",
+              machine: data.machine,
+              proposal: typeof data.proposal === "string" ? data.proposal : null,
+              undo: data.undo === true,
+            },
+          });
+        }
+      }
     }, {
       raw: true,
       signal: active.signal,
