@@ -3,7 +3,12 @@ import type { AgentProvider } from "@codeterm/plugin-sdk";
 type BackgroundWorkObservation = ReturnType<NonNullable<AgentProvider["parseBackgroundWork"]>>[number];
 
 const TASK_ID = /^[A-Za-z0-9_-]{1,256}$/;
-const END_STATES = ["completed", "killed", "failed"] as const;
+
+function notificationEndState(status: string | undefined): "completed" | "killed" | "failed" | undefined {
+  if (status === "completed" || status === "killed" || status === "failed") return status;
+  if (status === "stopped") return "killed";
+  return undefined;
+}
 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -55,16 +60,21 @@ export function parseBackgroundWork(value: unknown): BackgroundWorkObservation[]
     events.push({ id: stoppedId, state: "killed", kind: "shell" });
   }
   const attachment = object(row.attachment);
+  const origin = object(row.origin);
+  const attachmentOrigin = object(attachment?.origin);
   const notification = row.type === "attachment" && attachment?.type === "queued_command"
-    && attachment.commandMode === "task-notification"
+    && (attachment.commandMode === "task-notification" || attachmentOrigin?.kind === "task-notification")
     ? attachment.prompt
-    : row.type === "user" && row.isMeta === true ? content : undefined;
+    : row.type === "user" && (row.isMeta === true || origin?.kind === "task-notification") ? content : undefined;
   if (typeof notification === "string") {
     for (const block of notification.match(/<task-notification>[\s\S]*?<\/task-notification>/g) ?? []) {
-      const id = /<task-id>([^<]+)<\/task-id>/.exec(block)?.[1].trim();
       const status = /<status>([^<]+)<\/status>/.exec(block)?.[1].trim();
-      const state = END_STATES.find(state => state === status);
-      if (id && TASK_ID.test(id) && state) events.push({ id, state });
+      const state = notificationEndState(status);
+      if (!state) continue;
+      for (const match of block.matchAll(/<task-id>([^<]+)<\/task-id>/g)) {
+        const id = match[1].trim();
+        if (TASK_ID.test(id)) events.push({ id, state });
+      }
     }
   }
   return events;

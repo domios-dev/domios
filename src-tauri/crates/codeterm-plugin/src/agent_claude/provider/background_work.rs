@@ -71,6 +71,14 @@ fn shell_output_path(row: &Value, id: &str) -> Option<String> {
         _ => None,
     }
 }
+fn notification_end_state(status: Option<&str>) -> Option<&'static str> {
+    match status? {
+        "completed" => Some("completed"),
+        "killed" | "stopped" => Some("killed"),
+        "failed" => Some("failed"),
+        _ => None,
+    }
+}
 fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
     Some(
         text.split_once(&format!("<{name}>"))?
@@ -132,10 +140,13 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     let attachment = &row["attachment"];
     let notification = if row["type"] == "attachment"
         && attachment["type"] == "queued_command"
-        && attachment["commandMode"] == "task-notification"
+        && (attachment["commandMode"] == "task-notification"
+            || attachment["origin"]["kind"] == "task-notification")
     {
         attachment["prompt"].as_str()
-    } else if row["type"] == "user" && row["isMeta"] == true {
+    } else if row["type"] == "user"
+        && (row["isMeta"] == true || row["origin"]["kind"] == "task-notification")
+    {
         content.as_str()
     } else {
         None
@@ -143,9 +154,13 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     if let Some(text) = notification {
         for block in text.split("<task-notification>").skip(1) {
             if let Some((body, _)) = block.split_once("</task-notification>") {
-                let status = tag(body, "status");
-                if matches!(status, Some("completed" | "killed" | "failed")) {
-                    add(&mut events, tag(body, "task-id"), status, None, None);
+                let Some(status) = notification_end_state(tag(body, "status")) else {
+                    continue;
+                };
+                for part in body.split("<task-id>").skip(1) {
+                    if let Some((id, _)) = part.split_once("</task-id>") {
+                        add(&mut events, Some(id.trim()), Some(status), None, None);
+                    }
                 }
             }
         }
