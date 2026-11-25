@@ -68,7 +68,7 @@ impl KpiLedger {
         .map_err(|e| e.to_string())?;
         Self::insert_with(&tx, &archived)?;
         tx.commit().map_err(|e| e.to_string())?;
-        self.committed();
+        self.committed_token_usage();
         Ok(())
     }
 
@@ -92,7 +92,7 @@ impl KpiLedger {
             }
         }
         tx.commit().map_err(|e| e.to_string())?;
-        self.committed();
+        self.committed_token_usage();
         outcome.sources = u64::from(outcome.responses > 0);
         Ok(outcome)
     }

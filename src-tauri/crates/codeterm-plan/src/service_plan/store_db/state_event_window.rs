@@ -35,12 +35,12 @@ const HEADER_EVENTS: &str = "SELECT coalesce(json_extract(l.value,'$.at'),0),0,C
     FROM plans p,json_each(p.header_json,'$.gates') g WHERE p.id=?1
     ORDER BY 1 DESC,2 DESC,3 DESC,4 DESC";
 
-pub(super) const AUTHOR: &str = "SELECT (
-    SELECT json_extract(a.row_json,'$.executor_title') FROM plan_task_attempts a INDEXED BY plan_attempts_event_author
-    WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id AND a.executor_tab_id=?2
-      AND json_extract(a.row_json,'$.executor_title') IS NOT NULL ORDER BY a.position DESC LIMIT 1
-    ) AS title FROM plan_tasks t INDEXED BY plan_tasks_handle_order
-    WHERE t.plan_id=?1 AND title IS NOT NULL ORDER BY t.position DESC LIMIT 1";
+pub(super) const AUTHOR: &str = "SELECT json_extract(a.row_json,'$.executor_title')
+    FROM plan_task_attempts a INDEXED BY plan_task_attempts_executor_tab_id
+    JOIN plan_tasks t ON t.plan_id=a.plan_id AND t.task_id=a.task_id
+    WHERE a.executor_tab_id=?2 AND a.plan_id=?1
+      AND json_extract(a.row_json,'$.executor_title') IS NOT NULL
+    ORDER BY t.position DESC, a.position DESC LIMIT 1";
 
 pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanError> {
     connection
@@ -285,7 +285,8 @@ pub(super) fn event_window(
             break;
         };
         record_visited();
-        if source.event.kind == "worker_report" {
+        let author_resolved = source.event.kind == "worker_report";
+        if author_resolved {
             source.event.author = authors.resolve(&source)?;
         }
         if group
@@ -304,7 +305,9 @@ pub(super) fn event_window(
                 break;
             }
         }
-        source.event.author = authors.resolve(&source)?;
+        if !author_resolved {
+            source.event.author = authors.resolve(&source)?;
+        }
         if source.event.kind == "tab_todo_linked" {
             if let (Some(id), Some(name)) = (&source.event.task_id, &source.event.task_name) {
                 source.event.linked_tasks.push(LinkedEventTask {
