@@ -137,7 +137,7 @@ export function wallpaperRenderStyle(
   return {
     ...backdrop(fillStyle, mask, inkGradient(inkStops(background, palette, light)), opacity),
     "--ct-wallpaper-rotation": `${rotation}deg`,
-    "--ct-wallpaper-rotation-inset": rotation === 0 ? "0px" : "-100vmax",
+    "--ct-wallpaper-rotation-inset": rotation === 0 ? "0px" : "-55vmax",
   };
 }
 

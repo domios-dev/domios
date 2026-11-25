@@ -143,26 +143,33 @@
 }
 @keyframes ct-dots-squash-jump {
   0%, 70%, 100% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
-  10% { opacity: 0.9; transform: translateY(calc(var(--activity-dot-size) * 0.15)) scaleX(1.28) scaleY(0.64); }
-  24% { opacity: 1; transform: translateY(calc(var(--activity-dot-jump) * -1)) scaleX(0.92) scaleY(1.1); }
-  42% { opacity: 0.95; transform: translateY(calc(var(--activity-dot-size) * 0.08)) scaleX(1.2) scaleY(0.7); }
+  10% { opacity: 0.9; transform: translateY(15%) scaleX(1.28) scaleY(0.64); }
+  24% { opacity: 1; transform: translateY(-65%) scaleX(0.92) scaleY(1.1); }
+  42% { opacity: 0.95; transform: translateY(8%) scaleX(1.2) scaleY(0.7); }
+  54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
+}
+@keyframes ct-dots-squash-jump-compact {
+  0%, 70%, 100% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
+  10% { opacity: 0.9; transform: translateY(15%) scaleX(1.28) scaleY(0.64); }
+  24% { opacity: 1; transform: translateY(-45%) scaleX(0.92) scaleY(1.1); }
+  42% { opacity: 0.95; transform: translateY(8%) scaleX(1.2) scaleY(0.7); }
   54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
 }
 @keyframes ct-dots-cooldown {
   0%, 5%, 12%, 22%, 37%, 58% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
-  2% { opacity: 0.95; transform: translateY(calc(var(--activity-dot-size) * 0.08)) scaleX(1.16) scaleY(0.76); }
-  3.5% { opacity: 0.88; transform: translateY(calc(var(--activity-dot-jump) * -1)) scaleX(0.96) scaleY(1.06); }
-  7% { opacity: 0.9; transform: translateY(calc(var(--activity-dot-size) * 0.06)) scaleX(1.12) scaleY(0.8); }
-  9.5% { opacity: 0.84; transform: translateY(calc(var(--activity-dot-jump) * -0.8)) scaleX(0.97) scaleY(1.04); }
-  15% { opacity: 0.84; transform: translateY(calc(var(--activity-dot-size) * 0.05)) scaleX(1.08) scaleY(0.84); }
-  18.5% { opacity: 0.78; transform: translateY(calc(var(--activity-dot-jump) * -0.65)) scaleX(0.98) scaleY(1.03); }
-  27% { opacity: 0.76; transform: translateY(calc(var(--activity-dot-size) * 0.04)) scaleX(1.06) scaleY(0.88); }
-  32% { opacity: 0.72; transform: translateY(calc(var(--activity-dot-jump) * -0.5)) scaleX(0.99) scaleY(1.02); }
-  44% { opacity: 0.68; transform: translateY(calc(var(--activity-dot-size) * 0.03)) scaleX(1.04) scaleY(0.92); }
-  51% { opacity: 0.62; transform: translateY(calc(var(--activity-dot-jump) * -0.35)) scaleX(0.99) scaleY(1.01); }
+  2% { opacity: 0.95; transform: translateY(8%) scaleX(1.16) scaleY(0.76); }
+  3.5% { opacity: 0.88; transform: translateY(-65%) scaleX(0.96) scaleY(1.06); }
+  7% { opacity: 0.9; transform: translateY(6%) scaleX(1.12) scaleY(0.8); }
+  9.5% { opacity: 0.84; transform: translateY(-52%) scaleX(0.97) scaleY(1.04); }
+  15% { opacity: 0.84; transform: translateY(5%) scaleX(1.08) scaleY(0.84); }
+  18.5% { opacity: 0.78; transform: translateY(-42%) scaleX(0.98) scaleY(1.03); }
+  27% { opacity: 0.76; transform: translateY(4%) scaleX(1.06) scaleY(0.88); }
+  32% { opacity: 0.72; transform: translateY(-32%) scaleX(0.99) scaleY(1.02); }
+  44% { opacity: 0.68; transform: translateY(3%) scaleX(1.04) scaleY(0.92); }
+  51% { opacity: 0.62; transform: translateY(-23%) scaleX(0.99) scaleY(1.01); }
   66%, 75% { opacity: 0.55; transform: translateY(0) scaleX(1) scaleY(1); }
-  78% { opacity: 0.5; transform: translateY(calc(var(--activity-dot-size) * 0.02)) scaleX(1.02) scaleY(0.96); }
-  84% { opacity: 0.48; transform: translateY(calc(var(--activity-dot-jump) * -0.2)) scaleX(1) scaleY(1); }
+  78% { opacity: 0.5; transform: translateY(2%) scaleX(1.02) scaleY(0.96); }
+  84% { opacity: 0.48; transform: translateY(-13%) scaleX(1) scaleY(1); }
   92% { opacity: 0.45; transform: translateY(0) scaleX(1) scaleY(0.98); }
   100% { opacity: 0; transform: scale(0.9); }
 }
@@ -204,6 +211,9 @@
 .activity-dots--active i,
 .activity-dots--reactivated i {
   animation: ct-dots-squash-jump var(--activity-dot-duration) var(--ct-ease-squash-jump) infinite;
+}
+:is(.activity-dots--micro, .activity-dots--workspace-badge):is(.activity-dots--active, .activity-dots--reactivated) i {
+  animation-name: ct-dots-squash-jump-compact;
 }
 .activity-dots--cooling i {
   animation: ct-dots-cooldown var(--activity-dot-cooldown-duration) var(--ct-ease-liquid-breathe) forwards;

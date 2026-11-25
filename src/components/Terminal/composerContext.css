@@ -170,7 +170,6 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   border-radius: 999px;
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
-  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
   color: var(--ct-muted-fg);
   font-size: 12px;
   font-weight: 600;

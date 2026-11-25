@@ -111,7 +111,10 @@ export function useTerminalResize({
       if (followed) {
         if (term.cols !== followed.cols || term.rows !== followed.rows) term.resize(followed.cols, followed.rows);
       } else {
-        fitAddonRef.current?.fit();
+        const proposed = !force ? fitAddonRef.current?.proposeDimensions?.() : undefined;
+        if (!proposed || proposed.cols !== term.cols || proposed.rows !== term.rows) {
+          fitAddonRef.current?.fit();
+        }
       }
       if (force) term.refresh(0, term.rows - 1);
       pendingSizeRef.current = { cols: term.cols, rows: term.rows };

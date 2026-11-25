@@ -17,6 +17,12 @@ export function createSessionModelResource(
     get(pluginId: string, sessionId: string): string | null {
       return cache.get(key(pluginId, sessionId))?.value ?? null;
     },
+    set(pluginId: string, sessionId: string, value: string | null): void {
+      const id = key(pluginId, sessionId);
+      const previous = cache.get(id);
+      cache.set(id, { value, at: now() });
+      if (value !== (previous?.value ?? null)) for (const fn of subscribers) fn();
+    },
     subscribe(fn: () => void): () => void {
       subscribers.add(fn);
       return () => { subscribers.delete(fn); };
