@@ -77,7 +77,7 @@ import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { mergeRuntimePromptDetail } from "./composerModels";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
-import { BusyState } from "../shared/BusyState";
+import { ChatHistoryTopSentinel } from "./ChatHistoryTopSentinel";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
@@ -96,7 +96,6 @@ import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupView } from "./ChatSetupState";
-import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
@@ -453,6 +452,11 @@ function TabSessionChatBody({
     revealMessage,
     prepareMessage: (id) => mountedWindow.prepareMessage(id) || prepareMessage(id),
   });
+
+  const handleLoadOlder = useLatestCallback(() => {
+    prepareForHistoryPrepend();
+    void loadOlder();
+  }, [prepareForHistoryPrepend, loadOlder]);
 
   const followSentMessage = useLatestCallback(() => {
     showLatest();
@@ -946,11 +950,12 @@ function TabSessionChatBody({
       <CompactToolRowsProvider surfaceRef={scrollRef}>
       <div
         ref={scrollRef}
+        tabIndex={-1}
         style={{ scrollbarGutter: "stable" }}
         onScroll={handleScroll}
         onKeyDown={messageSelection.onKeyDown}
         data-selecting={messageSelection.active || undefined}
-        className="ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain px-5 py-3 select-text"
+        className="ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain px-5 py-3 select-text outline-none"
         data-testid="tab-session-chat-messages"
         role="log"
         aria-label="Conversation"
@@ -965,36 +970,18 @@ function TabSessionChatBody({
             style={{ height: "calc(1.25rem + var(--ct-safe-top, 0px))" }}
           />
         )}
-        {railsVisible && (hiddenMessageCount > 0 || canBackfillOlder) && (
-          <div className="flex justify-center pb-2 pt-1">
-            <button
-              type="button"
-              data-testid="chat-load-older"
-              aria-label={olderMessageLabel}
-              onClick={() => {
-                prepareForHistoryPrepend();
-                void loadOlder();
-              }}
-              disabled={backfillLoading}
-              className="rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50"
-              style={{
-                background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
-                color: "var(--ct-muted-fg)",
-                border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 25%, transparent)",
-              }}
-            >
-              {backfillLoading
-                ? <BusyState inline hideLabel label="Searching older messages" phase="work" />
-                : olderMessageLabel}
-            </button>
-          </div>
-        )}
-        {backfillNotice === "stalled_cursor"
-          ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
-          : railsVisible && snapshotReady && attachmentState === "attached" && !backfillLoading
-            && hiddenMessageCount === 0 && !canBackfillOlder && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
-            No earlier messages.
-          </p>}
+        <ChatHistoryTopSentinel
+          scrollRef={scrollRef}
+          active={isActive && !loading && !chatLoading && renderedEnrichedMessages.length > 0}
+          railsVisible={railsVisible}
+          hasMore={hiddenMessageCount > 0 || canBackfillOlder}
+          loading={backfillLoading}
+          paused={gestureOwned}
+          stalled={backfillNotice === "stalled_cursor"}
+          olderMessageLabel={olderMessageLabel}
+          sessionKey={`${tabId}:${agentSessionId ?? ""}`}
+          onLoadOlder={handleLoadOlder}
+        />
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}

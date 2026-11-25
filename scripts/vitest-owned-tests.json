@@ -480,5 +480,7 @@
   "src/lib/providerUpdate.test.ts",
   "src/components/Terminal/ProviderNotInstalledNotice.test.tsx",
   "src/hooks/useProviderCliStatus.test.tsx",
-  "src/hooks/terminal/xtermWebglViewport.test.ts"
+  "src/hooks/terminal/xtermWebglViewport.test.ts",
+  "src/components/Terminal/chatHistorySentinelModel.test.ts",
+  "src/components/Terminal/ChatHistoryTopSentinel.test.tsx"
 ]
