@@ -273,3 +273,140 @@ fn releasing_a_stale_claim_keeps_a_newer_one() {
     state.release_check("fixture", 10);
     assert!(!state.claim_check("fixture", 11 + day));
 }
+
+#[test]
+fn completed_and_failed_summaries_drop_once_detected_version_supersedes_target() {
+    use super::state::UpdateRun;
+
+    let mut state = Coordinator::default();
+    state.runs.insert(
+        "codex:0.162.1".into(),
+        UpdateRun {
+            provider: "codex".into(),
+            current: "0.160.0".into(),
+            target: "0.162.1".into(),
+            started_at: 0,
+            outcome: RunOutcome::Succeeded,
+            owner_pid: 1,
+        },
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "codex", None).as_deref(),
+        Some("CLI updater completed for target 0.162.1; applies at next launch")
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "codex", Some("0.162.1")).as_deref(),
+        Some("CLI updater completed for target 0.162.1; applies at next launch")
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "codex", Some("0.172.0")),
+        None
+    );
+
+    state.runs.insert(
+        "claude:2.1.325".into(),
+        UpdateRun {
+            provider: "claude".into(),
+            current: "2.1.320".into(),
+            target: "2.1.325".into(),
+            started_at: 100,
+            outcome: RunOutcome::Succeeded,
+            owner_pid: 1,
+        },
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "claude", Some("2.1.330")),
+        None
+    );
+
+    // A normal failed run is superseded once the target or a newer version is installed.
+    state.runs.insert(
+        "failed-cli:0.163.0".into(),
+        UpdateRun {
+            provider: "failed-cli".into(),
+            current: "0.162.0".into(),
+            target: "0.163.0".into(),
+            started_at: 200,
+            outcome: RunOutcome::Failed("ParentExit: provider update exited with 1".into()),
+            owner_pid: 1,
+        },
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "failed-cli", Some("0.162.0")).as_deref(),
+        Some("CLI update failed: ParentExit: provider update exited with 1")
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "failed-cli", Some("0.163.0")),
+        None
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "failed-cli", Some("0.171.0")),
+        None
+    );
+
+    // An unstopped failure continues to block further runs and remains visible.
+    state.runs.insert(
+        "blocked-cli:0.163.0".into(),
+        UpdateRun {
+            provider: "blocked-cli".into(),
+            current: "0.162.0".into(),
+            target: "0.163.0".into(),
+            started_at: 300,
+            outcome: RunOutcome::UnstoppedFailure("updater termination unconfirmed".into()),
+            owner_pid: 1,
+        },
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "blocked-cli", Some("0.171.0")).as_deref(),
+        Some("CLI update failed: updater termination unconfirmed")
+    );
+
+    // Legacy runs with tied started_at=0 pick the higher semver target rather than lexicographical order.
+    state.runs.insert(
+        "legacy:0.9.0".into(),
+        UpdateRun {
+            provider: "legacy".into(),
+            current: "0.8.0".into(),
+            target: "0.9.0".into(),
+            started_at: 0,
+            outcome: RunOutcome::Succeeded,
+            owner_pid: 1,
+        },
+    );
+    state.runs.insert(
+        "legacy:0.10.0".into(),
+        UpdateRun {
+            provider: "legacy".into(),
+            current: "0.9.0".into(),
+            target: "0.10.0".into(),
+            started_at: 0,
+            outcome: RunOutcome::Succeeded,
+            owner_pid: 1,
+        },
+    );
+    assert_eq!(
+        super::summarize_runs(&state, "legacy", Some("0.10.0")).as_deref(),
+        Some("CLI updater completed for target 0.10.0; applies at next launch")
+    );
+}
+
+#[test]
+fn newer_target_for_detected_drops_cached_target_already_installed() {
+    let cached = Some(availability("0.171.0", "0.172.0"));
+    assert_eq!(
+        super::newer_target_for_detected(cached.clone(), None),
+        cached
+    );
+    assert_eq!(
+        super::newer_target_for_detected(cached.clone(), Some("0.171.0")),
+        cached
+    );
+    assert_eq!(
+        super::newer_target_for_detected(cached.clone(), Some("0.172.0")),
+        None
+    );
+    assert_eq!(
+        super::newer_target_for_detected(cached, Some("0.173.0")),
+        None
+    );
+}

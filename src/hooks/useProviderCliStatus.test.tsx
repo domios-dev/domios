@@ -116,4 +116,32 @@ describe("useProviderCliStatus", () => {
     expect(latest?.status?.latest_version).toBe("3.0.0");
     expect(latest?.summary).toBeNull();
   });
+
+  it("clears a stale persisted update_summary once a newer status omits it", async () => {
+    let latest: ReturnType<typeof useProviderCliStatus> | undefined;
+    function Probe() {
+      latest = useProviderCliStatus("codex", "blackstar");
+      return null;
+    }
+
+    mocks.invoke.mockResolvedValueOnce({
+      ...baseStatus,
+      detected_version: "0.162.1",
+      update_summary: "CLI updater completed for target 0.162.1; applies at next launch",
+    });
+    await act(async () => root.render(<Probe />));
+    expect(latest?.summary).toBe("CLI updater completed for target 0.162.1; applies at next launch");
+
+    mocks.invoke.mockResolvedValueOnce({
+      ...baseStatus,
+      detected_version: "0.172.0",
+      update_summary: null,
+    });
+    await act(async () => {
+      for (const listener of mocks.observers.get("blackstar") ?? []) {
+        listener({ type: "reconcile" });
+      }
+    });
+    expect(latest?.summary).toBeNull();
+  });
 });
