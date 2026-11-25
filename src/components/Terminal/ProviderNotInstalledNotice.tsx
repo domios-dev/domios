@@ -25,8 +25,9 @@ export function ProviderNotInstalledNotice({
   inline?: boolean;
 }) {
   const { peerId } = resolveProviderCliTarget({ callerTabId: tabId });
-  const { status, refresh } = useProviderCliStatus(info.providerId, peerId);
+  const { status, refresh, error: statusError } = useProviderCliStatus(info.providerId, peerId);
   const [installing, setInstalling] = useState(false);
+  const [manualCheck, setManualCheck] = useState<"dispatched" | "missing" | "unknown" | "installed" | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -46,8 +47,13 @@ export function ProviderNotInstalledNotice({
     setInstalling(true);
     setInstallError(null);
     try {
-      await installAndWait(info.providerId, controller.signal, peerId);
+      const result = await installAndWait(info.providerId, controller.signal, peerId);
       if (controllerRef.current !== controller) return;
+      if (result === "dispatched") {
+        setManualCheck("dispatched");
+        return;
+      }
+      setManualCheck(null);
       await refresh();
       await onRetry?.();
     } catch (error) {
@@ -65,16 +71,30 @@ export function ProviderNotInstalledNotice({
     if (busy) return;
     setRetrying(true);
     try {
-      await refresh();
+      const checked = await refresh();
+      if (manualCheck) {
+        if (checked?.installed !== true) {
+          setManualCheck(checked?.installed === false ? "missing" : "unknown");
+          return;
+        }
+        setManualCheck("installed");
+      }
       await onRetry?.();
     } finally {
       setRetrying(false);
     }
   };
 
+  const manualMessage = manualCheck && {
+    dispatched: "The installer opened on the remote machine. Retry when it finishes.",
+    missing: "The remote machine still reports the CLI is missing.",
+    unknown: statusError ?? "The remote machine could not confirm whether the CLI is installed.",
+    installed: "The remote machine confirmed the CLI is installed.",
+  }[manualCheck];
+  const title = manualCheck ? `${info.displayName} installation` : `${info.displayName} isn't installed`;
   const sentence = installError
     ? `${info.displayName} could not be installed automatically. Run the command below manually or retry.`
-    : `${info.displayName} (${info.binary}) is not installed on this machine. Install it, then retry.`;
+    : manualMessage ?? `${info.displayName} (${info.binary}) is not installed on this machine. Install it, then retry.`;
 
   const body = (
     <div
@@ -106,7 +126,7 @@ export function ProviderNotInstalledNotice({
         </p>
       ))}
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {installCommand && (
+        {installCommand && manualCheck !== "installed" && manualCheck !== "dispatched" && (
           <Button
             variant="primary"
             loading={installing}
@@ -114,10 +134,10 @@ export function ProviderNotInstalledNotice({
             data-testid="provider-install-action"
             onClick={() => { void handleInstall(); }}
           >
-            {installError ? "Retry install" : `Install ${info.displayName}`}
+            {installError || manualCheck ? "Retry install" : `Install ${info.displayName}`}
           </Button>
         )}
-        {onRetry && (
+        {(onRetry || (manualCheck && manualCheck !== "installed")) && (
           <Button
             variant={installCommand ? "ghost" : "primary"}
             loading={retrying}
@@ -125,7 +145,7 @@ export function ProviderNotInstalledNotice({
             data-testid="provider-retry-action"
             onClick={() => { void handleRetry(); }}
           >
-            Retry
+            {manualCheck ? "Retry once installed" : "Retry"}
           </Button>
         )}
         {onClose && (
@@ -149,7 +169,7 @@ export function ProviderNotInstalledNotice({
         role="alert"
         className="mx-auto my-2 flex w-full max-w-2xl flex-col gap-3 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] p-4"
       >
-        <div className="text-sm font-medium text-[var(--ct-fg)]">{info.displayName} isn't installed</div>
+        <div className="text-sm font-medium text-[var(--ct-fg)]">{title}</div>
         <p className="m-0 text-xs text-[var(--ct-muted-fg)]">{sentence}</p>
         {body}
       </section>
@@ -157,7 +177,7 @@ export function ProviderNotInstalledNotice({
   }
 
   return (
-    <BrandState model={brandStateModel({ error: { title: `${info.displayName} isn't installed`, sentence } })} className="h-full">
+    <BrandState model={brandStateModel({ error: { title, sentence } })} className="h-full">
       {body}
     </BrandState>
   );

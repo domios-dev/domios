@@ -26,6 +26,7 @@ export function useProviderCliStatus(providerId: string, peerId?: string | null)
           setEventSummary(null);
           setError(null);
         }
+        return next;
       }
     } catch (error) {
       if (sequence.current === request) {
@@ -34,6 +35,7 @@ export function useProviderCliStatus(providerId: string, peerId?: string | null)
         else if (DEV_BUILD) console.debug("Background provider CLI status refresh failed", error);
       }
     }
+    return null;
   }, [providerId, targetPeerId]);
   const refresh = useCallback(() => refreshStatus(true), [refreshStatus]);
 
