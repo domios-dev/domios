@@ -64,8 +64,8 @@ fn failed_record_projection_surfaces_error_and_advances_at_host_boundary() {
             "differs from host boundary",
         ),
         (
-            "return {new_offset: meta.newOffset, messages: [null]};",
-            "row is invalid",
+            "return {new_offset: meta.newOffset, messages: 'not-an-array'};",
+            "invalid JSON",
         ),
     ] {
         let script = format!("if (records[0].value.text === 'bad') {{ {failure} }} {RECORD_DELTA}");
@@ -174,4 +174,107 @@ fn lossy_chunk_decode_preserves_original_record_positions() {
     crate::jsonl_window::anchor_rows_from_starts(&mut rows, &[Some(0), Some(1)], &starts, 100);
     assert_eq!(rows[0].record_start, Some(100));
     assert_eq!(rows[1].record_start, Some(102));
+}
+
+#[test]
+fn invalid_plugin_row_is_skipped_without_failing_snapshot_or_losing_siblings() {
+    let provider = records_provider(
+        r#"
+        return {
+            new_offset: meta.newOffset,
+            messages: records.map(record => record.value.bad
+                ? { role: 'user', blocks: 7, recordIndex: record.row }
+                : {
+                    role: 'assistant',
+                    blocks: [{ kind: 'text', data: { text: record.value.text } }],
+                    recordIndex: record.row
+                })
+        };
+    "#,
+    );
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    let row0 = "{\"type\":\"assistant\",\"text\":\"before\"}\n";
+    let row1 = "{\"type\":\"assistant\",\"bad\":true}\n";
+    let row2 = "{\"type\":\"assistant\",\"text\":\"after\"}\n";
+    file.write_all(format!("{row0}{row1}{row2}").as_bytes())
+        .unwrap();
+    file.flush().unwrap();
+    let end = file.as_file().metadata().unwrap().len();
+    let source = provider
+        .manifest
+        .capabilities
+        .record_sources
+        .get("sessionTranscript")
+        .unwrap();
+    let window =
+        crate::jsonl_window::records::read_records(file.path(), 0, end, source, None).unwrap();
+
+    let snapshot_delta = provider
+        .js_parse_session_records(&window)
+        .expect("one invalid row must never fail parse_session_records");
+    assert_eq!(snapshot_delta.new_offset, end);
+    assert_eq!(snapshot_delta.messages.len(), 2);
+    assert_eq!(snapshot_delta.messages[0].blocks[0].data["text"], "before");
+    assert_eq!(snapshot_delta.messages[0].record_start, Some(0));
+    assert_eq!(snapshot_delta.messages[1].blocks[0].data["text"], "after");
+    assert_eq!(
+        snapshot_delta.messages[1].record_start,
+        Some((row0.len() + row1.len()) as u64)
+    );
+
+    let tail_delta = provider.js_parse_session_delta(file.path(), 0, end);
+    assert_eq!(tail_delta.new_offset, end);
+    assert_eq!(tail_delta.messages.len(), 2);
+    assert_eq!(tail_delta.messages[0].blocks[0].data["text"], "before");
+    assert_eq!(tail_delta.messages[1].blocks[0].data["text"], "after");
+
+    // A chunk whose only emitted row is invalid still succeeds empty and advances.
+    let mut only_bad = tempfile::NamedTempFile::new().unwrap();
+    only_bad.write_all(row1.as_bytes()).unwrap();
+    only_bad.flush().unwrap();
+    let bad_end = only_bad.as_file().metadata().unwrap().len();
+    let bad_window =
+        crate::jsonl_window::records::read_records(only_bad.path(), 0, bad_end, source, None)
+            .unwrap();
+    let bad_delta = provider
+        .js_parse_session_records(&bad_window)
+        .expect("single invalid row must not fail snapshot");
+    assert_eq!(bad_delta.new_offset, bad_end);
+    assert!(bad_delta.messages.is_empty());
+
+    // Text-hook fallback (parseSessionDelta without recordSources) skips invalid rows too.
+    let text_manifest = serde_json::from_value(serde_json::json!({
+        "id": "text-delta-fixture",
+        "version": "0.1.0",
+        "displayName": "Text Fixture"
+    }))
+    .unwrap();
+    let text_script = r#"
+        module.exports = {
+            parseSessionDelta(chunk) {
+                const lines = chunk.split('\n').filter(Boolean);
+                return {
+                    messages: lines.map((line, index) => {
+                        const value = JSON.parse(line);
+                        return value.bad
+                            ? null
+                            : { role: 'assistant', blocks: [{ kind: 'text', data: { text: value.text } }], recordIndex: index };
+                    })
+                };
+            }
+        };
+    "#;
+    let text_vm =
+        crate::js_runtime::PluginVm::from_source("text-delta-fixture", text_script.into()).unwrap();
+    let text_provider = JsProvider::new(text_manifest, std::sync::Arc::new(text_vm));
+    let text_delta = text_provider.js_parse_session_delta(file.path(), 0, end);
+    assert_eq!(text_delta.new_offset, end);
+    assert_eq!(text_delta.messages.len(), 2);
+    assert_eq!(text_delta.messages[0].blocks[0].data["text"], "before");
+    assert_eq!(text_delta.messages[0].record_start, Some(0));
+    assert_eq!(text_delta.messages[1].blocks[0].data["text"], "after");
+    assert_eq!(
+        text_delta.messages[1].record_start,
+        Some((row0.len() + row1.len()) as u64)
+    );
 }

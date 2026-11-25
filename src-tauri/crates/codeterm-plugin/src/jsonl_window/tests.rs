@@ -194,3 +194,27 @@ fn read_range_clamps_to_the_file() {
     assert!(empty.is_empty());
     assert_eq!(start, total);
 }
+
+#[test]
+fn rows_from_plugin_skips_invalid_rows_with_bounded_diagnostic() {
+    let long_value = format!("bad\nvalue-{}", "x".repeat(400));
+    let parsed = rows_from_plugin(vec![
+        serde_json::json!({ "role": "user", "recordIndex": 0 }),
+        serde_json::json!({ "role": "assistant", "blocks": long_value, "recordIndex": 3 }),
+        serde_json::Value::Null,
+        serde_json::json!({ "role": "assistant", "recordIndex": 5 }),
+    ]);
+    assert_eq!(parsed.messages.len(), 2);
+    assert_eq!(parsed.record_indexes, vec![Some(0), Some(5)]);
+    assert_eq!(parsed.skipped, 2);
+    let diagnostic = parsed.first_skipped.expect("first skipped row recorded");
+    assert_eq!(diagnostic.row_position, 1);
+    assert_eq!(diagnostic.record_index, Some(3));
+    assert!(diagnostic.reason.ends_with("..."));
+    assert_eq!(
+        diagnostic.reason.chars().count(),
+        MAX_ROW_DIAGNOSTIC_CHARS + 3
+    );
+    assert!(!diagnostic.reason.chars().any(char::is_control));
+    assert_eq!(bounded_row_error("line1\nline2\t\r"), "line1 line2");
+}

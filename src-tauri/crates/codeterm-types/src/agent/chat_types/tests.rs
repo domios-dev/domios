@@ -125,3 +125,43 @@ fn runtime_source_identity_is_optional_and_round_trips_only_when_present() {
     assert_eq!(stored["runtimeSourceItemId"], "native-source");
     assert_eq!(serde_json::from_value::<ChatMsg>(stored).unwrap(), row);
 }
+
+#[test]
+fn rich_message_skips_unknown_side_channel_variants_without_dropping_the_message() {
+    use crate::agent::background_work::{BackgroundWorkKind, BackgroundWorkState};
+
+    let wire = serde_json::json!({
+        "role": "assistant",
+        "uuid": "opaque-assistant-row",
+        "blocks": [{"kind": "tool_use", "data": {"id": "tool-1", "name": "Bash"}}],
+        "background_work": [
+            {"id": "tool-1", "state": "future_state_variant", "kind": "shell", "label": "opaque"},
+            {"id": "bg-live", "state": "running", "kind": "shell", "label": "opaque-live"}
+        ],
+        "provider_observations": {"permission_mode": "future_mode_variant"},
+        "timelineMarker": {"kind": "future_timeline_marker"}
+    });
+    let row: RichMessage = serde_json::from_value(wire).expect("primary row survives");
+    assert_eq!(row.role, "assistant");
+    assert_eq!(row.uuid.as_deref(), Some("opaque-assistant-row"));
+    assert_eq!(row.blocks.len(), 1);
+    assert_eq!(row.blocks[0].kind, "tool_use");
+    assert_eq!(row.background_work.len(), 1);
+    assert_eq!(row.background_work[0].id, "bg-live");
+    assert_eq!(row.background_work[0].state, BackgroundWorkState::Running);
+    assert_eq!(row.background_work[0].kind, Some(BackgroundWorkKind::Shell));
+    assert!(row.provider_observations.is_none());
+    assert!(row.timeline_marker.is_none());
+
+    for invalid in [
+        serde_json::json!({"role": "assistant", "background_work": 7}),
+        serde_json::json!({"role": "assistant", "background_work": [null]}),
+        serde_json::json!({"role": "assistant", "provider_observations": 7}),
+        serde_json::json!({"role": "assistant", "timelineMarker": 7}),
+    ] {
+        assert!(
+            serde_json::from_value::<RichMessage>(invalid).is_err(),
+            "structural type errors must still be rejected"
+        );
+    }
+}

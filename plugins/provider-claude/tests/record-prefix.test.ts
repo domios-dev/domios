@@ -54,7 +54,18 @@ for (const file of fixtureFiles) {
   assert.equal(delta.new_offset, input.meta.newOffset);
   assert.deepEqual(plain(plugin.parseSessionMessageRecords(input.records,input.meta)), plain(plugin.parseSessionMessages(text)), file);
 }
-assert.equal(digest.digest("hex"), "4464f3dfd881c349d0b5b5f5ef83b83e72b7db7fa0e486ee167108fef13fc3e3");
+assert.equal(digest.digest("hex"), "f9255f18c7541fda93ce5dbd1b60c63bd7d62cc984d22b11147cb90505a32586");
+const cli332Input = recordInput(
+  fs.readFileSync(path.join(root, "tests/fixtures/cli-2-1-332-session.jsonl"), "utf8"),
+);
+const cli332 = plugin.parseSessionRecords(cli332Input.records, cli332Input.meta) as {
+  messages: Array<{ uuid?: string | null; background_work?: Array<{ state?: string; label?: string }> }>;
+};
+assert.equal(cli332.messages.length, 9);
+assert.deepEqual(
+  plain(cli332.messages.find(message => message.uuid === "a-0002")?.background_work),
+  [{ id: "toolu_opaque_332", state: "tool_call", kind: "shell", label: "opaque-command --check" }],
+);
 for (const method of ["parseSessionDelta", "parseSessionMessages"]) {
   parses = 0;
   const rows = plugin[method]('{"type":"progress","data":{"text":"ignored"}}\n'
