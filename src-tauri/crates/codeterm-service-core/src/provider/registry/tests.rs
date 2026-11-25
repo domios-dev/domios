@@ -391,7 +391,7 @@ fn plain_profile_status_reads_cache_and_explicit_recheck_only_invalidates_its_pr
         let profile = capability.launch_profiles.as_ref().unwrap()["selected"].clone();
         registry.profile_readiness_cache.lock().insert(
             format!("{id}:selected"),
-            (profile, before[index]),
+            (profile, before[index], Vec::new()),
             Some(true),
         );
     }
