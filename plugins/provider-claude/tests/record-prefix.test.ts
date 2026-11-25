@@ -54,7 +54,7 @@ for (const file of fixtureFiles) {
   assert.equal(delta.new_offset, input.meta.newOffset);
   assert.deepEqual(plain(plugin.parseSessionMessageRecords(input.records,input.meta)), plain(plugin.parseSessionMessages(text)), file);
 }
-assert.equal(digest.digest("hex"), "4464f3dfd881c349d0b5b5f5ef83b83e72b7db7fa0e486ee167108fef13fc3e3");
+assert.equal(digest.digest("hex"), "884541770611e0538503ea2727f1a6448c9572ecf3f0b1456502fc08d7bb91c3");
 for (const method of ["parseSessionDelta", "parseSessionMessages"]) {
   parses = 0;
   const rows = plugin[method]('{"type":"progress","data":{"text":"ignored"}}\n'

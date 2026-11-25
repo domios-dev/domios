@@ -1,5 +1,5 @@
 use codeterm_types::agent::background_work::{
-    BackgroundWorkKind, BackgroundWorkObservation, BackgroundWorkState,
+    BackgroundToolCall, BackgroundWorkKind, BackgroundWorkObservation, BackgroundWorkState,
 };
 use serde_json::Value;
 fn state(value: &str) -> Option<BackgroundWorkState> {
@@ -113,6 +113,45 @@ fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
             .trim(),
     )
 }
+pub(super) fn parse_tool_calls(row: &Value) -> Vec<BackgroundToolCall> {
+    if row["type"] != "assistant" {
+        return Vec::new();
+    }
+    let Some(blocks) = row["message"]["content"].as_array() else {
+        return Vec::new();
+    };
+    let mut calls = Vec::new();
+    for block in blocks {
+        if block["type"] != "tool_use" {
+            continue;
+        }
+        let Some(call_id) = block["id"].as_str().filter(|id| valid_id(id)) else {
+            continue;
+        };
+        let name = block["name"].as_str().unwrap_or("").trim();
+        let lower = name.to_ascii_lowercase();
+        let input = &block["input"];
+        if matches!(lower.as_str(), "bash" | "shell" | "exec") {
+            if let Some(command) = bounded_label(input["command"].as_str()) {
+                calls.push(BackgroundToolCall {
+                    id: call_id.into(),
+                    label: command,
+                    kind: Some(BackgroundWorkKind::Shell),
+                });
+            }
+        } else if matches!(name, "Agent" | "Task") && input["prompt"].is_string() {
+            if let Some(description) = bounded_label(input["description"].as_str()) {
+                calls.push(BackgroundToolCall {
+                    id: call_id.into(),
+                    label: description,
+                    kind: Some(BackgroundWorkKind::Subagent),
+                });
+            }
+        }
+    }
+    calls
+}
+
 pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     if row["type"] == "summary"
         || row["isCompactSummary"] == true
@@ -130,44 +169,6 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     }
     let mut events = Vec::new();
     let content = &row["message"]["content"];
-    if row["type"] == "assistant" {
-        if let Some(blocks) = content.as_array() {
-            for block in blocks {
-                if block["type"] != "tool_use" {
-                    continue;
-                }
-                let Some(call_id) = block["id"].as_str().filter(|id| valid_id(id)) else {
-                    continue;
-                };
-                let name = block["name"].as_str().unwrap_or("").trim();
-                let lower = name.to_ascii_lowercase();
-                let input = &block["input"];
-                if matches!(lower.as_str(), "bash" | "shell" | "exec") {
-                    if let Some(command) = bounded_label(input["command"].as_str()) {
-                        events.push(BackgroundWorkObservation {
-                            id: call_id.into(),
-                            state: BackgroundWorkState::ToolCall,
-                            kind: Some(BackgroundWorkKind::Shell),
-                            label: Some(command),
-                            tool_use_id: None,
-                            output_path: None,
-                        });
-                    }
-                } else if matches!(name, "Agent" | "Task") && input["prompt"].is_string() {
-                    if let Some(description) = bounded_label(input["description"].as_str()) {
-                        events.push(BackgroundWorkObservation {
-                            id: call_id.into(),
-                            state: BackgroundWorkState::ToolCall,
-                            kind: Some(BackgroundWorkKind::Subagent),
-                            label: Some(description),
-                            tool_use_id: None,
-                            output_path: None,
-                        });
-                    }
-                }
-            }
-        }
-    }
     let result = &row["toolUseResult"];
     let result_tool_use_id = single_tool_result_use_id(content);
     if let Some(id) = result["backgroundTaskId"].as_str() {

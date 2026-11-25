@@ -411,3 +411,36 @@ fn fresh_turn_incidents(
     let snapshot = super::update::SignalSnapshot::capture(tab);
     super::update::fresh_turn_incidents(&mut tab.provider_signals, &snapshot, session, records)
 }
+
+#[test]
+fn classify_health_depends_only_on_auth_and_api_error() {
+    let logged_in = AuthStatus {
+        logged_in: true,
+        auth_method: Some("oauth".into()),
+        subscription_type: None,
+        config_directory: None,
+    };
+    let screen_auth = TabStateClassification {
+        state: TabState::WaitingOnAuth,
+        confidence: 0.9,
+        data: None,
+        action: None,
+    };
+    assert!(classify_health(Some(&logged_in), None, Some(screen_auth.clone())).is_none());
+    assert_eq!(
+        classify_health(Some(&logged_in), Some(ApiErrorKind::RateLimit), None)
+            .unwrap()
+            .state,
+        TabState::RateLimited
+    );
+    assert_eq!(
+        classify_health(None, Some(ApiErrorKind::Authentication), None)
+            .unwrap()
+            .state,
+        TabState::WaitingOnAuth
+    );
+    assert_eq!(
+        classify_health(None, None, Some(screen_auth.clone())),
+        Some(screen_auth)
+    );
+}

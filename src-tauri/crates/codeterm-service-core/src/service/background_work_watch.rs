@@ -19,6 +19,7 @@ fn watches() -> &'static Mutex<HashMap<String, Watch>> {
 }
 pub(crate) fn cancel(svc: &ServiceContext, tab: &str) {
     super::agent_runtime::capacity_retry::transcript::retire(svc, tab);
+    super::background_work::clear_tab_labels(tab);
     let old = { watches().lock().remove(tab) };
     drop(old);
 }
@@ -230,6 +231,7 @@ fn read(
                     .map(str::to_string),
                 provider_observations: provider.parse_session_observations(value),
                 background_work: provider.parse_background_work(value),
+                background_tool_calls: provider.parse_background_tool_calls(value),
                 context_usage: provider.parse_context_usage(value),
                 ..Default::default()
             })
@@ -270,6 +272,7 @@ fn read_file(
             if record.role == "user"
                 || record.provider_observations.is_some()
                 || !record.background_work.is_empty()
+                || !record.background_tool_calls.is_empty()
                 || record.context_usage.is_some()
             {
                 records.push(record);

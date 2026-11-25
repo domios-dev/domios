@@ -111,6 +111,12 @@ pub struct RichMessage {
         optional
     )]
     pub background_work: Vec<super::background_work::BackgroundWorkObservation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(
+        as = "Option<Vec<super::background_work::BackgroundToolCall>>",
+        optional
+    )]
+    pub background_tool_calls: Vec<super::background_work::BackgroundToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub provider_observations: Option<codeterm_provider_signals::SessionObservations>,

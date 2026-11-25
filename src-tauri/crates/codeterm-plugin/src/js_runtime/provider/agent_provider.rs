@@ -130,6 +130,13 @@ impl AgentProvider for JsProvider {
         self.try_call("parseBackgroundWork", &[record.clone()])
             .unwrap_or_default()
     }
+    fn parse_background_tool_calls(
+        &self,
+        record: &Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundToolCall> {
+        self.try_call("parseBackgroundToolCalls", &[record.clone()])
+            .unwrap_or_default()
+    }
 
     fn reasoning_effort_launch_args_for_model(
         &self,

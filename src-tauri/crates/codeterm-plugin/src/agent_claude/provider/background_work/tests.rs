@@ -146,10 +146,30 @@ fn tool_use_and_tool_result_label_background_shell_from_structured_records() {
             "content": [{ "type": "tool_result", "tool_use_id": "opaque-call-b", "content": "ok", "is_error": false }]
         }
     });
+    assert!(parse(&assistant).is_empty());
+    let calls: std::collections::HashMap<String, String> = parse_tool_calls(&assistant)
+        .into_iter()
+        .map(|call| (call.id, call.label))
+        .collect();
+    assert_eq!(
+        calls.get("opaque-call-a").map(String::as_str),
+        Some("opaque-cmd-a 900")
+    );
+    assert_eq!(
+        calls.get("opaque-call-b").map(String::as_str),
+        Some("opaque-runner -e tick()")
+    );
+
     let mut roster = codeterm_types::agent::background_work::BackgroundRoster::default();
-    for row in [&assistant, &launch_a, &launch_b] {
+    for row in [&launch_a, &launch_b] {
         for observation in parse(row) {
-            roster.observe(&observation, "");
+            let label = observation
+                .tool_use_id
+                .as_deref()
+                .and_then(|id| calls.get(id))
+                .map(String::as_str)
+                .unwrap_or("");
+            roster.observe(&observation, label);
         }
     }
     assert_eq!(

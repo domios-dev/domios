@@ -133,6 +133,7 @@ impl ServiceContext {
         }
         drop(mux);
         if changed {
+            super::background_work::clear_tab_labels(tab_id);
             super::structured_prompt::wake_for_tab(tab_id);
             self.deferred_session_bindings.clear(tab_id);
             self.schedule_session_model_refresh_for_current_tab(tab_id);

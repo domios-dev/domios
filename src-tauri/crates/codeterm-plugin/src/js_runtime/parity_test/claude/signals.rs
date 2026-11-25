@@ -94,21 +94,46 @@ fn parity_claude_background_work_and_fork_capabilities() {
             native.parse_background_work(&record),
             js.parse_background_work(&record)
         );
+        assert_eq!(
+            native.parse_background_tool_calls(&record),
+            js.parse_background_tool_calls(&record)
+        );
     }
     let fixture =
         std::fs::read_to_string(plugin_fixture_root().join("tests/fixtures/background-work.jsonl"))
             .unwrap();
     let mut native_roster = codeterm_types::agent::background_work::BackgroundRoster::default();
     let mut js_roster = native_roster.clone();
+    let mut native_calls = std::collections::HashMap::new();
+    let mut js_calls = std::collections::HashMap::new();
     for line in fixture.lines() {
         let value: serde_json::Value = serde_json::from_str(line).unwrap();
+        for call in native.parse_background_tool_calls(&value) {
+            native_calls.insert(call.id, call.label);
+        }
+        for call in js.parse_background_tool_calls(&value) {
+            js_calls.insert(call.id, call.label);
+        }
         for observation in native.parse_background_work(&value) {
-            native_roster.observe(&observation, "");
+            let label = observation
+                .tool_use_id
+                .as_deref()
+                .and_then(|id| native_calls.get(id))
+                .map(String::as_str)
+                .unwrap_or("");
+            native_roster.observe(&observation, label);
         }
         for observation in js.parse_background_work(&value) {
-            js_roster.observe(&observation, "");
+            let label = observation
+                .tool_use_id
+                .as_deref()
+                .and_then(|id| js_calls.get(id))
+                .map(String::as_str)
+                .unwrap_or("");
+            js_roster.observe(&observation, label);
         }
     }
+    assert_eq!(native_calls, js_calls);
     assert_eq!(native_roster, js_roster);
     assert_eq!(
         native_roster

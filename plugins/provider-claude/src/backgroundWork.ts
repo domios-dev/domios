@@ -1,6 +1,7 @@
 import type { AgentProvider } from "@codeterm/plugin-sdk";
 
 type BackgroundWorkObservation = ReturnType<NonNullable<AgentProvider["parseBackgroundWork"]>>[number];
+type BackgroundToolCall = ReturnType<NonNullable<AgentProvider["parseBackgroundToolCalls"]>>[number];
 
 const TASK_ID = /^[A-Za-z0-9_-]{1,256}$/;
 
@@ -47,6 +48,29 @@ function singleToolResultUseId(content: unknown): string | undefined {
   return typeof id === "string" && TASK_ID.test(id) ? id : undefined;
 }
 
+export function parseBackgroundToolCalls(value: unknown): BackgroundToolCall[] {
+  const row = object(value);
+  if (!row || row.type !== "assistant") return [];
+  const content = object(row.message)?.content;
+  if (!Array.isArray(content)) return [];
+  const calls: BackgroundToolCall[] = [];
+  for (const item of content) {
+    const block = object(item);
+    if (block?.type !== "tool_use" || typeof block.id !== "string" || !TASK_ID.test(block.id)) continue;
+    const name = typeof block.name === "string" ? block.name.trim() : "";
+    const lower = name.toLowerCase();
+    const input = object(block.input);
+    if (lower === "bash" || lower === "shell" || lower === "exec") {
+      const command = boundedLabel(input?.command);
+      if (command) calls.push({ id: block.id, label: command, kind: "shell" });
+    } else if ((name === "Agent" || name === "Task") && typeof input?.prompt === "string") {
+      const description = boundedLabel(input.description);
+      if (description) calls.push({ id: block.id, label: description, kind: "subagent" });
+    }
+  }
+  return calls;
+}
+
 export function parseBackgroundWork(value: unknown): BackgroundWorkObservation[] {
   const row = object(value);
   if (!row) return [];
@@ -57,22 +81,6 @@ export function parseBackgroundWork(value: unknown): BackgroundWorkObservation[]
   const result = object(row.toolUseResult);
   const content = object(row.message)?.content;
   const events: BackgroundWorkObservation[] = [];
-  if (row.type === "assistant" && Array.isArray(content)) {
-    for (const item of content) {
-      const block = object(item);
-      if (block?.type !== "tool_use" || typeof block.id !== "string" || !TASK_ID.test(block.id)) continue;
-      const name = typeof block.name === "string" ? block.name.trim() : "";
-      const lower = name.toLowerCase();
-      const input = object(block.input);
-      if (lower === "bash" || lower === "shell" || lower === "exec") {
-        const command = boundedLabel(input?.command);
-        if (command) events.push({ id: block.id, state: "tool_call", kind: "shell", label: command });
-      } else if ((name === "Agent" || name === "Task") && typeof input?.prompt === "string") {
-        const description = boundedLabel(input.description);
-        if (description) events.push({ id: block.id, state: "tool_call", kind: "subagent", label: description });
-      }
-    }
-  }
   const resultToolUseId = singleToolResultUseId(content);
   const shellId = result?.backgroundTaskId;
   if (typeof shellId === "string" && TASK_ID.test(shellId)) {
