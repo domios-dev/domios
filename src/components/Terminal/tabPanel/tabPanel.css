@@ -45,8 +45,7 @@
   min-height: 44px;
   padding: 7px 12px 7px 14px;
   border-bottom: 1px solid var(--ct-border-subtle);
-  background: color-mix(in srgb, var(--ct-bg) 92%, transparent);
-  backdrop-filter: blur(var(--ct-blur-sm));
+  background: color-mix(in srgb, var(--ct-bg) 96%, var(--ct-surface));
 }
 .tab-panel__bar-main {
   display: flex;

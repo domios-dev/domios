@@ -470,5 +470,7 @@
   "src/components/Terminal/ComposerQueueTray.test.tsx",
   "src/lib/teamTemplates/peerStartOutcome.test.ts",
   "src/components/Terminal/useChatActivationReconcile.test.tsx",
-  "src/components/Terminal/TabTopBar.modeSwitch.test.tsx"
+  "src/components/Terminal/TabTopBar.modeSwitch.test.tsx",
+  "src/lib/useTabProvider.test.tsx",
+  "src/hooks/useDocumentPerfState.test.tsx"
 ]

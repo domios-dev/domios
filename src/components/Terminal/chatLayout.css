@@ -12,6 +12,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  contain: strict;
 }
 .ct-chat-wallpaper {
   background-color: var(--ct-bg);

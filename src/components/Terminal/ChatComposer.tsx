@@ -336,7 +336,7 @@ function ChatComposerImpl({
     };
   }, [isActive, replacement, liveLocked]);
   const shellRef = useRef<HTMLDivElement>(null);
-  const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor);
+  const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor, isActive);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const pendingDraftsRef = useRef(new Set<string>());
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);

@@ -5,6 +5,9 @@
  * to a live session reuses `switch_model`. Keyed by `pluginId`, no hardcoded id.
  */
 import { invoke } from "../../lib/bridge";
+import { setCachedShellModel } from "../../lib/shellSessionModel";
+
+type ChatSessionInfo = import("../../../gen/ChatSessionInfo").ChatSessionInfo;
 
 /** A user-defined preset for a chatBackend. Mirrors the plugin SDK `PresetInfo`
  *  plus the editable behaviour (system prompt, bound model, params). */
@@ -55,7 +58,8 @@ const defaultApi: PresetManagerApi = {
     await invoke("update_config", { config: { ...cfg, plugins } });
   },
   applyToSession: async (pluginId, sessionId, model) => {
-    await invoke("chatbackend_switch_model", { pluginId, sessionId, model });
+    const info = await invoke<ChatSessionInfo | null>("chatbackend_switch_model", { pluginId, sessionId, model });
+    setCachedShellModel(pluginId, sessionId, info?.model ?? model);
   },
 };
 

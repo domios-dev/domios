@@ -156,11 +156,11 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     return fold.scrollBy;
   }, []);
 
-  const readViewport = useCallback((captureAnchor = true) => {
+  const readViewport = useCallback((captureAnchor = true, skipShiftAnchor = false) => {
     const el = scrollRef.current;
     const spacer = topSpacerRef.current;
     if (!el || !spacer || el.clientHeight === 0) return;
-    captureShiftAnchor();
+    if (!skipShiftAnchor) captureShiftAnchor();
     const origin = spacer.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
       + chatSpacerHeight(live.current.range.top, driftRef.current) - live.current.range.top;
     const top = chatLayoutViewportTop(el.scrollTop, origin, chatSpacerTranslation(live.current.range.top, driftRef.current));
@@ -238,7 +238,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     if (DEV_BUILD && chatTraceActive(keyRef.current)) chatTraceEdge(keyRef.current, "resize", [measured.length, ...deltas]);
     absorbShift();
     if (changed) setRevision((previous) => previous + 1);
-    readViewport(false);
+    readViewport(false, true);
   }, [absorbShift, readViewport, scrollRef]);
   const applyHeightsRef = useRef(applyHeights);
   applyHeightsRef.current = applyHeights;
