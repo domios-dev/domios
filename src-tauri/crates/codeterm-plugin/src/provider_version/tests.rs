@@ -206,8 +206,8 @@ fn pending_settlement_drop_resolves_pending_entry_to_failed_and_bumps_revision()
 #[test]
 fn provider_version_probe_detects_batch_cli_output() {
     let root = tempfile::tempdir().unwrap();
-    let shim = root.path().join("codex-fixture.cmd");
-    std::fs::write(&shim, "@echo off\r\necho codex-cli 0.172.0\r\n").unwrap();
+    let shim = root.path().join("provider-fixture.cmd");
+    std::fs::write(&shim, "@echo off\r\necho opaque-cli 0.172.0\r\n").unwrap();
     let command = crate::provider_command::command(&shim).unwrap();
     assert_eq!(
         probe_command_with_deadline(command, Duration::from_secs(5)),

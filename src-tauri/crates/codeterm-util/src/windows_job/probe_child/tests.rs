@@ -16,7 +16,7 @@ fn probe_child_fixture() {
 #[test]
 #[ignore = "subprocess fixture"]
 fn probe_child_version_fixture() {
-    println!("\ncodex-cli 0.172.0");
+    println!("\nopaque-cli 0.172.0");
     std::io::stdout().flush().unwrap();
 }
 
@@ -141,7 +141,7 @@ fn probe_child_collect_output_completes_when_foreign_handle_keeps_stdout_open() 
     assert!(
         String::from_utf8_lossy(&bytes)
             .lines()
-            .any(|line| line.trim() == "codex-cli 0.172.0"),
+            .any(|line| line.trim() == "opaque-cli 0.172.0"),
         "expected version output, got {:?}",
         String::from_utf8_lossy(&bytes)
     );

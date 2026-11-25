@@ -421,6 +421,7 @@ mod tests {
 
         // Exact installation_id resolves an offline single record, while a duplicate live record wins.
         peers.get_mut(instance_id).unwrap().online = false;
+        let link_of = |id: &str| (id == instance_id).then_some(installation_id);
         let offline = resolve_paired_peer(&peers, &installations, link_of, installation_id)
             .expect("exact installation id resolves offline record");
         assert_eq!(offline.instance_id, instance_id);
