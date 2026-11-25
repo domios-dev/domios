@@ -14,6 +14,7 @@ import { countWorkingTabs } from "./tabStatuses";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { openWorkspacePlanCanvas } from "../Canvas/workspacePlanEntry";
 import { browsedWorkspaceRows } from "./browsedWorkspaceRows";
+import { resolveObservedWorkspaceSelectedViewerId } from "./sidebarSelection";
 import { SurfaceOwnerBlock } from "./SurfaceAttachments";
 import { attachmentInset, ownerRowInset, type OwnerRowContext } from "./surfaceAttachmentModel";
 
@@ -44,8 +45,7 @@ export function WorkspaceBrowseSection({
   ]);
   const { byViewer, rowsById, drag, attachmentsByOwner, membersByTeam } = browsedWorkspaceRows(tabs);
   const statuses = Object.fromEntries([...byViewer].flatMap(([id, session]) => session.status ? [[id, session.status]] : []));
-  const selected = selectedViewerId && byViewer.has(selectedViewerId)
-    ? selectedViewerId : tabs.find(({ tab }) => tab.id === workspace.active_tab_id)?.viewerId;
+  const selected = resolveObservedWorkspaceSelectedViewerId(selectedViewerId, byViewer);
   const row = (tab: Tab, index: number, context: OwnerRowContext, teamName?: string, attachment = false) => {
     const session = byViewer.get(tab.id);
     if (!session) return null;

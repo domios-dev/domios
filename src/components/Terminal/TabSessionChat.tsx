@@ -909,7 +909,6 @@ function TabSessionChatBody({
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
-      data-appearance-surface
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       data-snapshot-ready={snapshotReady}

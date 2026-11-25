@@ -181,6 +181,28 @@ describe("Mesh canvas wiring", () => {
     expect(client.revokeCalls).toEqual([]);
   });
 
+  it("removes an online peer from its card menu by signing it out first, and keeps Remove off this machine", async () => {
+    const order: string[] = [];
+    const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "MacBook", { installation_id: macRow.installation_id, online: true })] }));
+    const origSignOut = client.revokeSession.bind(client);
+    const origRevoke = client.revoke.bind(client);
+    client.revokeSession = async (id) => { order.push("session_revoke"); return origSignOut(id); };
+    client.revoke = async (target) => { order.push("revoke"); return origRevoke(target); };
+    await mount(client, [peer("mesh-mac", "MacBook", { online: true })]);
+    await act(async () => button("More for Studio PC")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect([...document.querySelectorAll('[role="menuitem"]')].some((entry) => entry.textContent === "Remove from mesh")).toBe(false);
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => button("More for MacBook")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    await click([...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((entry) => entry.textContent === "Remove from mesh") ?? null);
+    const confirmation = host.querySelector('[role="group"][aria-label="Remove MacBook"]');
+    expect(confirmation?.textContent).toContain("It will be signed out first.");
+    expect(confirmation?.querySelector('input[type="checkbox"]')).toBeNull();
+    await click([...confirmation!.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent === "Confirm remove") ?? null);
+    expect(order).toEqual(["session_revoke", "revoke"]);
+    expect(client.sessionRevokeCalls).toEqual([macRow.installation_id]);
+    expect(client.revokeCalls).toHaveLength(1);
+  });
+
 
   it("refreshes the account registry once on request and renders its name over the saved pair name", async () => {
     const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] }));

@@ -32,7 +32,7 @@ pub use membership::{
     account_id, membership_token, parse_membership_token, verify_membership, MembershipExpectation,
     MembershipRefusal, MembershipTrust, VerifiedMembership, NOT_BEFORE_SKEW_SECONDS,
 };
-pub use operations::LinkTarget;
+pub use operations::{LinkTarget, RemovedResult};
 pub use ports::{
     AccountMeshStore, Clock, EndpointSource, InstallationKeyStore, MeshRegistry, MeshTransport,
     RegistryResult, SessionSource, SystemClock, UnavailableRegistry,

@@ -176,3 +176,34 @@ test("own-session compaction invalidates runtime child liveness until fresh acti
   const foreign = composerBackgroundWorkItems([child,{...boundary,sourceSessionId:"foreign"}],[],now,options);
   assert.equal(foreign[0].status,"running");
 });
+
+test("provider background shell transitions from running to hidden on completion without counting unknown entries", () => {
+  const kinds = { activeA: "shell", activeB: "shell", staleA: "shell", staleB: "shell" } as const;
+  const started = withProviderBackgroundWork(
+    [],
+    roster({ activeA: "", activeB: "" }, kinds, { staleA: "", staleB: "" }),
+    "own-session",
+  );
+  const runningBubble = composerBackgroundWorkBubble(started);
+  assert.equal(runningBubble?.count, 2);
+  assert.deepEqual(
+    runningBubble?.items.map(item => [item.rawId, item.status]),
+    [["activeA", "running"], ["activeB", "running"], ["staleA", "unknown"], ["staleB", "unknown"]],
+  );
+
+  const oneDone = withProviderBackgroundWork(
+    [],
+    { ...roster({ activeB: "" }, kinds, { staleA: "", staleB: "" }), ended: { activeA: "" } },
+    "own-session",
+  );
+  const partialBubble = composerBackgroundWorkBubble(oneDone);
+  assert.equal(partialBubble?.count, 1);
+  assert.equal(partialBubble?.items.some(item => item.rawId === "activeA"), false);
+
+  const allDone = withProviderBackgroundWork(
+    [],
+    { ...roster({}, kinds, { staleA: "", staleB: "" }), ended: { activeA: "", activeB: "" } },
+    "own-session",
+  );
+  assert.equal(composerBackgroundWorkBubble(allDone), null);
+});

@@ -8,7 +8,7 @@ import { effectiveWallpaper, wallpaperRenderStyle } from "../../lib/chatWallpape
 import type { MachineAppearance } from "../../lib/chatWallpaperClient";
 import { deriveColor } from "../../lib/colors";
 import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
-import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLabel, machineThemeName, machineTileColors, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
+import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLabel, machineTileColors, type MachineIdentity, type MeshIdentityProjection } from "../../lib/machineIdentity";
 import { rankPeersByLastActive } from "../../lib/peerRanking";
 import { tabActivity } from "../../lib/tabActivity";
 import { isLightColor } from "../../lib/themeCss";
@@ -316,7 +316,7 @@ function MachineOption({ name, identity, peerId, status, working, local, online,
   const colors = appearance ? machineTileColors(
     desaturateMachineColor(appearance.theme.blue, online), deriveColor(viewer.background, 10), viewer.foreground, selected,
   ) : { tone: neutralTone, glyph: neutralTone };
-  const state = [busy ? `${working} working` : status, appearance && machineThemeName(appearance.theme.name)].filter(Boolean).join(" · ");
+  const state = busy ? `${working} working` : status;
   return <button type="button" role="option" tabIndex={-1} aria-selected={selected}
     aria-label={machineLabel(name, identity, local ? `this machine, ${state}` : state)}
     data-testid={local ? "peer-picker-self" : "peer-picker-item"} data-peer-id={peerId} data-peer-name={peerId ? name : undefined}

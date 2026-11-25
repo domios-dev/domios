@@ -73,22 +73,27 @@
 .ct-liquid-segmented {
   --seg-count: 2;
   --seg-index: 0;
+  --seg-inset: 3px;
+  box-sizing: border-box;
   position: relative;
   display: inline-flex;
   overflow: hidden;
-  padding: 3px;
+  padding: var(--seg-inset);
   border: 1px solid var(--ct-border);
   border-radius: calc(999px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
   backdrop-filter: blur(6px);
 }
+.ct-liquid-segmented--icon-only {
+  --seg-inset: 1px;
+}
 .ct-liquid-segmented__thumb {
   position: absolute;
   z-index: 0;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc((100% - 6px) / var(--seg-count));
+  top: var(--seg-inset);
+  bottom: var(--seg-inset);
+  left: var(--seg-inset);
+  width: calc((100% - var(--seg-inset) * 2) / var(--seg-count));
   border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
   border-radius: calc(999px * var(--ct-roundness, 1));
   background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
@@ -117,6 +122,10 @@
   cursor: pointer;
   transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
+.ct-liquid-segmented--icon-only .ct-liquid-segmented__option {
+  flex: 1 0 calc(var(--seg-height, 24px) - 2px - var(--seg-inset) * 2);
+  padding: 0;
+}
 .ct-liquid-segmented__option[aria-selected="true"] {
   color: var(--ct-fg);
   font-weight: 600;
@@ -126,6 +135,18 @@
 .ct-liquid-segmented__option:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+@media (forced-colors: active) {
+  .ct-liquid-segmented__option[aria-selected="true"] {
+    outline: 1px solid SelectedItem;
+    outline-offset: -1px;
+  }
+
+  .ct-liquid-segmented__option:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
 }
 
 @keyframes ct-liquid-control-x {

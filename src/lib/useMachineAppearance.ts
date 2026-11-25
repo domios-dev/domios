@@ -1,6 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { AppConfig } from "./types";
-import { daemonTransportForPeer } from "./daemonBootstrap";
+import type { AppearanceProposal } from "./appearance";
+import { APPEARANCE_CHANGED, type AppearanceTarget } from "./appearanceClient";
+import { peerEventRail } from "./peerEventRail";
 import { readMachineAppearance, readWallpaperAsset, type MachineAppearance } from "./chatWallpaperClient";
 import { DEFAULT_THEME } from "./themeCss";
 import { relayTarget } from "./webApi";
@@ -24,7 +26,7 @@ export function useMachineViewerTheme() {
 }
 
 type Target = ReturnType<typeof useWorkspaceBrowseTarget>;
-type PeerAppearance = { target: NonNullable<Target>; appearance: MachineAppearance };
+type PeerAppearance = { targetId: string; appearance: MachineAppearance };
 
 export function useMachineAppearance(config: AppConfig, ready: boolean): SelectedMachineAppearance {
   const target = useWorkspaceBrowseTarget();
@@ -32,36 +34,73 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
   const peerId = target?.id ?? relay;
   const identity = useMeshMachineIdentity(peerId);
   const [peer, setPeer] = useState<PeerAppearance | null>(null);
+  const remoteId = target && target.id !== relay ? target.id : null;
+  const targetRef = useRef<Target>(target);
+  targetRef.current = target;
 
   useEffect(() => {
-    if (!target || target.id === relay) return;
+    if (!remoteId) return;
     const controller = new AbortController();
-    let changed = false;
+    let readController: AbortController | undefined;
+    let version = 0;
+    let settled = false;
     const publish = (appearance: MachineAppearance) => {
-      if (!controller.signal.aborted) setPeer({ target, appearance });
+      if (controller.signal.aborted) return;
+      settled = true;
+      setPeer({ targetId: remoteId, appearance });
     };
-    const unsubscribe = daemonTransportForPeer(target.id).subscribe("/api/events/stream", (name, data) => {
-      if (name !== "config-changed" || !data || typeof data !== "object" || !("theme" in data)) return;
-      const event = data as AppConfig;
-      changed = true;
-      publish({ theme: event.theme, wallpaper: event.chat_wallpaper ?? null, tuning: event.appearance ?? null });
-    }, { signal: controller.signal, onEnd: () => undefined });
-    void readMachineAppearance(target.id, controller.signal).then(appearance => {
-      if (!changed) publish(appearance);
-    }).catch(() => { if (!controller.signal.aborted && !changed) discardWorkspaceSwitchOrigin(target); });
-    return () => { controller.abort(); unsubscribe(); };
-  }, [target, relay]);
+    const refresh = () => {
+      readController?.abort();
+      const request = new AbortController();
+      readController = request;
+      const requestVersion = ++version;
+      void readMachineAppearance(remoteId, request.signal).then(appearance => {
+        if (!controller.signal.aborted && !request.signal.aborted && requestVersion === version) {
+          publish(appearance);
+        }
+      }).catch(() => {
+        if (!controller.signal.aborted && !request.signal.aborted && !settled) {
+          const current = targetRef.current;
+          if (current?.id === remoteId) discardWorkspaceSwitchOrigin(current);
+        }
+      });
+    };
+    const onAppearanceChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ target?: AppearanceTarget; receipt?: AppearanceProposal }>).detail;
+      const receipt = detail?.receipt;
+      if (!receipt) return;
+      const changedPeer = detail.target?.peer ?? receipt.machine?.id;
+      if (changedPeer !== remoteId) return;
+      const next = receipt.state === "undone" ? receipt.previous : receipt.look;
+      if (!next?.theme) return;
+      readController?.abort();
+      readController = undefined;
+      version++;
+      publish({ theme: next.theme, wallpaper: next.wallpaper ?? null, tuning: next.tuning ?? null });
+    };
+    const stopRail = peerEventRail.observe(remoteId, event => {
+      if (event.type === "config-changed" || event.type === "reconcile") refresh();
+    });
+    window.addEventListener(APPEARANCE_CHANGED, onAppearanceChanged);
+    refresh();
+    return () => {
+      controller.abort();
+      readController?.abort();
+      stopRail();
+      window.removeEventListener(APPEARANCE_CHANGED, onAppearanceChanged);
+    };
+  }, [remoteId]);
 
-  const remote = target && target.id !== relay;
-  const selected = remote && peer?.target === target ? peer.appearance : null;
+  const remote = remoteId !== null;
+  const selected = remote && peer?.targetId === remoteId ? peer.appearance : null;
   return {
     appearance: selected ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null, tuning: config.appearance ?? null },
     peerId,
     identity,
     ready: remote ? selected !== null : ready,
     projectWallpaper(wallpaper) {
-      if (remote) setPeer(previous => previous?.target === target
-        ? { target, appearance: { ...previous.appearance, wallpaper } }
+      if (remote) setPeer(previous => previous?.targetId === remoteId
+        ? { targetId: remoteId, appearance: { ...previous.appearance, wallpaper } }
         : previous);
     },
   };

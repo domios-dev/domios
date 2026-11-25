@@ -128,21 +128,32 @@ it("keeps a peer's last theme in the menu after it goes offline", async () => {
   const peer = { instance_id: "forest-peer", instance_name: "Forest", relay_protocol_version: RELAY_PROTOCOL_VERSION, online: true };
   peersResponse.mockResolvedValue({ paired: [peer] });
   vi.mocked(readMachineAppearance).mockImplementation(async peerId => ({
-    theme: { ...DEFAULT_THEME, name: peerId === peer.instance_id ? "Forest Night" : "Local Theme" },
+    theme: {
+      ...DEFAULT_THEME,
+      name: peerId === peer.instance_id ? "Forest · Forest Night" : "Local Theme",
+      blue: peerId === peer.instance_id ? "#3fb950" : DEFAULT_THEME.blue,
+    },
     wallpaper: null,
   }));
   const chip = await mount();
   const trigger = chip.host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!;
-  const option = () => document.querySelector('[data-peer-id="forest-peer"]');
+  const option = () => document.querySelector<HTMLButtonElement>('[data-peer-id="forest-peer"]');
   try {
     await act(async () => trigger.click());
-    expect(option()?.getAttribute("aria-label")).toContain("online · Forest Night");
+    expect(option()?.getAttribute("aria-label")).toBe("Forest, machine, online");
+    expect(option()?.textContent).not.toContain("Forest Night");
+    const onlineTone = option()?.style.getPropertyValue("--ct-switcher-tone");
+    expect(onlineTone).toMatch(/^#/);
     await act(async () => trigger.click());
     peersResponse.mockResolvedValue({ paired: [{ ...peer, online: false }] });
     await act(async () => notifyMeshPeersLoaded());
     vi.mocked(readMachineAppearance).mockClear();
     await act(async () => trigger.click());
-    expect(option()?.getAttribute("aria-label")).toContain("offline · Forest Night");
+    expect(option()?.getAttribute("aria-label")).toBe("Forest, machine, offline");
+    expect(option()?.textContent).not.toContain("Forest Night");
+    const offlineTone = option()?.style.getPropertyValue("--ct-switcher-tone");
+    expect(offlineTone).toMatch(/^#/);
+    expect(offlineTone).not.toBe(onlineTone);
     expect(vi.mocked(readMachineAppearance).mock.calls.map(([id]) => id)).not.toContain(peer.instance_id);
   } finally { await chip.unmount(); }
 });
@@ -167,8 +178,9 @@ it("offers only machine selections and commits the focused option from the keybo
     expect(items[0].textContent).toContain("2 machines · 1 online");
     const local = items[1];
     expect(local.getAttribute("aria-selected")).toBe("true");
-    expect(local.getAttribute("aria-label")).toBe("Desk, desktop PC, this machine, online · GitHub Dark");
+    expect(local.getAttribute("aria-label")).toBe("Desk, desktop PC, this machine, online");
     expect(local.textContent).toContain("this");
+    expect(local.textContent).not.toContain("GitHub Dark");
     expect(items[2].textContent).toContain("Air");
 
     expect(document.activeElement).toBe(local);

@@ -24,8 +24,12 @@ use tokio::sync::{watch, OnceCell};
 pub mod authority;
 pub mod presence;
 pub mod reconcile;
+pub mod remove;
 pub mod tailnet;
 pub use authority::{mesh_state, AccountAuthority};
+pub use remove::{
+    AccountMeshRemoveOutcome, AmbiguousMachineMatch, RemoveTargetError, RemovedResultView,
+};
 
 #[cfg(test)]
 pub mod tests;
@@ -329,6 +333,10 @@ pub trait NeighborsExt {
         &self,
         target: MeshTarget,
     ) -> impl std::future::Future<Output = Result<AccountMeshOutcome<RevokedResultView>, String>> + Send;
+    fn account_mesh_remove(
+        &self,
+        machine: String,
+    ) -> impl std::future::Future<Output = Result<AccountMeshRemoveOutcome, String>> + Send;
     fn account_mesh_session_revoke(
         &self,
         installation_id: Option<String>,
@@ -628,12 +636,114 @@ impl NeighborsExt for ServiceContext {
         target: MeshTarget,
     ) -> Result<AccountMeshOutcome<RevokedResultView>, String> {
         let service = self.account_mesh().await?;
+        let installation_id = target.installation_id.clone();
         let result = service
             .mesh
             .revoke(target)
             .await
             .map(RevokedResultView::from);
+        if result.is_ok() {
+            if let Some(mesh) = self.try_ext::<crate::MeshStateHandle>() {
+                mesh.lock().remove_account_installation(&installation_id);
+            }
+        }
         Ok(AccountMeshOutcome::of(result, None))
+    }
+
+    async fn account_mesh_remove(
+        &self,
+        machine: String,
+    ) -> Result<AccountMeshRemoveOutcome, String> {
+        let service = self.account_mesh().await?;
+        let local_installation_id = service.installation_id.clone();
+        let (local_instance_id, pair_instances) = self
+            .try_ext::<crate::MeshStateHandle>()
+            .map(|mesh| {
+                let manager = mesh.lock();
+                let pairs = manager
+                    .account_mesh_pairs()
+                    .into_iter()
+                    .filter_map(|pair| pair.installation_id.map(|id| (pair.instance_id, id)))
+                    .collect::<Vec<_>>();
+                (Some(manager.ident.identity.instance_id.clone()), pairs)
+            })
+            .unwrap_or((None, Vec::new()));
+
+        let needs_list = {
+            let state = service.mesh.state();
+            match state.registry.as_ref() {
+                None => true,
+                Some(registry) if registry.cursor.is_some() => true,
+                Some(registry) => matches!(
+                    remove::resolve_remove_target(
+                        &machine,
+                        &local_installation_id,
+                        local_instance_id.as_deref(),
+                        &registry.rows,
+                        &pair_instances,
+                    ),
+                    Err(RemoveTargetError::NotFound(_))
+                ),
+            }
+        };
+        if needs_list {
+            if let Err(failure) = service.mesh.list().await {
+                return Ok(AccountMeshRemoveOutcome::Outcome(AccountMeshOutcome::of(
+                    Err(failure),
+                    None,
+                )));
+            }
+        }
+
+        let rows = service
+            .mesh
+            .state()
+            .registry
+            .as_ref()
+            .map(|registry| registry.rows.clone())
+            .unwrap_or_default();
+        let resolved = match remove::resolve_remove_target(
+            &machine,
+            &local_installation_id,
+            local_instance_id.as_deref(),
+            &rows,
+            &pair_instances,
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => return Ok(AccountMeshRemoveOutcome::Target(error)),
+        };
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let connected_live = self
+            .try_ext::<crate::MeshStateHandle>()
+            .is_some_and(|mesh| {
+                mesh.lock()
+                    .has_healthy_connection(&resolved.row.installation_id)
+            });
+        let sign_out_first = remove::is_row_online(&resolved.row, connected_live, now);
+
+        let result = service
+            .mesh
+            .remove(resolved.target, sign_out_first)
+            .await
+            .map(|removed| RemovedResultView {
+                installation_id: removed.installation_id,
+                display_name: resolved.row.display_name.or(Some(resolved.label)),
+                slot_revision: removed.slot_revision,
+                signed_out: removed.signed_out,
+            });
+        if let Ok(ref removed) = result {
+            if let Some(mesh) = self.try_ext::<crate::MeshStateHandle>() {
+                mesh.lock()
+                    .remove_account_installation(&removed.installation_id);
+            }
+        }
+        Ok(AccountMeshRemoveOutcome::Outcome(AccountMeshOutcome::of(
+            result, None,
+        )))
     }
 
     async fn account_mesh_session_revoke(

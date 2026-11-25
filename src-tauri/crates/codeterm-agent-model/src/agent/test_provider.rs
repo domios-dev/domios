@@ -66,6 +66,7 @@ pub struct MockProvider {
     integration_status: Option<serde_json::Value>,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
+    pre_trust_log: Option<Arc<Mutex<Vec<(String, Option<String>)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
     initial_prompt_resume: bool,
     structured_prompt_launch_log: Option<Arc<Mutex<Vec<AgentLaunchParams>>>>,
@@ -145,6 +146,7 @@ impl MockProvider {
             integration_status: None,
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
+            pre_trust_log: None,
             resume_context_log: None,
             initial_prompt_resume: false,
             structured_prompt_launch_log: None,
@@ -181,6 +183,11 @@ impl MockProvider {
     ) -> Self {
         self.launch_artifact_sweep_log = Some(sweep_log);
         self.launch_artifact_release_log = Some(release_log);
+        self
+    }
+
+    pub fn with_pre_trust_log(mut self, log: Arc<Mutex<Vec<(String, Option<String>)>>>) -> Self {
+        self.pre_trust_log = Some(log);
         self
     }
 
@@ -747,6 +754,21 @@ impl AgentProvider for MockProvider {
     }
     fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
         Ok(self.directory_trusted_path.as_deref() == Some(path))
+    }
+
+    fn pre_trust_directory(
+        &self,
+        path: &str,
+    ) -> Result<codeterm_plugin::provider::PreTrustOutcome, String> {
+        if let Some(log) = &self.pre_trust_log {
+            let account = codeterm_plugin::provider_account::current()
+                .map(|context| context.account().to_owned());
+            log.lock().push((path.to_string(), account));
+            return Ok(codeterm_plugin::provider::PreTrustOutcome::Granted);
+        }
+        Ok(codeterm_plugin::provider::PreTrustOutcome::Skipped(
+            "not supported".into(),
+        ))
     }
 
     fn directory_trust_state(

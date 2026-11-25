@@ -4,7 +4,7 @@ import type { AppearanceCommit } from "./appearanceClient";
 import "../components/Settings/appearanceMotion.css";
 
 type Origin = { x: number; y: number };
-type Motion = Pick<AppearanceCommit, "look" | "proposal" | "undo"> & { origin?: Origin; fadeContent: boolean; drawDoodles?: boolean };
+type Motion = Pick<AppearanceCommit, "proposal" | "undo"> & { look: AppearanceLook; origin?: Origin; drawDoodles?: boolean };
 type ViewTransition = { ready: Promise<void>; finished: Promise<void>; skipTransition(): void };
 type ViewTransitionDocument = Document & { startViewTransition?: (update: () => void) => ViewTransition };
 
@@ -51,27 +51,17 @@ function visibleElement(selector: string): HTMLElement | undefined {
   });
 }
 
-function revealGeometry(origin: Origin, { left, top, width, height }: DOMRect) {
-  const x = origin.x - left;
-  const y = origin.y - top;
-  return {
-    origin: `${x}px ${y}px`,
-    radius: `${Math.hypot(Math.max(Math.abs(x), Math.abs(width - x)), Math.max(Math.abs(y), Math.abs(height - y)))}px`,
-  };
-}
-
 export function animateAppearance(motion: Motion, apply: (sync: boolean) => void): () => void {
   finishAppearanceMotion();
   const documentRoot = document.documentElement;
   const doc: ViewTransitionDocument = document;
   const fade = motion.undo || reducedMotion();
   const card = motion.proposal ? visibleElement(`[data-appearance-proposal="${CSS.escape(motion.proposal)}"]`) : undefined;
-  const base = visibleElement(".ct-appearance-base");
-  const wallpaperSelector = ".ct-chat-wallpaper-stack > .ct-chat-wallpaper";
-  const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
-  const origin = motion.origin ?? center(visibleElement(".ct-chat-surface")?.getBoundingClientRect() ?? viewport);
+  const origin = motion.origin ?? center(visibleElement(".ct-chat-surface")?.getBoundingClientRect() ?? new DOMRect(0, 0, innerWidth, innerHeight));
+  const radius = Math.hypot(Math.max(Math.abs(origin.x), Math.abs(innerWidth - origin.x)),
+    Math.max(Math.abs(origin.y), Math.abs(innerHeight - origin.y)));
   let transition: ViewTransition | undefined;
-  const wallpaper = fade ? undefined : visibleElement(wallpaperSelector);
+  let wallpaper: HTMLElement | undefined;
   let stopDrawing: (() => void) | undefined;
   let chip: Animation | undefined;
   let fallback: Animation | undefined;
@@ -79,12 +69,8 @@ export function animateAppearance(motion: Motion, apply: (sync: boolean) => void
   let revealed = false;
   const clearTransitionStyle = () => {
     delete documentRoot.dataset.appearanceMotion;
-    delete documentRoot.dataset.appearanceContentFade;
     documentRoot.style.removeProperty("--ct-appearance-origin");
     documentRoot.style.removeProperty("--ct-appearance-radius");
-    documentRoot.style.removeProperty("--ct-appearance-chat-origin");
-    documentRoot.style.removeProperty("--ct-appearance-chat-radius");
-    if (wallpaper) delete wallpaper.dataset.appearanceBackdrop;
   };
   const stop = () => {
     if (stopActive !== stop) return;
@@ -101,28 +87,22 @@ export function animateAppearance(motion: Motion, apply: (sync: boolean) => void
 
   if (typeof doc.startViewTransition !== "function") {
     apply(false);
-    fallback = (visibleElement(wallpaperSelector) ?? base)?.animate?.([{ opacity: .8 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
+    fallback = document.body.animate?.([{ opacity: .8 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
     if (fallback) void fallback.finished.then(stop, stop);
     else stop();
     return stop;
   }
 
   documentRoot.dataset.appearanceMotion = fade ? "fade" : "wave";
-  if (motion.fadeContent) documentRoot.dataset.appearanceContentFade = "";
-  const baseReveal = revealGeometry(origin, base?.getBoundingClientRect() ?? viewport);
-  documentRoot.style.setProperty("--ct-appearance-origin", baseReveal.origin);
-  documentRoot.style.setProperty("--ct-appearance-radius", baseReveal.radius);
-  if (wallpaper) {
-    const bounds = wallpaper.getBoundingClientRect();
-    const geometry = revealGeometry(origin, bounds);
-    documentRoot.style.setProperty("--ct-appearance-chat-origin", geometry.origin);
-    documentRoot.style.setProperty("--ct-appearance-chat-radius", geometry.radius);
-    wallpaper.dataset.appearanceBackdrop = "";
-  }
+  documentRoot.style.setProperty("--ct-appearance-origin", `${origin.x}px ${origin.y}px`);
+  documentRoot.style.setProperty("--ct-appearance-radius", `${radius}px`);
   transition = doc.startViewTransition(() => {
     if (cancelled) return;
     apply(true);
-    if (wallpaper && motion.drawDoodles) wallpaper.dataset.drawingDoodles = "";
+    if (!fade && motion.drawDoodles) {
+      wallpaper = visibleElement(".ct-chat-wallpaper-stack > .ct-chat-wallpaper");
+      if (wallpaper) wallpaper.dataset.drawingDoodles = "";
+    }
   });
   void transition.ready.then(() => {
     revealed = true;
@@ -136,7 +116,7 @@ export function animateAppearance(motion: Motion, apply: (sync: boolean) => void
     if (cancelled) return;
     transition = undefined;
     clearTransitionStyle();
-    if (!revealed || !motion.drawDoodles || !wallpaper?.isConnected) { stop(); return; }
+    if (!revealed || !wallpaper?.isConnected) { stop(); return; }
     const bounds = wallpaper.getBoundingClientRect();
     stopDrawing = drawAppearanceDoodles(wallpaper, motion.look, [origin.x - bounds.left, origin.y - bounds.top],
       bounds.width, bounds.height, stop);

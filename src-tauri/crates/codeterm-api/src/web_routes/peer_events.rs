@@ -131,12 +131,13 @@ fn authorized(state: &AppState, caller: Option<&CallerIdentity>, scope: PeerScop
 }
 
 fn topic_scope(event: &SystemEvent) -> Option<PeerScope<'_>> {
-    use PeerOperation::{ReadMux, ReadOutput, ReadPlan, ReadTabs};
+    use PeerOperation::{ReadHost, ReadMux, ReadOutput, ReadPlan, ReadTabs};
     if let Some(tab) = chat_send_status_tab(event) {
         return Some(PeerScope::new(ReadOutput, PeerResource::Tab(tab)));
     }
     match event {
         SystemEvent::MuxStateChanged => Some(PeerScope::new(ReadMux, PeerResource::Host)),
+        SystemEvent::ConfigChanged { .. } => Some(PeerScope::new(ReadHost, PeerResource::Host)),
         SystemEvent::Generic { event_type, .. } if event_type == "mux-state-changed" => {
             Some(PeerScope::new(ReadMux, PeerResource::Host))
         }
@@ -144,6 +145,14 @@ fn topic_scope(event: &SystemEvent) -> Option<PeerScope<'_>> {
             if matches!(event_type.as_str(), "plan-changed" | "plans-loaded") =>
         {
             Some(PeerScope::new(ReadPlan, PeerResource::Host))
+        }
+        SystemEvent::Generic { event_type, .. }
+            if matches!(
+                event_type.as_str(),
+                "config-changed" | "appearance-committed"
+            ) =>
+        {
+            Some(PeerScope::new(ReadHost, PeerResource::Host))
         }
         SystemEvent::Generic { event_type, data } if event_type == "tab-status-changed" => {
             let id = data
@@ -156,7 +165,31 @@ fn topic_scope(event: &SystemEvent) -> Option<PeerScope<'_>> {
     }
 }
 
-pub(super) fn chat_send_status_tab(event: &SystemEvent) -> Option<&str> {
+pub(super) fn peer_rail_frame(event: &SystemEvent) -> Option<(&'static str, serde_json::Value)> {
+    if let Some(tab) = chat_send_status_tab(event) {
+        return Some(("chat-send-status", serde_json::json!({ "tab_id": tab })));
+    }
+    match event {
+        SystemEvent::ConfigChanged { .. } => Some(("config-changed", serde_json::json!({}))),
+        SystemEvent::Generic { event_type, .. } if event_type == "config-changed" => {
+            Some(("config-changed", serde_json::json!({})))
+        }
+        SystemEvent::Generic { event_type, data } if event_type == "appearance-committed" => {
+            Some((
+                "appearance-committed",
+                serde_json::json!({
+                    "event": data.get("event").and_then(serde_json::Value::as_str).unwrap_or(""),
+                    "machine": data.get("machine").and_then(serde_json::Value::as_str).unwrap_or(""),
+                    "proposal": data.get("proposal").and_then(serde_json::Value::as_str),
+                    "undo": data.get("undo").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                }),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn chat_send_status_tab(event: &SystemEvent) -> Option<&str> {
     let SystemEvent::Generic { event_type, data } = event else {
         return None;
     };

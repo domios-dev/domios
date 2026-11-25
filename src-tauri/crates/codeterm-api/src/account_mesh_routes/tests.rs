@@ -22,3 +22,23 @@ fn agent_summary_is_read_only_and_owner_mutations_stay_private() {
     })))
     .is_err());
 }
+
+#[test]
+fn remove_target_errors_map_to_expected_http_statuses() {
+    assert_eq!(
+        remove_target_response(RemoveTargetError::CannotRemoveSelf).status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        remove_target_response(RemoveTargetError::NotFound("ghost".into())).status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        remove_target_response(RemoveTargetError::AlreadyRemoved("old".into())).status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        remove_target_response(RemoveTargetError::Empty).status(),
+        StatusCode::BAD_REQUEST
+    );
+}

@@ -47,7 +47,7 @@ export function MachineManagement({ machines }: { machines: MachinesController }
           <p role="status" className={UI_TEXT.meta}>{row.detail}</p>
           <DuplicateMachineNameHint name={row.name} others={row.sameNameOthers} peerId={row.pairInstanceId ?? undefined} rename={rename} />
           {row.controls.plans && <button type="button" className={ACTION_BTN} onClick={() => machines.openPlans(row.key)}>{plansAction("See plans")}</button>}
-          {(row.canSignOut || row.controls.revoke || row.sameNameOthers) && <MachineSessionControls name={row.name} sameNameOthers={row.sameNameOthers} busy={machines.busy === row.key}
+          {(row.canSignOut || row.controls.revoke || row.sameNameOthers) && <MachineSessionControls name={row.name} online={row.online === true} sameNameOthers={row.sameNameOthers} busy={machines.busy === row.key}
             onSignOut={row.canSignOut ? () => machines.revokeSession(row) : undefined}
             onRemove={row.controls.revoke ? alsoSignOut => machines.revoke(row, row.controls.revoke!, alsoSignOut) : undefined}
             identityPeer={row.online && row.target ? row.pairInstanceId ?? undefined : undefined}

@@ -145,13 +145,17 @@ async fn account_mesh_lease_changed_registry_is_bundled_with_renew() {
 async fn account_mesh_lease_observed_revocation_and_signout_fence_long_membership() {
     let mut harness = leased(86400).await;
     let membership = harness.state().membership.clone().unwrap();
-    let target = MeshTarget {
-        installation_id: membership.verified.installation_id.clone(),
-        key_id: membership.verified.key_id.clone(),
-        key_generation: membership.verified.key_generation,
-        slot_revision: membership.verified.slot_revision,
-    };
-    harness.mesh.revoke(target).await.unwrap();
+    let revoked = registry_successor(&harness, |rows| {
+        rows.iter_mut()
+            .find(|row| row.installation_id == membership.verified.installation_id)
+            .unwrap()
+            .active = false;
+    });
+    harness
+        .mesh
+        .receive_registry_snapshot(&revoked)
+        .await
+        .unwrap();
     assert!(harness.state().current_membership(START).is_none());
     assert_eq!(
         harness

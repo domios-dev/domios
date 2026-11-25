@@ -6,11 +6,20 @@ pub(crate) mod initial_document;
 pub(crate) use failure::FailureCode;
 use failure::FrontendFailure;
 mod main_thread;
+mod navigation_guard;
 mod readiness;
 mod reconnect;
 mod recovery;
 mod surfaces;
 use main_thread::run_on_main_thread;
+use navigation_guard::{
+    evaluate_main_navigation, guarded_shell_document, mark_frontend_active, navigate_main_guarded,
+    GuardedShellDocument, ShellNavigationGuard,
+};
+#[cfg(test)]
+use navigation_guard::{
+    same_document_without_fragment, shell_navigation_decision, ShellNavigationState,
+};
 pub(crate) use reconnect::cancel as cancel_recovery;
 pub(crate) use recovery::retry;
 pub(crate) use surfaces::{reveal_main, show_start_failure};
@@ -52,7 +61,7 @@ use codeterm_frontend_shell::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -103,6 +112,7 @@ struct ShellSupervisor {
     view_bootstrap: parking_lot::Mutex<Option<ShellBootstrap>>,
     initial_document: initial_document::InitialDocument,
     reconnect: reconnect::RecoveryOwner,
+    navigation_guard: ShellNavigationGuard,
 }
 
 struct StartupDiagnosticsPreflight(Option<(u16, PortPreflight)>);
@@ -340,6 +350,7 @@ fn initialize_with_preflight(
         view_bootstrap: Default::default(),
         initial_document: Default::default(),
         reconnect: Default::default(),
+        navigation_guard: Default::default(),
     });
     Ok(())
 }
@@ -373,6 +384,7 @@ pub fn window_destroying(app: &codeterm_client_shell::app_runtime::AppHandle) {
         client.release_view();
     }
     let supervisor = app.state::<ShellSupervisor>();
+    supervisor.navigation_guard.reset();
     let _ = next_generation(&supervisor.navigation);
     let active_view = supervisor.active_view_generation.swap(0, Ordering::AcqRel);
     supervisor.initial_document.retire();
@@ -421,6 +433,7 @@ pub fn create_window(
     let mut window_config = initial_document::window_config(app.config())?;
     configure_window_browser_arguments(app, &mut window_config)?;
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
+    supervisor.navigation_guard.reset();
     // Revealed on the first painted interface (or the recovery page), so startup never shows an empty frame.
     window_config.visible = false;
     let origin = bootstrap.as_ref().map(|bootstrap| {
@@ -515,7 +528,8 @@ pub fn create_window(
                 return false;
             }
             let api_origin = current_api_origin(&shell_app);
-            let allowed = navigation_allowed(
+            let decision = evaluate_main_navigation(
+                &shell_app,
                 url,
                 origin.as_deref(),
                 api_origin.as_deref(),
@@ -523,13 +537,15 @@ pub fn create_window(
                 &fallback,
             );
             log::debug!(
-                "[frontend-shell] navigation allowed={allowed}: {}",
+                "[frontend-shell] navigation allowed={} external={}: {}",
+                decision.allowed,
+                decision.open_externally,
                 navigation_identity(url)
             );
-            if !allowed {
+            if decision.open_externally {
                 open_external_link(url, origin.as_deref(), api_origin.as_deref());
             }
-            allowed
+            decision.allowed
         })
         .build()
     {
@@ -707,10 +723,16 @@ fn navigate_frontend(
     window: &WebviewWindow,
     url: Url,
 ) -> Result<(), String> {
+    let non_brand = unavailable_url()
+        .ok()
+        .is_none_or(|unavailable| guarded_shell_document(&url, &unavailable).is_none());
     let prepared = prepare_root_navigation(app, url)?;
     if let Err(error) = window.navigate(prepared) {
         app.state::<ShellSupervisor>().root_render.retire();
         return Err(error.to_string());
+    }
+    if non_brand {
+        mark_frontend_active(app);
     }
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     crate::host_ports::native_client::startup_reached(

@@ -6,13 +6,15 @@ use super::{
 use axum::{
     extract::State,
     http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Extension, Json, Router,
 };
 use codeterm_account::account_mesh::wire::MeshTarget;
 use codeterm_neighbors_service::prelude::*;
 use codeterm_neighbors_service::service::account_mesh::{
-    AccountMeshOutcome, AccountMeshSnapshot, RevokedResultView, UpdatedResultView,
+    AccountMeshOutcome, AccountMeshRemoveOutcome, AccountMeshSnapshot, RemoveTargetError,
+    RevokedResultView, UpdatedResultView,
 };
 use codeterm_service_core::mesh::machine_identity::MachineIdentity;
 use serde::Deserialize;
@@ -31,6 +33,7 @@ pub fn router() -> Router<AppState> {
             get(machine_identity).post(set_machine_identity),
         )
         .route("/api/account/mesh/revoke", post(revoke))
+        .route("/api/account/mesh/remove", post(remove))
         .route("/api/account/mesh/session-revoke", post(revoke_session))
         .route(
             "/api/account/mesh/limit-notice/ack",
@@ -190,6 +193,49 @@ pub async fn revoke(
             .await
             .map_err(unavailable)?,
     ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Remove {
+    machine: String,
+}
+
+fn remove_target_response(error: RemoveTargetError) -> Response {
+    let status = match &error {
+        RemoveTargetError::Empty => StatusCode::BAD_REQUEST,
+        RemoveTargetError::CannotRemoveSelf => StatusCode::FORBIDDEN,
+        RemoveTargetError::NotFound(_) => StatusCode::NOT_FOUND,
+        RemoveTargetError::AlreadyRemoved(_) | RemoveTargetError::Ambiguous { .. } => {
+            StatusCode::CONFLICT
+        }
+    };
+    let mut body = serde_json::json!({
+        "code": error.code(),
+        "error": error.message(),
+    });
+    if let RemoveTargetError::Ambiguous { matches, .. } = &error {
+        body["matches"] = serde_json::json!(matches);
+    }
+    (status, Json(body)).into_response()
+}
+
+/// Resolves and removes another machine from the account mesh, signing it out first when online.
+pub async fn remove(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(input): Json<Remove>,
+) -> Result<Response, Error> {
+    admit(caller.as_ref())?;
+    match state
+        .svc
+        .account_mesh_remove(input.machine)
+        .await
+        .map_err(unavailable)?
+    {
+        AccountMeshRemoveOutcome::Outcome(outcome) => Ok(Json(outcome).into_response()),
+        AccountMeshRemoveOutcome::Target(error) => Ok(remove_target_response(error)),
+    }
 }
 
 #[derive(Deserialize)]

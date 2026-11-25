@@ -275,5 +275,38 @@ fn account_home_secret_scope_survives_promotion_without_exposing_other_roots_or_
     assert!(secret_reference("fixture", reference, Some(&context("a"))).is_none());
 }
 
+#[test]
+fn canonical_access_allows_protected_ancestors_without_opening_protected_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let domios_root = temp.path().join(".domios");
+    let general = domios_root.join("general");
+    let accounts_root = domios_root.join("provider-accounts");
+    let own_home = accounts_root.join("fixture").join("a");
+    let other_home = accounts_root.join("fixture").join("b");
+    let usual = temp.path().join("usual");
+    for dir in [&domios_root, &general, &own_home, &other_home, &usual] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let context = InvocationContext::new(
+        "fixture".into(),
+        "a".into(),
+        BTreeMap::from([(
+            "FIXTURE_HOME".into(),
+            Some(own_home.to_string_lossy().into_owned()),
+        )]),
+        vec![own_home.clone()],
+        vec![usual.clone(), accounts_root.clone()],
+    )
+    .unwrap();
+
+    assert_eq!(context.read_access(&domios_root), Some(false));
+    assert_ne!(context.canonical_access(&domios_root), Some(false));
+    assert_ne!(context.canonical_access(&general), Some(false));
+    assert_eq!(context.canonical_access(&own_home), Some(true));
+    assert_eq!(context.canonical_access(&accounts_root), Some(false));
+    assert_eq!(context.canonical_access(&other_home), Some(false));
+    assert_eq!(context.canonical_access(&usual), Some(false));
+}
+
 #[cfg(any(unix, windows))]
 mod redirected_shared_reads;

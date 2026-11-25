@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback, type KeyboardEvent } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { MessageSquare, Terminal } from "lucide-react";
+import { Segmented, type SegmentedOption } from "../shared/Segmented";
 import { emitTabUiMode, type TabUiMode } from "../../lib/chatUiMode";
 import {
   listenCurrentTabUiMode,
@@ -9,10 +10,10 @@ import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabFieldsEqual, selectTab } from "../../store/multiplexer/selectors";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 
-const options = [
-  { mode: "chat", label: "Chat", Icon: MessageSquare },
-  { mode: "terminal", label: "Terminal", Icon: Terminal },
-] as const;
+const OPTIONS: readonly SegmentedOption<TabUiMode>[] = [
+  { value: "chat", label: "Chat", icon: <MessageSquare size={13} aria-hidden="true" /> },
+  { value: "terminal", label: "Terminal", icon: <Terminal size={13} aria-hidden="true" /> },
+];
 
 export function TabModeSwitch({
   tabId,
@@ -42,49 +43,20 @@ export function TabModeSwitch({
 
   if (!chatPty) return null;
 
-  const select = (next: TabUiMode) => {
-    setMode(next);
-    emitTabUiMode(tabId, next);
-  };
-  const onArrowKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.code)) return;
-    const next = mode === "chat" ? "terminal" : "chat";
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.querySelector<HTMLButtonElement>(`[data-value="${next}"]`)?.focus();
-    select(next);
-  };
-
   return (
-    <div
-      role="radiogroup"
+    <Segmented
+      value={mode}
+      options={OPTIONS}
+      height={26}
+      iconOnly
       aria-label="View"
       data-testid="tab-mode-switch"
       data-tab-id={tabId}
       className="ct-tab-view-switch"
-      onKeyDown={onArrowKey}
-    >
-      {options.map(({ mode: value, label, Icon }) => (
-        <button
-          key={value}
-          type="button"
-          role="radio"
-          aria-label={label}
-          aria-checked={mode === value}
-          tabIndex={mode === value ? 0 : -1}
-          title={label}
-          data-value={value}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={(event) => {
-            const button = event.currentTarget;
-            if (button.parentElement?.contains(document.activeElement)) button.focus();
-            select(value);
-          }}
-        >
-          <Icon size={13} aria-hidden="true" />
-        </button>
-      ))}
-    </div>
+      onChange={(next) => {
+        setMode(next);
+        emitTabUiMode(tabId, next);
+      }}
+    />
   );
 }

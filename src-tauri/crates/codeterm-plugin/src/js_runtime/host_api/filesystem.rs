@@ -43,12 +43,24 @@ impl PluginSandbox {
     }
 
     pub(in crate::js_runtime) fn can_read(&self, path: &str) -> bool {
+        self.can_read_with(path, |context, path| context.read_access(path))
+    }
+
+    pub(in crate::js_runtime) fn can_canonicalize(&self, path: &str) -> bool {
+        self.can_read_with(path, |context, path| context.canonical_access(path))
+    }
+
+    fn can_read_with(
+        &self,
+        path: &str,
+        account_check: impl FnOnce(&crate::provider_account::InvocationContext, &Path) -> Option<bool>,
+    ) -> bool {
         if self.is_denied_read(path) {
             self.record_denial();
             return false;
         }
         let account_access = crate::provider_account::current()
-            .and_then(|context| context.read_access(Path::new(path)));
+            .and_then(|context| account_check(&context, Path::new(path)));
         if account_access == Some(false) {
             self.record_denial();
             return false;

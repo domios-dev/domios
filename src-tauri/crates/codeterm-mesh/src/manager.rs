@@ -284,6 +284,7 @@ impl MeshManager {
         let mut installations: std::collections::BTreeMap<_, _> = self
             .account_installations
             .iter()
+            .filter(|row| row.active)
             .cloned()
             .map(|row| (row.installation_id.clone(), row))
             .collect();
@@ -337,6 +338,19 @@ impl MeshManager {
         self.peer_grant_epochs.remove(instance_id);
         self.protocol_refusals.forget(instance_id);
         self.bump_gate();
+    }
+
+    pub fn remove_account_installation(&mut self, installation_id: &str) {
+        let matching: Vec<String> = self
+            .links
+            .links
+            .iter()
+            .filter(|(_, record)| record.installation_id() == Some(installation_id))
+            .map(|(instance_id, _)| instance_id.clone())
+            .collect();
+        for instance_id in matching {
+            self.remove_account_peer(&instance_id);
+        }
     }
 
     // ── Sync & transport ────────────────────────────────────────────

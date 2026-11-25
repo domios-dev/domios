@@ -244,6 +244,7 @@ impl FakeRegistry {
         let account = accounts.get_mut(uid).expect("account");
         account.inactive = true;
         account.revoked_generation = account.key_generation;
+        self.revision.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn presence(&self, uid: &str) -> RegistryPresence {

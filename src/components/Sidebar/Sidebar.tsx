@@ -38,7 +38,12 @@ import { aggregateTabStatuses, countWorkingTabs } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { readTeamClosePlanMetadata } from "./teamClosePlanRead";
 import { renamePlan } from "../Canvas/plansApi";
-import { isWorkspaceTabActive } from "./sidebarSelection";
+import {
+  isGeneralSectionOwningTab,
+  isWorkspaceTabActive,
+  resolveSidebarActiveTabId,
+} from "./sidebarSelection";
+import { useSidebarMachineSelection } from "./useSidebarMachineSelection";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import { SidebarScrollLayout } from "./SidebarScrollLayout";
@@ -139,7 +144,7 @@ export const Sidebar = memo(function Sidebar({
     spawnAgentTab,
     upsertToast,
   } = useMultiplexer();
-  const { generals, peerWorkspaces, ready: pairedInventoryReady = true } = usePairedWorkspaceInventory();
+  const { generals, browse, peerWorkspaces, ready: pairedInventoryReady = true } = usePairedWorkspaceInventory();
   const restoring = restoringWorkspace || !pairedInventoryReady;
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
   const machineFilter = useSidebarMachineFilter();
@@ -508,8 +513,18 @@ export const Sidebar = memo(function Sidebar({
     return workspaceId ? sidebarWorkspaceKey(null, workspaceId) : null;
   });
   const activeWorkspaceId = state.active_workspace_id;
-  const activeTabId = isWorkspaceMode && !workspaceCanvasActive && activeWorkspaceId
-    ? state.activeTabIds[activeWorkspaceId] ?? null : null;
+  const activeTabId = resolveSidebarActiveTabId(isWorkspaceMode, workspaceCanvasActive, activeWorkspaceId, state.activeTabIds);
+  const currentWorkspaceTabId = activeWorkspaceId ? state.activeTabIds[activeWorkspaceId] ?? null : null;
+  const observedGeneralViewerIds = useMemo(() => new Set(
+    generalWorkspace ? observedGeneralViewers(generals, state.tabs, generalWorkspace.id).map(({ session }) => session.viewerId) : [],
+  ), [generals, state.tabs, generalWorkspace]);
+  const observedSelectedViewerId = isGeneralSectionOwningTab(
+    activeWorkspaceId,
+    generalWorkspace?.id ?? null,
+    activeTabId,
+    state.tabs,
+    observedGeneralViewerIds,
+  ) ? null : activeTabId;
   const activeOrdinaryWorkspaceId = ordinaryWorkspaces.find(workspace => workspace.id === activeWorkspaceId)?.id;
   useEffect(() => {
     if (activeOrdinaryWorkspaceId) setPreferredWorkspaceKey(sidebarWorkspaceKey(null, activeOrdinaryWorkspaceId));
@@ -535,6 +550,21 @@ export const Sidebar = memo(function Sidebar({
   const observedWorkspace = workspaceView.selected?.observed;
   const selectedWorkspaceKeyRef = useRef(selectedWorkspaceKey);
   selectedWorkspaceKeyRef.current = selectedWorkspaceKey;
+  const { cancelPendingSwitch } = useSidebarMachineSelection({
+    machineFilter,
+    activeWorkspaceId,
+    activeTabId: currentWorkspaceTabId,
+    activeOrdinaryWorkspaceId,
+    generalWorkspaceId: generalWorkspace?.id ?? null,
+    workspaces: state.workspaces,
+    tabs: state.tabs,
+    generals,
+    peerWorkspaces: peerWorkspaces ?? [],
+    browse,
+    selectedWorkspaceKey,
+    setPreferredWorkspaceKey,
+    setActiveTab,
+  });
   const generalByPeerId = useMemo(() => new Map(generals.map(general => [general.peerId, general])), [generals]);
   const machineNameCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -679,7 +709,7 @@ export const Sidebar = memo(function Sidebar({
   }, [remoteWorkspaceClose.pending, remoteWorkspaceClose.cancel, remoteWorkspaceClose.confirm, selectedWorkspaceKey, upsertToast]);
   const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
     activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },
-    activateTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
+    activateTab: (workspaceId, tabId) => { cancelPendingSwitch(); setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
     closeTab: animatedCloseTab,
     renameTab,
     renameWorkspace,
@@ -695,7 +725,7 @@ export const Sidebar = memo(function Sidebar({
     renameTeam: teamActions?.onRenameTeam,
     addTeamMember: teamActions?.onAddTeamMember,
     closeTeam: teamActions?.onCloseTeam ? requestTeamClose : undefined,
-  }), [setActiveWorkspace, onNavigateToTab, setActiveTab, animatedCloseTab, renameTab, renameWorkspace, requestSelectedWorkspaceClose,
+  }), [setActiveWorkspace, onNavigateToTab, cancelPendingSwitch, setActiveTab, animatedCloseTab, renameTab, renameWorkspace, requestSelectedWorkspaceClose,
     createTab, handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
     teamActions?.onRenameTeam, teamActions?.onAddTeamMember, teamActions?.onCloseTeam, requestTeamClose]);
   const dndHandlers = useMemo(
@@ -736,7 +766,7 @@ export const Sidebar = memo(function Sidebar({
         label: workspace.name,
         wholeWorkspace: true,
         tabs: visible.map(({ viewerId, tab }) => state.tabs[viewerId] ?? { ...tab, id: viewerId }),
-        activeTabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,
+        activeTabId: observedSelectedViewerId,
         observed: new Map(visible.map(({ viewerId, status, peerId: sourcePeer }) => {
           const machine = generals.find(peer => peer.peerId === (sourcePeer ?? peerId));
           return [viewerId, {
@@ -750,7 +780,7 @@ export const Sidebar = memo(function Sidebar({
         (tab) => anchorsTeam(tab) || Boolean(tab.remote_peer_id)), wholeWorkspace: true });
     }
     return groups;
-  }, [generalWorkspace, generals, observedWorkspace, isCompact, isWorkspaceMode, selectedWorkspace, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
+  }, [generalWorkspace, generals, observedWorkspace, observedSelectedViewerId, isCompact, isWorkspaceMode, selectedWorkspace, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
 
   return (
     <FirstRunControls locked={firstRunActive}>
@@ -786,6 +816,7 @@ export const Sidebar = memo(function Sidebar({
                   tabStatuses={state.tabStatuses}
                   touchMode={touchMode}
                   onActivate={(workspaceId, tabId) => {
+                    cancelPendingSwitch();
                     setActiveTab(workspaceId, tabId);
                     onNavigateToTab?.();
                   }}
@@ -861,9 +892,10 @@ export const Sidebar = memo(function Sidebar({
                           if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
                         }}
                         onCloseViewer={(tabId, title, ownerWorkspaceId) => animatedCloseTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
-                        selectedViewerId={state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null}
+                        selectedViewerId={observedSelectedViewerId}
                         onSelectViewer={tabId => {
-                          setActiveTab(generalWorkspace?.id ?? "", tabId);
+                          cancelPendingSwitch();
+                          setActiveTab(generalWorkspace?.id ?? activeWorkspaceId ?? "", tabId);
                           onNavigateToTab?.();
                         }}
                       />}
