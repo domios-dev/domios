@@ -42,6 +42,10 @@ fn browser_host_open_plan_switches_between_named_profiles_and_off_attach() {
         plan_open(Some((&work, true)), &named("home")),
         OpenPlan::Relaunch
     );
+    assert_eq!(
+        plan_open(Some((&work, true)), &named("Work")),
+        OpenPlan::Relaunch
+    );
     let attached = BrowserMode::Attached {
         http_base: "http://127.0.0.1:9223".into(),
     };

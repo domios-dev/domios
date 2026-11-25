@@ -5,6 +5,7 @@ mod blueprint_read;
 mod calls;
 mod completion;
 mod diagnostics;
+mod dialog;
 mod domios_instance;
 mod drag;
 mod grab;
@@ -132,6 +133,7 @@ pub struct BrowserRuntime {
     layout: ProfileLayout,
     swept: Arc<BrowserSweep>,
     shared: Arc<PageShared>,
+    launch_gate: tokio::sync::Mutex<()>,
     profile_request: Mutex<String>,
     resume_profile: tokio::sync::Mutex<Option<String>>,
     resume_url: Mutex<Option<String>>,
@@ -165,7 +167,7 @@ impl BrowserRuntime {
                 .and_then(resume::resumable_profile),
         };
         log::debug!("[browser] owner scope {owner_scope}, default temporary session");
-        let shared = PageShared::new(owner);
+        let shared = PageShared::new_with_profile(owner, resume.profile.as_deref());
         shared.seed_resume(resume.clone());
         Self {
             layout: config.layout.clone(),
@@ -173,6 +175,7 @@ impl BrowserRuntime {
             viewport: tokio::sync::Mutex::new(viewport::ViewportOwner::default()),
             swept,
             shared,
+            launch_gate: tokio::sync::Mutex::new(()),
             profile_request: Mutex::new(String::new()),
             resume_profile: tokio::sync::Mutex::new(resume.profile),
             resume_url: Mutex::new(resume.url),
@@ -193,11 +196,29 @@ impl BrowserRuntime {
         let Some(wanted) = pending.take() else {
             return;
         };
-        let available = self.host.profiles().await;
-        match resume::restored_profile(&wanted, &available) {
-            Some(name) => *self.profile_request.lock() = name,
+        let layout = self.layout.clone();
+        let wanted_lookup = wanted.clone();
+        let resolved = tokio::task::spawn_blocking(move || {
+            resume::restored_profile_in_layout(&layout, &wanted_lookup)
+        })
+        .await
+        .ok()
+        .flatten();
+        match resolved {
+            Some(name) => {
+                *self.profile_request.lock() = name.clone();
+                self.shared.update(|state| state.profile = name.clone());
+                self.shared.remember_profile(&name);
+            }
             None => {
-                self.shared.remember_profile(&self.profile_request.lock());
+                let fallback = self.profile_request.lock().clone();
+                let label = if fallback.is_empty() {
+                    CLEAN_PROFILE.to_string()
+                } else {
+                    fallback
+                };
+                self.shared.update(|state| state.profile = label.clone());
+                self.shared.remember_profile(&label);
                 self.shared.notice(SurfaceNotice::info(format!(
                     "Profile {wanted} no longer exists; reopened with a temporary session."
                 )));
@@ -235,43 +256,57 @@ impl BrowserRuntime {
         &self,
         exclusive_profile: Option<&str>,
     ) -> Result<PageChannel, String> {
-        self.viewport.lock().await.start(self.host.viewport());
-        sweep_browsers(&self.swept, self.layout.clone()).await;
-        self.apply_resume_profile().await;
-        let viewport = self.host.viewport();
-        let options = OpenOptions {
-            profile: exclusive_profile
-                .map(str::to_owned)
-                .unwrap_or_else(|| self.profile_request.lock().clone()),
-            width: viewport.width as f64,
-            height: viewport.height as f64,
-            dpr: viewport.dpr,
+        let page = {
+            let _launch = self.launch_gate.lock().await;
+            self.viewport.lock().await.start(self.host.viewport());
+            sweep_browsers(&self.swept, self.layout.clone()).await;
+            self.apply_resume_profile().await;
+            let viewport = self.host.viewport();
+            let options = OpenOptions {
+                profile: exclusive_profile
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| self.profile_request.lock().clone()),
+                width: viewport.width as f64,
+                height: viewport.height as f64,
+                dpr: viewport.dpr,
+            };
+            let opened = match exclusive_profile {
+                Some(_) => self.host.open_exclusive(options).await?,
+                None => self.host.open(options).await?,
+            };
+            let page = self.host.page().ok_or("the browser has no page")?;
+            if !opened.reused {
+                self.shared.unbind();
+                let profiles = self.host.profiles().await;
+                self.shared.update(|state| {
+                    state.profile = opened.profile.clone();
+                    state.profiles = profiles;
+                });
+                self.shared.remember_profile(&opened.profile);
+            }
+            self.shared.bind(&page);
+            self.ensure_page_domains(&page).await?;
+            page
         };
-        let opened = match exclusive_profile {
-            Some(_) => self.host.open_exclusive(options).await?,
-            None => self.host.open(options).await?,
-        };
-        let page = self.host.page().ok_or("the browser has no page")?;
-        if !opened.reused {
-            self.shared.unbind();
-            let profiles = self.host.profiles().await;
-            self.shared.update(|state| {
-                state.profile = opened.profile.clone();
-                state.profiles = profiles;
-            });
-            self.shared.remember_profile(&opened.profile);
+        self.apply_resume_url(&page).await;
+        Ok(page)
+    }
+
+    /// Cancellation-safe domain setup: commits `domains_ready` only after all three acks succeed.
+    pub(super) async fn ensure_page_domains(&self, page: &PageChannel) -> Result<(), String> {
+        if !self.shared.needs_domains_setup(page) {
+            return Ok(());
         }
-        self.shared.bind(&page);
-        self.send(&page, "Runtime.enable", json!({})).await?;
-        self.install_overlay(&page).await?;
+        self.send(page, "Runtime.enable", json!({})).await?;
+        self.install_overlay(page).await?;
         self.send(
-            &page,
+            page,
             "Network.enable",
             json!({"maxTotalBufferSize":0,"maxResourceBufferSize":0,"maxPostDataSize":0}),
         )
         .await?;
-        self.apply_resume_url(&page).await;
-        Ok(page)
+        self.shared.mark_domains_ready(page);
+        Ok(())
     }
 
     async fn send(&self, page: &PageChannel, method: &str, params: Value) -> Result<Value, String> {
@@ -330,26 +365,7 @@ impl BrowserRuntime {
         action: NavAction,
         target: Option<&str>,
     ) -> Result<String, String> {
-        let _guard = self.action_gate.lock().await;
-        let (method, params) = match action {
-            NavAction::Reload => ("Page.reload", json!({})),
-            NavAction::Goto => {
-                let href = input::goto_href(target.unwrap_or(""))?;
-                ("Page.navigate", json!({"url":href}))
-            }
-            NavAction::Back | NavAction::Forward => {
-                let history = self
-                    .send(page, "Page.getNavigationHistory", json!({}))
-                    .await?;
-                match input::history_entry(&history, action == NavAction::Back) {
-                    Some(entry_id) => ("Page.navigateToHistoryEntry", json!({"entryId":entry_id})),
-                    None => return Ok("no history entry; no navigation performed".into()),
-                }
-            }
-        };
-        self.complete_action(page, true, self.send(page, method, params))
-            .await
-            .map(|(_, completion)| completion)
+        self.navigate_for_agent(page, action, target).await
     }
 
     async fn screenshot_base64(
@@ -400,24 +416,28 @@ impl BrowserRuntime {
     }
 
     /// `""` or `"clean"` is the throwaway profile; a named one keeps logins across restarts.
-    async fn use_profile(&self, raw: &str) -> Result<(), String> {
+    async fn use_profile(&self, raw: &str, check_dialog: bool) -> Result<(), String> {
+        if check_dialog {
+            self.shared.check_page_verb()?;
+        }
         sweep_browsers(&self.swept, self.layout.clone()).await;
         let wanted = if raw.trim().is_empty() || raw.trim().eq_ignore_ascii_case(CLEAN_PROFILE) {
             String::new()
         } else {
-            codeterm_browser::profile::validate_named_profile(raw)?.to_string()
+            let layout = self.layout.clone();
+            let requested = codeterm_browser::profile::validate_named_profile(raw)?.to_string();
+            tokio::task::spawn_blocking(move || layout.resolve_named(&requested))
+                .await
+                .map_err(|error| error.to_string())??
         };
         let label = if wanted.is_empty() {
             "a clean profile".to_string()
         } else {
             format!("profile {wanted}")
         };
-        if !wanted.is_empty() {
-            let layout = self.layout.clone();
-            let name = wanted.clone();
-            tokio::task::spawn_blocking(move || layout.require_named(&name))
-                .await
-                .map_err(|error| error.to_string())??;
+        let _launch = self.launch_gate.lock().await;
+        if check_dialog {
+            self.shared.check_page_verb()?;
         }
         self.shared
             .notice(SurfaceNotice::info(format!("Switching to {label}…")));
@@ -589,6 +609,17 @@ impl SurfaceRuntime for BrowserRuntime {
         self.shared.unbind();
         codeterm_browser::process::termination::close_result(self.host.close().await)
             .map_err(super::model::SurfaceError::TerminationFailed)
+    }
+
+    async fn agent_close(&self) -> Result<(), super::model::SurfaceError> {
+        self.shared
+            .check_page_verb()
+            .map_err(super::model::SurfaceError::Blocked)?;
+        let _launch = self.launch_gate.lock().await;
+        self.shared
+            .check_page_verb()
+            .map_err(super::model::SurfaceError::Blocked)?;
+        self.close().await
     }
 
     async fn shutdown(&self, graceful: Duration) -> bool {

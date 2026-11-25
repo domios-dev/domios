@@ -5,7 +5,7 @@ import { classifyAttachmentPaths, useWebFileDrop } from "./composerFiles";
 import type { InlineAttachment, InlineAttachmentSink } from "./useComposerCapsules";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { needsAsyncClipboardImageRead } from "./composerAttachmentPlan";
-import { extractTransferFiles } from "./composerTransferModel";
+import { clipboardFileName, extractTransferFiles } from "./composerTransferModel";
 
 const IMAGE_EXT: Record<string, string> = {
   "image/png": "png",
@@ -97,29 +97,37 @@ export function useAttachments({
     handledPastes.add(e);
     const cd = e.clipboardData;
     const files = cd ? extractTransferFiles(cd) : [];
+    const transferTypes = files.length === 1
+      ? [...Array.from(cd?.types ?? []), ...Array.from(cd?.items ?? [], item => item.type)]
+      : [];
+    const names = files.map(file => clipboardFileName(file, transferTypes));
     if (files.length) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      await uploadFiles(files);
+    }
+
+    if (!IS_WEB && (files.length === 0 || files.some((file, index) => file.name !== names[index]))) {
+      try {
+        const paths = await invoke<string[]>("read_clipboard_files");
+        if (paths && paths.length > 0) {
+          e.preventDefault();
+          try {
+            await deliverPaths(await materializeDroppedPaths(paths), paths);
+          } catch (error) {
+            onError(error instanceof Error ? error.message : String(error));
+          }
+          return;
+        }
+      } catch {
+        // Continue with the event payload when the native pasteboard is unavailable.
+      }
+    }
+
+    if (files.length) {
+      await Promise.all(files.map((file, index) => upload(file, names[index])));
       return;
     }
     if (IS_WEB) return;
-
-    // 1. Native OS file paths (Explorer/Finder copy) — Tauri only; throws in web.
-    try {
-      const paths = await invoke<string[]>("read_clipboard_files");
-      if (paths && paths.length > 0) {
-        e.preventDefault();
-        try {
-          await deliverPaths(await materializeDroppedPaths(paths), paths);
-        } catch (error) {
-          onError(error instanceof Error ? error.message : String(error));
-        }
-        return;
-      }
-    } catch {
-      // Not in Tauri, or no files on the clipboard — continue.
-    }
 
     const image = needsAsyncClipboardImageRead(Array.from(cd?.types ?? []), false)
       ? await readClipboardImage(null)
@@ -132,7 +140,7 @@ export function useAttachments({
         onError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [deliverPaths, onError, uploadFiles, upload, enabled]);
+  }, [deliverPaths, onError, upload, enabled]);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {

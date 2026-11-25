@@ -378,7 +378,7 @@ pub fn run_introduce_topic(
     print_or_exit(result);
 }
 
-fn parse_sources(arg: &str) -> Result<Vec<String>, String> {
+pub(crate) fn parse_sources(arg: &str) -> Result<Vec<String>, String> {
     if let Some(path) = arg.strip_prefix('@') {
         let body = std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", path, e))?;
         Ok(body
@@ -444,7 +444,7 @@ pub fn try_dispatch_local(action: &MemGraphAction) -> Option<()> {
             rel_anchor,
             reason,
             db_path,
-        } => run_introduce_topic(
+        } if db_path.is_some() => run_introduce_topic(
             topic_id,
             entity_type,
             sources,

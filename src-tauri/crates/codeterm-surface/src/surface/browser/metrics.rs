@@ -211,17 +211,18 @@ impl BrowserRuntime {
                 metrics,
             )
         } else if let Some(viewport) = options.viewport.filter(|_| options.restore) {
-            if !options.include_overlay {
-                self.overlay_capture(&page, true).await?;
-            }
+            let guard = if !options.include_overlay {
+                Some(self.suppress_overlay(&page).await?)
+            } else {
+                None
+            };
             let shot = self
                 .host
                 .capture_with_viewport(viewport, options.full)
                 .await;
-            let restored = if !options.include_overlay {
-                self.overlay_capture(&page, false).await
-            } else {
-                Ok(())
+            let restored = match guard {
+                Some(guard) => guard.restore(self).await,
+                None => Ok(()),
             };
             let shot = shot?;
             restored?;

@@ -210,3 +210,25 @@ fn runtime_memory_workers_keep_exact_report_identity_and_environment() {
         );
     }
 }
+
+#[test]
+fn rem_worker_uses_native_shell_and_host_start_time() {
+    let chatbackends = ChatBackendRegistry::new();
+    let start = chrono::DateTime::parse_from_rfc3339("2026-11-24T05:26:54Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let mut args = inputs("pty-agent");
+    args.intent = "dreaming:rem".into();
+    args.task = codeterm_mem::dreaming::render_rem_prompt(start, "opaque_notify_fragment_519");
+    let spec = build_mem_worker_spawn_spec(&chatbackends, worker_cwd(), args).unwrap();
+    assert!(spec.shell.is_none());
+    let TabCommand::Agent(agent) = spec.command else {
+        panic!("REM requires a worker agent")
+    };
+    assert!(agent
+        .task
+        .as_deref()
+        .unwrap()
+        .contains("2026-11-24T05:26:54Z"));
+    assert_eq!(agent.worker_id.as_deref(), Some("wk-42"));
+}

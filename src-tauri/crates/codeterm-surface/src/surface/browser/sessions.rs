@@ -58,6 +58,7 @@ pub(super) fn parse(args: &[String]) -> Result<SessionArgs, String> {
 
 impl BrowserRuntime {
     pub(super) async fn open_session(&self, args: &[String]) -> Result<String, String> {
+        self.shared.check_page_verb()?;
         let args = parse(args)?;
         super::sweep_browsers(&self.swept, self.layout.clone()).await;
         if let Some(build) = &args.build {
@@ -71,29 +72,33 @@ impl BrowserRuntime {
         })
         .await
         .map_err(|_| "profile_task_failed")??;
-        self.cancel_resume().await;
-        let viewport = self.host.viewport();
-        let opened = self
-            .host
-            .open(codeterm_browser::OpenOptions {
-                profile: args.profile.clone(),
-                width: viewport.width as f64,
-                height: viewport.height as f64,
-                dpr: viewport.dpr,
-            })
-            .await?;
-        *self.profile_request.lock() = args.profile.clone();
-        if !opened.reused {
-            self.shared.unbind();
+        {
+            let _launch = self.launch_gate.lock().await;
+            self.shared.check_page_verb()?;
+            self.cancel_resume().await;
+            let viewport = self.host.viewport();
+            let opened = self
+                .host
+                .open(codeterm_browser::OpenOptions {
+                    profile: args.profile.clone(),
+                    width: viewport.width as f64,
+                    height: viewport.height as f64,
+                    dpr: viewport.dpr,
+                })
+                .await?;
+            *self.profile_request.lock() = args.profile.clone();
+            if !opened.reused {
+                self.shared.unbind();
+            }
+            let page = self.host.page().ok_or("browser has no page")?;
+            self.shared.bind(&page);
+            self.shared
+                .update(|state| state.profile = opened.profile.clone());
+            self.shared
+                .remember_profile(if args.ephemeral { "" } else { &opened.profile });
         }
-        let page = self.host.page().ok_or("browser has no page")?;
-        self.shared.bind(&page);
-        self.shared
-            .update(|state| state.profile = opened.profile.clone());
-        self.shared
-            .remember_profile(if args.ephemeral { "" } else { &opened.profile });
         self.refresh_profiles().await;
-        let page = self.ensure_page().await?;
+        let page = self.ensure_page_for_agent().await?;
         self.goto(&page, &args.ui_url()).await?;
         Ok("opened origin-bound session; snapshot to inspect readiness".into())
     }
@@ -107,7 +112,7 @@ impl BrowserRuntime {
         if *self.profile_request.lock() != options.profile {
             return Err("profile_mismatch: reopen the requested session".into());
         }
-        let page = self.ensure_page().await?;
+        let page = self.ensure_page_for_agent().await?;
         self.connect_token(&page, &options.origin, token).await
     }
 

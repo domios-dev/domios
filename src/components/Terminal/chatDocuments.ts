@@ -46,7 +46,7 @@ function attachmentsOf({ content, attachmentNames }: TranscriptMessage): Documen
     const { attachment } = segment;
     if (attachment.previewPath) return [{ kind: "image", path: attachment.path, previewPath: attachment.previewPath, name: attachment.label }];
     const kind = attachmentPreviewKind(attachment);
-    return kind ? [{ kind, path: attachment.path, name: kind === "image" ? attachment.label : undefined }] : [];
+    return kind ? [{ kind, path: attachment.path, name: kind === "image" || attachment.kind === "file" ? attachment.label : undefined }] : [];
   });
 }
 

@@ -1,4 +1,5 @@
 [
+  "src/components/Settings/SettingsPanel.secrets.test.tsx",
   "src/hooks/useAccountSelectors.test.tsx",
   "src/hooks/useAccountTransition.test.tsx",
   "src/components/Terminal/AccountSelectors.test.tsx",

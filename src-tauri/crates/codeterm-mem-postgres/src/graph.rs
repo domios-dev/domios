@@ -60,14 +60,14 @@ pub(crate) fn insert_in(
     tx: &mut Transaction<'_>,
     relation: &Relation,
     replace: bool,
-) -> StoreResult<()> {
+) -> StoreResult<bool> {
     if replace {
         tx.execute("UPDATE relations SET valid_to=$1 WHERE from_id=$2 AND relation_type=$3 AND to_id=$4 AND valid_to IS NULL",
             &[&items::now(),&relation.from_id,&relation.relation_type,&relation.to_id]).map_err(db_error)?;
     }
-    tx.execute("INSERT INTO relations(from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at,reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",
+    let inserted = tx.execute("INSERT INTO relations(from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at,reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",
         &[&relation.from_id,&relation.relation_type,&relation.to_id,&relation.scope,&relation.valid_from,&relation.valid_to,&relation.confidence,&relation.properties.to_string(),&items::now(),&relation.reason]).map_err(db_error)?;
-    Ok(())
+    Ok(inserted > 0)
 }
 
 pub(crate) fn related_in(
@@ -254,4 +254,78 @@ pub(crate) fn alias_in(tx: &mut Transaction<'_>, alias: &str, canonical: &str) -
         rewired_from + rewired_to + dropped,
         serde_json::json!({"op":"add_alias","alias_id":alias,"canonical_id":canonical,"rewired_from":rewired_from,"rewired_to":rewired_to,"dropped_duplicate_relations":dropped}),
     )
+}
+
+pub(crate) fn introduce_topic(
+    tx: &mut Transaction<'_>,
+    options: &codeterm_mem_store::graph::IntroduceTopicOptions,
+) -> StoreResult<codeterm_mem_store::graph::IntroduceTopicReport> {
+    let existing = tx
+        .query_opt(
+            "SELECT entity_type FROM entities WHERE id=$1",
+            &[&options.topic_id],
+        )
+        .map_err(db_error)?;
+    if existing
+        .as_ref()
+        .is_some_and(|row| row.get::<_, String>(0) != options.entity_type)
+    {
+        return Err("topic exists with a different entity type".into());
+    }
+    let topic_created = existing.is_none();
+    entity_in(
+        tx,
+        &Entity {
+            id: options.topic_id.clone(),
+            entity_type: options.entity_type.clone(),
+            scope: "global".into(),
+            properties: serde_json::json!({}),
+        },
+    )?;
+    let scope = tx
+        .query_opt("SELECT scope FROM entities WHERE id=$1", &[&options.anchor])
+        .map_err(db_error)?
+        .map(|row| row.get::<_, String>(0))
+        .unwrap_or_else(|| "global".into());
+    let now = items::now();
+    let reason = options
+        .reason
+        .clone()
+        .unwrap_or_else(|| format!("introduce-topic-{}", options.topic_id));
+    let mut edges_invalidated = 0;
+    let mut created_relations = Vec::new();
+    for source in &options.sources {
+        edges_invalidated += tx.execute("UPDATE relations SET valid_to=$1,reason=$2 WHERE from_id=$3 AND to_id=$4 AND valid_to IS NULL", &[&now,&reason,source,&options.anchor]).map_err(db_error)?;
+        let count = tx.execute("INSERT INTO relations(from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at,reason) VALUES ($1,$2,$3,$4,$5,NULL,1.0,'{}',$5,$6) ON CONFLICT DO NOTHING", &[source,&options.rel_source,&options.topic_id,&scope,&now,&reason]).map_err(db_error)?;
+        if count > 0 {
+            created_relations.push((
+                source.clone(),
+                options.topic_id.clone(),
+                options.rel_source.clone(),
+            ));
+        }
+    }
+    let exists = tx
+        .query_opt(
+            "SELECT id FROM relations WHERE from_id=$1 AND to_id=$2 AND valid_to IS NULL LIMIT 1",
+            &[&options.topic_id, &options.anchor],
+        )
+        .map_err(db_error)?
+        .is_some();
+    if !exists {
+        let count = tx.execute("INSERT INTO relations(from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at,reason) VALUES ($1,$2,$3,$4,$5,NULL,1.0,'{}',$5,$6) ON CONFLICT DO NOTHING", &[&options.topic_id,&options.rel_anchor,&options.anchor,&scope,&now,&reason]).map_err(db_error)?;
+        if count > 0 {
+            created_relations.push((
+                options.topic_id.clone(),
+                options.anchor.clone(),
+                options.rel_anchor.clone(),
+            ));
+        }
+    }
+    Ok(codeterm_mem_store::graph::IntroduceTopicReport {
+        topic_created,
+        edges_created: created_relations.len() as u64,
+        created_relations,
+        edges_invalidated,
+    })
 }

@@ -581,16 +581,18 @@ fn respond_to_request(
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _arrival = boot_timing::enter_request(id.as_ref(), &req.method, received_at_us);
         let actor = codeterm_service_core::mem_ops::author::author_audit_label(&author);
-        codeterm_service_core::mem::store::with_authored_change(author, &actor, || {
-            dispatch::dispatch_with_post_response(
-                &req.method,
-                local_params,
-                mux,
-                pty,
-                notif,
-                output_buf,
-                svc,
-            )
+        codeterm_service_core::mem_host::with_worker_write(svc, caller_tab.as_deref(), || {
+            codeterm_service_core::mem::store::with_authored_change(author, &actor, || {
+                dispatch::dispatch_with_post_response(
+                    &req.method,
+                    local_params,
+                    mux,
+                    pty,
+                    notif,
+                    output_buf,
+                    svc,
+                )
+            })
         })
     }));
     match dispatched {

@@ -122,7 +122,7 @@ function generatedLabel(registry: CapsuleRegistry, request: CapsuleRequest): str
   if (request.kind === "video") return numberedLabel(registry, "video");
   if (request.kind === "text") return numberedLabel(registry, "text", request.lines ? linesSuffix(request.lines) : "");
   if (request.kind === "quote") return numberedLabel(registry, "quote", quoteDetail(request));
-  return cleanLabel(baseName(request.path), FILE_LABEL_MAX) || request.kind;
+  return cleanLabel(request.displayName ?? baseName(request.path), FILE_LABEL_MAX) || request.kind;
 }
 
 function uniqueLabel(registry: CapsuleRegistry, label: string): string {
@@ -186,7 +186,8 @@ export function absorbAttachmentTags(text: string, registry: CapsuleRegistry): {
       continue;
     }
     const { kind, path, label } = segment.attachment;
-    const added = addCapsule(next, { kind, path, label, lines: Number(/· (\d+) lines?$/.exec(label ?? "")?.[1]) || undefined });
+    const added = addCapsule(next, { kind, path, label, displayName: kind === "file" ? label : undefined,
+      lines: Number(/· (\d+) lines?$/.exec(label ?? "")?.[1]) || undefined });
     next = added.registry;
     out += capsuleToken(added.capsule.label);
   }
@@ -206,7 +207,8 @@ export function capsulesInDraft(text: string, registry: CapsuleRegistry): Compos
 }
 
 export function capsuleMarker(capsule: ComposerCapsule): string {
-  return capsule.uploadId === undefined ? formatAttachmentMarker(capsule.path, capsule.kind, capsule.label) : capsuleToken(capsule.label);
+  const label = capsule.kind === "file" ? capsule.displayName ?? capsule.label : capsule.label;
+  return capsule.uploadId === undefined ? formatAttachmentMarker(capsule.path, capsule.kind, label) : capsuleToken(capsule.label);
 }
 
 export function requireCapsulePaths(text: string, registry: CapsuleRegistry, allowPendingUploads = false): void {

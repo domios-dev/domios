@@ -1,12 +1,13 @@
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import type { Notification, Tab } from "../../lib/types";
+import type { MeshPeersResponse, Notification, Tab } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
-import type { MeshPeersResponse } from "../../lib/types";
+import type { AccountMeshSnapshot } from "../MeshPanel/accountMeshClient";
+import { rememberAccountMachineNames, rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
 
 const fakes = vi.hoisted(() => ({ reconnect: vi.fn(async () => {}) }));
 vi.mock("./tabSessionActions", async (importOriginal) => ({
@@ -27,7 +28,62 @@ vi.mock("../Extensions/PluginBubbles", () => ({ PluginBubbles: () => null }));
 
 import { TabTopBar, type HeaderTabMenu } from "./TabTopBar";
 import { TabHeaderOverflow } from "./TabHeaderOverflow";
+import { TabHeaderTitle } from "./TabHeaderTitle";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const otherInstallation = {
+  installation_id: "other-installation",
+  name: "Other",
+  active: true,
+  signed_out: true,
+  membership_expires_at: null,
+  endpoint_expires_at: null,
+  instance_id: null,
+  online: false,
+};
+const localMesh: MeshPeersResponse = {
+  local_instance_name: "Local",
+  local_machine_identity: { kind: "desktop", color: "blue" },
+  machine_identities: {},
+  installations: [],
+  paired: [],
+  local_dev: false,
+  local_last_active_ms: null,
+};
+
+it.each([
+  { scenario: "a local tab on the only machine", subtitle: "Worker" },
+  { scenario: "a local tab with only a revoked slot", installations: [{ ...otherInstallation, active: false }], subtitle: "Worker" },
+  { scenario: "a local tab with another signed-out machine", installations: [otherInstallation], subtitle: "Worker · Local" },
+  { scenario: "a local tab with a paired peer", paired: [{ instance_id: "other", instance_name: "Other" }] as MeshPeersResponse["paired"], subtitle: "Worker · Local" },
+  { scenario: "a local tab with a named account peer", accountPeer: true, subtitle: "Worker · Local" },
+  { scenario: "a remote tab without a matching peer", remote: true, subtitle: "Worker · Other" },
+])("renders the subtitle for $scenario", async ({ installations = [], paired = [], accountPeer, remote, subtitle }) => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const tab = {
+    id: remote ? "mesh:other/tab-a" : "tab-a",
+    title: "Tab A",
+    role: "Worker",
+    remote_peer_name: remote ? "Other" : undefined,
+  } as Tab;
+  try {
+    await act(async () => {
+      rememberMachineIdentities({ ...localMesh, installations, paired });
+      rememberAccountMachineNames(accountPeer ? {
+        local_installation_id: "local-installation",
+        registry_names: [{ installation_id: "other-installation", admitted_at: 1, display_name: "Other", active: true }],
+        pairs: [{ instance_id: "other", installation_id: "other-installation", admission: "account", online: false, name: "Other" }],
+      } as AccountMeshSnapshot : null);
+      root.render(<TabHeaderTitle tab={tab} />);
+    });
+    expect(host.textContent).toBe(`Tab A${subtitle}`);
+  } finally {
+    await act(async () => root.unmount());
+    rememberMachineIdentities({ ...localMesh, local_instance_name: "" });
+    rememberAccountMachineNames(null);
+  }
+});
 
 it("opens a single set of overflow controls in a dialog and dismisses it from inside or outside", async () => {
   const callbacks: ResizeObserverCallback[] = [];

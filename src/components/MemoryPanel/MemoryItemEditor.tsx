@@ -1,27 +1,53 @@
-import { MemoryProvenance } from "./MemoryProvenance";
+import { ChevronLeft, Copy, Network, Trash2, X } from "lucide-react";
+import { MemoryDetailMetadata, MemoryKindChip } from "./MemoryProvenance";
 import type { MemItemFull } from "./types";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { fetchItemFull, patchItem, deleteItem } from "./memoryApi";
-import { colorForKind } from "./nodeKind";
-import { BackPill } from "../shared/BackPill";
+import { Button } from "../shared/Button";
+import { UI_INPUT } from "../shared/design";
 import { memoryDetailIdentity } from "./memoryDetailModel";
 import { BusyState } from "../shared/BusyState";
+
+export const memorySheet = {
+  frame: "absolute inset-y-0 right-0 z-10 flex w-full flex-col bg-[var(--ct-surface)] text-[var(--ct-fg)] @min-[720px]/memory:w-[440px] @min-[720px]/memory:shadow-[-1px_0_0_var(--ct-border-subtle)]",
+  header: "flex min-h-[52px] shrink-0 items-center gap-3 border-b border-[var(--ct-border-subtle)] px-3.5",
+  body: "min-h-0 flex-1 overflow-y-auto px-4 py-[18px] @min-[720px]/memory:px-[22px]",
+  footer: "flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--ct-border-subtle)] px-3.5 py-2.5",
+  label: "mb-1.5 block text-xs font-[550] text-[var(--ct-muted-fg)]",
+  input: `${UI_INPUT.full} !h-8 !min-h-0 !rounded-lg !text-[13px]`,
+  textarea: `${UI_INPUT.full} resize-y !rounded-lg !py-2.5 !text-[13px] !leading-[1.55]`,
+  technical: "text-xs text-[var(--ct-muted-fg)] [&>summary]:cursor-pointer",
+} as const;
 
 interface Props {
   itemId: string;
   api: ApiConfig;
   onClose: () => void;
+  onViewInGraph: (id: string) => void;
   onDeleted: (id: string) => void;
   onUpdated: (id: string) => void;
 }
 
-export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }: Props) {
+export function useCopyMemoryId(id: string) {
+  const [copied, setCopied] = useState(false);
+  const copyId = useCallback(() => {
+    navigator.clipboard.writeText(id).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1000);
+    });
+  }, [id]);
+
+  return { copyId, copyLabel: copied ? "Copied!" : "Copy ID" };
+}
+
+export function MemoryItemEditor({ itemId, api, onClose, onViewInGraph, onDeleted, onUpdated }: Props) {
   const [item, setItem] = useState<MemItemFull | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const { copyId, copyLabel } = useCopyMemoryId(itemId);
   const backdropRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -102,51 +128,39 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
   };
 
   const identity = memoryDetailIdentity(item);
-  const color = item ? colorForKind(item.kind) : "#888";
-
   return (
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.4)" }}
+      className="absolute inset-0 z-50"
       data-testid="memory-item-editor-backdrop"
     >
       <div
-        className="flex flex-col bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl"
-        style={{ width: "min(680px, 90vw)", height: "min(560px, 80vh)" }}
+        className={memorySheet.frame}
         data-testid="memory-item-editor"
         data-memory-id={itemId}
         role="dialog"
         aria-label="Edit memory item"
       >
-        {/* Header */}
-        <div className="ct-jobs-header rounded-t-[inherit] flex items-center justify-between px-4 py-2.5">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
-            {item && (
-              <span className="text-[10px] px-1.5 py-px rounded-[3px] font-semibold shrink-0" style={{ background: `${color}22`, color }}>
-                {item.kind}
-              </span>
-            )}
-            <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold truncate" data-testid="memory-item-heading">{identity.title}</h2>
-              <MemoryProvenance author={item?.author} createdAt={item?.created_at} />
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {dirty && (
-              <button
-                data-testid="memory-item-save"
-                onClick={handleSave}
-                disabled={saving}
-                className="bg-[var(--ct-accent)] text-white border-0 px-3 py-1 rounded text-[11px] cursor-pointer disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
-            )}
-            <BackPill label="Memory Inspect" testId="memory-item-back" onBack={onClose} />
-          </div>
+        <div className={memorySheet.header}>
+          <Button variant="icon" size="sm" aria-label="Back to Memory Inspect" title="Back to Memory Inspect" data-testid="memory-item-back" onClick={onClose}>
+            <ChevronLeft size={16} className="@min-[720px]/memory:hidden" aria-hidden="true" />
+            <X size={16} className="hidden @min-[720px]/memory:block" aria-hidden="true" />
+          </Button>
+          {item && (
+            <>
+              <MemoryKindChip kind={item.kind} />
+              <div className="ml-auto flex gap-2">
+                <Button variant="icon" size="sm" className="!size-[30px] !min-h-0 !px-0" onClick={copyId} aria-label={copyLabel} title={copyLabel}>
+                  <Copy size={14} aria-hidden="true" />
+                </Button>
+                <Button variant="icon" size="sm" className="!size-[30px] !min-h-0 !px-0" onClick={() => onViewInGraph(itemId)} aria-label="View in graph" title="View in graph">
+                  <Network size={14} aria-hidden="true" />
+                </Button>
+              </div>
+            </>
+          )}
+          <h2 className="sr-only" data-testid="memory-item-heading">{identity.title}</h2>
         </div>
 
         {error && (
@@ -160,77 +174,72 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
         )}
 
         {item && (
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-            {/* Title */}
-            <div>
-              <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Title</label>
+          <div className={`${memorySheet.body} flex flex-col gap-4`}>
+            <MemoryDetailMetadata author={item.author} updatedAt={item.updated_at} createdAt={item.created_at} importance={item.importance} />
+            <label className="block">
+              <span className={memorySheet.label}>Title</span>
               <input
                 data-testid="memory-item-title-input"
-                className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                className={`${UI_INPUT.full} !h-10 !rounded-lg !text-base font-semibold`}
                 value={draftTitle}
                 onChange={e => setDraftTitle(e.target.value)}
               />
-            </div>
+            </label>
 
-            {/* Area + Tags row */}
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Area</label>
+            <div className="grid gap-4 @min-[720px]/memory:grid-cols-2">
+              <label className="min-w-0">
+                <span className={memorySheet.label}>Area</span>
                 <input
                   data-testid="memory-item-area-input"
-                  className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                  className={memorySheet.input}
                   value={draftArea}
                   onChange={e => setDraftArea(e.target.value)}
                   placeholder="auth, deploy, home..."
                 />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Tags</label>
+              </label>
+              <label className="min-w-0">
+                <span className={memorySheet.label}>Tags</span>
                 <input
                   data-testid="memory-item-tags-input"
-                  className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                  className={memorySheet.input}
                   value={draftTags}
                   onChange={e => setDraftTags(e.target.value)}
                   placeholder="comma, separated, tags"
                 />
-              </div>
+              </label>
             </div>
 
-            {/* Body */}
-            <div className="flex-1">
-              <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Body</label>
+            <label className="flex min-h-max flex-1 flex-col">
+              <span className={memorySheet.label}>Body</span>
               <textarea
                 ref={bodyRef}
                 data-testid="memory-item-body-input"
-                className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-2 text-[14px] text-[var(--ct-fg)] leading-relaxed focus:border-[var(--ct-accent)] focus:outline-none resize-y"
-                style={{ minHeight: "200px" }}
+                className={`${memorySheet.textarea} flex-1`}
+                style={{ minHeight: 240 }}
                 value={draftBody}
                 onChange={e => setDraftBody(e.target.value)}
               />
-            </div>
-
-            <details className="text-xs text-[var(--ct-muted-fg)]"><summary>Technical</summary><div className="break-all mt-2">{item.id}</div></details>
-
-            {/* Metadata (read-only) */}
-            <div className="flex items-center gap-4 text-[10px] text-[var(--ct-muted-fg)] pt-1">
-              {item.created_at && <span>Created: {new Date(item.created_at).toLocaleString()}</span>}
-              {item.updated_at && <span>Updated: {new Date(item.updated_at).toLocaleString()}</span>}
-              {item.importance != null && <span>Importance: {item.importance} of 5</span>}
-              <button
-                data-testid="memory-item-delete"
-                onClick={handleDelete}
-                className="ml-auto bg-transparent border border-[#ef4444] text-[#ef4444] px-2 py-0.5 rounded text-[10px] cursor-pointer hover:bg-[#ef444422]"
-              >
-                Delete
-              </button>
-            </div>
+            </label>
+            <details className={memorySheet.technical}><summary>Technical</summary><div className="mt-2 break-all font-mono">{item.id}</div></details>
           </div>
         )}
 
-        {/* Footer hint */}
-        {dirty && (
-          <div className="px-4 py-1.5 text-[10px] text-[var(--ct-muted-fg)]">
-            Cmd+S to save · Esc to close · body changes re-index vectors
+        {item && (
+          <div className={memorySheet.footer}>
+            <Button size="sm" className="gap-1.5 !text-[var(--ct-red)]" data-testid="memory-item-delete" onClick={handleDelete}>
+              <Trash2 size={14} aria-hidden="true" /> Delete
+            </Button>
+            {dirty && (
+              <>
+                <span className="ml-auto text-xs text-[var(--ct-muted-fg)]">Unsaved changes</span>
+                <Button variant="primary" size="sm" data-testid="memory-item-save" onClick={handleSave} disabled={saving}>
+                  {saving ? "Saving..." : "Save"}
+                </Button>
+                <span className="basis-full px-1 text-[10px] text-[var(--ct-muted-fg)]">
+                  Cmd+S to save · Esc to close · body changes re-index vectors
+                </span>
+              </>
+            )}
           </div>
         )}
       </div>

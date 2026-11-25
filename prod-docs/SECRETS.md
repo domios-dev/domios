@@ -2,6 +2,8 @@
 
 Domios exposes local secret storage through Settings → Secrets, `domios mem secret`, and `/api/secrets/*`. The active backend is configured in `config.toml` and can be changed without restarting.
 
+Open Settings → Secrets to choose the backend, manage vault access, and see recently saved items. Save secret values through the stdin CLI command below.
+
 | Backend | Use | Storage |
 |---|---|---|
 | `local` | Default, offline | Plaintext JSON file `<data_dir>/.secrets`, mode `0600`; not encrypted, not the OS keychain |
@@ -153,4 +155,4 @@ Bitwarden owns vault encryption. Domios passes the master password and session t
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

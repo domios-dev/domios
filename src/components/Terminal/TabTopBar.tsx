@@ -303,8 +303,8 @@ export function TabTopBar({
             }}
           />
         ) : <>
-          {showTitle && <TabHeaderTitle tab={titleTab} />}
           {showSwitch && <TabModeSwitch tabId={tabId} />}
+          {showTitle && <TabHeaderTitle tab={titleTab} />}
         </>}
         <TabLockMark tab={menuTab} />
       </div>

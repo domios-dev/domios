@@ -936,6 +936,7 @@ fn send_text_stdin_mesh_body_preserves_exact_text() {
         true,
         &None,
         &None,
+        false,
         &mut stdin,
     );
     assert_eq!(m, "POST");
@@ -957,6 +958,7 @@ fn send_actions_allows_empty_payload_on_mesh() {
         true,
         &actions,
         &None,
+        false,
         &mut stdin,
     );
     assert_eq!(m, "POST");
@@ -965,6 +967,26 @@ fn send_actions_allows_empty_payload_on_mesh() {
     assert!(body.get("text").is_none());
     assert_eq!(body["actions"][0]["type"], "key");
     assert_eq!(body["actions"][0]["key"], "enter");
+}
+
+#[test]
+fn mesh_send_require_agent_is_forwarded_to_the_recipient() {
+    let cli = <crate::Cli as clap::Parser>::try_parse_from([
+        "domios",
+        "send",
+        "Look proposal",
+        "--mesh",
+        "peer",
+        "--tab",
+        "main",
+        "--require-agent",
+    ])
+    .unwrap();
+    let (method, path, body) = cli_command_to_api(&cli.command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/main/send");
+    let body: serde_json::Value = serde_json::from_str(&body.unwrap()).unwrap();
+    assert_eq!(body["require_agent"], true);
 }
 
 #[test]

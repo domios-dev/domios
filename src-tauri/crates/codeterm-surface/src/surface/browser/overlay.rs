@@ -1,26 +1,105 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use super::page::PageShared;
 use super::BrowserRuntime;
 use codeterm_browser::PageChannel;
 use serde_json::{json, Value};
-use std::time::Duration;
 
 const SCRIPT: &str = include_str!("agent-overlay.js");
 const API: &str = "window[Symbol.for('domios.browser.presentation')]";
+const OVERLAY_RESTORE_DEADLINE: Duration = Duration::from_secs(2);
+
+/// Balances one acked `overlay_capture(true)` with exactly one `overlay_capture(false)` on the
+/// original page, even when the owning future is cancelled by a mid-verb JS dialog.
+pub(super) struct OverlaySuppressionGuard {
+    page: PageChannel,
+    shared: Arc<PageShared>,
+    active: bool,
+}
+
+impl OverlaySuppressionGuard {
+    pub(super) async fn restore(mut self, runtime: &BrowserRuntime) -> Result<(), String> {
+        self.active = false;
+        runtime.overlay_capture(&self.page, false).await
+    }
+}
+
+impl Drop for OverlaySuppressionGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let page = self.page.clone();
+        let shared = self.shared.clone();
+        handle.spawn(async move {
+            let mut dialogs = shared.subscribe_dialogs();
+            let mut closed = page.client().closed();
+            let ready = loop {
+                if !shared.is_bound_page(&page) {
+                    break false;
+                }
+                if dialogs.borrow_and_update().dialog.is_none() {
+                    break true;
+                }
+                tokio::select! {
+                    _ = closed.wait_for(Option::is_some) => break false,
+                    changed = dialogs.changed() => {
+                        if changed.is_err() {
+                            break false;
+                        }
+                    }
+                }
+            };
+            if !ready || !shared.is_bound_page(&page) {
+                return;
+            }
+            let _ = page
+                .send_with_deadline(
+                    "Runtime.evaluate",
+                    json!({
+                        "expression": format!("{API}?.capture(false)"),
+                        "returnByValue": true,
+                    }),
+                    OVERLAY_RESTORE_DEADLINE,
+                )
+                .await;
+        });
+    }
+}
 
 impl BrowserRuntime {
+    pub(super) async fn suppress_overlay(
+        &self,
+        page: &PageChannel,
+    ) -> Result<OverlaySuppressionGuard, String> {
+        self.overlay_capture(page, true).await?;
+        Ok(OverlaySuppressionGuard {
+            page: page.clone(),
+            shared: self.shared.clone(),
+            active: true,
+        })
+    }
+
     pub(super) async fn capture_screenshot(
         &self,
         page: &PageChannel,
         params: Value,
         include_overlay: bool,
     ) -> Result<Value, String> {
-        if !include_overlay {
-            self.overlay_capture(page, true).await?;
-        }
-        let shot = self.host.capture_screenshot(page, params).await;
-        let restored = if !include_overlay {
-            self.overlay_capture(page, false).await
+        let guard = if !include_overlay {
+            Some(self.suppress_overlay(page).await?)
         } else {
-            Ok(())
+            None
+        };
+        let shot = self.host.capture_screenshot(page, params).await;
+        let restored = match guard {
+            Some(guard) => guard.restore(self).await,
+            None => Ok(()),
         };
         let shot = shot?;
         restored?;

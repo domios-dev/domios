@@ -231,13 +231,19 @@ pub(crate) async fn dispatch(
         )
     })?;
     let actor = codeterm_service_core::mem_ops::author::author_audit_label(&author);
+    let origin = codeterm_service_core::mem_host::WorkerWriteOrigin::capture(
+        &state.svc,
+        caller.as_ref().map(|caller| caller.tab_id.as_str()),
+    );
     let svc = state.svc.clone();
     let method = request.method;
     let params = request.params;
     let result = tokio::task::spawn_blocking(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            codeterm_service_core::mem::store::with_authored_change(author, &actor, || {
-                (bridge.dispatch_service_rpc)(&method, params, &svc)
+            origin.run(&svc, || {
+                codeterm_service_core::mem::store::with_authored_change(author, &actor, || {
+                    (bridge.dispatch_service_rpc)(&method, params, &svc)
+                })
             })
         }))
     })
