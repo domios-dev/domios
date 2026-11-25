@@ -19,9 +19,20 @@
 .ct-background-commands { display: flex; flex-wrap: wrap; align-items: start; gap: 6px; margin: 0; padding: 0; list-style: none; --ct-ctx-kind: var(--ct-accent); }
 .ct-background-command { min-width: 0; max-width: 100%; }
 .ct-background-command .ct-ctx-bubble__title { max-width: 12rem; }
-.ct-background-command__details { margin-top: 8px; padding: 10px; border: 1px solid var(--ct-border); border-radius: 12px; font-size: 11px; color: var(--ct-muted-fg); }
+.ct-ctx[data-phone] .ct-background-command .ct-ctx-bubble__title { max-width: 9rem; }
+.ct-background-command__details { width: 520px; max-width: 100%; margin-top: 8px; padding: 10px; border: 1px solid var(--ct-border); border-radius: 12px; font-size: 11px; color: var(--ct-muted-fg); }
 .ct-background-command__details code, .ct-background-command__details pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .ct-background-command__details pre { max-height: 12rem; overflow: auto; margin-bottom: 0; }
+.ct-background-command__cmd { display: block; margin-bottom: 8px; color: var(--ct-fg); font-family: var(--ct-font-mono); }
+.ct-background-command__note { margin: 0 0 6px; color: var(--ct-muted-fg); }
+.ct-background-command__processes { margin: 0; padding: 0; list-style: none; font-family: var(--ct-font-mono); }
+.ct-background-command__proc { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; }
+.ct-background-command__proc-cmd { flex: 1; min-width: 0; overflow: hidden; color: var(--ct-fg); white-space: nowrap; text-overflow: ellipsis; }
+.ct-background-command__proc[data-role="helper"] .ct-background-command__proc-cmd { color: var(--ct-muted-fg); }
+.ct-background-command__proc-meta { flex: none; color: var(--ct-muted-fg); white-space: nowrap; }
+.ct-background-command__proc--more { color: var(--ct-muted-fg); }
+.ct-background-command__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; font-size: 12px; color: var(--ct-muted-fg); }
+.ct-background-command__output { margin-top: 8px; }
 .ct-background-command .ct-ctx-bubble__dismiss:disabled { cursor: default; opacity: 0.5; }
 .ct-background-command__prompt { max-height: 12rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ct-work-bubble .ct-ctx-bubble__open { gap: 6px; }
@@ -54,7 +65,9 @@
 }
 .ct-work-state__dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
 .ct-work-state[data-state="running"] .ct-work-state__dot { animation: ct-work-breathe 1.6s var(--ct-ease-liquid-breathe, ease-in-out) infinite; }
+.ct-work-state[data-state="stopping"],
 .ct-work-state[data-state="unknown"] { background: color-mix(in srgb, var(--ct-fg) 7%, transparent); color: var(--ct-muted-fg); }
+.ct-work-state[data-state="unknown"] .ct-work-state__dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 @keyframes ct-work-breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.45; transform: scale(0.8); }

@@ -46,3 +46,37 @@ fn stored_latest_omits_runtime_readings_and_keeps_plugin_details() {
     );
     assert_eq!(value["usage_details"], json!({"custom": [1, "opaque"]}));
 }
+
+#[test]
+fn background_process_entry_omits_optional_tree_fields_when_absent_and_serializes_children() {
+    let base = BackgroundProcessEntry {
+        thread_id: "root".into(),
+        process: crate::agent_runtime::RuntimeBackgroundProcess {
+            process_id: "os:100:1".into(),
+            item_id: "os-bg:100:1".into(),
+            command: "bash scripts/build.sh check".into(),
+            cwd: "/repo".into(),
+            os_pid: Some(100),
+        },
+        parent_os_pid: None,
+        children: None,
+    };
+    let bare = serde_json::to_value(&base).unwrap();
+    assert_eq!(bare.get("parentOsPid"), None);
+    assert_eq!(bare.get("children"), None);
+
+    let grouped = BackgroundProcessEntry {
+        parent_os_pid: Some(90),
+        children: Some(vec![BackgroundProcessChild {
+            command: "tee -a /tmp/build.log".into(),
+            os_pid: Some(101),
+        }]),
+        ..base
+    };
+    let value = serde_json::to_value(&grouped).unwrap();
+    assert_eq!(value["parentOsPid"], json!(90));
+    assert_eq!(
+        value["children"],
+        json!([{"command": "tee -a /tmp/build.log", "osPid": 101}])
+    );
+}

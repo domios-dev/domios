@@ -1,5 +1,6 @@
 import type { Tab, TabAgentState, TabStatus } from "./types";
 import type { BackgroundProcessEntry } from "./backgroundProcesses";
+import { groupBackgroundProcesses } from "./backgroundProcessGroups";
 import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
@@ -49,8 +50,9 @@ function liveBackgroundCounts(
   if (!sessionBound) return noBackgroundWork;
   const roster = tab?.provider_signals?.background;
   const runtimeProcesses = runtimeBackgroundProcesses(tab);
+  const groups = groupBackgroundProcesses(runtimeProcesses);
   const known = new Set(runtimeProcesses.map(entry => entry.processId));
-  const counts = { ...noBackgroundWork, backgroundTasks: runtimeProcesses.length, backgroundProcesses: runtimeProcesses.length };
+  const counts = { ...noBackgroundWork, backgroundTasks: groups.length, backgroundProcesses: groups.length };
   for (const id of Object.keys(roster?.running ?? {})) {
     if (known.has(id)) continue;
     counts.backgroundTasks++;
