@@ -21,7 +21,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
   const webJson = client.json.bind(client);
   const localJson = client.localJson.bind(client);
   const currentToken = client.currentToken.bind(client);
-  const peerScoped = (a: CapabilityArgs, method: "GET" | "POST", path: string, body?: unknown) => {
+  const peerScoped = (a: CapabilityArgs, method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown) => {
     if (a.peerId === null) return localJson(method, path, body);
     if (typeof a.peerId === "string") return relayToPeer({ json: localJson }, a.peerId, method, path, body ?? null);
     return webJson(method, path, body);
@@ -61,7 +61,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       }),
     check_local_preview_files: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/check`, { paths: a.paths }),
     check_provider_integration: (a) =>
-      webJson("GET", `/api/setup/hooks?provider=${enc(s(a, "provider_id"))}`),
+      peerScoped(a, "GET", `/api/setup/hooks?provider=${enc(s(a, "provider_id"))}`),
     clear_notifications: (a) =>
       a.id
         ? webJson("DELETE", `/api/notifications/${enc(s(a, "id"))}`)
@@ -96,10 +96,10 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       ),
     fs_mkdir: (a) =>
       webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
-    get_config: async () => {
-      const config = await webJson<Record<string, unknown>>("GET", "/api/config");
+    get_config: async (a = {}) => {
+      const config = await peerScoped(a, "GET", "/api/config") as Record<string, unknown>;
       const api = config.api as Record<string, unknown> | undefined;
-      if (api) api.token = currentToken();
+      if (api && typeof a.peerId !== "string") api.token = currentToken();
       return config;
     },
     get_network_info: () => webJson("GET", "/api/network"),
@@ -118,7 +118,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     keepawake_status: () => webJson("GET", "/api/keepawake"),
     keepawake_stop: () => webJson("POST", "/api/keepawake/stop"),
 
-    list_agent_providers: (a) => webJson("GET", a.metadataOnly ? "/api/agents/providers?metadata_only=true" : "/api/agents/providers"),
+    list_agent_providers: (a = {}) => peerScoped(
+      a,
+      "GET",
+      a.metadataOnly ? "/api/agents/providers?metadata_only=true" : "/api/agents/providers",
+    ),
     list_notifications: () => webJson("GET", "/api/notifications"),
     list_themes: async () => {
       const resp = await webJson<{ themes?: string[] }>("GET", "/api/themes");
@@ -165,7 +169,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     plugin_recording_suggestion: (a) => client.localJson("POST", "/api/plugins/recording-suggestion", a),
     plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
     provider_cli_status: (a) => peerScoped(a, "GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli` + (a.refresh === true ? "?refresh=true" : "")),
-    push_channel_roster: () => webJson("GET", "/api/notifications/channels"),
+    push_channel_roster: (a = {}) => peerScoped(a, "GET", "/api/notifications/channels"),
     read_html_preview_file: async (a) => {
       const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page", ...canvasSource(a) });
       return file.data;
@@ -224,7 +228,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     },
     update_config: (a) => {
       const { chat_wallpaper: _wallpaper, ...config } = a.config as Partial<AppConfig>;
-      return webJson("PATCH", "/api/config", config);
+      return peerScoped(a, "PATCH", "/api/config", config);
     },
     usage_history: (a) => {
       const accountId = a.accountId ?? a.account_id;

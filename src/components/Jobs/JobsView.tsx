@@ -320,6 +320,7 @@ export interface JobsViewProps {
   solutionsApi?: BlueprintSolutionsApi;
   machinePeers?: readonly PairedPeer[];
   peerClient?: (peerId: string) => TransportClient;
+  initialMachineId?: string;
   workspaces: readonly JobsWorkspace[];
   teams: readonly Team[];
   tabs?: Record<string, Tab>;
@@ -337,7 +338,7 @@ export interface JobsViewProps {
 }
 
 /** The one Jobs view: crons and Blueprint graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
-export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, peerClient, workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, peerClient, initialMachineId, workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const origin = useRef<ReturnToRoute>({ returnTo });
   const onReturn = () => {
     if (!returnToOrigin(origin.current, onReturnTo ?? (() => false))) return false;
@@ -348,7 +349,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
   const context = usePlanPeerContext();
   const machines = useJobsMachines(machinePeers === undefined);
   const peers = machinePeers ?? machines.peers;
-  const [machineId, setMachineId] = useState(jobsEntryState({ kind: "machine" }).machineId);
+  const [machineId, setMachineId] = useState(initialMachineId ?? jobsEntryState({ kind: "machine" }).machineId);
   const [importOpen, setImportOpen] = useState(false);
   const workspaceName = (id: string) => workspaces.find((workspace) => workspace.id === id)?.name ?? id;
   // Jobs opened from General imports into General first; from a Team or workspace, into that.

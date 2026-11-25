@@ -2,7 +2,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Loader } from "../shared/Loader";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useCallback, useEffect } from "react";
-import { ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
+import { Boxes, ChevronRight, FolderTree, Server, Eye, Sparkles, Timer, Users, Waypoints } from "lucide-react";
 import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
 import type { HelpSectionId } from "../../help/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
@@ -19,7 +19,8 @@ import { TeamChannelsCard } from "./TeamChannelsCard";
 import { ModelDefaultsCard } from "./ModelDefaultsCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
-import { SettingsCard, SettingsPill, Toggle } from "./shared";
+import { RemoteLocalOnlyNotice, SettingsCard, SettingsPill, Toggle } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 import { AgentIcon } from "../AgentIcon";
 import { NumericInput } from "../shared/NumericInput";
 
@@ -38,7 +39,8 @@ export function AgentsOverview({
   focusCard?: SettingsCardAnchorId;
   onSwitchGeneralProvider?: (provider: string) => Promise<void>;
 }) {
-  const { providers, loading, error } = useAgentProviders();
+  const remoteTarget = useSettingsRemoteTarget();
+  const { providers, loading, error } = useAgentProviders(remoteTarget?.id);
   const authToken = daemonAuthToken(config.api);
   const apiHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
@@ -68,16 +70,33 @@ export function AgentsOverview({
         </div>
       </SettingsCard>
 
-      <ModelDefaultsCard config={config} onUpdate={onUpdate} onSwitchGeneralProvider={onSwitchGeneralProvider} onOpenGuide={onOpenGuide} />
+      <ModelDefaultsCard
+        config={config}
+        peerId={remoteTarget?.id}
+        providers={remoteTarget ? providers : undefined}
+        onUpdate={onUpdate}
+        onSwitchGeneralProvider={onSwitchGeneralProvider}
+        onOpenGuide={onOpenGuide}
+      />
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
 
       <SettingsCardAnchor id="supporter-agent" focused={focusCard === "supporter-agent"}>
-        <SupporterAgentCard
-          apiBase={daemonHttpBase(config.api)}
-          apiHeaders={apiHeaders}
-          onOpenGuide={onOpenGuide}
-        />
+        {remoteTarget ? (
+          <SettingsCard
+            icon={<Sparkles size={16} />}
+            title="Spinal Cord"
+            description="Helps Domios pick useful memory and read what an agent tab is doing."
+          >
+            <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="Spinal Cord connections and tokens" />
+          </SettingsCard>
+        ) : (
+          <SupporterAgentCard
+            apiBase={daemonHttpBase(config.api)}
+            apiHeaders={apiHeaders}
+            onOpenGuide={onOpenGuide}
+          />
+        )}
       </SettingsCardAnchor>
 
       <SettingsCardAnchor id="team-channels" focused={focusCard === "team-channels"}>
@@ -90,10 +109,12 @@ export function AgentsOverview({
         headerRight={<SettingsPill tone="green">auto-synced</SettingsPill>}
         description={<>Drop skill folders into <code className="ct-detail__mono">~/.domios/skills/</code>; every harness sees them.</>}
       >
+        {remoteTarget && <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="Opening the skills folder" />}
         <button
           type="button"
-          onClick={() => nativeBridge.openFolder("~/.domios/skills").catch(() => {})}
-          className="ct-bar-pill ct-settings-link"
+          disabled={Boolean(remoteTarget)}
+          onClick={() => { if (!remoteTarget) void nativeBridge.openFolder("~/.domios/skills").catch(() => {}); }}
+          className="ct-bar-pill ct-settings-link disabled:cursor-not-allowed disabled:opacity-50"
         >
           Open skills folder
         </button>
@@ -115,7 +136,8 @@ export function AgentProviderScreen({
   onUpdateFullConfig: (next: AppConfig) => void;
   onProviderGone: () => void;
 }) {
-  const { providers, loading, error } = useAgentProviders();
+  const remoteTarget = useSettingsRemoteTarget();
+  const { providers, loading, error } = useAgentProviders(remoteTarget?.id);
   const provider = providers.find((p) => p.id === providerId) ?? null;
 
   // If a plugin was deactivated mid-navigation, pop back to the Agents overview so the user isn't stuck on a dead provider detail.
@@ -160,11 +182,37 @@ export function AgentProviderScreen({
         </div>
       </div>
       <ProviderInstallCard provider={provider} />
-      {provider.accounts && <SettingsCardAnchor id="provider-accounts" focused={focusCard==="provider-accounts"}><ProviderAccountsSection key={provider.id} provider={provider} /></SettingsCardAnchor>}
-      {provider.agent_runtime?.launchProfiles && <AcpProfilesCard provider={provider} />}
+      {provider.accounts && (
+        <SettingsCardAnchor id="provider-accounts" focused={focusCard==="provider-accounts"}>
+          {remoteTarget ? (
+            <SettingsCard icon={<Users size={16} />} title="Accounts" description="Tabs start on the first account and move down the list when one reaches its limit.">
+              <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="Harness accounts" />
+            </SettingsCard>
+          ) : (
+            <ProviderAccountsSection key={provider.id} provider={provider} />
+          )}
+        </SettingsCardAnchor>
+      )}
+      {provider.agent_runtime?.launchProfiles && (
+        remoteTarget ? (
+          <SettingsCard icon={<Boxes size={16} />} title="Agents" description="The ACP agents Domios can start. Pick one to install or set it up.">
+            <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="ACP launch profiles and registry installs" />
+          </SettingsCard>
+        ) : <AcpProfilesCard provider={provider} />
+      )}
       {sections.integration && <ProviderIntegrationHealthCard provider={provider} />}
       {sections.modelEndpoints && (
-        <ModelEndpointsCard providerId={provider.id} harnessName={provider.display_name} daemonApi={fullConfig.api} />
+        remoteTarget ? (
+          <SettingsCard
+            icon={<Waypoints size={16} />}
+            title="Custom model endpoints"
+            description={`Add any OpenAI-compatible or Anthropic endpoint; its models appear in ${provider.display_name}'s model picker.`}
+          >
+            <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="Custom model endpoints and saved keys" />
+          </SettingsCard>
+        ) : (
+          <ModelEndpointsCard providerId={provider.id} harnessName={provider.display_name} daemonApi={fullConfig.api} />
+        )
       )}
       <SettingsCard
         icon={<Eye size={16} />}
@@ -180,8 +228,12 @@ export function AgentProviderScreen({
       <SchemaRenderer
         schema={provider.settings_schema}
         providerId={provider.id}
+        providerDescriptor={remoteTarget ? provider : undefined}
         config={fullConfig}
         onChange={onProviderConfigChange}
+        hidePathLinks={Boolean(remoteTarget)}
+        disableActions={Boolean(remoteTarget)}
+        remoteMachineName={remoteTarget?.name}
       />
     </div>
   );

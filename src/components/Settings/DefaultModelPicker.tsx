@@ -1,17 +1,20 @@
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import type { ProviderDescriptor } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { ModelPickerPopover } from "../Terminal/StatusLineModelPicker";
 import { currentModelId } from "../Terminal/statusLinePickerModel";
 
-export function DefaultModelPicker({ providerId, value, serviceTier, onChange }: {
+export function DefaultModelPicker({ providerId, descriptor: providedDescriptor, value, serviceTier, onChange }: {
   providerId: string;
+  descriptor?: ProviderDescriptor;
   value: string;
   serviceTier?: ServiceTierSelection;
   onChange: (model: string, serviceTier?: ServiceTierSelection) => void;
 }) {
-  const descriptor = useAgentDescriptor(providerId);
+  const localDescriptor = useAgentDescriptor(providerId);
+  const descriptor = providedDescriptor ?? localDescriptor;
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const current = currentModelId(descriptor, [value, descriptor?.default_model]);

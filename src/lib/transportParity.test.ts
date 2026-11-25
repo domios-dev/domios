@@ -8,8 +8,11 @@ import fixtures from "./transportCommandContracts.json";
 const peerScopedCommands = [
   "usage_history", "usage_latest", "usage_projection", "provider_model_usage",
   "provider_cli_status", "install_provider_in_tab",
+  "get_config", "list_agent_providers", "push_channel_roster", "check_provider_integration",
 ] as const;
-const localScopedCommands = new Set<string>([...peerScopedCommands, "usage_refresh"]);
+const localScopedCommands = new Set<string>([
+  ...peerScopedCommands, "usage_refresh", "update_config", "restart_general_agent", "shell_profiles",
+]);
 
 const result = { ok: true, status: 200, data: [], peer: { instance_id: "peer", instance_name: "Peer" }, paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
   tabs: {tab:{agent_session_id:"root",session_binding_nonce:"nonce",agent_runtime_state:{state:"loaded",epoch:4}}} };
@@ -60,6 +63,17 @@ describe("audited command registry", () => {
         ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method, path, body: null }],
       ]);
     }
+    localCalls.length = 0;
+    await dispatchCommand(commands, "update_config", { ...fixtures.args, peerId: null });
+    await dispatchCommand(commands, "update_config", fixtures.args);
+    await dispatchCommand(commands, "restart_general_agent", { peerId: "peer" });
+    await dispatchCommand(commands, "shell_profiles", { refresh: false, peerId: "peer" });
+    expect(localCalls).toEqual([
+      ["PATCH", "/api/config", {}],
+      ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method: "PATCH", path: "/api/config", body: {} }],
+      ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method: "POST", path: "/api/agents/general/restart", body: null }],
+      ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method: "GET", path: "/api/shells?refresh=false", body: null }],
+    ]);
     localCalls.length = 0;
     await dispatchCommand(commands, "usage_refresh", { ...fixtures.args, peerId: null });
     await expect(dispatchCommand(commands, "usage_refresh", fixtures.args)).rejects.toThrow("owning machine");

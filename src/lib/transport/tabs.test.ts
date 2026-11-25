@@ -35,6 +35,28 @@ it("relays General creation to the exact peer with a peer-default request", asyn
   });
 });
 
+it("relays General restart and shell profile reads to the exact peer when peerId is given", async () => {
+  const { transport, calls } = fixture([
+    { ok: true, data: { ok: true }, peer: { instance_id: "r161" } },
+    { ok: true, data: [{ id: "pwsh", name: "PowerShell 7" }], peer: { instance_id: "r161" } },
+  ]);
+  await transport.restart_general_agent({ peerId: "r161" });
+  const shells = await transport.shell_profiles({ peerId: "r161", refresh: true });
+  expect(shells).toEqual([{ id: "pwsh", name: "PowerShell 7" }]);
+  expect(calls).toEqual([
+    expect.objectContaining({
+      method: "POST",
+      path: "/api/mesh/relay-to",
+      body: { target_instance_id: "r161", method: "POST", path: "/api/agents/general/restart", body: null },
+    }),
+    expect.objectContaining({
+      method: "POST",
+      path: "/api/mesh/relay-to",
+      body: { target_instance_id: "r161", method: "GET", path: "/api/shells?refresh=true", body: null },
+    }),
+  ]);
+});
+
 it("relays a single agent to the exact peer without leaking the origin workspace or cwd", async () => {
   const { transport, calls } = fixture([{ ok: true, data: { tab_id: "remote-agent" }, peer: { instance_id: "machine-x" } }]);
   const result = await transport.mux_spawn_tab({ peerId: "machine-x", params: {

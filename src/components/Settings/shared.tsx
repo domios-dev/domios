@@ -102,6 +102,24 @@ export function SettingsPill({
   );
 }
 
+export function RemoteLocalOnlyNotice({
+  machineName,
+  subject,
+}: {
+  machineName: string;
+  subject: string;
+}) {
+  return (
+    <p
+      role="status"
+      data-testid="settings-remote-local-only"
+      className="m-0 rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] px-3 py-2 text-xs text-[var(--ct-muted-fg)]"
+    >
+      {subject} can only be changed directly on {machineName}.
+    </p>
+  );
+}
+
 export function SettingsRow({
   children,
   className,

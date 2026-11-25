@@ -18,14 +18,17 @@ import {
   type SwitchPreview,
 } from "./embedderModel";
 import { useEmbedder } from "./useEmbedder";
+import { useSettingsRemoteTarget } from "../useSettingsTarget";
 import type { AppConfig } from "../../../lib/types";
 import { daemonAuthToken, daemonHttpBase } from "../../../lib/webApi";
 
 export function EmbedderCard({ config }: { config: AppConfig }) {
+  const remoteTarget = useSettingsRemoteTarget();
   const token = daemonAuthToken(config.api);
   const { listing, status, error, preview, switchTo } = useEmbedder(
     daemonHttpBase(config.api),
     token ? { Authorization: `Bearer ${token}` } : {},
+    remoteTarget?.id,
   );
   const [choice, setChoice] = useState<string | null>(null);
   const [pending, setPending] = useState<SwitchPreview | null>(null);

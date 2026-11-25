@@ -8,6 +8,7 @@ import {
   type NotifyPermission,
 } from "../../lib/notifyPermission";
 import { establishChimeContext } from "../../lib/notificationSound";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 /**
  * What a notification is allowed to reach at all: the indicator, the system
@@ -33,9 +34,11 @@ export function NotificationSurfaces({
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
+  const remoteTarget = useSettingsRemoteTarget();
   const [permission, setPermission] = useState<NotifyPermission>("unknown");
 
   useEffect(() => {
+    if (remoteTarget) return;
     let live = true;
     void readNotifyPermission().then((state) => {
       if (live) setPermission(state);
@@ -43,9 +46,13 @@ export function NotificationSurfaces({
     return () => {
       live = false;
     };
-  }, []);
+  }, [remoteTarget]);
 
   const switchDesktop = async (next: boolean) => {
+    if (remoteTarget) {
+      onUpdate("notifications", { desktop: next });
+      return;
+    }
     const state = await establishNotifyPermission(next);
     setPermission(state);
     if (next && state === "denied") return;
@@ -63,10 +70,10 @@ export function NotificationSurfaces({
       <SwitchTile
         label="Desktop notifications"
         hint="System toasts. Permission is asked for when you switch this on."
-        checked={desktopSurfaceReadsOn(config.notifications.desktop, permission)}
+        checked={remoteTarget ? Boolean(config.notifications.desktop) : desktopSurfaceReadsOn(config.notifications.desktop, permission)}
         onChange={(next) => void switchDesktop(next)}
       />
-      {permission === "denied" && (
+      {!remoteTarget && permission === "denied" && (
         <p
           data-testid="settings-desktop-permission-refused"
           className="text-[10px] text-[var(--ct-yellow)] leading-relaxed"

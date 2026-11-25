@@ -29,6 +29,9 @@ function exactPeerId(args: Args): string {
 function hasPeerTarget(args: Args): boolean {
     return args.peerId !== undefined || args.peer_id !== undefined;
 }
+function hasExplicitPeer(args: Args): boolean {
+    return (args.peerId !== undefined && args.peerId !== null) || (args.peer_id !== undefined && args.peer_id !== null);
+}
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
 export async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
@@ -92,7 +95,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         mux_rename_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/rename`, {
             name: a.name,
         }),
-        shell_profiles: (a: Args) => clientFor(a).json<ShellProfile[]>("GET", `/api/shells?refresh=${a.refresh === true}`),
+        shell_profiles: (a: Args = {}) => hasExplicitPeer(a)
+            ? relayToPeer(clientFor(a), exactPeerId(a), "GET", `/api/shells?refresh=${a.refresh === true}`, null) as Promise<ShellProfile[]>
+            : clientFor(a).json<ShellProfile[]>("GET", `/api/shells?refresh=${a.refresh === true}`),
         mux_create_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
             eager: a.eager === true,
             shell: a.shell,
@@ -370,7 +375,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             force: a.force === true,
         }),
         save_session: (a: Args = {}) => clientFor(a).json("POST", "/api/session/save"),
-        restart_general_agent: (a: Args = {}) => clientFor(a).json("POST", "/api/agents/general/restart"),
+        restart_general_agent: (a: Args = {}) => hasExplicitPeer(a)
+            ? relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/general/restart", null)
+            : clientFor(a).json("POST", "/api/agents/general/restart"),
         spawn_general_agent_session: (a: Args) => hasPeerTarget(a)
             ? relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/general/sessions", a.params) as Promise<AtomicSpawn>
             : clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
