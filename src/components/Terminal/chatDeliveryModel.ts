@@ -4,7 +4,12 @@ import type { ChatSendStatus } from "./chatSendStatus";
 import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
-import type { RemoteChatFailure, RemoteChatState } from "../../lib/remoteChatState";
+import {
+  isRemoteMessageAttachmentRefusal,
+  remoteMessageAttachmentError,
+  type RemoteChatFailure,
+  type RemoteChatState,
+} from "../../lib/remoteChatState";
 import type { ExpectedChatRecipient } from "../../lib/types";
 
 export type DeliveryState = "sending" | "written" | "queued" | "uncertain" | "delivered" | "failed";
@@ -30,7 +35,8 @@ export function chatSendFailureReason(reason?: unknown): string {
 }
 
 export function deliveryError(send: DeliverySend): string | null | undefined {
-  const reason = send.status?.error || send.requestError;
+  const reason = send.status?.error || send.requestError
+    || (isRemoteMessageAttachmentRefusal(send.remoteFailure) ? remoteMessageAttachmentError(send.remoteFailure!) : undefined);
   return deliveryState(send) === "failed" ? chatSendFailureReason(reason) : reason;
 }
 
@@ -80,7 +86,7 @@ function mergeSystemSend(
 
 export function deliveryState(send: DeliverySend): DeliveryState {
   if (!send.correlationId && !send.status && !send.echo) return "uncertain";
-  if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
+  if (send.status?.state === "failed" || (!send.status && (send.requestFailed || isRemoteMessageAttachmentRefusal(send.remoteFailure)))) return "failed";
   if (send.echo || send.status?.state === "delivered") return "delivered";
   if (!send.status && send.requestUncertain) return "uncertain";
   if (send.status?.state === "submit_unconfirmed") return "uncertain";
@@ -150,7 +156,7 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
 export type AdmissionEvidence = "present" | "absent" | "unknown" | "not_applicable";
 
 export function reconcileAdmissionEvidence(send: DeliverySend, evidence: AdmissionEvidence): DeliverySend {
-  if (send.status || deliveryState(send) === "delivered" || send.requestFailed) return send;
+  if (send.status || deliveryState(send) === "delivered" || deliveryState(send) === "failed") return send;
   if (evidence === "not_applicable") return { ...send, admissionSettled: true, requestUncertain: true };
   const failed = evidence === "absent" && send.requestHadResponse === false;
   const uncertain = !failed;
