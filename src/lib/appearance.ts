@@ -24,10 +24,6 @@ export function appearanceLookKey(look: AppearanceLook): string {
   return stableAppearanceKey(look);
 }
 
-export function appearancePaletteKey({ chat_background: _wallpaper, name: _name, ...colors }: ThemeConfig): string {
-  return stableAppearanceKey(colors);
-}
-
 export interface AppearanceMachine { id: string; name: string }
 export interface ContrastCheck {
   name: string;
