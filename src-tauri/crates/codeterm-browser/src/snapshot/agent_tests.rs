@@ -97,6 +97,36 @@ fn snapshot_exposes_control_states_without_treating_false_as_disabled() {
 }
 
 #[test]
+fn snapshot_exposes_pressed_state_on_buttons_and_toggle_buttons() {
+    let mut nodes: Vec<AxNode> = serde_json::from_value(json!([
+        {"nodeId": "root", "role": {"value": "RootWebArea"}, "childIds": ["selected", "other", "mixed"]},
+        {"nodeId": "selected", "parentId": "root", "role": {"value": "toggleButton"}, "name": {"value": "OpenCode: Installed"}, "backendDOMNodeId": 10, "properties": [{"name": "pressed", "value": {"value": "true"}}]},
+        {"nodeId": "other", "parentId": "root", "role": {"value": "button"}, "name": {"value": "Other: Installed"}, "backendDOMNodeId": 11, "properties": [{"name": "pressed", "value": {"value": "false"}}]},
+        {"nodeId": "mixed", "parentId": "root", "role": {"value": "toggleButton"}, "name": {"value": "Mixed"}, "backendDOMNodeId": 12, "properties": [{"name": "pressed", "value": {"value": "mixed"}}]}
+    ]))
+    .unwrap();
+    let snapshot = build_snapshot(&nodes, 20);
+    assert!(snapshot
+        .text
+        .contains(r#"- toggleButton "OpenCode: Installed" [pressed=true] [@e1]"#));
+    assert!(snapshot
+        .text
+        .contains(r#"- button "Other: Installed" [pressed=false] [@e2]"#));
+    assert!(snapshot
+        .text
+        .contains(r#"- toggleButton "Mixed" [pressed=mixed] [@e3]"#));
+    assert_eq!(
+        resolve_target(Some(&snapshot), &["button", "OpenCode: Installed"])
+            .unwrap()
+            .backend_node_id,
+        10
+    );
+    sensitive::redact(&mut nodes, &json!({"root":{"backendNodeId":1,"children":[{"backendNodeId":10,"attributes":["data-sensitive",""]}]}})).unwrap();
+    let redacted = build_snapshot(&nodes, 20);
+    assert!(redacted.text.contains("[pressed=true]"));
+}
+
+#[test]
 fn exact_line_limit_does_not_report_nonexistent_truncation() {
     let snapshot = build_snapshot(&controls(&["Only"]), 1);
     assert_eq!(snapshot.index.len(), 1);

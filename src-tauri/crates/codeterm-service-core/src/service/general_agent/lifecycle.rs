@@ -49,7 +49,12 @@ impl Drop for AutomaticLaunchClaim<'_> {
 
 fn apply_general_agent_launch_claim(tab: &mut crate::multiplexer::types::Tab) {
     tab.agent_booting = true;
-    crate::service::boot_stage::apply_boot_stage(tab, BootStage::PtyStarting, None);
+    let stage = if tab.is_chat_backend() {
+        BootStage::AgentLaunching
+    } else {
+        BootStage::PtyStarting
+    };
+    crate::service::boot_stage::apply_boot_stage(tab, stage, None);
 }
 
 fn deliver_before_binding<T>(

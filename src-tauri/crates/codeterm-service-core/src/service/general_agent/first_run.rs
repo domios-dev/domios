@@ -159,12 +159,28 @@ fn persist_first_run_completion(
 fn prepare_first_run_general(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     default_chat_view: bool,
+    chat_backend_provider: Option<&str>,
 ) -> Result<usize, String> {
     close_first_run_tabs(mux)?;
     let closed = ensure_general_workspace_without_persist(mux, default_chat_view);
     let tab = mux
         .resolve_tab_id(GENERAL_ALIAS)
         .ok_or("General tab is unavailable")?;
+    if let Some(plugin_id) = chat_backend_provider {
+        if let Some(general_tab) = mux.get_tab_mut(&tab) {
+            general_tab.pty_id = None;
+            general_tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+                plugin_id: plugin_id.to_string(),
+                session_id: String::new(),
+            };
+            general_tab.chat_view = true;
+            crate::service::boot_stage::apply_boot_stage(
+                general_tab,
+                codeterm_types::pty::BootStage::AgentLaunching,
+                None,
+            );
+        }
+    }
     let workspace = mux
         .find_workspace_for_tab(&tab)
         .ok_or("General workspace is unavailable")?;
@@ -202,9 +218,12 @@ pub fn complete_first_run_core(
     super::state::clear_bootstrap_dispatched();
     super::state::require_fresh_session()?;
 
+    let chat_backend_provider =
+        crate::service::agent_runtime::engine::requested(svc, provider_id).then_some(provider_id);
     let (close_result, history_batch) = {
         let mut mux_guard = mux.write();
-        let result = prepare_first_run_general(&mut mux_guard, default_chat_view);
+        let result =
+            prepare_first_run_general(&mut mux_guard, default_chat_view, chat_backend_provider);
         (result, mux_guard.take_closed_history_batch())
     };
     if let Some(batch) = history_batch {

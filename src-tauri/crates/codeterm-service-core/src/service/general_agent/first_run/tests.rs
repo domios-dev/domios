@@ -10,7 +10,7 @@ fn first_run_selects_general_instead_of_the_installer_before_announcing_state() 
     mux.set_active_tab(&workspace, &installer).unwrap();
     mux.set_focused_tab(&installer).unwrap();
 
-    prepare_first_run_general(&mut mux, true).unwrap();
+    prepare_first_run_general(&mut mux, true, None).unwrap();
 
     let general = mux.resolve_tab_id(GENERAL_ALIAS).unwrap();
     let snapshot = mux.snapshot();
@@ -29,6 +29,30 @@ fn first_run_selects_general_instead_of_the_installer_before_announcing_state() 
     );
     assert!(mux.get_tab(&installer).is_some());
     assert!(!has_first_run_tab(&mux));
+}
+
+#[test]
+fn first_run_chat_backend_general_starts_with_chat_backing_and_no_pty_boot_stage() {
+    let mut mux = MultiplexerState::empty();
+    ensure_first_run_tab(&mut mux);
+
+    prepare_first_run_general(&mut mux, true, Some("fixture-runtime")).unwrap();
+
+    let general = mux.resolve_tab_id(GENERAL_ALIAS).unwrap();
+    let tab = mux.get_tab(&general).expect("general Tab");
+    assert_eq!(
+        tab.backing,
+        crate::multiplexer::types::TabBacking::ChatBackend {
+            plugin_id: "fixture-runtime".into(),
+            session_id: String::new(),
+        }
+    );
+    assert!(tab.chat_view);
+    assert!(tab.pty_id.is_none());
+    assert_eq!(
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentLaunching)
+    );
 }
 
 #[test]

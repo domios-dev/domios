@@ -9,6 +9,7 @@ fn fresh_spawn_response_uses_the_published_generation_and_includes_the_new_tab()
         &mut fixture.service.mux.write(),
         &request.workspace_id,
         true,
+        None,
         &SpawnAgentParams::default(),
     )
     .unwrap();
@@ -78,6 +79,7 @@ fn fresh_general_selection_preserves_main_aliases_binding_and_focus() {
         &mut mux,
         &request.workspace_id,
         true,
+        None,
         &SpawnAgentParams::default(),
     )
     .unwrap();
@@ -117,6 +119,7 @@ fn sanctioned_general_session_survives_durable_snapshot_restore() {
         &mut mux,
         &request.workspace_id,
         false,
+        None,
         &SpawnAgentParams::default(),
     )
     .unwrap();
@@ -224,6 +227,7 @@ fn general_paths_and_relayed_requests_use_the_receiving_machines_home() {
             &mut mux,
             &resolved.workspace_id,
             false,
+            None,
             &SpawnAgentParams::default(),
         )
         .unwrap();
@@ -320,7 +324,7 @@ fn fresh_general_binds_the_requested_account_and_credential_home() {
     let (mux, fresh, main_id) = {
         let mut mux = svc.mux.write();
         let main_id = mux.resolve_tab_id(MAIN_ALIAS).unwrap();
-        let tab = create_fresh_tab(&mut mux, &request.workspace_id, false, &account).unwrap();
+        let tab = create_fresh_tab(&mut mux, &request.workspace_id, false, None, &account).unwrap();
         (
             MultiplexerState::from_session_snapshot(&mux.to_session_snapshot()),
             tab,
@@ -361,5 +365,32 @@ fn fresh_general_binds_the_requested_account_and_credential_home() {
             Some("work")
         ),
         Err("The selected harness account is unavailable".into())
+    );
+}
+
+#[test]
+fn fresh_chat_backend_general_tab_starts_with_chat_backing_and_no_pty_stage() {
+    let (mut mux, _, request) = fixture();
+    let fresh = create_fresh_tab(
+        &mut mux,
+        &request.workspace_id,
+        false,
+        Some("fixture-runtime"),
+        &SpawnAgentParams::default(),
+    )
+    .unwrap();
+    let tab = mux.get_tab(&fresh).unwrap();
+    assert_eq!(
+        tab.backing,
+        crate::multiplexer::types::TabBacking::ChatBackend {
+            plugin_id: "fixture-runtime".into(),
+            session_id: String::new(),
+        }
+    );
+    assert!(tab.chat_view);
+    assert!(tab.pty_id.is_none());
+    assert_eq!(
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentLaunching)
     );
 }
