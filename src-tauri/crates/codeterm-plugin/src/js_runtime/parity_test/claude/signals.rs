@@ -80,7 +80,12 @@ fn parity_claude_background_work_and_fork_capabilities() {
         json!({"type":"system","subtype":"resume"}),
         json!({"toolUseResult":{"agentId":"agent","status":"async_launched"}}),
         json!({"type":"user","isMeta":true,"message":{"content":"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),
+        json!({"type":"user","origin":{"kind":"task-notification","producer":"session-task"},"message":{"content":"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),
+        json!({"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification><task-id>a</task-id><task-id>b</task-id><task-id>__orphan_summary__:shell</task-id><status>stopped</status></task-notification>"}}),
+        json!({"type":"user","origin":{"kind":"human"},"message":{"content":"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),
         json!({"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification><task-id>agent</task-id><status>killed</status></task-notification>"}}),
+        json!({"type":"attachment","attachment":{"type":"queued_command","origin":{"kind":"task-notification"},"prompt":"<task-notification><task-id>agent</task-id><status>stopped</status></task-notification>"}}),
+        json!({"type":"attachment","attachment":{"type":"queued_command","origin":{"kind":"human"},"prompt":"<task-notification><task-id>agent</task-id><status>completed</status></task-notification>"}}),
         json!({"toolUseResult":{"agentId":"agent","status":"opaque"}}),
     ] {
         assert_eq!(
@@ -113,6 +118,9 @@ fn parity_claude_background_work_and_fork_capabilities() {
     );
     assert!(native_roster.unknown.contains_key("dropped"));
     assert!(native_roster.ended.contains_key("finished"));
+    assert!(native_roster.ended.contains_key("user-done"));
+    assert!(native_roster.ended.contains_key("orphan-a"));
+    assert!(native_roster.ended.contains_key("orphan-b"));
     assert!(native_roster.ended.contains_key("opaque-stopped"));
     assert_eq!(
         native_roster.output_path("opaque-stopped"),
