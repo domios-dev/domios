@@ -49,6 +49,7 @@ describe("conversation paging", () => {
     expect(earlierMessageLabel(3, false)).toBe("Load previous 3 messages");
     expect(earlierMessageLabel(1, false)).toBe("Load previous 1 message");
     expect(earlierMessageLabel(3, true)).toBe("Load previous messages (up to 100)");
+    expect(earlierMessageLabel(0, false)).toBe("Load previous messages (up to 100)");
   });
 
   it("renders replies that arrived under a detached reader below the frozen tail instead of hiding them", () => {
