@@ -70,6 +70,8 @@ import { remoteChatPeer, setRemoteChatFailure } from "../../lib/remoteChatStatus
 import { remoteChatFailure } from "../../lib/remoteChatState";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { onRemoteTabEventSignal } from "../../lib/remoteTabEvents";
+import { onRemoteTransportState, publishRemoteTransportState } from "../../lib/remoteTabTransportState";
+import { peerEventRail } from "../../lib/peerEventRail";
 
 export {
   TEST_CHAT_REPLY_EVENT,
@@ -296,7 +298,10 @@ export function useChatSession({
     interruptedStartRecoveryRef.current = false;
     markTranscriptSnapshotReady(windowKeyRef.current, sessionBindingNonceRef.current);
     adoptChatStartTiming(tabId);
-    if (parseCompositeTabId(tabId)) setRemoteChatFailure(tabId);
+    if (parseCompositeTabId(tabId)) {
+      setRemoteChatFailure(tabId);
+      publishRemoteTransportState(tabId, "chat", "available");
+    }
     attachmentStateRef.current = "attached";
     setAttachmentState("attached");
     setTranscriptUnavailable(null);
@@ -523,8 +528,20 @@ export function useChatSession({
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
     const eventName = `tab-chat-msg-${tabId}`;
-    const stopRemoteSignals = parseCompositeTabId(tabId) ? onRemoteTabEventSignal(eventName, signal => {
+    const remote = parseCompositeTabId(tabId);
+    const stopRemoteSignals = remote ? onRemoteTabEventSignal(eventName, signal => {
       if (signal === "resync") requestRecoveryAttach(false, "stream_reconnected");
+    }) : undefined;
+    const stopRemoteTransport = remote ? onRemoteTransportState(change => {
+      if (change.ordinaryTabId === tabId && change.channel === "chat" && change.availability === "available"
+        && attachmentStateRef.current === "failed") {
+        requestRecoveryAttach(false, "stream_reconnected");
+      }
+    }) : undefined;
+    const stopPeerRail = remote ? peerEventRail.observe(remote.peerId, event => {
+      if (event.type === "reconcile" && attachmentStateRef.current === "failed") {
+        requestRecoveryAttach(false, "stream_reconnected");
+      }
     }) : undefined;
     const listenerStartedAt = performance.now();
     setLoading(true);
@@ -623,6 +640,8 @@ export function useChatSession({
     return () => {
       cancelled = true;
       stopRemoteSignals?.();
+      stopRemoteTransport?.();
+      stopPeerRail?.();
       unlisten?.();
       if (unlisten) emitDiagnostic({ edge: "listener_released", tabId });
       unlistenTest?.();

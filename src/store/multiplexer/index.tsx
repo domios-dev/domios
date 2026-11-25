@@ -74,7 +74,7 @@ import {
   type RemotePeerTabs,
 } from "../../lib/remoteTabPortal";
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
-import { remoteChatPeer, resetRemoteChatStatus } from "../../lib/remoteChatStatus";
+import { clearPeerRemoteChatFailures, remoteChatPeer, resetRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { useMeshPeerProjection, type PairedRoster } from "./useMeshPeerProjection";
 import { useMuxNotificationActions } from "./useMuxNotificationActions";
 import { useRemoteAttachments } from "./useRemoteAttachments";
@@ -387,11 +387,8 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
 
   usePeerStatusRail(pairedRoster, useCallback((peerId: string, event: PeerEvent) => {
     if (event.type === "chat-send-status" || event.type === "plan-changed" || event.type === "plans-loaded") return;
-    if (event.type === "invalidate") {
-      invalidatePeerInventory(peerId);
-      markRemoteChannelsReconnecting(peerId);
-      return;
-    }
+    if (event.type === "invalidate") { invalidatePeerInventory(peerId); markRemoteChannelsReconnecting(peerId); return; }
+    if (event.type === "reconcile") { clearPeerRemoteChatFailures(peerId); resumeRemoteOutputStreams(); resumeRemoteTabEvents(peerId); }
     refreshPeerInventory(peerId);
     if (Object.values(stateRef.current.tabs).some(tab => tab.remote_peer_id === peerId)) void requestRemoteRefresh();
   }, [invalidatePeerInventory, markRemoteChannelsReconnecting, refreshPeerInventory, requestRemoteRefresh]));

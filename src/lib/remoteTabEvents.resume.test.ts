@@ -231,6 +231,38 @@ describe("remote chat event subscription ownership", () => {
     unsubscribe();
     vi.unstubAllGlobals();
   });
+
+  it("quiet chat stream publishes available on ready and re-publishes on resume without restarting", async () => {
+    vi.stubGlobal("window", new EventTarget());
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalls++;
+      return new Response(new ReadableStream({ start() {} }));
+    });
+    const states: string[] = [];
+    const event = "tab-chat-msg-mesh:peer/quiet";
+    let resolveAvailable!: () => void;
+    const available = new Promise<void>(resolve => { resolveAvailable = resolve; });
+    const stopState = onRemoteTransportState(({ ordinaryTabId, channel, availability }) => {
+      if (ordinaryTabId === "mesh:peer/quiet" && channel === "chat") {
+        states.push(availability);
+        if (availability === "available") resolveAvailable();
+      }
+    });
+    const unsubscribe = subscribeRemoteTabEvent(event, () => undefined)!;
+    try {
+      await available;
+      expect(states).toEqual(["available"]);
+      states.length = 0;
+      resumeRemoteTabEvents("peer");
+      expect(states).toEqual(["available"]);
+      expect(fetchCalls).toBe(1);
+    } finally {
+      unsubscribe();
+      stopState();
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 let completed = false;

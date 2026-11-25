@@ -47,6 +47,7 @@ interface SubscriptionRecord {
     }) => void;
     controller: AbortController | null;
     recovery: RemoteChannelRecovery<ChatCursor>;
+    ready: boolean;
     disposed: boolean;
     settlements: Map<number, {
         promise: Promise<void>;
@@ -65,6 +66,7 @@ function connect(record: SubscriptionRecord): void {
     const settlement = new Promise<void>((resolve) => { settle = resolve; });
     record.settlements.set(generation, { promise: settlement, resolve: settle });
     record.controller = controller;
+    record.ready = false;
     // Silence deadline (see createSilenceDeadline): re-armed on every byte incl the
     // peer's 15s keep-alive; true silence parks so an ordinary resume can wake it.
     const deadline = createSilenceDeadline(record.recovery, generation, controller);
@@ -134,19 +136,26 @@ function connect(record: SubscriptionRecord): void {
         }
     }, {
         signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => {
+            if (!controller.signal.aborted && record.recovery.isCurrent(generation))
+                record.ready = true;
             deadline.arm();
             if (record.kind === "provider-switch-status")
                 signalRemoteTabEvent(record.event, "ready");
-            if (record.kind === "chat" && generation > 1)
-                signalRemoteTabEvent(record.event, "resync");
+            if (record.kind === "chat") {
+                publishRemoteTransportState(record.ordinaryTabId, "chat", "available");
+                if (generation > 1)
+                    signalRemoteTabEvent(record.event, "resync");
+            }
         }, onActivity: () => deadline.arm(),
         onEnd(end) {
             const reason: StreamEndReason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)
                 : end.reason === "eof" ? "eof" : "error";
             deadline.clear();
             const ownsGeneration = generation === record.recovery.generation();
-            if (ownsGeneration)
+            if (ownsGeneration) {
                 record.controller = null;
+                record.ready = false;
+            }
             const settled = record.settlements.get(generation);
             record.settlements.delete(generation);
             settled?.resolve();
@@ -208,6 +217,7 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
             channel: kind === "chat" ? "chat" : "control",
             advanced: chatCursorAdvanced,
         }),
+        ready: false,
         disposed: false,
         settlements: new Map(),
     };
@@ -222,12 +232,16 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
     };
 }
 onRemoteTransportCredentials(() => resumeRemoteTabEvents());
-export function resumeRemoteTabEvents(): void {
+export function resumeRemoteTabEvents(peerId?: string): void {
     for (const record of subscriptions.values()) {
-        if (!record.recovery.isAwaitingSignal())
+        if (peerId && record.peerId !== peerId)
             continue;
-        record.recovery.signal();
-        connect(record);
+        if (record.recovery.isAwaitingSignal()) {
+            record.recovery.signal();
+            connect(record);
+        } else if (record.kind === "chat" && record.ready) {
+            publishRemoteTransportState(record.ordinaryTabId, "chat", "available");
+        }
     }
 }
 export function remoteTabEventSubscriptionSnapshot(event: string): {

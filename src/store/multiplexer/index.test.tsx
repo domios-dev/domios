@@ -657,6 +657,50 @@ test("the peer rail opens without viewers and wakes browse and attached status f
   }
 });
 
+test("mesh off/on transitions peers offline on 503 and reconnects inventory, channels, and chat status when re-enabled", async () => {
+  const peer = { ...onlinePeer, instance_id: "toggle-peer", instance_name: "Air", relay_protocol_version: RELAY_PROTOCOL_VERSION };
+  let meshEnabled = true;
+  let peerOnline = true;
+  const { TransportError } = await import("../../lib/transportClient");
+  const { readRemoteChatStatus, setRemoteChatFailure } = await import("../../lib/remoteChatStatus");
+  const { setWorkspaceBrowseTarget } = await import("../../lib/workspaceBrowseTarget");
+  const harness = await mountProvider({
+    roster: () => {
+      if (!meshEnabled) throw new TransportError(503, "/api/mesh/peers", "Mesh networking is disabled");
+      return [{ ...peer, online: peerOnline }];
+    },
+    peerMux: async id => peerSnapshot(id, "AirProject"),
+    peerTabs: id => ({ peer_id: id, peer_name: "Air", tabs: [peerMain(id)] }),
+  });
+  const viewerId = "mesh:toggle-peer/main";
+  try {
+    await harness.act(async () => harness.actions.setActiveTab("ws-renewal", viewerId));
+    assert(harness.inventory.generals[0]?.availability === "online", "peer starts online");
+
+    // Mesh turned OFF: /api/mesh/peers returns 503 Mesh networking is disabled.
+    meshEnabled = false;
+    peerOnline = false;
+    setRemoteChatFailure(viewerId, { status: 503, path: "/api/mesh/relay-to", raw: "Mesh networking is disabled", at: 1 });
+    await harness.act(async () => harness.emit("mesh-state-changed"));
+    assert(harness.inventory.generals[0]?.availability === "offline", "mesh off projects peer offline instead of stale online");
+    assert(readRemoteChatStatus(viewerId, peer.instance_id).peer?.presence === "offline", "remoteChatStatus observes offline");
+
+    // Mesh turned ON and peer switches in machine picker: peer reconnects, failure clears, channels recover.
+    meshEnabled = true;
+    peerOnline = true;
+    await harness.act(async () => setWorkspaceBrowseTarget({ id: peer.instance_id, name: "Air" }));
+    await harness.act(async () => harness.emit("mesh-state-changed"));
+    assert(harness.inventory.generals[0]?.availability === "online", "mesh on reconnects peer inventory");
+    assert(harness.inventory.browse?.availability === "online", "switched machine browse recovers online");
+    assert(harness.inventory.browse?.workspaces[0]?.workspace.name === "AirProject", "switched machine workspaces populate");
+    assert(readRemoteChatStatus(viewerId, peer.instance_id).failure === undefined, "offline->online clears stale chat failure");
+    assert(harness.tabs[viewerId]?.remote_channels?.control === "available", "control channel recovers from reconnecting");
+  } finally {
+    await harness.act(async () => setWorkspaceBrowseTarget(null));
+    await harness.unmount();
+  }
+});
+
 test("notification activation opens the exact discovered General without a gateway lookup", async () => {
   const a = { ...onlinePeer, instance_id: "activation-a", relay_protocol_version: RELAY_PROTOCOL_VERSION };
   const b = { ...a, instance_id: "activation-b" };
