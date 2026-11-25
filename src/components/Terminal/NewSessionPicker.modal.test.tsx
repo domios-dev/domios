@@ -76,6 +76,7 @@ vi.mock("../../lib/nativeBridge", () => ({
 
 import { TransportError } from "../../lib/transportClient";
 import { invoke } from "../../lib/bridge";
+import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { NewSessionPicker } from "./NewSessionPicker";
 import { cloudExecution } from "./cloudExecution";
 
@@ -88,6 +89,8 @@ beforeEach(() => {
   Object.assign(fixture.accounts, { snapshot: null, selectedAccountId: null, loading: false, error: null });
   fixture.accounts.select.mockReset(); fixture.accountHook.mockClear();
   vi.mocked(invoke).mockClear();
+  vi.mocked(probeProviderInstallMap).mockReset();
+  vi.mocked(probeProviderInstallMap).mockResolvedValue({});
   localStorage.clear();
   localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode" }));
   fixture.workspace.cwd_missing = false;
@@ -726,4 +729,39 @@ it("offers a plain Terminal mode in workspace sessions and opens a bare shell ta
 it("hides the plain Terminal mode in General sessions", async () => {
   await renderPicker({ section: "general" });
   expect(dialog().querySelector('[data-testid="picker-mode-terminal"]')).toBeNull();
+});
+
+it("never preselects an unavailable provider on first open for Team or Single agent", async () => {
+  localStorage.clear();
+  fixture.providers.providers = [
+    { id: "cursor", display_name: "Cursor", available_models: [{ id: "cursor-1", display_name: "Cursor 1" }], default_model: "cursor-1", reasoning_efforts: [] },
+    { id: "opencode", display_name: "OpenCode", available_models: [{ id: "live-1", display_name: "Live 1" }], default_model: "live-1", reasoning_efforts: [] },
+  ] as never[];
+  vi.mocked(probeProviderInstallMap).mockResolvedValue({ cursor: false, opencode: true });
+
+  await renderPicker({ section: "workspace" });
+
+  // Team mode defaults to the installed provider, never Cursor, with Start enabled.
+  expect(buttonNamed("Orchestrator provider")?.getAttribute("data-value")).toBe("opencode");
+  expect(buttonNamed("Planner provider")?.getAttribute("data-value")).toBe("opencode");
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(false);
+
+  // Switching to Single agent also selects the installed provider, with Start enabled.
+  await act(async () => buttonNamed("Single agent")!.click());
+  expect(buttonNamed("Agent provider")?.getAttribute("data-value")).toBe("opencode");
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(false);
+});
+
+it("leaves Start disabled without preselecting an unavailable provider when none are installed", async () => {
+  localStorage.clear();
+  fixture.providers.providers = [
+    { id: "cursor", display_name: "Cursor", availability: "unavailable", available_models: [], reasoning_efforts: [] },
+  ] as never[];
+  vi.mocked(probeProviderInstallMap).mockResolvedValue({ cursor: false });
+
+  await renderPicker({ section: "workspace" });
+
+  expect(buttonNamed("Orchestrator provider")?.getAttribute("data-value")).toBe("");
+  expect(buttonNamed("Planner provider")?.getAttribute("data-value")).toBe("");
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(true);
 });
