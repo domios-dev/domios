@@ -156,8 +156,8 @@ fn topic_routing_records_actual_edges_and_ignores_failed_operations() {
 
 #[test]
 #[cfg_attr(
-    all(target_os = "macos", feature = "embeddings"),
-    ignore = "macOS embeddings test binaries abort instead of unwinding (error 5); tracked for 1.23.2"
+    target_os = "macos",
+    ignore = "CI links macOS test binaries with -no_compact_unwind, so a caught panic aborts there"
 )]
 fn stage_updates_use_fixed_ids_and_scoped_origin_restores_after_unwind() {
     let temp = tempfile::tempdir().unwrap();
