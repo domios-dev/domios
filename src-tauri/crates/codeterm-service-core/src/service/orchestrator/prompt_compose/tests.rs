@@ -332,14 +332,9 @@ fn per_task_doctrine_override_reaches_the_composed_worker_brief() {
 #[test]
 fn every_spawned_recipient_receives_rich_rendering_guidance() {
     let guidance = crate::prompts::RICH_RENDERING_GUIDANCE.trim();
+    assert!(!guidance.is_empty(), "an empty fragment proves nothing");
 
-    for (recipient, composed) in [
-        ("spawned non-worker", agent_system_prompt(None)),
-        (
-            "spawned worker",
-            worker_agent_system_prompt(None, None, None),
-        ),
-    ] {
+    for (recipient, composed) in every_launch_composition() {
         assert_eq!(
             composed.matches(guidance).count(),
             1,

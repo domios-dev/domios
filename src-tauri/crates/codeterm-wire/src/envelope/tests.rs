@@ -319,3 +319,44 @@ fn closed_context_shields_unmatched_fences_and_inner_frame_closers() {
         );
     }
 }
+
+#[test]
+fn unclosed_and_malformed_domios_prose_stays_literal_text() {
+    let owner_message = "когда агент упоминает внутренние наши табы или удаленые табы он может в формате <domios ну и там агет писать да? чтоб круто у нас отображалось... типа как <domios type=\"tab\" id=\"0db72b9f\" /> понял?";
+    for literal in [
+        owner_message,
+        "You can write <domios in chat and keep talking.",
+        "в формате <domios",
+        "Use <domios for refs and 10 > 5",
+        "Check <domios type=\"tab\" id=\"0db72b9f\"> without slash",
+        "Incomplete <domios type=\"tab\" id=\"0db",
+        "Malformed <domios type=\"tab\" /> marker",
+        "Remote <domios type=\"tab\" id=\"0db72b9f\" peer=\"blackstar\" /> chip",
+    ] {
+        let spans = parse_envelope_spans(literal);
+        assert_tiles(literal, &spans);
+        assert_eq!(
+            spans.into_iter().map(|s| s.segment).collect::<Vec<_>>(),
+            vec![MessageSegment::Text {
+                text: literal.to_string(),
+            }],
+            "{literal}"
+        );
+    }
+
+    let routed =
+        format!("<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\">{owner_message}</domios>");
+    let routed_spans = parse_envelope_spans(&routed);
+    assert_tiles(&routed, &routed_spans);
+    assert!(matches!(
+        routed_spans.as_slice(),
+        [SpannedSegment {
+            segment: MessageSegment::Frame {
+                kind: FrameKind::Tab,
+                body,
+                ..
+            },
+            ..
+        }] if body == owner_message
+    ));
+}

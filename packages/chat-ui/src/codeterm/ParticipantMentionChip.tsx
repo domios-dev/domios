@@ -11,7 +11,7 @@ export interface ParticipantMentionProps {
   state?: string;
   disabled: boolean;
   onOpen?: () => void;
-  participant?: Pick<ChatMentionValue, "tabKind" | "providerName" | "role" | "workspaceName" | "activity"> & { avatar?: React.ReactNode };
+  participant?: Pick<ChatMentionValue, "tabKind" | "providerName" | "role" | "peerName" | "workspaceName" | "activity"> & { avatar?: React.ReactNode };
 }
 
 export function ParticipantMentionChip({ label, fullRef, state = "resolved", disabled, onOpen, participant }: ParticipantMentionProps) {
@@ -28,6 +28,7 @@ export function ParticipantMentionChip({ label, fullRef, state = "resolved", dis
   const role = participant?.role ? participant.role[0].toUpperCase() + participant.role.slice(1) : undefined;
   const tooltip = [title, closed ? "Closed" : loading ? "Loading" : role,
     !loading && !closed ? participant?.providerName : undefined,
+    !loading && !closed ? participant?.peerName : undefined,
     !loading && !closed ? participant?.workspaceName : undefined, status].filter(Boolean).join(" · ");
   const Icon = kind === "browser" ? Globe : kind === "agent" ? Bot : Terminal;
   return <FloatingTooltip focusable={false} className="ct-mention-anchor" content={tooltip}
@@ -43,7 +44,6 @@ export function ParticipantMentionChip({ label, fullRef, state = "resolved", dis
       }}>
       <span className="ct-mention-avatar" aria-hidden="true">
         <span className="ct-mention-avatar-icon">{participant?.avatar ?? <Icon size={kind === "agent" ? 12 : 11} />}</span>
-        {status && <span className={`ct-mention-dot${activity === "working" ? " ct-live-pulse" : ""}`} data-activity={activity} />}
       </span>
       <span className="ct-mention-title">{truncateChipTitle(title, 24)}</span>
     </button>

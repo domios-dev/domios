@@ -2,8 +2,12 @@
 
 Inline references use explicit markers: `<domios type="task" id="task_xxx" plan="pl_xxx" />`,
 `<domios type="plan" id="pl_xxx" />`, `<domios type="section" id="sec_xxx" plan="pl_xxx" />`,
-or `<domios type="tab" id="TAB_ID" />`. Tasks may omit `plan` when their canonical id
-is known. Bare ids remain text; markers inside code remain code. The @ menu inserts markers.
+`<domios type="tab" id="TAB_ID" />`, or `<domios type="tab" id="TAB_ID" peer="PEER" />`
+(equivalently `<domios type="tab" id="mesh:PEER/TAB_ID" />`) for a remote mesh tab.
+`TAB_ID` accepts a full tab id or unique prefix; `PEER` accepts a mesh peer id or unique
+machine name. Tasks may omit `plan` when their canonical id is known. Bare ids remain text;
+incomplete or malformed `<domios` tags render as literal text; markers inside code remain
+code. The @ menu inserts markers.
 
 A chat block is a live card for a Domios object. Use a complete typed tag at a
 Markdown block boundary, outside code, quotes, lists and context/handoff excerpts.
@@ -295,4 +299,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

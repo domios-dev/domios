@@ -9,12 +9,186 @@ const TIP_CLOSE: &str = "</tip>";
 const PASTE_OPEN: &str = "<pasted_content";
 const PASTE_CLOSE: &str = "</pasted_content";
 
+enum OpeningScan {
+    Complete {
+        end: usize,
+        self_closing: bool,
+        has_from: bool,
+    },
+    Truncated {
+        has_from: bool,
+        has_non_from: bool,
+    },
+    Inert,
+}
+
+fn scan_domios_opening(text: &str) -> OpeningScan {
+    let Some(tail) = text.strip_prefix(FRAME_OPEN) else {
+        return OpeningScan::Inert;
+    };
+    if tail.is_empty() {
+        return OpeningScan::Truncated {
+            has_from: false,
+            has_non_from: false,
+        };
+    }
+    if !matches!(
+        tail.as_bytes()[0],
+        b' ' | b'\t' | b'\r' | b'\n' | b'>' | b'/'
+    ) {
+        return OpeningScan::Inert;
+    }
+    let bytes = text.as_bytes();
+    let mut pos = FRAME_OPEN.len();
+    let mut has_from = false;
+    let mut has_non_from = false;
+    loop {
+        let ws_start = pos;
+        while pos < bytes.len() && matches!(bytes[pos], b' ' | b'\t' | b'\r' | b'\n') {
+            pos += 1;
+        }
+        if pos == bytes.len() {
+            return OpeningScan::Truncated {
+                has_from,
+                has_non_from,
+            };
+        }
+        if bytes[pos] == b'>' {
+            return OpeningScan::Complete {
+                end: pos + 1,
+                self_closing: false,
+                has_from,
+            };
+        }
+        if bytes[pos] == b'/' {
+            if pos + 1 == bytes.len() {
+                return OpeningScan::Truncated {
+                    has_from,
+                    has_non_from,
+                };
+            }
+            if bytes[pos + 1] == b'>' {
+                return OpeningScan::Complete {
+                    end: pos + 2,
+                    self_closing: true,
+                    has_from,
+                };
+            }
+            return OpeningScan::Inert;
+        }
+        if pos == ws_start {
+            return OpeningScan::Inert;
+        }
+        if !bytes[pos].is_ascii_alphabetic() {
+            return OpeningScan::Inert;
+        }
+        let name_start = pos;
+        while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_') {
+            pos += 1;
+        }
+        let name = &text[name_start..pos];
+        if pos == bytes.len() {
+            let could_be_from = "from".starts_with(name);
+            return OpeningScan::Truncated {
+                has_from,
+                has_non_from: has_non_from || !could_be_from,
+            };
+        }
+        if bytes[pos] != b'=' {
+            return OpeningScan::Inert;
+        }
+        if name == "from" {
+            has_from = true;
+        } else {
+            has_non_from = true;
+        }
+        pos += 1;
+        if pos == bytes.len() {
+            return OpeningScan::Truncated {
+                has_from,
+                has_non_from,
+            };
+        }
+        if bytes[pos] == b'"' {
+            pos += 1;
+            let Some(rel_end) = text[pos..].find('"') else {
+                return OpeningScan::Truncated {
+                    has_from,
+                    has_non_from,
+                };
+            };
+            pos += rel_end + 1;
+        } else {
+            let val_start = pos;
+            while pos < bytes.len() {
+                let b = bytes[pos];
+                if matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b'>') {
+                    break;
+                }
+                if b == b'/' && bytes.get(pos + 1) == Some(&b'>') {
+                    break;
+                }
+                if matches!(b, b'"' | b'\'' | b'<' | b'`' | b'=') {
+                    return OpeningScan::Inert;
+                }
+                pos += 1;
+            }
+            if pos == val_start {
+                return OpeningScan::Inert;
+            }
+        }
+        if pos == bytes.len() {
+            return OpeningScan::Truncated {
+                has_from,
+                has_non_from,
+            };
+        }
+        if !matches!(bytes[pos], b' ' | b'\t' | b'\r' | b'\n' | b'>' | b'/') {
+            return OpeningScan::Inert;
+        }
+    }
+}
+
 pub(super) fn opens_frame(text: &str) -> bool {
-    text.strip_prefix(FRAME_OPEN).is_some_and(|rest| {
-        rest.chars()
-            .next()
-            .is_none_or(|next| matches!(next, ' ' | '\t' | '\r' | '\n' | '>' | '/'))
-    })
+    matches!(
+        scan_domios_opening(text),
+        OpeningScan::Complete {
+            self_closing: false,
+            ..
+        } | OpeningScan::Truncated { .. }
+    )
+}
+
+pub(super) fn frame_candidate(
+    rest: &str,
+    boundary: bool,
+    depth: usize,
+) -> Option<(MessageSegment, usize)> {
+    match scan_domios_opening(rest) {
+        OpeningScan::Inert
+        | OpeningScan::Complete {
+            self_closing: true, ..
+        } => None,
+        OpeningScan::Complete {
+            self_closing: false,
+            has_from,
+            ..
+        } => match frame_extent(rest) {
+            Some(consumed) => Some((frame_segment(&rest[..consumed], depth), consumed)),
+            None if has_from => Some((partial_frame(rest), rest.len())),
+            None => None,
+        },
+        OpeningScan::Truncated {
+            has_from,
+            has_non_from,
+        } => {
+            if has_from || (boundary && !has_non_from) {
+                Some((partial_frame(rest), rest.len()))
+            } else {
+                None
+            }
+        }
+    }
 }
 
 fn opening_end(text: &str) -> Option<usize> {
@@ -22,6 +196,7 @@ fn opening_end(text: &str) -> Option<usize> {
     for (index, character) in text.char_indices() {
         match character {
             '"' => quoted = !quoted,
+            '<' if index > 0 && !quoted => return None,
             '>' if !quoted => return Some(index + 1),
             _ => {}
         }
@@ -31,11 +206,20 @@ fn opening_end(text: &str) -> Option<usize> {
 
 /// Bytes up to and including the close that balances the leading opening tag;
 /// `None` while that close has not arrived.
-pub(super) fn frame_extent(text: &str) -> Option<usize> {
-    let opening = opening_end(text)?;
-    if text[..opening].ends_with("/>") {
-        return Some(opening);
-    }
+fn frame_extent(text: &str) -> Option<usize> {
+    let opening = match scan_domios_opening(text) {
+        OpeningScan::Complete {
+            end,
+            self_closing: true,
+            ..
+        } => return Some(end),
+        OpeningScan::Complete {
+            end,
+            self_closing: false,
+            ..
+        } => end,
+        OpeningScan::Truncated { .. } | OpeningScan::Inert => return None,
+    };
     let mut offset = opening;
     let mut depth = 1;
     while offset < text.len() {
@@ -50,12 +234,26 @@ pub(super) fn frame_extent(text: &str) -> Option<usize> {
             if depth == 0 {
                 return Some(offset);
             }
-        } else if opens_frame(rest) {
-            let end = opening_end(rest)?;
-            if !rest[..end].ends_with("/>") {
-                depth += 1;
+        } else if rest.starts_with(FRAME_OPEN) {
+            match scan_domios_opening(rest) {
+                OpeningScan::Complete {
+                    end,
+                    self_closing,
+                    has_from,
+                } => {
+                    if !self_closing && has_from {
+                        depth += 1;
+                    }
+                    offset += end;
+                }
+                OpeningScan::Truncated { has_from: true, .. } => return None,
+                OpeningScan::Truncated {
+                    has_from: false, ..
+                }
+                | OpeningScan::Inert => {
+                    offset += rest.chars().next()?.len_utf8();
+                }
             }
-            offset += end;
         } else {
             offset += rest.chars().next()?.len_utf8();
         }
