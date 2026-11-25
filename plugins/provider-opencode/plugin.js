@@ -691,7 +691,7 @@ function bindingModelSwitchSource() {
   ];
 }
 
-// ../../codeterm/packages/chat-core/src/sessionChanges.ts
+// packages/chat-core/src/sessionChanges.ts
 function lines(text2) {
   return text2 ? text2.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n") : [];
 }
@@ -712,22 +712,22 @@ function fileDiffFromEdit(edit) {
   };
 }
 
-// ../../codeterm/packages/chat-core/src/systemReminderText.ts
+// packages/chat-core/src/systemReminderText.ts
 var MARKER_TOKEN = /<\/?codeterm-[a-z][a-z-]*(?:\s+[a-z_]+="[^"]*")*\s*>/;
 var STRAY_MARKER = new RegExp(MARKER_TOKEN.source, "g");
 
-// ../../codeterm/packages/chat-core/src/domios.ts
+// packages/chat-core/src/domios.ts
 var DOMIOS_PASTED_MARKER = "pasted by Domios";
 var PASTED_MARKER_TAIL = `
 ${DOMIOS_PASTED_MARKER}`;
 
-// ../../codeterm/packages/chat-core/src/attachmentValidation.ts
+// packages/chat-core/src/attachmentValidation.ts
 var MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
-// ../../codeterm/packages/chat-core/src/shellLexer.ts
+// packages/chat-core/src/shellLexer.ts
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
 
-// ../../codeterm/packages/chat-core/src/shellFileOperations.ts
+// packages/chat-core/src/shellFileOperations.ts
 var SHELL_FILE_LIMITS = Object.freeze({ inputBytes: 16384, argv: 128, tokens: 256, segments: 64, operations: 8, variables: 16, path: 512, replacements: 8, fragmentBytes: 2048, totalFragmentBytes: 8192, cache: 64, cacheBytes: 262144 });
 var EMPTY = Object.freeze({ operations: Object.freeze([]), limited: false });
 var LIMITED = Object.freeze({ operations: Object.freeze([]), limited: true });

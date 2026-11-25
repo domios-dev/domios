@@ -100,7 +100,7 @@ fn snapshot_exposes_control_states_without_treating_false_as_disabled() {
 fn snapshot_exposes_pressed_state_on_buttons_and_toggle_buttons() {
     let mut nodes: Vec<AxNode> = serde_json::from_value(json!([
         {"nodeId": "root", "role": {"value": "RootWebArea"}, "childIds": ["selected", "other", "mixed"]},
-        {"nodeId": "selected", "parentId": "root", "role": {"value": "toggleButton"}, "name": {"value": "OpenCode: Installed"}, "backendDOMNodeId": 10, "properties": [{"name": "pressed", "value": {"value": "true"}}]},
+        {"nodeId": "selected", "parentId": "root", "role": {"value": "toggleButton"}, "name": {"value": "Provider A: Installed"}, "backendDOMNodeId": 10, "properties": [{"name": "pressed", "value": {"value": "true"}}]},
         {"nodeId": "other", "parentId": "root", "role": {"value": "button"}, "name": {"value": "Other: Installed"}, "backendDOMNodeId": 11, "properties": [{"name": "pressed", "value": {"value": "false"}}]},
         {"nodeId": "mixed", "parentId": "root", "role": {"value": "toggleButton"}, "name": {"value": "Mixed"}, "backendDOMNodeId": 12, "properties": [{"name": "pressed", "value": {"value": "mixed"}}]}
     ]))
@@ -108,7 +108,7 @@ fn snapshot_exposes_pressed_state_on_buttons_and_toggle_buttons() {
     let snapshot = build_snapshot(&nodes, 20);
     assert!(snapshot
         .text
-        .contains(r#"- toggleButton "OpenCode: Installed" [pressed=true] [@e1]"#));
+        .contains(r#"- toggleButton "Provider A: Installed" [pressed=true] [@e1]"#));
     assert!(snapshot
         .text
         .contains(r#"- button "Other: Installed" [pressed=false] [@e2]"#));
@@ -116,7 +116,7 @@ fn snapshot_exposes_pressed_state_on_buttons_and_toggle_buttons() {
         .text
         .contains(r#"- toggleButton "Mixed" [pressed=mixed] [@e3]"#));
     assert_eq!(
-        resolve_target(Some(&snapshot), &["button", "OpenCode: Installed"])
+        resolve_target(Some(&snapshot), &["button", "Provider A: Installed"])
             .unwrap()
             .backend_node_id,
         10
