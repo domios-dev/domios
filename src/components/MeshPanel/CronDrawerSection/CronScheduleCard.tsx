@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { CalendarClock, Pause, Pencil, Play, Square } from "lucide-react";
-import { describeSchedule, formatFuture, formatTime } from "../../../lib/formatters";
+import { describeSchedule, formatFuture } from "../../../lib/formatters";
 import type { InventoryOperation, Service } from "../types";
 import type { CronRunInfo } from "../../../lib/types";
 import { CRON_DANGER, CRON_DANGER_TONE, CRON_LABEL, CRON_PILL, CRON_PRIMARY, CronCard, runOutcomeLabel, runStatusLabel, Unavailable } from "./parts";
@@ -34,7 +34,7 @@ function Status({ enabled, live }: { enabled: boolean; live: string | null }) {
 
 export function CronScheduleCard(props: CronScheduleCardProps) {
   const { service, busy, running, editing, scheduleInput, toggleOperation, can, reason } = props;
-  const nextRun = service.next_run ? `${formatFuture(service.next_run)} · ${formatTime(service.next_run)}` : "Not scheduled";
+  const nextRun = service.next_run ? formatFuture(service.next_run, true) : "Not scheduled";
   return <CronCard label="Schedule" icon={<CalendarClock size={14} />} aside={<Status enabled={service.enabled} live={running && service.last_run_status ? runStatusLabel(service.last_run_status) : null} />}>
     <p className="ct-job-section__lead">{service.schedule ? describeSchedule(service.schedule) : "Schedule not set"}</p>
     <dl className="ct-detail__lane">
