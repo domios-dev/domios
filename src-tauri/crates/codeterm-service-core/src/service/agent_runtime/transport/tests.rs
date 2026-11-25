@@ -177,8 +177,10 @@ fn acceptance_is_written_and_never_fabricates_delivery() {
 fn runtime_turn_input_carries_images_once_and_preserves_marker_text() {
     let text =
         "describe <domios type=\"attachment\" kind=\"image\" path=\"C:/images/a&amp;b.jpg\" />";
-    let input = super::turn_input(&format!("{text}\n{text}"));
-    assert_eq!(input.text, format!("{text}\n{text}"));
+    let message =
+        format!("<domios from=tab>Example <domios type=tab>opening</domios>owner: {text}\n{text}");
+    let input = super::turn_input(&message);
+    assert_eq!(input.text, message);
     assert_eq!(input.attachments.len(), 1);
     assert_eq!(
         input.attachments[0].path.as_deref(),

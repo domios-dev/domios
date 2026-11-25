@@ -11,7 +11,7 @@ use markup::{attachment, frame_candidate, opens_frame, paste, quoted_end};
 
 /// Bumped whenever a segment shape or a parse decision changes, so a client
 /// built against another grammar can refuse rather than misrender.
-pub const ENVELOPE_GRAMMAR_VERSION: u32 = 3;
+pub const ENVELOPE_GRAMMAR_VERSION: u32 = 4;
 
 const MAX_DEPTH: usize = 64;
 

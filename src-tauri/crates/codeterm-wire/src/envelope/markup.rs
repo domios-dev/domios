@@ -207,11 +207,10 @@ fn opening_end(text: &str) -> Option<usize> {
     None
 }
 
-/// Bytes up to and including the close that balances the leading opening tag;
-/// `None` while that close has not arrived.
 fn frame_extent(text: &str, opening: usize, line_start: bool) -> Option<usize> {
     let mut offset = opening;
-    let mut nested: Vec<bool> = Vec::new();
+    let mut within_nested_sender = Vec::new();
+    let mut first_literal_close = None;
     while offset < text.len() {
         if let Some(end) = quoted_end(text, offset) {
             offset = end;
@@ -220,14 +219,13 @@ fn frame_extent(text: &str, opening: usize, line_start: bool) -> Option<usize> {
         let rest = &text[offset..];
         if rest.starts_with(DOMIOS_CLOSE_TAG) {
             offset += DOMIOS_CLOSE_TAG.len();
-            if nested.is_empty() {
-                return Some(offset);
+            match within_nested_sender.pop() {
+                None => return Some(offset),
+                Some(false) if line_start && first_literal_close.is_none() => {
+                    first_literal_close = Some(offset);
+                }
+                _ => {}
             }
-            // A terminal host close can balance the sender around unpaired literal elements.
-            if line_start && offset == text.len() && nested.iter().all(|has_from| !has_from) {
-                return Some(offset);
-            }
-            nested.pop();
         } else if rest.starts_with(FRAME_OPEN) {
             match scan_domios_opening(rest) {
                 OpeningScan::Complete {
@@ -236,11 +234,12 @@ fn frame_extent(text: &str, opening: usize, line_start: bool) -> Option<usize> {
                     has_from,
                 } => {
                     if !self_closing {
-                        nested.push(has_from);
+                        within_nested_sender
+                            .push(has_from || within_nested_sender.last() == Some(&true));
                     }
                     offset += end;
                 }
-                OpeningScan::Truncated { has_from: true, .. } => return None,
+                OpeningScan::Truncated { has_from: true, .. } => break,
                 OpeningScan::Truncated {
                     has_from: false, ..
                 }
@@ -252,7 +251,7 @@ fn frame_extent(text: &str, opening: usize, line_start: bool) -> Option<usize> {
             offset += rest.chars().next()?.len_utf8();
         }
     }
-    None
+    first_literal_close
 }
 
 fn opening_attributes(tag: &str) -> Option<std::collections::BTreeMap<String, String>> {

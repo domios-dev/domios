@@ -28,6 +28,7 @@ const expectedRows: Record<string, number> = {
   "opening tag cut before its close": 1, "neighbor question with host tip": 1,
   "routed file after context with unmatched fence": 1, "agent sender with model": 1,
   "routed paired tab mention": 2, "routed unpaired tab mention": 1, "inline unpaired tab mention": 1,
+  "unpaired tab mention followed by newline": 1, "unpaired tab mention followed by owner text": 2,
 };
 
 function displayed(segments: readonly MessageSegment[]): string[] {
@@ -58,14 +59,17 @@ const screenshot = fixtures.find((fixture) => fixture.name === "owner merged scr
 for (const [name, complete] of [
   ["routed paired tab mention", true],
   ["routed unpaired tab mention", false],
+  ["unpaired tab mention followed by newline", false],
+  ["unpaired tab mention followed by owner text", false],
   ["inline unpaired tab mention", false],
 ] as const) {
   const fixture = fixtures.find((item) => item.name === name)!;
   const rows = envelopeRows(fixture.segments);
-  assert.deepEqual(rows.map((row) => row.content), displayed(fixture.segments), name);
-  assert.deepEqual(rows.map((row) => row.frame?.kind), fixture.segments.map((segment) =>
+  const visible = fixture.segments.filter((segment) => segment.type !== "text" || segment.text.trim().length > 0);
+  assert.deepEqual(rows.map((row) => row.content), displayed(visible), name);
+  assert.deepEqual(rows.map((row) => row.frame?.kind), visible.map((segment) =>
     segment.type === "frame" ? segment.kind : undefined), name);
-  const end = fixture.raw.length - (rows[1]?.content.length ?? 0);
+  const end = fixture.raw.length - (complete ? (rows[1]?.content.length ?? 0) : 0);
   assert.deepEqual(rawEnvelopeExclusions(fixture.raw), [{
     start: fixture.raw.indexOf("<domios"), end, kind: "domios", complete, malformed: false,
   }], name);

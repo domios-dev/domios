@@ -400,16 +400,15 @@ fn terminal_sender_close_requires_a_line_boundary_and_unpaired_non_sender() {
         MessageSegment::Text { .. }, MessageSegment::Frame { body, .. }
     ] if body == literal)
     );
-    for raw in [
-        format!("{sender}\n"),
-        "<domios from=tab><domios from=report>body</domios>".into(),
-    ] {
-        assert!(
-            matches!(
-                parse_envelope(&raw).as_slice(),
-                [MessageSegment::PartialFrame { .. }]
-            ),
-            "{raw}"
-        );
-    }
+    let raw = "<domios from=tab><domios from=report><domios type=tab>body</domios>";
+    assert!(matches!(
+        parse_envelope(raw).as_slice(),
+        [MessageSegment::PartialFrame { .. }]
+    ));
+    let tail = "owner <domios type=tab>second</domios> then <domios from=\"unfinished prose";
+    assert!(
+        matches!(parse_envelope(&format!("{sender}{tail}")).as_slice(), [
+        MessageSegment::Frame { body, .. }, MessageSegment::Text { text }
+    ] if body == literal && text == tail)
+    );
 }
