@@ -62,13 +62,6 @@ export function presetThemeName(name: string): string {
   return presetThemeNames.get(name) ?? name;
 }
 
-export function machineThemeName(name: string): string {
-  const preset = presetThemeNames.get(name);
-  if (preset) return preset;
-  if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(name)) return name;
-  return name.split(/[-_]/).map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
-}
-
 export function desaturateMachineColor(color: string, online: boolean): string {
   if (online) return color;
   const [hue, saturation, lightness] = rgbToHsl(...parseHex(color));
