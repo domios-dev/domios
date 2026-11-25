@@ -31,7 +31,7 @@ fn read_until_line(
     let mut output = Vec::new();
     let limit: usize = 64 * 1024;
     loop {
-        if !reader.active && reader.start_read(limit.saturating_sub(output.len()))? {
+        if reader.is_idle() && reader.start_read(limit.saturating_sub(output.len()))? {
             reader.close();
             return Ok(String::from_utf8_lossy(&output)
                 .lines()
@@ -189,4 +189,53 @@ fn probe_child_collect_output_times_out_within_bound_when_child_hangs_with_open_
     );
     let exited = unsafe { WaitForSingleObject(process.as_raw_handle(), 5000) };
     assert_eq!(exited, WAIT_OBJECT_0, "timed-out child must be terminated");
+}
+
+#[test]
+fn iocp_reader_retains_overlapped_storage_when_cancel_does_not_settle() {
+    let port = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1) };
+    assert!(!port.is_null());
+    let port = unsafe { OwnedHandle::from_raw_handle(port) };
+
+    let (pipe_reader, _pipe_writer) = create_overlapped_pipe().unwrap();
+    let unsettled_dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut reader = IocpReader::new(port.as_raw_handle(), pipe_reader);
+    reader.cancel_timeout_ms = 0;
+    reader.storage.as_deref_mut().unwrap().dropped = Some(unsettled_dropped.clone());
+    reader.state = ReadState::Active;
+    reader.close();
+    assert_eq!(reader.state, ReadState::Unsettled);
+    assert!(
+        reader.pipe.is_some(),
+        "unsettled close must keep the pipe handle intact"
+    );
+    drop(reader);
+    assert!(
+        !unsettled_dropped.load(Ordering::SeqCst),
+        "unsettled OVERLAPPED and read buffer must be forgotten, not freed"
+    );
+
+    let (pipe_reader, _pipe_writer) = create_overlapped_pipe().unwrap();
+    assert!(!unsafe {
+        CreateIoCompletionPort(
+            pipe_reader.as_raw_handle(),
+            port.as_raw_handle(),
+            STDOUT_KEY,
+            0,
+        )
+    }
+    .is_null());
+    let settled_dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut reader = IocpReader::new(port.as_raw_handle(), pipe_reader);
+    reader.storage.as_deref_mut().unwrap().dropped = Some(settled_dropped.clone());
+    assert!(!reader.start_read(64).unwrap());
+    assert_eq!(reader.state, ReadState::Active);
+    reader.close();
+    assert_eq!(reader.state, ReadState::Idle);
+    assert!(reader.pipe.is_none());
+    drop(reader);
+    assert!(
+        settled_dropped.load(Ordering::SeqCst),
+        "settled cancel must release OVERLAPPED and read buffer"
+    );
 }

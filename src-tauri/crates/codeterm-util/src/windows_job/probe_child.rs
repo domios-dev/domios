@@ -94,12 +94,35 @@ impl Drop for Attributes {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadState {
+    Idle,
+    Active,
+    Unsettled,
+}
+
+struct PinnedReadStorage {
+    overlapped: OVERLAPPED,
+    buffer: Vec<u8>,
+    #[cfg(test)]
+    dropped: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+}
+
+#[cfg(test)]
+impl Drop for PinnedReadStorage {
+    fn drop(&mut self) {
+        if let Some(flag) = &self.dropped {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
 struct IocpReader {
     port: HANDLE,
     pipe: Option<OwnedHandle>,
-    active: bool,
-    overlapped: Box<OVERLAPPED>,
-    buffer: Vec<u8>,
+    state: ReadState,
+    cancel_timeout_ms: u32,
+    storage: Option<Box<PinnedReadStorage>>,
 }
 
 enum PipePeek {
@@ -113,15 +136,26 @@ impl IocpReader {
         Self {
             port,
             pipe: Some(pipe),
-            active: false,
-            overlapped: Box::new(OVERLAPPED::default()),
-            buffer: vec![0u8; READ_CHUNK_BYTES],
+            state: ReadState::Idle,
+            cancel_timeout_ms: TERMINATE_WAIT_MS,
+            storage: Some(Box::new(PinnedReadStorage {
+                overlapped: OVERLAPPED::default(),
+                buffer: vec![0u8; READ_CHUNK_BYTES],
+                #[cfg(test)]
+                dropped: None,
+            })),
         }
     }
 
+    fn is_idle(&self) -> bool {
+        self.state == ReadState::Idle
+    }
+
     fn start_read(&mut self, remaining_cap: usize) -> io::Result<bool> {
-        if self.active {
-            return Ok(false);
+        match self.state {
+            ReadState::Idle => {}
+            ReadState::Active => return Ok(false),
+            ReadState::Unsettled => return Ok(true),
         }
         if remaining_cap == 0 {
             return Ok(true);
@@ -129,26 +163,29 @@ impl IocpReader {
         let Some(pipe) = self.pipe.as_ref() else {
             return Ok(true);
         };
-        let want = remaining_cap.min(self.buffer.len()) as u32;
-        *self.overlapped = OVERLAPPED::default();
+        let Some(storage) = self.storage.as_deref_mut() else {
+            return Ok(true);
+        };
+        let want = remaining_cap.min(storage.buffer.len()) as u32;
+        storage.overlapped = OVERLAPPED::default();
         let ok = unsafe {
             ReadFile(
                 pipe.as_raw_handle(),
-                self.buffer.as_mut_ptr(),
+                storage.buffer.as_mut_ptr(),
                 want,
                 null_mut(),
-                &mut *self.overlapped,
+                &mut storage.overlapped,
             )
         };
         if ok != 0 {
             // Without FILE_SKIP_COMPLETION_PORT_ON_SUCCESS, a synchronous ReadFile
             // still queues its completion packet on the associated IOCP.
-            self.active = true;
+            self.state = ReadState::Active;
             Ok(false)
         } else {
             let err = unsafe { GetLastError() };
             if err == ERROR_IO_PENDING {
-                self.active = true;
+                self.state = ReadState::Active;
                 Ok(false)
             } else if err == ERROR_BROKEN_PIPE {
                 Ok(true)
@@ -165,11 +202,14 @@ impl IocpReader {
         error: Option<u32>,
         output: &mut Vec<u8>,
     ) -> io::Result<bool> {
-        let expected: *const OVERLAPPED = &*self.overlapped;
-        if !self.active || overlapped.cast_const() != expected {
+        let Some(storage) = self.storage.as_ref() else {
+            return Err(io::Error::other("Probe stdout storage is unavailable"));
+        };
+        let expected: *const OVERLAPPED = &storage.overlapped;
+        if self.state != ReadState::Active || overlapped.cast_const() != expected {
             return Err(io::Error::other("Unexpected probe stdout completion"));
         }
-        self.active = false;
+        self.state = ReadState::Idle;
         if let Some(err) = error {
             if err == ERROR_BROKEN_PIPE || err == ERROR_OPERATION_ABORTED {
                 return Ok(true);
@@ -179,8 +219,8 @@ impl IocpReader {
         if bytes == 0 {
             return Ok(true);
         }
-        let count = (bytes as usize).min(self.buffer.len());
-        output.extend_from_slice(&self.buffer[..count]);
+        let count = (bytes as usize).min(storage.buffer.len());
+        output.extend_from_slice(&storage.buffer[..count]);
         Ok(false)
     }
 
@@ -213,14 +253,18 @@ impl IocpReader {
         mut output: Option<&mut Vec<u8>>,
         mut job_empty: Option<&mut bool>,
     ) -> bool {
-        if !self.active {
+        if self.state != ReadState::Active {
             return false;
         }
         let Some(pipe) = self.pipe.as_ref() else {
-            self.active = false;
+            self.state = ReadState::Unsettled;
             return false;
         };
-        let expected: *const OVERLAPPED = &*self.overlapped;
+        let Some(storage) = self.storage.as_ref() else {
+            self.state = ReadState::Unsettled;
+            return false;
+        };
+        let expected: *const OVERLAPPED = &storage.overlapped;
         unsafe {
             CancelIoEx(pipe.as_raw_handle(), expected);
         }
@@ -235,10 +279,11 @@ impl IocpReader {
                     &mut bytes,
                     &mut key,
                     &mut overlapped,
-                    TERMINATE_WAIT_MS,
+                    self.cancel_timeout_ms,
                 )
             };
             if ok == 0 && overlapped.is_null() {
+                self.state = ReadState::Unsettled;
                 break;
             }
             if key == JOB_KEY {
@@ -252,12 +297,12 @@ impl IocpReader {
             if key == STDOUT_KEY && overlapped.cast_const() == expected {
                 if ok != 0 && bytes > 0 {
                     if let Some(buf) = output.as_deref_mut() {
-                        let count = (bytes as usize).min(self.buffer.len());
-                        buf.extend_from_slice(&self.buffer[..count]);
+                        let count = (bytes as usize).min(storage.buffer.len());
+                        buf.extend_from_slice(&storage.buffer[..count]);
                         harvested = true;
                     }
                 }
-                self.active = false;
+                self.state = ReadState::Idle;
                 break;
             }
         }
@@ -265,21 +310,25 @@ impl IocpReader {
     }
 
     fn close(&mut self) {
-        self.cancel_into(None, None);
-        drop(self.pipe.take());
+        if self.state == ReadState::Active {
+            self.cancel_into(None, None);
+        }
+        if self.state == ReadState::Idle {
+            drop(self.pipe.take());
+        }
     }
 }
 
 impl Drop for IocpReader {
     fn drop(&mut self) {
-        self.cancel_into(None, None);
-        if self.active {
+        if self.state == ReadState::Active {
+            self.cancel_into(None, None);
+        }
+        if self.state != ReadState::Idle {
             // Retain unsettled overlapped storage rather than risk kernel use-after-free.
-            let overlapped =
-                std::mem::replace(&mut self.overlapped, Box::new(OVERLAPPED::default()));
-            let buffer = std::mem::take(&mut self.buffer);
-            std::mem::forget(overlapped);
-            std::mem::forget(buffer);
+            if let Some(storage) = self.storage.take() {
+                std::mem::forget(storage);
+            }
         }
     }
 }
@@ -533,7 +582,7 @@ impl ProbeChild {
         let mut job_empty = self.job_is_empty();
 
         loop {
-            if !pipe_done && !reader.active {
+            if !pipe_done && reader.is_idle() {
                 match reader.start_read(limit.saturating_sub(output.len())) {
                     Ok(true) => {
                         pipe_done = true;
