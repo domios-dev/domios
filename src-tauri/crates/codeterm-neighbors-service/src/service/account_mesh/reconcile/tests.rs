@@ -219,6 +219,22 @@ fn higher_installation_falls_back_only_after_one_interval() {
 }
 
 #[test]
+fn mesh_reenable_dials_higher_installation_immediately_without_waiting_fallback_interval() {
+    let mut state = Reconciliation::default();
+    state.observe(1, &[row("a")]);
+    assert!(!state.dial_due("z", "a", 100));
+    state.mesh_reenabled();
+    assert!(state.dial_due("z", "a", 100));
+    state.immediate_fallback = false;
+    state
+        .retries
+        .entry("a".into())
+        .or_default()
+        .failed(100, &AdmissionRefusal::PeerUnreachable);
+    assert!(!state.dial_due("z", "a", 101));
+}
+
+#[test]
 fn connectivity_events_never_postpone_the_fallback_dial() {
     let mut state = Reconciliation::default();
     state.observe(1, &[row("a")]);

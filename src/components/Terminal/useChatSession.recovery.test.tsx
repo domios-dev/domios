@@ -143,11 +143,94 @@ async function main() {
   await act(async () => root.unmount());
   assert(Number(stops) === 2, "unmount did not release the live subscription");
   assert(scheduledWaits.length === 0, `attach scheduled ${scheduledWaits.length} timed waits`);
+
+  await verifyRemoteReconnectRecovery();
+
   Object.defineProperty(globalThis, "setTimeout", {
     value: nativeSetTimeout,
     configurable: true,
   });
   console.log("PASS attach readiness comes from observed events, never from a deadline");
+}
+
+async function verifyRemoteReconnectRecovery() {
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { peerEventRail } = await import("../../lib/peerEventRail");
+  const { readRemoteChatStatus, resetRemoteChatStatus, updateRemoteChatPeers } = await import("../../lib/remoteChatStatus");
+  const { bindRemoteTabEventsTransport } = await import("../../lib/remoteTabEvents");
+  const { onRemoteTransportState } = await import("../../lib/remoteTabTransportState");
+  bindRemoteTabEventsTransport({
+    subscribe: () => () => {},
+  } as never);
+  resetRemoteChatStatus();
+  updateRemoteChatPeers({
+    paired: [{ instance_id: "peer-air", instance_name: "Air", online: true } as never],
+    local_instance_name: "Local",
+  });
+  const tabId = "mesh:peer-air/remote-chat";
+  const railListeners: Array<(event: import("../../lib/peerEventRail").PeerEvent) => void> = [];
+  const originalObserve = peerEventRail.observe;
+  peerEventRail.observe = (_peerId, listener) => {
+    railListeners.push(listener);
+    return () => {
+      const idx = railListeners.indexOf(listener);
+      if (idx >= 0) railListeners.splice(idx, 1);
+    };
+  };
+  let startAttempts = 0;
+  const chatChannels: string[] = [];
+  const stopChannel = onRemoteTransportState(change => {
+    if (change.ordinaryTabId === tabId && change.channel === "chat") chatChannels.push(change.availability);
+  });
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest((async (cmd: string) => {
+    if (cmd === "chat_start") {
+      startAttempts++;
+      if (startAttempts === 1) throw new Error("/api/mesh/relay-to → HTTP 503: Mesh networking is disabled");
+      return {
+        text: "",
+        offset: 1,
+        start_offset: 0,
+        pending: false,
+        source_session_id: "remote-session",
+        session_binding_nonce: "nonce",
+        subscription_id: `remote-sub-${startAttempts}`,
+        messages: [{ id: "m1", type: "assistant", content: "reconnected", timestamp: "t1" }],
+      };
+    }
+    if (cmd === "chat_send_status" || cmd === "chat_send_dismissals") return [];
+    return {};
+  }) as never);
+
+  let latestState: ChatAttachmentState = "idle";
+  function RemoteHarness() {
+    const session = useChatSession({ tabId, agentSessionId: "remote-session", sessionBindingNonce: "nonce" });
+    latestState = session.attachmentState;
+    return null;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<RemoteHarness />));
+    assert(startAttempts === 1, "initial remote chat_start ran once");
+    assert(latestState === "failed", "initial remote failure entered failed state");
+    assert(readRemoteChatStatus(tabId, "peer-air").failure !== undefined, "remote failure recorded");
+
+    await act(async () => {
+      for (const listener of [...railListeners]) listener({ type: "reconcile" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert(startAttempts === 2, "peer rail reconcile retried remote chat_start");
+    assert(latestState === "attached", "reconcile re-attached the remote chat");
+    assert(readRemoteChatStatus(tabId, "peer-air").failure === undefined, "re-attach cleared remote chat failure");
+    assert(chatChannels.includes("available"), "re-attach published chat channel available");
+  } finally {
+    stopChannel();
+    peerEventRail.observe = originalObserve;
+    await act(async () => root.unmount());
+    resetRemoteChatStatus();
+  }
 }
 
 void main();
