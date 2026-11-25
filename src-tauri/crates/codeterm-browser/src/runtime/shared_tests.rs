@@ -9,6 +9,7 @@ use tokio::sync::{mpsc, watch};
 struct FakeState {
     next_target: usize,
     targets: HashSet<String>,
+    beforeunload_targets: HashSet<String>,
     sessions: HashMap<String, String>,
     requests: Vec<(Option<String>, String, Value)>,
     subscribers: Vec<(EventFilter, mpsc::Sender<Arc<CdpEvent>>)>,
@@ -142,13 +143,44 @@ impl CdpConnection for FakeConnection {
                 );
                 Ok(json!({ "sessionId": session }))
             }
-            "Target.closeTarget" => {
-                let removed = self
+            "Target.getTargets" => {
+                let mut infos: Vec<Value> = self
                     .state
                     .lock()
                     .targets
-                    .remove(params["targetId"].as_str().unwrap());
+                    .iter()
+                    .map(|target| {
+                        json!({
+                            "targetId": target,
+                            "type": "page",
+                            "title": "",
+                            "url": "about:blank",
+                            "attached": false
+                        })
+                    })
+                    .collect();
+                infos.sort_by(|a, b| a["targetId"].as_str().cmp(&b["targetId"].as_str()));
+                Ok(json!({ "targetInfos": infos }))
+            }
+            "Target.closeTarget" => {
+                let target_id = params["targetId"].as_str().unwrap();
+                let mut state = self.state.lock();
+                if state.beforeunload_targets.contains(target_id) {
+                    return Ok(json!({ "success": true }));
+                }
+                let removed = state.targets.remove(target_id);
                 Ok(json!({ "success": removed }))
+            }
+            "Page.handleJavaScriptDialog" => {
+                if params.get("accept").and_then(Value::as_bool) == Some(true) {
+                    if let Some(session) = session {
+                        let mut state = self.state.lock();
+                        if let Some(target_id) = state.sessions.get(session).cloned() {
+                            state.beforeunload_targets.remove(&target_id);
+                        }
+                    }
+                }
+                Ok(json!({}))
             }
             "Page.getLayoutMetrics" if self.fail_metrics.load(Ordering::SeqCst) => {
                 Err(CdpError::Malformed("injected metrics failure".into()))
@@ -178,14 +210,17 @@ async fn acquire(
     let launch_dir = dir.clone();
     ProfileLease::acquire_with(dir, false, move || async move {
         launches.fetch_add(1, Ordering::SeqCst);
+        let client = CdpClient::from_connection(connection);
+        let startup_targets = collect_startup_page_targets(&client).await;
         Ok(SharedBrowser {
-            client: CdpClient::from_connection(connection),
+            client,
             process: None,
             binary: None,
             profile: ProfileKind::Named {
                 name: "shared-test".into(),
             },
             dir: launch_dir,
+            startup_targets: Mutex::new(startup_targets),
         })
     })
     .await
@@ -724,4 +759,81 @@ async fn owned_hidpi_emulation_follows_scroll_and_keeps_frames_in_css_coordinate
         assert_eq!(start.2["maxHeight"], height);
     }
     host.close().await;
+}
+
+#[tokio::test]
+async fn startup_blank_target_is_closed_on_first_bind_and_last_close_stops_browser() {
+    let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
+    let connection = FakeConnection::new();
+    connection.state.lock().targets.insert("T0".into());
+    let launches = Arc::new(AtomicUsize::new(0));
+
+    let first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    let second = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    assert_eq!(launches.load(Ordering::SeqCst), 1);
+
+    let first = Arc::new(from_lease(first, Viewport::default(), hub()).await.unwrap());
+    let second = Arc::new(
+        from_lease(second, Viewport::default(), hub())
+            .await
+            .unwrap(),
+    );
+
+    let live_targets: HashSet<String> = connection.state.lock().targets.clone();
+    assert_eq!(
+        live_targets,
+        HashSet::from(["T1".to_string(), "T2".to_string()]),
+        "unowned startup about:blank target must be closed once an owned page target binds"
+    );
+
+    stop(first).await;
+    assert_eq!(
+        connection.state.lock().targets,
+        HashSet::from(["T2".to_string()])
+    );
+    assert_eq!(connection.count("Browser.close"), 0);
+    assert!(second.is_alive());
+
+    stop(second).await;
+    assert!(connection.state.lock().targets.is_empty());
+    assert_eq!(connection.count("Browser.close"), 1);
+    assert!(connection.closed.borrow().is_some());
+    assert!(!ProfileLease::leased_dirs().contains(&dir));
+}
+
+#[tokio::test]
+async fn closing_beforeunload_target_accepts_dialog_and_preserves_sibling() {
+    let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
+    let connection = FakeConnection::new();
+    let launches = Arc::new(AtomicUsize::new(0));
+
+    let first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    let second = acquire(dir.clone(), connection.clone(), launches).await;
+    let first = Arc::new(from_lease(first, Viewport::default(), hub()).await.unwrap());
+    let second = Arc::new(
+        from_lease(second, Viewport::default(), hub())
+            .await
+            .unwrap(),
+    );
+
+    connection
+        .state
+        .lock()
+        .beforeunload_targets
+        .insert(first.page.target_id().to_string());
+
+    stop(first).await;
+    assert_eq!(
+        connection.state.lock().targets,
+        HashSet::from(["T2".to_string()]),
+        "beforeunload-guarded target must close after dismissing its dialog"
+    );
+    assert_eq!(connection.count("Page.handleJavaScriptDialog"), 1);
+    assert_eq!(connection.count("Browser.close"), 0);
+    assert!(second.is_alive());
+
+    stop(second).await;
+    assert!(connection.state.lock().targets.is_empty());
+    assert_eq!(connection.count("Browser.close"), 1);
+    assert!(!ProfileLease::leased_dirs().contains(&dir));
 }
