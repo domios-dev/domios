@@ -112,9 +112,11 @@ export function TabContent({
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
   const loadRefused = runtimeSessionUnavailable(tab.agent_runtime_state);
+  const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
+  const isChatBackend = chatBacking !== null || (!tab.pty_id && descriptor?.transport === "chat_backend");
   const chatCapable = hasExitedChatRecipient(tab)
     || (descriptor?.supports_chat_ui ?? Boolean(providerId && getClientTabUiMode(tab.id) === "chat"));
-  const chatOwnsStartup = tab.backing?.kind === "chat_backend"
+  const chatOwnsStartup = isChatBackend
     || (uiMode ?? resolveInitialTabUiMode(tab.id, { chatCapable })) === "chat";
   const dockedFailure = chatOwnsStartup ? dockedTabFailure(tab, wake) : null;
   const restoreOwnsBody = !chatOwnsStartup && !loadRefused && !dockedFailure && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
@@ -141,8 +143,6 @@ export function TabContent({
     );
   }
 
-  const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
-  const isChatBackend = chatBacking !== null;
   const showSwitch = !isChatBackend && (descriptor?.supports_chat_ui === true || hasExitedChatRecipient(tab));
   const usageVisible = usageSource ? usageTrackingEnabled(
     trackingDescriptor?.settings_schema ?? [],

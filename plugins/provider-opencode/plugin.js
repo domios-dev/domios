@@ -609,6 +609,57 @@ function parseModelVariants(stdout) {
   return result;
 }
 
+// plugins/provider-opencode/src/freeModel.ts
+function record2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function finiteNonNegative(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+function isFreeZenModel(id, metadata) {
+  const slash = id.indexOf("/");
+  if (slash <= 0) return false;
+  const provider = id.slice(0, slash).toLowerCase();
+  const leaf = id.slice(slash + 1).toLowerCase();
+  if (provider !== "opencode" || !leaf) return false;
+  const cost = record2(metadata?.cost);
+  if (cost) {
+    const input = finiteNonNegative(cost.input);
+    const output = finiteNonNegative(cost.output);
+    if (input !== null && output !== null) {
+      const extraPaid = ["cache_read", "cache_write", "reasoning"].some((key) => {
+        const amount = finiteNonNegative(cost[key]);
+        return amount !== null && amount > 0;
+      });
+      return input === 0 && output === 0 && !extraPaid;
+    }
+  }
+  return /(?:^|[-_.])free$/.test(leaf);
+}
+function supportsToolCalling(metadata) {
+  if (!metadata) return true;
+  if (metadata.tool_call === false) return false;
+  const capabilities = record2(metadata.capabilities);
+  if (capabilities?.toolcall === false) return false;
+  return true;
+}
+function orderOpencodeModels(models2, metadata) {
+  const freeToolCapable = [];
+  const freeOther = [];
+  const rest = [];
+  for (const model of models2) {
+    const meta = metadata.get(model.id);
+    if (isFreeZenModel(model.id, meta)) {
+      const decorated = model.badge ? model : { ...model, badge: "free" };
+      if (supportsToolCalling(meta)) freeToolCapable.push(decorated);
+      else freeOther.push(decorated);
+    } else {
+      rest.push(model);
+    }
+  }
+  return [...freeToolCapable, ...freeOther, ...rest];
+}
+
 // plugins/provider-opencode/src/bindingModelSwitch.ts
 function bindingModelSwitchSource() {
   return [
@@ -640,7 +691,7 @@ function bindingModelSwitchSource() {
   ];
 }
 
-// packages/chat-core/src/sessionChanges.ts
+// ../../codeterm/packages/chat-core/src/sessionChanges.ts
 function lines(text2) {
   return text2 ? text2.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n") : [];
 }
@@ -661,22 +712,22 @@ function fileDiffFromEdit(edit) {
   };
 }
 
-// packages/chat-core/src/systemReminderText.ts
+// ../../codeterm/packages/chat-core/src/systemReminderText.ts
 var MARKER_TOKEN = /<\/?codeterm-[a-z][a-z-]*(?:\s+[a-z_]+="[^"]*")*\s*>/;
 var STRAY_MARKER = new RegExp(MARKER_TOKEN.source, "g");
 
-// packages/chat-core/src/domios.ts
+// ../../codeterm/packages/chat-core/src/domios.ts
 var DOMIOS_PASTED_MARKER = "pasted by Domios";
 var PASTED_MARKER_TAIL = `
 ${DOMIOS_PASTED_MARKER}`;
 
-// packages/chat-core/src/attachmentValidation.ts
+// ../../codeterm/packages/chat-core/src/attachmentValidation.ts
 var MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
-// packages/chat-core/src/shellLexer.ts
+// ../../codeterm/packages/chat-core/src/shellLexer.ts
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
 
-// packages/chat-core/src/shellFileOperations.ts
+// ../../codeterm/packages/chat-core/src/shellFileOperations.ts
 var SHELL_FILE_LIMITS = Object.freeze({ inputBytes: 16384, argv: 128, tokens: 256, segments: 64, operations: 8, variables: 16, path: 512, replacements: 8, fragmentBytes: 2048, totalFragmentBytes: 8192, cache: 64, cacheBytes: 262144 });
 var EMPTY = Object.freeze({ operations: Object.freeze([]), limited: false });
 var LIMITED = Object.freeze({ operations: Object.freeze([]), limited: true });
@@ -685,7 +736,7 @@ var REPLACE = new RegExp(`^\\$([A-Za-z_]\\w*)\\.Replace\\(\\s*(${QUOTED_FRAGMENT
 var READ = new RegExp(`^Get-Content\\s+((?:-LiteralPath|-Path)\\s+)?(${QUOTED_FRAGMENT}|\\$[A-Za-z_]\\w*|[^\\s'"$;()]+)\\s+-Raw$`, "i");
 
 // plugins/provider-opencode/src/fileDiffs.ts
-function record2(value) {
+function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function parsePatch(path, patch) {
@@ -768,9 +819,9 @@ function fileChangeKind(value) {
   }
 }
 function opencodeFileDiffs(path, edits, metadata) {
-  const value = record2(metadata);
-  const listedFiles = Array.isArray(value.files) ? value.files.map(record2).filter((item) => Object.keys(item).length > 0) : [];
-  const singleFile = record2(value.filediff);
+  const value = record3(metadata);
+  const listedFiles = Array.isArray(value.files) ? value.files.map(record3).filter((item) => Object.keys(item).length > 0) : [];
+  const singleFile = record3(value.filediff);
   const files = listedFiles.length ? listedFiles : Object.keys(singleFile).length ? [singleFile] : [];
   if (files.length) {
     const nestedDiffs = files.flatMap((item) => {
@@ -1055,7 +1106,7 @@ function parseOpencodeModels(stdout) {
       ...efforts ? { reasoningEfforts: efforts, ...efforts.length ? { defaultReasoningEffort: "default" } : {} } : {}
     });
   }
-  return models2.length || metadata.size ? models2 : null;
+  return models2.length || metadata.size ? orderOpencodeModels(models2, metadata) : null;
 }
 function groupFromModelId(id) {
   const slash = id.split("/");
@@ -1714,16 +1765,16 @@ function applyDomiosPresets(config, presets) {
 }
 
 // plugins/provider-opencode/src/modelProviders.ts
-function record3(value) {
+function record4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function readModelProviders(config) {
-  if (!record3(config) || config.provider !== void 0 && !record3(config.provider)) {
+  if (!record4(config) || config.provider !== void 0 && !record4(config.provider)) {
     throw new Error("Invalid provider config");
   }
   return Object.entries(config.provider ?? {}).flatMap(([id, entry]) => {
-    if (!record3(entry) || entry["x-domios"] !== true) return [];
-    if (!record3(entry.options) || typeof entry.options.baseURL !== "string") {
+    if (!record4(entry) || entry["x-domios"] !== true) return [];
+    if (!record4(entry.options) || typeof entry.options.baseURL !== "string") {
       throw new Error("Invalid owned provider");
     }
     const kind = entry.npm === "@ai-sdk/anthropic" ? "anthropic" : entry.npm === "@ai-sdk/openai-compatible" ? "openai-compatible" : null;
@@ -1739,7 +1790,7 @@ function readModelProviders(config) {
       id,
       kind,
       baseUrl: entry.options.baseURL,
-      models: record3(entry.models) ? Object.keys(entry.models) : [],
+      models: record4(entry.models) ? Object.keys(entry.models) : [],
       ...typeof entry.name === "string" ? { name: entry.name } : {},
       ...env ? { keyEnv: env } : {},
       ...typeof secret === "string" ? { secretName: secret } : {}
@@ -1819,16 +1870,16 @@ function decisionRunOptions(model, request2, remainingMs = DECISION_TIMEOUT_MS) 
     }
   };
 }
-function record4(value) {
+function record5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function probability(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 function validateDecision(answer, question) {
-  if (!record4(answer) || answer.type !== question.type) return false;
+  if (!record5(answer) || answer.type !== question.type) return false;
   if (question.type === "noul") return probability(answer.p);
-  if (!record4(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
+  if (!record5(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
   const entries = Object.entries(answer.probabilities);
   if (!entries.length || entries.some(([, value]) => !probability(value))) return false;
   const mass = entries.reduce((sum, [, value]) => sum + value, 0);
@@ -1845,10 +1896,10 @@ function parseDecisionEvents(stdout, question) {
   try {
     for (const line of stdout.split(/\r?\n/).filter((line2) => line2.trim())) {
       const event = JSON.parse(line);
-      if (!record4(event)) return { error: "invalid_response" };
+      if (!record5(event)) return { error: "invalid_response" };
       if (event.type === "tool_use" || event.type === "error") return { error: "transport" };
-      if (event.type === "text" && record4(event.part) && typeof event.part.text === "string") text2 += event.part.text;
-      if (event.type === "step_finish" && record4(event.part) && event.part.reason === "stop") completed = true;
+      if (event.type === "text" && record5(event.part) && typeof event.part.text === "string") text2 += event.part.text;
+      if (event.type === "step_finish" && record5(event.part) && event.part.reason === "stop") completed = true;
     }
     if (!completed) return { error: "invalid_response" };
     const answer = JSON.parse(text2);

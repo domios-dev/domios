@@ -587,3 +587,30 @@ it("keeps confirmed OFF after an unmounted toggle's delayed ON response resolves
     await act(async () => root.unmount()); host.remove();
   }
 });
+
+it("exposes pressed state exclusively on the selected provider card as selection changes", async () => {
+  vi.mocked(invoke).mockImplementation(async (command) => command === "mux_get_state" ? snapshot() : undefined);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<FirstRunGeneralPicker providers={[
+      provider("alpha", "pty", "Alpha"),
+      provider("beta", "chat_backend", "Beta"),
+      provider("gamma", "pty", "Gamma"),
+    ]} />));
+    const card = (id: string) => host.querySelector<HTMLButtonElement>(`[data-testid="agent-picker-card-${id}"]`)!;
+    const pressed = () => ["alpha", "beta", "gamma"].map((id) => [id, card(id).getAttribute("aria-pressed")]);
+    expect(pressed().filter(([, value]) => value === "true")).toHaveLength(1);
+    expect(pressed().filter(([, value]) => value === "false")).toHaveLength(2);
+
+    await act(async () => card("beta").click());
+    expect(pressed()).toEqual([["alpha", "false"], ["beta", "true"], ["gamma", "false"]]);
+
+    await act(async () => card("gamma").click());
+    expect(pressed()).toEqual([["alpha", "false"], ["beta", "false"], ["gamma", "true"]]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

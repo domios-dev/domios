@@ -98,6 +98,7 @@ fn create_fresh_tab(
     mux: &mut MultiplexerState,
     workspace_id: &str,
     chat_view: bool,
+    chat_backend_provider: Option<&str>,
     account: &SpawnAgentParams,
 ) -> Result<String, String> {
     let tab_id = mux.create_tab(workspace_id)?;
@@ -106,13 +107,24 @@ fn create_fresh_tab(
         let cwd = super::general_dir().to_string_lossy().to_string();
         tab.cwd = Some(cwd.clone());
         tab.provisioned_cwd = Some(cwd);
-        tab.chat_view = chat_view;
+        tab.chat_view = chat_view || chat_backend_provider.is_some();
+        if let Some(plugin_id) = chat_backend_provider {
+            tab.pty_id = None;
+            tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+                plugin_id: plugin_id.to_string(),
+                session_id: String::new(),
+            };
+        }
         tab.restorable_launch.account_id = account.account_id.clone();
         tab.restorable_launch.account_namespace = account.account_namespace.clone();
         tab.agent_booting = true;
         crate::service::boot_stage::apply_boot_stage(
             tab,
-            codeterm_types::pty::BootStage::PtyStarting,
+            if chat_backend_provider.is_some() {
+                codeterm_types::pty::BootStage::AgentLaunching
+            } else {
+                codeterm_types::pty::BootStage::PtyStarting
+            },
             None,
         );
     }
@@ -197,12 +209,21 @@ impl ServiceContext {
             &request.provider_id,
             Some(&self.mem),
         );
+        let chat_backend_provider =
+            crate::service::agent_runtime::engine::requested(self, &request.provider_id)
+                .then_some(request.provider_id.as_str());
         let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             validate_request(&mux, &general, &request)?;
             crate::service::billing::admit_new_tab(&gate, &mux)?;
-            create_fresh_tab(&mut mux, &request.workspace_id, chat_view, &account)?
+            create_fresh_tab(
+                &mut mux,
+                &request.workspace_id,
+                chat_view,
+                chat_backend_provider,
+                &account,
+            )?
         };
         super::super::supporter_notify::record_ui_origin(&tab_id);
         if let Err(error) = self.ensure_agent_pad(&tab_id).and_then(|_| {
