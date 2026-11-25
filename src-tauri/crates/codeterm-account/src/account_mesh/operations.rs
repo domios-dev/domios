@@ -40,6 +40,14 @@ pub struct LinkTarget {
     pub endpoint: MeshEndpoint,
 }
 
+/// Outcome of removing another installation from the account mesh.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemovedResult {
+    pub installation_id: String,
+    pub slot_revision: u64,
+    pub signed_out: bool,
+}
+
 impl AccountMesh {
     pub async fn entitlements_proof(
         &self,
@@ -860,6 +868,9 @@ impl AccountMesh {
     }
 
     pub async fn revoke_local(&self, target: &MeshTarget) -> Outcome<()> {
+        if target.installation_id == self.installation() {
+            return Err(AccountMeshRefusal::Forbidden);
+        }
         self.with(|inner| {
             let account = inner
                 .state
@@ -888,9 +899,6 @@ impl AccountMesh {
                 state
                     .revoked_installations
                     .insert(target.installation_id.clone());
-                if target.installation_id == self.installation() {
-                    state.membership = None;
-                }
             });
             Ok(())
         })?;
@@ -904,8 +912,11 @@ impl AccountMesh {
             .map_err(|_| AccountMeshRefusal::Unavailable)
     }
 
-    /// Server `revoke` releases the slot once; transport owns removing the pairing.
+    /// Server `revoke` releases another installation's slot once; transport owns removing the pairing.
     pub async fn revoke(&self, target: MeshTarget) -> Outcome<RevokedResult> {
+        if target.installation_id == self.installation() {
+            return Err(AccountMeshRefusal::Forbidden);
+        }
         self.revoke_local(&target).await?;
         let signed = self.signed(None).await?;
         let MeshResult::Revoked(revoked) = self
@@ -914,7 +925,6 @@ impl AccountMesh {
         else {
             return Err(AccountMeshRefusal::Invalid);
         };
-        let own = revoked.target_installation_id == self.installation();
         self.with(|inner| {
             inner
                 .record
@@ -928,19 +938,11 @@ impl AccountMesh {
                 .record
                 .revoked_installations
                 .insert(revoked.target_installation_id.clone());
-            if own {
-                inner.record.slots.remove(&signed.account);
-            }
             if inner.is_current(signed.epoch) {
                 inner.update(&self.watch, |state| {
                     state
                         .revoked_installations
                         .insert(revoked.target_installation_id.clone());
-                    if own {
-                        state.membership = None;
-                        state.self_installation = None;
-                        state.enrollment = Enrollment::Idle;
-                    }
                 });
             }
         });
@@ -950,6 +952,22 @@ impl AccountMesh {
             let _ = self.read_registry(&signed).await;
         }
         Ok(revoked)
+    }
+
+    /// Removes another installation from the account mesh, signing it out first when online.
+    pub async fn remove(&self, target: MeshTarget, sign_out_first: bool) -> Outcome<RemovedResult> {
+        if target.installation_id == self.installation() {
+            return Err(AccountMeshRefusal::Forbidden);
+        }
+        if sign_out_first {
+            self.revoke_session(target.installation_id.clone()).await?;
+        }
+        let revoked = self.revoke(target).await?;
+        Ok(RemovedResult {
+            installation_id: revoked.target_installation_id,
+            slot_revision: revoked.slot_revision,
+            signed_out: sign_out_first,
+        })
     }
 
     pub async fn resolve_link_target(&self, installation_id: &str) -> Outcome<LinkTarget> {

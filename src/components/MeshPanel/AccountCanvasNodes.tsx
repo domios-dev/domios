@@ -56,7 +56,7 @@ export interface MachineNodeActions {
 function SessionControls({ row, busy, actions }: { row: MachineRowView; busy: boolean; actions: MachineNodeActions }) {
   const target = row.controls.revoke;
   if ((!row.canSignOut || !actions.onSignOut) && (!target || !actions.onRemove) && !row.sameNameOthers) return null;
-  return <MachineSessionControls name={row.name} busy={busy} sameNameOthers={row.sameNameOthers}
+  return <MachineSessionControls name={row.name} busy={busy} online={row.online === true} sameNameOthers={row.sameNameOthers}
     identityPeer={row.sameNameOthers && row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
     rename={row.online && row.target && row.pairInstanceId && actions.onRename ? { displayName: row.displayName, save: next => actions.onRename!(row, next) } : undefined} onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
     onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined} />;
@@ -133,7 +133,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
   const rename = actions.onRename && row.online && row.target && row.pairInstanceId
     ? { displayName: row.displayName, save: (next: string) => actions.onRename!(row, next) } : undefined;
   return <div onClick={(event) => event.stopPropagation()}>
-    <MachineSessionControls name={name} busy={busy} sameNameOthers={row.sameNameOthers}
+    <MachineSessionControls name={name} busy={busy} online={row.online === true} sameNameOthers={row.sameNameOthers}
       identityPeer={actions.onRename && row.online && row.target ? row.pairInstanceId ?? undefined : undefined}
       rename={rename}
       onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}

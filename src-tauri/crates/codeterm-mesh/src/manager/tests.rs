@@ -174,6 +174,29 @@ fn peer_inventory_uses_authenticated_lease_without_mutating_cached_registry() {
 }
 
 #[test]
+fn peers_response_omits_inactive_installations_and_removes_installation_pairing() {
+    let mut manager = make_mesh_with_peer("peer-a", vec![]);
+    manager
+        .account_installations
+        .push(types::AccountInstallation {
+            installation_id: "stale-removed".into(),
+            name: "Stale".into(),
+            active: false,
+            signed_out: false,
+            membership_expires_at: None,
+            endpoint_expires_at: None,
+            instance_id: None,
+            online: false,
+        });
+    let response = manager.peers_response();
+    assert_eq!(response.installations.len(), 1);
+    assert_eq!(response.installations[0].installation_id, "peer-a");
+
+    manager.remove_account_installation("peer-a");
+    assert!(manager.paired_peers.is_empty());
+}
+
+#[test]
 fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {

@@ -157,7 +157,7 @@ export function useMyMachines({ account, onSignIn, signingIn: pendingLogin, canc
   const revoke = useCallback(async (row: MachineRowView, target: MeshTarget, alsoSignOut = false) => {
     setBusy(row.key);
     dismissFailure(row.key);
-    if (alsoSignOut) {
+    if (alsoSignOut || row.online === true) {
       const signedOut = await settle(() => client.revokeSession(target.installation_id));
       if (!signedOut.ok) {
         setBusy(null);

@@ -132,14 +132,15 @@ async fn account_mesh_rejoin_in_process_refreshes_key_endpoint_and_revocation() 
     let old = harness.state().self_installation.clone().unwrap();
     let digest = [19; 32];
     let old_signature = harness.mesh.sign_possession(&digest).unwrap();
+    let revoked = registry_successor(&harness, |rows| {
+        rows.iter_mut()
+            .find(|row| row.installation_id == old.installation_id)
+            .unwrap()
+            .active = false;
+    });
     harness
         .mesh
-        .revoke(wire::MeshTarget {
-            installation_id: old.installation_id.clone(),
-            key_id: old.key_id.clone(),
-            key_generation: old.key_generation,
-            slot_revision: old.slot_revision,
-        })
+        .receive_registry_snapshot(&revoked)
         .await
         .unwrap();
     harness.registry.revoke_self(UID);
