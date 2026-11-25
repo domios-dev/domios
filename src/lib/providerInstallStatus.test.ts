@@ -9,7 +9,7 @@ function descriptor(overrides: Partial<ProviderDescriptor>): ProviderDescriptor 
     id: "fixture",
     display_name: "Fixture",
     transport: "pty",
-    system_prompt_delivery: { kind: "external" },
+    system_prompt_delivery: "external",
     settings_schema: [],
     notifications_schema: [],
     supports_lazy_skills: false,
