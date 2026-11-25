@@ -168,14 +168,14 @@ fn partial_frame_runs_to_the_end_without_a_cut_tag() {
     ] {
         assert_tiles(folded, &parse_envelope_spans(folded));
     }
-    for cut in [
-        "<domios",
-        "<domios from=\"tab\"",
-        "<domios from=\"tab\">opaque </dom",
+    for (cut, expected) in [
+        ("<domios", "<domios"),
+        ("<domios from=\"tab\"", "<domios from=\"tab\""),
+        ("<domios from=\"tab\">opaque </dom", "opaque"),
     ] {
         let segments = parse_envelope(cut);
         assert!(
-            matches!(segments.as_slice(), [MessageSegment::PartialFrame { body, .. }] if !body.contains('<')),
+            matches!(segments.as_slice(), [MessageSegment::PartialFrame { body, .. }] if body == expected),
             "{cut:?}: {segments:?}"
         );
     }
@@ -330,6 +330,10 @@ fn unclosed_and_malformed_domios_prose_stays_literal_text() {
         "Use <domios for refs and 10 > 5",
         "Check <domios type=\"tab\" id=\"0db72b9f\"> without slash",
         "Incomplete <domios type=\"tab\" id=\"0db",
+        "Example <domios from=\"tab\"> is unclosed and has a visible tail.",
+        "Example <domios from=\"tab and the sentence continues.",
+        "Example <domios from=\"tab\" label=\"the sentence continues.",
+        "Example <domios from=\"tab\" from=system",
         "Malformed <domios type=\"tab\" /> marker",
         "Remote <domios type=\"tab\" id=\"0db72b9f\" peer=\"blackstar\" /> chip",
     ] {
@@ -359,4 +363,53 @@ fn unclosed_and_malformed_domios_prose_stays_literal_text() {
             ..
         }] if body == owner_message
     ));
+}
+
+#[test]
+fn inert_opening_preserves_the_next_routed_frame_and_owner_tail() {
+    for prefix in [
+        "Example <domios type=\"tab\">before ",
+        "<domios from=\"unfinished ",
+    ] {
+        let source = format!("{prefix}<domios from=tab>body</domios> after");
+        let segments = parse_envelope(&source);
+        assert!(matches!(segments.as_slice(), [
+            MessageSegment::Text { text },
+            MessageSegment::Frame { kind: FrameKind::Tab, body, .. },
+            MessageSegment::Text { text: tail }
+        ] if text == prefix && body == "body" && tail == " after"));
+    }
+}
+
+#[test]
+fn inline_streaming_opening_exposes_its_raw_prefix() {
+    let prefix = "<domios from=\"tab\" lab";
+    let segments = parse_envelope(&format!("before {prefix}"));
+    assert!(matches!(segments.as_slice(), [
+        MessageSegment::Text { text },
+        MessageSegment::PartialFrame { body, raw, .. }
+    ] if text == "before " && body == prefix && raw == prefix));
+}
+
+#[test]
+fn terminal_sender_close_requires_a_line_boundary_and_unpaired_non_sender() {
+    let literal = "<domios type=\"tab\">body";
+    let sender = format!("<domios from=tab>{literal}</domios>");
+    assert!(
+        matches!(parse_envelope(&format!("prefix\n{sender}")).as_slice(), [
+        MessageSegment::Text { .. }, MessageSegment::Frame { body, .. }
+    ] if body == literal)
+    );
+    for raw in [
+        format!("{sender}\n"),
+        "<domios from=tab><domios from=report>body</domios>".into(),
+    ] {
+        assert!(
+            matches!(
+                parse_envelope(&raw).as_slice(),
+                [MessageSegment::PartialFrame { .. }]
+            ),
+            "{raw}"
+        );
+    }
 }
