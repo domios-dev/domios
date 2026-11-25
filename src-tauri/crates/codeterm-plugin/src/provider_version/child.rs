@@ -33,35 +33,32 @@ impl ProbeChild {
         use std::os::unix::io::AsRawFd;
         use wait_timeout::ChildExt;
 
-        let mut stdout = self.stdout.take();
-        if let Some(ref pipe) = stdout {
+        let limit = max_bytes.saturating_add(1);
+        let mut output = Vec::new();
+        let mut buf = [0u8; 4096];
+
+        if let Some(mut pipe) = self.stdout.take() {
             if let Err(error) = set_nonblocking(pipe.as_raw_fd()) {
                 self.terminate();
                 return Err(error);
             }
-        }
-        let limit = max_bytes.saturating_add(1);
-        let mut output = Vec::new();
-        let mut exit_status: Option<std::process::ExitStatus> = None;
-        let mut buf = [0u8; 4096];
-
-        loop {
-            if let Some(pipe) = stdout.as_mut() {
+            loop {
+                let mut closed = false;
                 loop {
                     let want = (limit - output.len()).min(buf.len());
                     if want == 0 {
-                        stdout = None;
+                        closed = true;
                         break;
                     }
                     match pipe.read(&mut buf[..want]) {
                         Ok(0) => {
-                            stdout = None;
+                            closed = true;
                             break;
                         }
                         Ok(read) => {
                             output.extend_from_slice(&buf[..read]);
                             if output.len() >= limit {
-                                stdout = None;
+                                closed = true;
                                 break;
                             }
                         }
@@ -73,40 +70,30 @@ impl ProbeChild {
                         }
                     }
                 }
-            }
-            if exit_status.is_none() {
-                match self.child.try_wait() {
-                    Ok(Some(status)) => exit_status = Some(status),
-                    Ok(None) => {}
-                    Err(error) => {
-                        self.terminate();
-                        return Err(error);
-                    }
+                if closed {
+                    break;
                 }
-            }
-            if let (Some(status), None) = (exit_status, &stdout) {
-                return Ok(Some((status, output)));
-            }
-            let now = std::time::Instant::now();
-            if now >= deadline {
-                self.terminate();
-                return Ok(None);
-            }
-            let remaining = deadline.saturating_duration_since(now);
-            if let Some(ref pipe) = stdout {
-                let slice = if exit_status.is_none() {
-                    remaining.min(std::time::Duration::from_millis(25))
-                } else {
-                    remaining
-                };
-                let timeout_ms =
-                    slice.as_millis().min(u128::from(libc::c_int::MAX as u32)) as libc::c_int;
+                let now = std::time::Instant::now();
+                if now >= deadline {
+                    self.terminate();
+                    return Ok(None);
+                }
+                let timeout_ms = (deadline
+                    .saturating_duration_since(now)
+                    .as_millis()
+                    .min(u128::from(libc::c_int::MAX as u32))
+                    as libc::c_int)
+                    .max(1);
                 let mut pollfd = libc::pollfd {
                     fd: pipe.as_raw_fd(),
                     events: libc::POLLIN,
                     revents: 0,
                 };
                 let ready = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+                if ready == 0 {
+                    self.terminate();
+                    return Ok(None);
+                }
                 if ready < 0 {
                     let error = std::io::Error::last_os_error();
                     if error.kind() != std::io::ErrorKind::Interrupted {
@@ -114,18 +101,19 @@ impl ProbeChild {
                         return Err(error);
                     }
                 }
-            } else {
-                match self.child.wait_timeout(remaining) {
-                    Ok(Some(status)) => return Ok(Some((status, output))),
-                    Ok(None) => {
-                        self.terminate();
-                        return Ok(None);
-                    }
-                    Err(error) => {
-                        self.terminate();
-                        return Err(error);
-                    }
-                }
+            }
+        }
+
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        match self.child.wait_timeout(remaining) {
+            Ok(Some(status)) => Ok(Some((status, output))),
+            Ok(None) => {
+                self.terminate();
+                Ok(None)
+            }
+            Err(error) => {
+                self.terminate();
+                Err(error)
             }
         }
     }

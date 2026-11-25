@@ -23,19 +23,22 @@ use windows_sys::Win32::{
             CreateNamedPipeW, PeekNamedPipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_TYPE_BYTE, PIPE_WAIT,
         },
-        IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED},
+        IO::{CancelIoEx, CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED},
     },
 };
 
 const READ_CHUNK_BYTES: usize = 4096;
-const JOB_DRAIN_SLICE_MS: u32 = 25;
 const TERMINATE_WAIT_MS: u32 = 5_000;
+const STDOUT_KEY: usize = 1;
+const JOB_KEY: usize = 2;
+const JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO: u32 = 4;
 
 static PIPE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub struct ProbeChild {
     process: OwnedHandle,
     job: Option<Job>,
+    port: OwnedHandle,
     stdout: Option<OwnedHandle>,
 }
 
@@ -91,9 +94,9 @@ impl Drop for Attributes {
     }
 }
 
-struct OverlappedReader {
+struct IocpReader {
+    port: HANDLE,
     pipe: Option<OwnedHandle>,
-    event: OwnedHandle,
     active: bool,
     overlapped: Box<OVERLAPPED>,
     buffer: Vec<u8>,
@@ -105,115 +108,80 @@ enum PipePeek {
     Error,
 }
 
-impl OverlappedReader {
-    fn new(pipe: OwnedHandle) -> io::Result<Self> {
-        let event = unsafe { CreateEventW(null(), 1, 0, null()) };
-        if event.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let event = unsafe { OwnedHandle::from_raw_handle(event) };
-        Ok(Self {
+impl IocpReader {
+    fn new(port: HANDLE, pipe: OwnedHandle) -> Self {
+        Self {
+            port,
             pipe: Some(pipe),
-            event,
             active: false,
             overlapped: Box::new(OVERLAPPED::default()),
             buffer: vec![0u8; READ_CHUNK_BYTES],
-        })
-    }
-
-    fn event_handle(&self) -> HANDLE {
-        self.event.as_raw_handle()
-    }
-
-    fn start_or_drain(&mut self, output: &mut Vec<u8>, limit: usize) -> io::Result<bool> {
-        while !self.active && output.len() < limit {
-            let Some(pipe) = self.pipe.as_ref() else {
-                return Ok(true);
-            };
-            let want = (limit - output.len()).min(self.buffer.len()) as u32;
-            *self.overlapped = OVERLAPPED {
-                hEvent: self.event.as_raw_handle(),
-                ..OVERLAPPED::default()
-            };
-            let ok = unsafe {
-                ReadFile(
-                    pipe.as_raw_handle(),
-                    self.buffer.as_mut_ptr(),
-                    want,
-                    null_mut(),
-                    &mut *self.overlapped,
-                )
-            };
-            if ok != 0 {
-                let mut transferred = 0u32;
-                if unsafe {
-                    GetOverlappedResult(
-                        pipe.as_raw_handle(),
-                        &*self.overlapped,
-                        &mut transferred,
-                        0,
-                    )
-                } == 0
-                {
-                    let err = unsafe { GetLastError() };
-                    if err == ERROR_BROKEN_PIPE {
-                        return Ok(true);
-                    }
-                    return Err(io::Error::from_raw_os_error(err as i32));
-                }
-                if transferred == 0 {
-                    return Ok(true);
-                }
-                output.extend_from_slice(&self.buffer[..transferred as usize]);
-            } else {
-                let err = unsafe { GetLastError() };
-                if err == ERROR_IO_PENDING {
-                    self.active = true;
-                    return Ok(false);
-                }
-                if err == ERROR_BROKEN_PIPE {
-                    return Ok(true);
-                }
-                return Err(io::Error::from_raw_os_error(err as i32));
-            }
         }
-        Ok(output.len() >= limit)
     }
 
-    fn harvest_if_ready(&mut self, output: &mut Vec<u8>) -> io::Result<Option<bool>> {
-        if !self.active {
-            return Ok(None);
+    fn start_read(&mut self, remaining_cap: usize) -> io::Result<bool> {
+        if self.active {
+            return Ok(false);
         }
-        if unsafe { WaitForSingleObject(self.event.as_raw_handle(), 0) } != WAIT_OBJECT_0 {
-            return Ok(None);
+        if remaining_cap == 0 {
+            return Ok(true);
         }
-        self.harvest_completed(output).map(Some)
-    }
-
-    fn harvest_completed(&mut self, output: &mut Vec<u8>) -> io::Result<bool> {
         let Some(pipe) = self.pipe.as_ref() else {
-            self.active = false;
             return Ok(true);
         };
-        let mut transferred = 0u32;
+        let want = remaining_cap.min(self.buffer.len()) as u32;
+        *self.overlapped = OVERLAPPED::default();
         let ok = unsafe {
-            GetOverlappedResult(pipe.as_raw_handle(), &*self.overlapped, &mut transferred, 0)
+            ReadFile(
+                pipe.as_raw_handle(),
+                self.buffer.as_mut_ptr(),
+                want,
+                null_mut(),
+                &mut *self.overlapped,
+            )
         };
-        self.active = false;
         if ok != 0 {
-            if transferred == 0 {
-                return Ok(true);
-            }
-            output.extend_from_slice(&self.buffer[..transferred as usize]);
+            // Without FILE_SKIP_COMPLETION_PORT_ON_SUCCESS, a synchronous ReadFile
+            // still queues its completion packet on the associated IOCP.
+            self.active = true;
             Ok(false)
         } else {
             let err = unsafe { GetLastError() };
-            if err == ERROR_BROKEN_PIPE || err == ERROR_OPERATION_ABORTED {
+            if err == ERROR_IO_PENDING {
+                self.active = true;
+                Ok(false)
+            } else if err == ERROR_BROKEN_PIPE {
                 Ok(true)
             } else {
                 Err(io::Error::from_raw_os_error(err as i32))
             }
         }
+    }
+
+    fn on_stdout_completion(
+        &mut self,
+        overlapped: *mut OVERLAPPED,
+        bytes: u32,
+        error: Option<u32>,
+        output: &mut Vec<u8>,
+    ) -> io::Result<bool> {
+        let expected: *const OVERLAPPED = &*self.overlapped;
+        if !self.active || overlapped.cast_const() != expected {
+            return Err(io::Error::other("Unexpected probe stdout completion"));
+        }
+        self.active = false;
+        if let Some(err) = error {
+            if err == ERROR_BROKEN_PIPE || err == ERROR_OPERATION_ABORTED {
+                return Ok(true);
+            }
+            return Err(io::Error::from_raw_os_error(err as i32));
+        }
+        if bytes == 0 {
+            return Ok(true);
+        }
+        let count = (bytes as usize).min(self.buffer.len());
+        output.extend_from_slice(&self.buffer[..count]);
+        Ok(false)
     }
 
     fn peek(&self) -> PipePeek {
@@ -240,39 +208,79 @@ impl OverlappedReader {
         }
     }
 
-    fn cancel_into(&mut self, output: Option<&mut Vec<u8>>) -> bool {
+    fn cancel_into(
+        &mut self,
+        mut output: Option<&mut Vec<u8>>,
+        mut job_empty: Option<&mut bool>,
+    ) -> bool {
         if !self.active {
             return false;
         }
+        let Some(pipe) = self.pipe.as_ref() else {
+            self.active = false;
+            return false;
+        };
+        let expected: *const OVERLAPPED = &*self.overlapped;
+        unsafe {
+            CancelIoEx(pipe.as_raw_handle(), expected);
+        }
         let mut harvested = false;
-        if let Some(pipe) = self.pipe.as_ref() {
-            unsafe {
-                CancelIoEx(pipe.as_raw_handle(), &*self.overlapped);
-                let mut transferred = 0u32;
-                if GetOverlappedResult(pipe.as_raw_handle(), &*self.overlapped, &mut transferred, 1)
-                    != 0
-                    && transferred > 0
-                {
-                    if let Some(output) = output {
-                        output.extend_from_slice(&self.buffer[..transferred as usize]);
+        loop {
+            let mut bytes = 0u32;
+            let mut key = 0usize;
+            let mut overlapped: *mut OVERLAPPED = null_mut();
+            let ok = unsafe {
+                GetQueuedCompletionStatus(
+                    self.port,
+                    &mut bytes,
+                    &mut key,
+                    &mut overlapped,
+                    TERMINATE_WAIT_MS,
+                )
+            };
+            if ok == 0 && overlapped.is_null() {
+                break;
+            }
+            if key == JOB_KEY {
+                if bytes == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
+                    if let Some(empty) = job_empty.as_deref_mut() {
+                        *empty = true;
+                    }
+                }
+                continue;
+            }
+            if key == STDOUT_KEY && overlapped.cast_const() == expected {
+                if ok != 0 && bytes > 0 {
+                    if let Some(buf) = output.as_deref_mut() {
+                        let count = (bytes as usize).min(self.buffer.len());
+                        buf.extend_from_slice(&self.buffer[..count]);
                         harvested = true;
                     }
                 }
+                self.active = false;
+                break;
             }
         }
-        self.active = false;
         harvested
     }
 
     fn close(&mut self) {
-        self.cancel_into(None);
+        self.cancel_into(None, None);
         drop(self.pipe.take());
     }
 }
 
-impl Drop for OverlappedReader {
+impl Drop for IocpReader {
     fn drop(&mut self) {
-        self.cancel_into(None);
+        self.cancel_into(None, None);
+        if self.active {
+            // Retain unsettled overlapped storage rather than risk kernel use-after-free.
+            let overlapped =
+                std::mem::replace(&mut self.overlapped, Box::new(OVERLAPPED::default()));
+            let buffer = std::mem::take(&mut self.buffer);
+            std::mem::forget(overlapped);
+            std::mem::forget(buffer);
+        }
     }
 }
 
@@ -414,7 +422,34 @@ impl ProbeChild {
             })
             .transpose()?;
         let job = Job::new().map_err(io::Error::other)?;
+        let port = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1) };
+        if port.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let port = unsafe { OwnedHandle::from_raw_handle(port) };
+        let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+            CompletionKey: JOB_KEY as *mut std::ffi::c_void,
+            CompletionPort: port.as_raw_handle(),
+        };
+        if unsafe {
+            SetInformationJobObject(
+                job.0 as HANDLE,
+                JobObjectAssociateCompletionPortInformation,
+                (&association as *const JOBOBJECT_ASSOCIATE_COMPLETION_PORT).cast(),
+                std::mem::size_of_val(&association) as u32,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
         let (stdout, writer) = create_overlapped_pipe()?;
+        if unsafe {
+            CreateIoCompletionPort(stdout.as_raw_handle(), port.as_raw_handle(), STDOUT_KEY, 0)
+        }
+        .is_null()
+        {
+            return Err(io::Error::last_os_error());
+        }
         let leaked_writer = if retain_writer_copy {
             Some(writer.try_clone()?)
         } else {
@@ -473,6 +508,7 @@ impl ProbeChild {
         let child = Self {
             process,
             job: Some(job),
+            port,
             stdout: Some(stdout),
         };
         if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
@@ -490,34 +526,19 @@ impl ProbeChild {
             self.terminate();
             return Err(io::Error::other("Probe stdout is unavailable"));
         };
-        let mut reader = match OverlappedReader::new(stdout) {
-            Ok(reader) => reader,
-            Err(error) => {
-                self.terminate();
-                return Err(error);
-            }
-        };
+        let mut reader = IocpReader::new(self.port.as_raw_handle(), stdout);
         let limit = max_bytes.saturating_add(1);
         let mut output = Vec::new();
         let mut pipe_done = false;
-        let mut exit_status: Option<ExitStatus> = None;
+        let mut job_empty = self.job_is_empty();
 
         loop {
-            if !pipe_done {
-                if let Some(done) = match reader.harvest_if_ready(&mut output) {
-                    Ok(done) => done,
-                    Err(error) => {
+            if !pipe_done && !reader.active {
+                match reader.start_read(limit.saturating_sub(output.len())) {
+                    Ok(true) => {
+                        pipe_done = true;
                         reader.close();
-                        self.terminate();
-                        return Err(error);
                     }
-                } {
-                    pipe_done = done;
-                }
-            }
-            if !pipe_done {
-                match reader.start_or_drain(&mut output, limit) {
-                    Ok(true) => pipe_done = true,
                     Ok(false) => {}
                     Err(error) => {
                         reader.close();
@@ -526,130 +547,93 @@ impl ProbeChild {
                     }
                 }
             }
+
             if pipe_done {
-                reader.close();
+                return self
+                    .wait_for_exit(deadline)
+                    .map(|status| status.map(|status| (status, output)));
             }
-            if exit_status.is_none() {
-                match self.try_wait() {
-                    Ok(Some(status)) => exit_status = Some(status),
-                    Ok(None) => {}
-                    Err(error) => {
+
+            // Once every process in the probe's Job has exited, no probe process can write
+            // more bytes even if an unrelated concurrent spawn inherited the write handle.
+            if job_empty {
+                match reader.peek() {
+                    PipePeek::Broken => {
                         reader.close();
-                        self.terminate();
-                        return Err(error);
+                        return self
+                            .wait_for_exit(deadline)
+                            .map(|status| status.map(|status| (status, output)));
                     }
-                }
-            }
-            if let Some(status) = exit_status {
-                if pipe_done {
-                    return Ok(Some((status, output)));
-                }
-                // Once every process in the probe's Job has exited, no probe process can write
-                // more bytes even if an unrelated concurrent spawn inherited the write handle.
-                if self.job_is_empty() {
-                    match reader.peek() {
-                        PipePeek::Broken => {
-                            reader.close();
-                            return Ok(Some((status, output)));
-                        }
-                        PipePeek::Available(0) => {
-                            if reader.cancel_into(Some(&mut output)) {
-                                continue;
+                    PipePeek::Available(0) => {
+                        if reader.cancel_into(Some(&mut output), Some(&mut job_empty)) {
+                            if output.len() >= limit {
+                                pipe_done = true;
+                                reader.close();
                             }
-                            reader.close();
-                            return Ok(Some((status, output)));
+                            continue;
                         }
-                        PipePeek::Available(_) | PipePeek::Error => {}
+                        reader.close();
+                        return self
+                            .wait_for_exit(deadline)
+                            .map(|status| status.map(|status| (status, output)));
                     }
+                    PipePeek::Available(_) | PipePeek::Error => {}
                 }
             }
+
             let now = Instant::now();
             if now >= deadline {
                 reader.close();
                 self.terminate();
                 return Ok(None);
             }
-            let wait_ms = deadline
+            let wait_ms = (deadline
                 .saturating_duration_since(now)
                 .as_millis()
-                .min(u128::from(u32::MAX - 1)) as u32;
-            if exit_status.is_none() {
-                if reader.active {
-                    let handles = [reader.event_handle(), self.process.as_raw_handle()];
-                    match unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, wait_ms) } {
-                        WAIT_OBJECT_0 => match reader.harvest_completed(&mut output) {
-                            Ok(true) => {
-                                pipe_done = true;
-                                reader.close();
-                            }
-                            Ok(false) => {}
-                            Err(error) => {
-                                reader.close();
-                                self.terminate();
-                                return Err(error);
-                            }
-                        },
-                        val if val == WAIT_OBJECT_0 + 1 => match self.exit_status() {
-                            Ok(status) => exit_status = Some(status),
-                            Err(error) => {
-                                reader.close();
-                                self.terminate();
-                                return Err(error);
-                            }
-                        },
-                        WAIT_TIMEOUT => {
-                            reader.close();
-                            self.terminate();
-                            return Ok(None);
-                        }
-                        _ => {
-                            let error = io::Error::last_os_error();
-                            reader.close();
-                            self.terminate();
-                            return Err(error);
-                        }
-                    }
-                } else {
-                    match unsafe { WaitForSingleObject(self.process.as_raw_handle(), wait_ms) } {
-                        WAIT_OBJECT_0 => match self.exit_status() {
-                            Ok(status) => exit_status = Some(status),
-                            Err(error) => {
-                                reader.close();
-                                self.terminate();
-                                return Err(error);
-                            }
-                        },
-                        WAIT_TIMEOUT => {
-                            reader.close();
-                            self.terminate();
-                            return Ok(None);
-                        }
-                        _ => {
-                            let error = io::Error::last_os_error();
-                            reader.close();
-                            self.terminate();
-                            return Err(error);
-                        }
-                    }
+                .min(u128::from(u32::MAX - 1)) as u32)
+                .max(1);
+
+            let mut bytes = 0u32;
+            let mut key = 0usize;
+            let mut overlapped: *mut OVERLAPPED = null_mut();
+            let ok = unsafe {
+                GetQueuedCompletionStatus(
+                    self.port.as_raw_handle(),
+                    &mut bytes,
+                    &mut key,
+                    &mut overlapped,
+                    wait_ms,
+                )
+            };
+            if ok == 0 && overlapped.is_null() {
+                let err = unsafe { GetLastError() };
+                reader.close();
+                self.terminate();
+                if err == WAIT_TIMEOUT {
+                    return Ok(None);
                 }
-            } else if reader.active {
-                let slice_ms = wait_ms.min(JOB_DRAIN_SLICE_MS);
-                match unsafe { WaitForSingleObject(reader.event_handle(), slice_ms) } {
-                    WAIT_OBJECT_0 => match reader.harvest_completed(&mut output) {
-                        Ok(true) => {
+                return Err(io::Error::from_raw_os_error(err as i32));
+            }
+            if key == JOB_KEY {
+                if bytes == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
+                    job_empty = true;
+                }
+                continue;
+            }
+            if key == STDOUT_KEY {
+                let io_error = (ok == 0).then(|| unsafe { GetLastError() });
+                match reader.on_stdout_completion(overlapped, bytes, io_error, &mut output) {
+                    Ok(true) => {
+                        pipe_done = true;
+                        reader.close();
+                    }
+                    Ok(false) => {
+                        if output.len() >= limit {
                             pipe_done = true;
                             reader.close();
                         }
-                        Ok(false) => {}
-                        Err(error) => {
-                            reader.close();
-                            self.terminate();
-                            return Err(error);
-                        }
-                    },
-                    WAIT_TIMEOUT => {}
-                    _ => {
-                        let error = io::Error::last_os_error();
+                    }
+                    Err(error) => {
                         reader.close();
                         self.terminate();
                         return Err(error);
@@ -659,11 +643,22 @@ impl ProbeChild {
         }
     }
 
-    fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
-        match unsafe { WaitForSingleObject(self.process.as_raw_handle(), 0) } {
+    fn wait_for_exit(&mut self, deadline: Instant) -> io::Result<Option<ExitStatus>> {
+        let wait_ms = deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis()
+            .min(u128::from(u32::MAX - 1)) as u32;
+        match unsafe { WaitForSingleObject(self.process.as_raw_handle(), wait_ms) } {
             WAIT_OBJECT_0 => self.exit_status().map(Some),
-            WAIT_TIMEOUT => Ok(None),
-            _ => Err(io::Error::last_os_error()),
+            WAIT_TIMEOUT => {
+                self.terminate();
+                Ok(None)
+            }
+            _ => {
+                let error = io::Error::last_os_error();
+                self.terminate();
+                Err(error)
+            }
         }
     }
 

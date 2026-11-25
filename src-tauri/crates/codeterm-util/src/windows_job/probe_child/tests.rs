@@ -20,53 +20,63 @@ fn probe_child_version_fixture() {
     std::io::stdout().flush().unwrap();
 }
 
-fn read_until_line(stdout: OwnedHandle, needle: &str, timeout: Duration) -> io::Result<bool> {
-    let mut reader = OverlappedReader::new(stdout)?;
+fn read_until_line(
+    port: HANDLE,
+    stdout: OwnedHandle,
+    needle: &str,
+    timeout: Duration,
+) -> io::Result<bool> {
+    let mut reader = IocpReader::new(port, stdout);
     let deadline = Instant::now() + timeout;
     let mut output = Vec::new();
+    let limit = 64 * 1024;
     loop {
-        if reader.harvest_if_ready(&mut output)?.unwrap_or(false) {
+        if !reader.active && reader.start_read(limit.saturating_sub(output.len()))? {
+            reader.close();
             return Ok(String::from_utf8_lossy(&output)
                 .lines()
                 .any(|line| line == needle));
-        }
-        let done = reader.start_or_drain(&mut output, 64 * 1024)?;
-        if String::from_utf8_lossy(&output)
-            .lines()
-            .any(|line| line == needle)
-        {
-            reader.close();
-            return Ok(true);
-        }
-        if done {
-            reader.close();
-            return Ok(false);
         }
         let now = Instant::now();
         if now >= deadline {
             reader.close();
             return Ok(false);
         }
-        let wait_ms = deadline
+        let wait_ms = (deadline
             .saturating_duration_since(now)
             .as_millis()
-            .min(u128::from(u32::MAX - 1)) as u32;
-        match unsafe { WaitForSingleObject(reader.event_handle(), wait_ms) } {
-            WAIT_OBJECT_0 => {
-                if reader.harvest_completed(&mut output)? {
-                    reader.close();
-                    return Ok(String::from_utf8_lossy(&output)
-                        .lines()
-                        .any(|line| line == needle));
-                }
-            }
-            WAIT_TIMEOUT => {
-                reader.close();
+            .min(u128::from(u32::MAX - 1)) as u32)
+            .max(1);
+        let mut bytes = 0u32;
+        let mut key = 0usize;
+        let mut overlapped: *mut OVERLAPPED = null_mut();
+        let ok = unsafe {
+            GetQueuedCompletionStatus(port, &mut bytes, &mut key, &mut overlapped, wait_ms)
+        };
+        if ok == 0 && overlapped.is_null() {
+            let err = unsafe { GetLastError() };
+            reader.close();
+            if err == WAIT_TIMEOUT {
                 return Ok(false);
             }
-            _ => {
+            return Err(io::Error::from_raw_os_error(err as i32));
+        }
+        if key == JOB_KEY {
+            continue;
+        }
+        if key == STDOUT_KEY {
+            let io_error = (ok == 0).then(|| unsafe { GetLastError() });
+            let done = reader.on_stdout_completion(overlapped, bytes, io_error, &mut output)?;
+            if String::from_utf8_lossy(&output)
+                .lines()
+                .any(|line| line == needle)
+            {
                 reader.close();
-                return Err(io::Error::last_os_error());
+                return Ok(true);
+            }
+            if done {
+                reader.close();
+                return Ok(false);
             }
         }
     }
@@ -95,7 +105,12 @@ fn provider_version_owner_drop_kills_child_and_excludes_unrelated_handles() {
     let mut owner = ProbeChild::spawn(&mut command).unwrap();
     let process = owner.process.try_clone().unwrap();
     let stdout = owner.stdout.take().unwrap();
-    let ready = read_until_line(stdout, "probe-child-ready", Duration::from_secs(5));
+    let ready = read_until_line(
+        owner.port.as_raw_handle(),
+        stdout,
+        "probe-child-ready",
+        Duration::from_secs(5),
+    );
     if !matches!(ready, Ok(true)) {
         drop(owner);
         panic!("probe child did not signal readiness: {ready:?}");
