@@ -70,11 +70,16 @@ pub(super) fn start_main(
     );
     let session_id = match plan {
         GeneralAgentSessionPlan::Restore(id) => Some(id),
-        GeneralAgentSessionPlan::Discover => state::load_session_id(
-            &svc.agent_registry,
-            provider,
-            &general_dir().to_string_lossy(),
-        ),
+        GeneralAgentSessionPlan::Discover => {
+            let exclude = mux.read().other_session_ids(&tab.id);
+            state::load_session_record(
+                &svc.agent_registry,
+                provider,
+                &general_dir().to_string_lossy(),
+                &exclude,
+            )
+            .map(|stored| stored.session_id)
+        }
         GeneralAgentSessionPlan::FirstRunFresh | GeneralAgentSessionPlan::ConfiguredFresh => {
             if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id)
             {
@@ -82,7 +87,7 @@ pub(super) fn start_main(
                 return;
             }
             svc.rotate_session_binding_nonce(&tab.id);
-            state::clear_session_id();
+            state::clear_session_id_for_provider(provider);
             None
         }
     };
