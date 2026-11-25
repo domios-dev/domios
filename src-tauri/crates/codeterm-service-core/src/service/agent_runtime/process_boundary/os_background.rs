@@ -22,12 +22,23 @@ pub(in crate::service::agent_runtime) struct ObservedProcess {
     pub cwd: Option<PathBuf>,
 }
 
+const MAX_BACKGROUND_CHILDREN: usize = 32;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::service::agent_runtime) struct SelectedBackgroundChild {
+    pub pid: u32,
+    pub born: u128,
+    pub command: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::service::agent_runtime) struct SelectedBackgroundProcess {
     pub pid: u32,
     pub born: u128,
+    pub parent_pid: Option<u32>,
     pub command: String,
     pub cwd: String,
+    pub children: Vec<SelectedBackgroundChild>,
 }
 
 pub(in crate::service::agent_runtime) struct OsBackgroundSnapshot {
@@ -123,6 +134,31 @@ fn is_persistent_mcp_sidecar(argv: &[String]) -> bool {
         }
     }
     false
+}
+
+fn is_compiler_daemon(argv: &[String]) -> bool {
+    let Some(first) = argv.first() else {
+        return false;
+    };
+    if shell_command(argv).is_some() {
+        return false;
+    }
+    matches!(
+        executable(first).to_ascii_lowercase().as_str(),
+        "sccache" | "sccache-dist" | "ccache" | "buildcache"
+    )
+}
+
+fn is_plumbing_helper(argv: &[String]) -> bool {
+    let Some(first) = argv.first() else {
+        return false;
+    };
+    is_bare_shell(argv)
+        || is_compiler_daemon(argv)
+        || matches!(
+            executable(first).to_ascii_lowercase().as_str(),
+            "tee" | "cat" | "head" | "tail"
+        )
 }
 
 fn is_bare_shell(argv: &[String]) -> bool {
@@ -258,50 +294,246 @@ pub(in crate::service::agent_runtime) fn select_background_processes(
         return Vec::new();
     }
 
-    let candidate_pids: HashSet<u32> = candidates.iter().map(|process| process.pid).collect();
-    let mut children_by_parent: HashMap<u32, Vec<&ObservedProcess>> = HashMap::new();
-    for process in &candidates {
-        children_by_parent
-            .entry(process.parent_pid)
-            .or_default()
-            .push(*process);
-    }
-    for children in children_by_parent.values_mut() {
-        children.sort_by_key(|child| (child.born, child.pid));
-    }
-
-    let mut roots: Vec<&ObservedProcess> = candidates
+    let baseline_pids: HashSet<u32> = baseline.iter().map(|(pid, _)| *pid).collect();
+    let observed_by_pid: HashMap<u32, &ObservedProcess> = observed
         .iter()
-        .copied()
-        .filter(|process| !candidate_pids.contains(&process.parent_pid))
+        .map(|process| (process.pid, process))
         .collect();
-    roots.sort_by_key(|process| (process.born, process.pid));
+    let candidate_pids: HashSet<u32> = candidates.iter().map(|process| process.pid).collect();
 
-    let mut selected = Vec::new();
-    for root in roots {
-        if selected.len() >= MAX_BACKGROUND_PROCESSES {
-            break;
+    // Walk the full observed parent chain so excluded wrappers (e.g. conhost) never split a tree.
+    let mut root_for_candidate: HashMap<u32, u32> = HashMap::with_capacity(candidates.len());
+    for process in &candidates {
+        let mut cursor = process.parent_pid;
+        let mut top_candidate = process.pid;
+        let mut visited = HashSet::from([process.pid]);
+        for _ in 0..64 {
+            if cursor <= 1 || cursor == root_pid || !visited.insert(cursor) {
+                break;
+            }
+            if candidate_pids.contains(&cursor) {
+                top_candidate = cursor;
+            }
+            let Some(parent) = observed_by_pid.get(&cursor) else {
+                break;
+            };
+            cursor = parent.parent_pid;
         }
-        let command = if is_bare_shell(&root.argv) {
-            let Some(child_cmd) = children_by_parent.get(&root.pid).and_then(|children| {
+        root_for_candidate.insert(process.pid, top_candidate);
+    }
+
+    let mut descendants_by_root: HashMap<u32, Vec<&ObservedProcess>> = HashMap::new();
+    let mut raw_roots: Vec<&ObservedProcess> = Vec::new();
+    for process in &candidates {
+        let top = root_for_candidate[&process.pid];
+        if top == process.pid {
+            raw_roots.push(*process);
+        } else {
+            descendants_by_root.entry(top).or_default().push(*process);
+        }
+    }
+    for descendants in descendants_by_root.values_mut() {
+        descendants.sort_by_key(|child| (child.born, child.pid));
+    }
+    raw_roots.sort_by_key(|process| (process.born, process.pid));
+
+    // Group sibling roots that share the same exited launcher shell (e.g. `cmd | tee`).
+    let exited_launcher_parent = |process: &ObservedProcess| -> Option<u32> {
+        (process.parent_pid > 1
+            && process.parent_pid != root_pid
+            && !baseline_pids.contains(&process.parent_pid)
+            && !observed_by_pid.contains_key(&process.parent_pid))
+        .then_some(process.parent_pid)
+    };
+    struct RootGroup<'a> {
+        members: Vec<&'a ObservedProcess>,
+        dead_parent: Option<u32>,
+    }
+    let mut groups: Vec<RootGroup<'_>> = Vec::new();
+    let mut group_by_dead_parent: HashMap<u32, usize> = HashMap::new();
+    for root in raw_roots {
+        if let Some(dead_parent) = exited_launcher_parent(root) {
+            if let Some(&index) = group_by_dead_parent.get(&dead_parent) {
+                groups[index].members.push(root);
+            } else {
+                let index = groups.len();
+                group_by_dead_parent.insert(dead_parent, index);
+                groups.push(RootGroup {
+                    members: vec![root],
+                    dead_parent: Some(dead_parent),
+                });
+            }
+        } else {
+            groups.push(RootGroup {
+                members: vec![root],
+                dead_parent: None,
+            });
+        }
+    }
+    for group in &mut groups {
+        group
+            .members
+            .sort_by_key(|member| (is_plumbing_helper(&member.argv), member.born, member.pid));
+    }
+
+    struct ActiveGroup<'a> {
+        group: RootGroup<'a>,
+        command: String,
+        cwd: String,
+        promoted_child_pid: Option<u32>,
+    }
+    let mut active_groups: Vec<ActiveGroup<'_>> = Vec::new();
+    let mut orphan_daemons: Vec<&ObservedProcess> = Vec::new();
+    for group in groups {
+        let lead = group.members[0];
+        let is_orphan_daemon = group.dead_parent.is_some()
+            && group.members.len() == 1
+            && is_compiler_daemon(&lead.argv)
+            && descendants_by_root.get(&lead.pid).is_none_or(Vec::is_empty);
+        if is_orphan_daemon {
+            orphan_daemons.push(lead);
+            continue;
+        }
+        let mut promoted_child_pid = None;
+        let command = if is_bare_shell(&lead.argv) {
+            let promoted = descendants_by_root.get(&lead.pid).and_then(|children| {
                 children
                     .iter()
-                    .find_map(|child| command_for_process(&child.argv))
-            }) else {
+                    .filter_map(|child| command_for_process(&child.argv).map(|cmd| (child, cmd)))
+                    .min_by_key(|(child, _)| {
+                        (is_plumbing_helper(&child.argv), child.born, child.pid)
+                    })
+            });
+            if let Some((child, cmd)) = promoted {
+                promoted_child_pid = Some(child.pid);
+                cmd
+            } else if let Some(cmd) = group
+                .members
+                .iter()
+                .skip(1)
+                .find_map(|member| command_for_process(&member.argv))
+            {
+                cmd
+            } else {
                 continue;
-            };
-            child_cmd
+            }
         } else {
-            let Some(cmd) = command_for_process(&root.argv) else {
+            let Some(cmd) = command_for_process(&lead.argv) else {
                 continue;
             };
             cmd
         };
-        selected.push(SelectedBackgroundProcess {
-            pid: root.pid,
-            born: root.born,
+        let cwd = sanitize_cwd(lead.cwd.as_ref(), fallback_cwd);
+        active_groups.push(ActiveGroup {
+            group,
             command,
-            cwd: sanitize_cwd(root.cwd.as_ref(), fallback_cwd),
+            cwd,
+            promoted_child_pid,
+        });
+    }
+
+    // Attach detached compiler daemons (e.g. sccache) to the running command that spawned them;
+    // if no other command is running, keep the daemon visible so live work is never hidden.
+    let mut attached_daemons: Vec<Vec<&ObservedProcess>> = vec![Vec::new(); active_groups.len()];
+    let mut standalone_daemons: Vec<&ObservedProcess> = Vec::new();
+    for daemon in orphan_daemons {
+        if active_groups.is_empty() {
+            standalone_daemons.push(daemon);
+            continue;
+        }
+        let daemon_cwd = sanitize_cwd(daemon.cwd.as_ref(), fallback_cwd);
+        let target = active_groups
+            .iter()
+            .enumerate()
+            .filter(|(_, active)| {
+                active.cwd == daemon_cwd && active.group.members[0].born <= daemon.born
+            })
+            .max_by_key(|(_, active)| active.group.members[0].born)
+            .or_else(|| {
+                active_groups
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, active)| active.group.members[0].born <= daemon.born)
+                    .max_by_key(|(_, active)| active.group.members[0].born)
+            })
+            .or_else(|| (active_groups.len() == 1).then(|| (0, &active_groups[0])))
+            .map(|(index, _)| index);
+        if let Some(index) = target {
+            attached_daemons[index].push(daemon);
+        } else {
+            standalone_daemons.push(daemon);
+        }
+    }
+
+    let mut selected = Vec::new();
+    for (active, extra_daemons) in active_groups.into_iter().zip(attached_daemons) {
+        if selected.len() >= MAX_BACKGROUND_PROCESSES {
+            break;
+        }
+        let ActiveGroup {
+            group,
+            command,
+            cwd,
+            promoted_child_pid,
+        } = active;
+        let lead = group.members[0];
+        let mut child_nodes: Vec<&ObservedProcess> = Vec::new();
+        let mut seen_children = HashSet::from([lead.pid]);
+        if let Some(promoted) = promoted_child_pid {
+            seen_children.insert(promoted);
+        }
+        for member in &group.members {
+            if seen_children.insert(member.pid) {
+                child_nodes.push(*member);
+            }
+            if let Some(descendants) = descendants_by_root.get(&member.pid) {
+                for descendant in descendants {
+                    if seen_children.insert(descendant.pid) {
+                        child_nodes.push(*descendant);
+                    }
+                }
+            }
+        }
+        for daemon in extra_daemons {
+            if seen_children.insert(daemon.pid) {
+                child_nodes.push(daemon);
+            }
+        }
+        child_nodes.sort_by_key(|child| (child.born, child.pid));
+        let children = child_nodes
+            .into_iter()
+            .filter_map(|child| {
+                command_for_process(&child.argv).map(|cmd| SelectedBackgroundChild {
+                    pid: child.pid,
+                    born: child.born,
+                    command: cmd,
+                })
+            })
+            .take(MAX_BACKGROUND_CHILDREN)
+            .collect();
+        selected.push(SelectedBackgroundProcess {
+            pid: lead.pid,
+            born: lead.born,
+            parent_pid: group.dead_parent,
+            command,
+            cwd,
+            children,
+        });
+    }
+    for daemon in standalone_daemons {
+        if selected.len() >= MAX_BACKGROUND_PROCESSES {
+            break;
+        }
+        let Some(command) = command_for_process(&daemon.argv) else {
+            continue;
+        };
+        selected.push(SelectedBackgroundProcess {
+            pid: daemon.pid,
+            born: daemon.born,
+            parent_pid: exited_launcher_parent(daemon),
+            command,
+            cwd: sanitize_cwd(daemon.cwd.as_ref(), fallback_cwd),
+            children: Vec::new(),
         });
     }
     selected
@@ -566,6 +798,13 @@ impl Boundary {
                     watch_handles.push((entry.pid, entry.born, member));
                 }
             }
+            for child in &entry.children {
+                if let Some((_, member)) = members.remove(&child.pid) {
+                    if member.token() == child.born {
+                        watch_handles.push((child.pid, child.born, member));
+                    }
+                }
+            }
         }
         Ok(OsBackgroundSnapshot {
             entries,
@@ -575,24 +814,28 @@ impl Boundary {
 
     pub(in crate::service::agent_runtime) fn stop_os_background(
         &self,
-        target_pid: u32,
-        target_born: u128,
+        targets: &[(u32, u128)],
         baseline: &[(u32, u128)],
         others: &[(u32, u128)],
     ) -> Result<(), RuntimeFailure> {
-        if target_pid == self.pid
-            || baseline
-                .iter()
-                .any(|&(pid, born)| pid == target_pid && born == target_born)
-        {
-            return Err(failure("Cannot stop runtime infrastructure process"));
+        if targets.is_empty() {
+            return Ok(());
+        }
+        for &(target_pid, target_born) in targets {
+            if target_pid == self.pid
+                || baseline
+                    .iter()
+                    .any(|&(pid, born)| pid == target_pid && born == target_born)
+            {
+                return Err(failure("Cannot stop runtime infrastructure process"));
+            }
         }
 
         #[cfg(windows)]
         {
             let tree = self.capture_tools()?;
             let mut nodes = Vec::with_capacity(tree.nodes.len());
-            let mut candidates = Vec::new();
+            let mut candidate_positions: Vec<(usize, (u32, u128))> = Vec::new();
             let mut protected = HashSet::new();
             for (position, node) in tree.nodes.iter().enumerate() {
                 let exited = node.member.exited().map_err(failure)?;
@@ -600,9 +843,13 @@ impl Boundary {
                     || baseline
                         .iter()
                         .any(|&(pid, born)| pid == node.pid && born == node.member.token());
-                if !exited && !infra && node.pid == target_pid && node.member.token() == target_born
+                if !exited
+                    && !infra
+                    && targets
+                        .iter()
+                        .any(|&(pid, born)| pid == node.pid && born == node.member.token())
                 {
-                    candidates.push(position);
+                    candidate_positions.push((position, (node.pid, node.member.token())));
                 }
                 if !exited
                     && others
@@ -618,55 +865,74 @@ impl Boundary {
                     exited,
                 });
             }
-            if !candidates.is_empty() {
-                let Some(branch) = super::selective::subtree(&nodes, &candidates, &protected)
-                else {
+            let mut handled: HashSet<(u32, u128)> = HashSet::new();
+            let mut branch: HashSet<usize> = HashSet::new();
+            for (position, identity) in candidate_positions {
+                if branch.contains(&position) {
+                    handled.insert(identity);
+                    continue;
+                }
+                let Some(sub) = super::selective::subtree(&nodes, &[position], &protected) else {
                     return Err(failure(
                         "Target background process subtree could not be isolated",
                     ));
                 };
-                let branch: HashSet<_> = branch.into_iter().collect();
+                branch.extend(sub);
+                handled.insert(identity);
+            }
+            if !branch.is_empty() {
                 let nodes = tree
                     .nodes
                     .into_iter()
                     .enumerate()
                     .filter_map(|(position, node)| branch.contains(&position).then_some(node))
                     .collect();
-                return self.reap_background(super::BackgroundTree {
+                self.reap_background(super::BackgroundTree {
                     tree: super::ToolTree { nodes },
-                });
+                })?;
             }
-            let Some(member) = native::Member::open(self, target_pid).map_err(failure)? else {
-                return Ok(());
-            };
-            if member.exited().map_err(failure)? {
-                return Ok(());
+            for &(target_pid, target_born) in targets {
+                if handled.contains(&(target_pid, target_born)) {
+                    continue;
+                }
+                let Some(member) = native::Member::open(self, target_pid).map_err(failure)? else {
+                    continue;
+                };
+                if member.exited().map_err(failure)? {
+                    continue;
+                }
+                if member.token() != target_born || self.infrastructure_process(target_pid, &member)
+                {
+                    return Err(failure("Background process identity changed"));
+                }
+                member.terminate(self).map_err(failure)?;
+                member
+                    .wait(std::time::Instant::now() + std::time::Duration::from_secs(5))
+                    .map_err(failure)?;
             }
-            if member.token() != target_born || self.infrastructure_process(target_pid, &member) {
-                return Err(failure("Background process identity changed"));
-            }
-            member.terminate(self).map_err(failure)?;
-            member
-                .wait(std::time::Instant::now() + std::time::Duration::from_secs(5))
-                .map_err(failure)
+            Ok(())
         }
 
         #[cfg(unix)]
         {
             let _ = others;
-            let Some(member) = native::Member::open(self, target_pid).map_err(failure)? else {
-                return Ok(());
-            };
-            if member.exited().map_err(failure)? {
-                return Ok(());
+            for &(target_pid, target_born) in targets {
+                let Some(member) = native::Member::open(self, target_pid).map_err(failure)? else {
+                    continue;
+                };
+                if member.exited().map_err(failure)? {
+                    continue;
+                }
+                if member.token() != target_born || self.infrastructure_process(target_pid, &member)
+                {
+                    return Err(failure("Background process identity changed"));
+                }
+                member.terminate(self).map_err(failure)?;
+                member
+                    .wait(std::time::Instant::now() + std::time::Duration::from_secs(5))
+                    .map_err(failure)?;
             }
-            if member.token() != target_born || self.infrastructure_process(target_pid, &member) {
-                return Err(failure("Background process identity changed"));
-            }
-            member.terminate(self).map_err(failure)?;
-            member
-                .wait(std::time::Instant::now() + std::time::Duration::from_secs(5))
-                .map_err(failure)
+            Ok(())
         }
     }
 }
