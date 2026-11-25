@@ -138,9 +138,14 @@ export function SettingsPanel({
   const activeUpdateConfig = settingsConfig.onUpdateConfig;
 
   const [draft, setDraft] = useState({ config: activeConfig, save: activeUpdateConfig });
+  const [saveError, setSaveError] = useState<unknown>(null);
   const localConfig = draft.save === activeUpdateConfig ? draft.config : activeConfig;
   const draftRef = useRef(draft);
   draftRef.current = draft.save === activeUpdateConfig ? draft : { config: activeConfig, save: activeUpdateConfig };
+  const activeConfigRef = useRef(activeConfig);
+  activeConfigRef.current = activeConfig;
+  const draftVersionRef = useRef(0);
+  const writeVersionRef = useRef(0);
   const [themes, setThemes] = useState<string[]>([]);
   const machineAppearance = useContext(MachineAppearanceContext);
   const theme = machineAppearance?.appearance.theme ?? localConfig.theme;
@@ -172,8 +177,14 @@ export function SettingsPanel({
   }, []);
 
   useEffect(() => {
+    draftVersionRef.current++;
     setDraft({ config: activeConfig, save: activeUpdateConfig });
   }, [activeConfig, activeUpdateConfig]);
+
+  useEffect(() => {
+    writeVersionRef.current++;
+    setSaveError(null);
+  }, [activeUpdateConfig]);
 
   useEffect(() => {
     refreshThemes();
@@ -198,10 +209,21 @@ export function SettingsPanel({
 
   const saveDraft = useCallback((next: AppConfig) => {
     if (draftRef.current.save !== activeUpdateConfig) return;
+    const draftVersion = ++draftVersionRef.current;
+    const writeVersion = ++writeVersionRef.current;
     const updated = { config: next, save: activeUpdateConfig };
     draftRef.current = updated;
     setDraft(updated);
-    void activeUpdateConfig(next).catch(() => {});
+    setSaveError(null);
+    void activeUpdateConfig(next).catch((failure: unknown) => {
+      if (draftRef.current.save !== activeUpdateConfig || writeVersion !== writeVersionRef.current) return;
+      if (draftVersion === draftVersionRef.current) {
+        const authoritative = { config: activeConfigRef.current, save: activeUpdateConfig };
+        draftRef.current = authoritative;
+        setDraft(authoritative);
+      }
+      setSaveError(failure);
+    });
   }, [activeUpdateConfig]);
 
   const update = useCallback(
@@ -215,10 +237,15 @@ export function SettingsPanel({
   const switchGeneralProvider = useCallback(async (provider: string) => {
     const previous = draftRef.current.config;
     const next = { ...previous, general_agent: { ...previous.general_agent, agent_provider: provider } };
+    const draftVersion = ++draftVersionRef.current;
+    writeVersionRef.current++;
+    setSaveError(null);
     await activeUpdateConfig(next);
-    const updated = { config: next, save: activeUpdateConfig };
-    draftRef.current = updated;
-    setDraft(updated);
+    if (draftRef.current.save === activeUpdateConfig && draftVersion === draftVersionRef.current) {
+      const updated = { config: next, save: activeUpdateConfig };
+      draftRef.current = updated;
+      setDraft(updated);
+    }
     if (next.general_agent.enabled !== false) {
       await invoke("restart_general_agent", remoteTarget ? { peerId: remoteTarget.id } : undefined);
     }
@@ -264,6 +291,15 @@ export function SettingsPanel({
         {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
           <div ref={body} className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
+            {saveError != null && !jobsPage && !remoteConfigBlocked && (
+              <div className="mb-4 max-w-[720px] mx-auto" data-testid="settings-save-error">
+                <InlineErrorNotice
+                  error={saveError}
+                  operation={remoteTarget ? `saving settings for ${remoteTarget.name}` : "saving settings"}
+                  blocking
+                />
+              </div>
+            )}
             {top.kind === "root" && (
               <div role="navigation" aria-label="Settings sections" className="ct-settings-nav">
                 {SETTINGS_SECTIONS.map((s) => {
@@ -452,10 +488,15 @@ export function SettingsPanel({
 
                 <ShellProfilesCard config={localConfig} onUpdate={update} />
                 <BrowserUploadFolders config={localConfig} onSave={async next => {
+                  const draftVersion = ++draftVersionRef.current;
+                  writeVersionRef.current++;
+                  setSaveError(null);
                   await activeUpdateConfig(next);
-                  const updated = { config: next, save: activeUpdateConfig };
-                  draftRef.current = updated;
-                  setDraft(updated);
+                  if (draftRef.current.save === activeUpdateConfig && draftVersion === draftVersionRef.current) {
+                    const updated = { config: next, save: activeUpdateConfig };
+                    draftRef.current = updated;
+                    setDraft(updated);
+                  }
                 }} />
                 <EmbedderCard config={localConfig} />
 
