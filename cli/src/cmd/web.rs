@@ -268,15 +268,13 @@ pub(crate) fn resolve_peer_instance_id_from_response(
             _ => name,
         }
     }
-    let name_matches = |name: &str| {
-        name.eq_ignore_ascii_case(target) || configured_name(name).eq_ignore_ascii_case(target)
-    };
     let target_lower = target.to_ascii_lowercase();
     let is_short_id =
         target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
 
+    let installations = peers.get("installations").and_then(|v| v.as_array());
     let mut inst_by_instance_id = std::collections::HashMap::<&str, &str>::new();
-    if let Some(rows) = peers.get("installations").and_then(|v| v.as_array()) {
+    if let Some(rows) = installations {
         for row in rows {
             if row["active"] == false {
                 continue;
@@ -312,23 +310,30 @@ pub(crate) fn resolve_peer_instance_id_from_response(
         }
     };
 
-    if let Some(rows) = peers.get("installations").and_then(|v| v.as_array()) {
+    let mut has_exact_name = false;
+    let mut configured_hits: Vec<(Option<&str>, Option<&str>, bool)> = Vec::new();
+
+    if let Some(rows) = installations {
         for row in rows {
             if row["active"] == false {
                 continue;
             }
             let inst_id = row["installation_id"].as_str().filter(|s| !s.is_empty());
+            let peer_id = row["instance_id"].as_str().filter(|s| !s.is_empty());
+            let online = row["online"] == true;
             let name = row["name"].as_str();
-            let hits = inst_id.is_some_and(|id| {
+            let id_hit = inst_id.is_some_and(|id| {
                 id.eq_ignore_ascii_case(target)
                     || (is_short_id && id.to_ascii_lowercase().starts_with(&target_lower))
-            }) || name.is_some_and(name_matches);
-            if hits {
-                record(
-                    row["instance_id"].as_str().filter(|s| !s.is_empty()),
-                    inst_id,
-                    row["online"] == true,
-                );
+            });
+            let exact_name_hit = name.is_some_and(|n| n.eq_ignore_ascii_case(target));
+            if exact_name_hit {
+                has_exact_name = true;
+            }
+            if id_hit || exact_name_hit {
+                record(peer_id, inst_id, online);
+            } else if name.is_some_and(|n| configured_name(n).eq_ignore_ascii_case(target)) {
+                configured_hits.push((peer_id, inst_id, online));
             }
         }
     }
@@ -342,16 +347,25 @@ pub(crate) fn resolve_peer_instance_id_from_response(
             else {
                 continue;
             };
+            let inst_id = inst_by_instance_id.get(peer_id).copied();
+            let online = p["online"] == true;
             let inst_name = p.get("instance_name").and_then(|v| v.as_str());
-            let hits = (is_short_id && peer_id.to_ascii_lowercase().starts_with(&target_lower))
-                || inst_name.is_some_and(name_matches);
-            if hits {
-                record(
-                    Some(peer_id),
-                    inst_by_instance_id.get(peer_id).copied(),
-                    p["online"] == true,
-                );
+            let id_hit = is_short_id && peer_id.to_ascii_lowercase().starts_with(&target_lower);
+            let exact_name_hit = inst_name.is_some_and(|n| n.eq_ignore_ascii_case(target));
+            if exact_name_hit {
+                has_exact_name = true;
             }
+            if id_hit || exact_name_hit {
+                record(Some(peer_id), inst_id, online);
+            } else if inst_name.is_some_and(|n| configured_name(n).eq_ignore_ascii_case(target)) {
+                configured_hits.push((Some(peer_id), inst_id, online));
+            }
+        }
+    }
+
+    if !has_exact_name {
+        for (peer_id, inst_id, online) in configured_hits {
+            record(peer_id, inst_id, online);
         }
     }
 

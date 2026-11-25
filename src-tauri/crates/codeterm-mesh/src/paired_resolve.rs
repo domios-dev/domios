@@ -116,8 +116,9 @@ where
         .collect()
 }
 
-/// Peers answering to `target` by advertised, registry display, or configured
-/// name (minus any trailing ` [dev-suffix]`).
+/// Peers answering to `target` by exact advertised or registry display name,
+/// falling back to configured name (minus any trailing ` [dev-suffix]`) only
+/// when no exact-name match exists.
 fn name_matches<'a, F>(
     peers: &'a HashMap<String, PairedPeer>,
     installations: &'a [AccountInstallation],
@@ -127,21 +128,28 @@ fn name_matches<'a, F>(
 where
     F: Fn(&str) -> Option<&'a str>,
 {
-    peers
-        .values()
-        .filter(|p| {
-            let registry = peer_registry_name(
-                peer_installation_id(p, installations, link_installation_id),
-                installations,
-            );
-            p.instance_name.eq_ignore_ascii_case(target)
-                || configured_name(&p.instance_name).eq_ignore_ascii_case(target)
-                || registry.is_some_and(|name| {
-                    name.eq_ignore_ascii_case(target)
-                        || configured_name(name).eq_ignore_ascii_case(target)
-                })
-        })
-        .collect()
+    let mut exact = Vec::new();
+    let mut configured = Vec::new();
+    for p in peers.values() {
+        let registry = peer_registry_name(
+            peer_installation_id(p, installations, link_installation_id),
+            installations,
+        );
+        if p.instance_name.eq_ignore_ascii_case(target)
+            || registry.is_some_and(|name| name.eq_ignore_ascii_case(target))
+        {
+            exact.push(p);
+        } else if configured_name(&p.instance_name).eq_ignore_ascii_case(target)
+            || registry.is_some_and(|name| configured_name(name).eq_ignore_ascii_case(target))
+        {
+            configured.push(p);
+        }
+    }
+    if !exact.is_empty() {
+        exact
+    } else {
+        configured
+    }
 }
 
 /// True only when every candidate maps to the same installation id, or none has
@@ -570,5 +578,73 @@ mod tests {
         let resolved = resolve_paired_peer(&peers, &installations, link_same, "studio")
             .expect("same-installation stale offline duplicate resolves to live record");
         assert_eq!(resolved.instance_id, "2556b3f9-live");
+    }
+
+    #[test]
+    fn exact_prod_name_beats_dev_suffixed_peer_sharing_configured_name() {
+        let mut peers = HashMap::new();
+        peers.insert("peer-prod".into(), peer("peer-prod", "studio", true, 2));
+        peers.insert(
+            "peer-dev".into(),
+            peer("peer-dev", "studio [dev-qa]", true, 2),
+        );
+        let installations = vec![
+            AccountInstallation {
+                installation_id: "inst-prod".into(),
+                name: "studio".into(),
+                active: true,
+                signed_out: false,
+                membership_expires_at: None,
+                endpoint_expires_at: None,
+                instance_id: Some("peer-prod".into()),
+                online: true,
+            },
+            AccountInstallation {
+                installation_id: "inst-dev".into(),
+                name: "studio [dev-qa]".into(),
+                active: true,
+                signed_out: false,
+                membership_expires_at: None,
+                endpoint_expires_at: None,
+                instance_id: Some("peer-dev".into()),
+                online: true,
+            },
+        ];
+        let link_of = |id: &str| match id {
+            "peer-prod" => Some("inst-prod"),
+            "peer-dev" => Some("inst-dev"),
+            _ => None,
+        };
+
+        let prod = resolve_paired_peer(&peers, &installations, link_of, "studio")
+            .expect("exact prod name must beat DEV-suffixed peer");
+        assert_eq!(prod.instance_id, "peer-prod");
+
+        let dev = resolve_paired_peer(&peers, &installations, link_of, "studio [dev-qa]")
+            .expect("explicit DEV name resolves to DEV peer");
+        assert_eq!(dev.instance_id, "peer-dev");
+
+        // Even when prod is offline, exact "studio" must not fall through to DEV.
+        peers.get_mut("peer-prod").unwrap().online = false;
+        assert!(matches!(
+            resolve_paired_peer(&peers, &installations, link_of, "studio"),
+            Err(ResolvePairedError::NoOnlineCandidate { .. })
+        ));
+
+        // When no exact "studio" exists, configured-name fallback still refuses two distinct DEVs.
+        peers.remove("peer-prod");
+        peers.insert(
+            "peer-dev-2".into(),
+            peer("peer-dev-2", "studio [dev-other]", false, 2),
+        );
+        let link_devs = |id: &str| match id {
+            "peer-dev" => Some("inst-dev"),
+            "peer-dev-2" => Some("inst-dev-2"),
+            _ => None,
+        };
+        assert!(matches!(
+            resolve_paired_peer(&peers, &installations, link_devs, "studio"),
+            Err(ResolvePairedError::Ambiguous { .. })
+        ));
     }
 }

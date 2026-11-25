@@ -267,3 +267,83 @@ fn peer_lookup_prefers_online_for_stale_duplicate_of_same_machine() {
         Some("2556b3f9-live")
     );
 }
+
+#[test]
+fn peer_lookup_prefers_exact_prod_name_over_dev_suffixed_peer() {
+    let prod_and_dev = serde_json::json!({
+        "paired": [
+            {
+                "instance_id": "peer-prod",
+                "instance_name": "studio",
+                "online": true
+            },
+            {
+                "instance_id": "peer-dev",
+                "instance_name": "studio [dev-qa]",
+                "online": true
+            }
+        ],
+        "installations": [
+            {
+                "installation_id": "inst-prod",
+                "instance_id": "peer-prod",
+                "name": "studio",
+                "active": true,
+                "online": true
+            },
+            {
+                "installation_id": "inst-dev",
+                "instance_id": "peer-dev",
+                "name": "studio [dev-qa]",
+                "active": true,
+                "online": true
+            }
+        ]
+    });
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&prod_and_dev, "studio").as_deref(),
+        Some("peer-prod"),
+        "exact prod name must beat DEV-suffixed peer sharing configured name"
+    );
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&prod_and_dev, "studio [dev-qa]").as_deref(),
+        Some("peer-dev"),
+        "explicit DEV-suffixed name resolves to DEV peer"
+    );
+
+    // Without an exact prod peer, configured-name fallback still refuses two distinct DEV peers.
+    let two_devs = serde_json::json!({
+        "paired": [
+            {
+                "instance_id": "peer-dev-a",
+                "instance_name": "studio [dev-a]",
+                "online": false
+            },
+            {
+                "instance_id": "peer-dev-b",
+                "instance_name": "studio [dev-b]",
+                "online": true
+            }
+        ],
+        "installations": [
+            {
+                "installation_id": "inst-dev-a",
+                "instance_id": "peer-dev-a",
+                "name": "studio [dev-a]",
+                "active": true,
+                "online": false
+            },
+            {
+                "installation_id": "inst-dev-b",
+                "instance_id": "peer-dev-b",
+                "name": "studio [dev-b]",
+                "active": true,
+                "online": true
+            }
+        ]
+    });
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&two_devs, "studio"),
+        None
+    );
+}
