@@ -15,7 +15,7 @@ const fixture = vi.hoisted(() => {
     state: { workspaces: [workspace], active_workspace_id: workspace.id, focused_tab_id: "manager",
       tabs: { manager: { id: "manager", role: "Manager", agent_type: "opencode", session_binding_nonce: "manager-nonce" } } },
     actions: {
-      createTab: vi.fn(async () => ({ tab_id: "shell-tab-1" })),
+      createTab: vi.fn(async () => ({ id: "shell-tab-1" })),
       spawnAgentTab: vi.fn(async () => null),
       createOrchestrationPair: vi.fn(async (_input: unknown) => ({ orchestrator_tab_id: "lead-tab" })),
       selectTabByTab: vi.fn(async () => undefined),
@@ -98,7 +98,7 @@ beforeEach(() => {
   fixture.actions.setWorkspaceCwd.mockReset();
   fixture.actions.setWorkspaceCwd.mockResolvedValue({ warnings: [] });
   fixture.actions.createTab.mockReset();
-  fixture.actions.createTab.mockResolvedValue({ tab_id: "shell-tab-1" });
+  fixture.actions.createTab.mockResolvedValue({ id: "shell-tab-1" });
   fixture.actions.spawnAgentTab.mockReset();
   fixture.actions.spawnAgentTab.mockResolvedValue(null);
   fixture.actions.createOrchestrationPair.mockReset();
