@@ -42,6 +42,7 @@ pub trait HierarchyExt {
         milestone_kind: Option<&str>,
         source_outcome: Option<ReportOutcomeClass>,
     ) -> Result<ReportResult, ReportSubmissionError>;
+    fn deliver_remote_task_report(&self, delivery: RemoteTaskReportDelivery<'_>) -> String;
     fn notify_owner_task_in_review(
         &self,
         plan_id: &str,

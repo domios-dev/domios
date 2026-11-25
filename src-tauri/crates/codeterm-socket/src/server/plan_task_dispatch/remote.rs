@@ -184,6 +184,9 @@ pub(super) fn dispatch(
     )
     .map_err(super::super::plan::plan_rpc_err)?;
     let skill_context = brief::plan_skill_context(&svc.plan_store, &plan_id, &manifest)?;
+    let origin_tab_id = owned_str(p, "caller_tab_id")
+        .or(task.owner_tab_id.clone())
+        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let attempt_id = codeterm_service_core::plan::ids::short_id("attempt");
     let (peer_id, peer_name, peer_client, peer_state) = select_peer(svc, &peer_target)?;
     if let Some(client) = peer_client
@@ -201,6 +204,7 @@ pub(super) fn dispatch(
             &peer_name,
             &model.provider_id,
             hosted_role.as_ref().map(|role| role.kind.as_str()),
+            Some(origin_tab_id.as_str()),
             &base,
             &destination,
             now,
@@ -230,9 +234,6 @@ pub(super) fn dispatch(
         &[],
         &authorized_gates,
     );
-    let origin_tab_id = owned_str(p, "caller_tab_id")
-        .or(task.owner_tab_id.clone())
-        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let origin_id = svc
         .ext::<codeterm_service_core::MeshStateHandle>()
         .lock()

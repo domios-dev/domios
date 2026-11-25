@@ -31,6 +31,7 @@ fn remote_dispatch_attempt(
             "Origin peer",
             "codex",
             None,
+            Some("origin-orchestrator"),
             "base-sha",
             "main",
             3,

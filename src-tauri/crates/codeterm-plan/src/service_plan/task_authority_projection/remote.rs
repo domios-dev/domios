@@ -29,6 +29,37 @@ pub struct RemoteRecoveryAttemptRead {
     pub remote_dispatch_state: Option<RemoteDispatchState>,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RemoteAttemptDeliveryRead {
+    pub executor_tab_id: String,
+    pub executor_title: Option<String>,
+    pub orchestrator_tab_id: Option<String>,
+    pub parent_tab_id: Option<String>,
+    pub owner_tab_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub requested_model: Option<String>,
+    pub provider_resolved_model: Option<String>,
+    pub session_model: Option<String>,
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    pub mesh_peer: Option<String>,
+}
+
+impl RemoteAttemptDeliveryRead {
+    pub fn target_orchestrator_tab_id(&self) -> Option<&str> {
+        [
+            self.owner_tab_id.as_deref(),
+            self.orchestrator_tab_id.as_deref(),
+            self.parent_tab_id.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|tab_id| !tab_id.is_empty())
+    }
+}
+
 impl PlanStore {
     pub fn remote_worker_binding_projection(
         &self,
@@ -38,6 +69,16 @@ impl PlanStore {
     ) -> Result<Option<RemoteWorkerBindingRead>, PlanError> {
         self.database
             .remote_worker_binding_projection(plan, task, attempt)
+    }
+
+    pub fn remote_attempt_delivery_projection(
+        &self,
+        plan: &str,
+        task: &str,
+        attempt: &str,
+    ) -> Result<Option<RemoteAttemptDeliveryRead>, PlanError> {
+        self.database
+            .remote_attempt_delivery_projection(plan, task, attempt)
     }
 
     pub fn remote_recovery_attempts_projection(
