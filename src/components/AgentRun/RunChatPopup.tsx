@@ -1,8 +1,10 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageBubble } from "@codeterm/chat-ui";
-import { reduceToolEvents, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import type { EnrichmentCache } from "../Terminal/chatEnrichment";
+import { conversationEntries } from "../Terminal/chatPagingModel";
 import { LiveRunTranscript } from "./useRunTranscript";
 import { invoke } from "../../lib/bridge";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
@@ -42,6 +44,8 @@ export function RunChatPopup({
   const [detachedSession, setDetachedSession] = useState<string | null>(null);
   const watching = Boolean(live && tabId && detachedSession !== sessionId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const enrichmentCache = useRef<EnrichmentCache>(new WeakMap());
+  const entries = useMemo(() => conversationEntries(messages, enrichmentCache.current, cwd), [messages, cwd]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -138,13 +142,12 @@ export function RunChatPopup({
         {watching && tabId && <LiveRunTranscript tabId={tabId} sessionId={sessionId} onMessages={setMessages} onError={setError} onLoaded={setLoaded} onDetached={setDetachedSession} />}
         <div ref={scrollRef} className="relative flex-1 overflow-auto px-4 py-3">
           {error && <InlineErrorNotice error={error} operation="reading the agent conversation" />}
-          {loaded && !error && messages.length === 0 && (
+          {loaded && !error && entries.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
           )}
-          {reduceToolEvents(messages, cwd).map((item) => {
-            const m = item.kind === "message" ? item.message : item.event.message;
-            return <MessageBubble key={m.id} message={m} item={item.kind === "tool" ? item : undefined} />;
-          })}
+          {entries.map(({ msg, item, origin }) => (
+            <MessageBubble key={msg.id} message={msg} origin={origin} item={item.kind === "tool" ? item : undefined} />
+          ))}
         </div>
 
         {report && (

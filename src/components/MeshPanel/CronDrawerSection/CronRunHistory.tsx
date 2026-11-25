@@ -1,10 +1,10 @@
 import type { CSSProperties } from "react";
 import { History } from "lucide-react";
-import { formatTime } from "../../../lib/formatters";
+import { formatTime, UI_LOCALE } from "../../../lib/formatters";
 import type { CronRunInfo } from "../../../lib/types";
 import { CronCard, formatRunDuration, missedOccurrence, runOutcomeLabel, runTone, Unavailable } from "./parts";
 
-const historyTime = new Intl.DateTimeFormat(undefined, {
+const historyTime = new Intl.DateTimeFormat(UI_LOCALE, {
   month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
 });
 
@@ -21,14 +21,18 @@ export function CronRunHistory({ runs, allowed, reason, onOpen, runLabel }: { ru
       : <ol aria-label="Run history" className="ct-rows">{runs.map((run) => {
         const started = formatTime(run.started_at);
         const missed = missedOccurrence(run);
-        const outcome = runLabel && run.summary && !missed ? run.summary : runOutcomeLabel(run);
+        const summary = run.summary?.trim();
+        const preview = summary && summary.length > 160 ? `${summary.slice(0, 160).trimEnd()}…` : summary;
+        const summaryIsOutcome = Boolean(runLabel && preview && !missed);
+        const outcome = summaryIsOutcome ? preview : runOutcomeLabel(run);
         const late = run.late_by_ms == null ? "" : ` · Late by ${formatRunDuration(run.late_by_ms)}`;
         const label = `${runLabel ? `${runLabel} · ` : ""}${outcome}${late}`;
         const live = run.status === "Running" || run.status === "AwaitingOwnerPrompt";
         const content = <>
           <span className="ct-detail__dot" data-live={live || undefined} style={{ "--ct-detail-tone": runTone(run.status) } as CSSProperties} aria-hidden="true" />
           <span className="ct-run-row__main py-1">
-            <span className="block">{label}</span>
+            <span className="block truncate" title={summaryIsOutcome ? summary : undefined}>{label}</span>
+            {preview && !summaryIsOutcome && <span className="block truncate text-[var(--ct-muted-fg)]" title={summary}>{preview}</span>}
             <span className="ct-run-row__time block">
               {run.scheduled_occurrence_at != null && <RunTime label="Scheduled" at={run.scheduled_occurrence_at} />}
               {run.fired_at == null
@@ -43,7 +47,7 @@ export function CronRunHistory({ runs, allowed, reason, onOpen, runLabel }: { ru
         </>;
         return <li key={run.run_id} data-run-status={run.status}>
           {run.session_id
-            ? <button type="button" className="ct-row ct-run-row" aria-label={`View transcript: ${label} run, ${started}`} title="View transcript" onClick={() => onOpen(run)}>{content}</button>
+            ? <button type="button" className="ct-row ct-run-row" aria-label={`View transcript: ${label} run, ${started}`} aria-description={summary || undefined} title="View transcript" onClick={() => onOpen(run)}>{content}</button>
             : <div className="ct-row ct-run-row">{content}</div>}
         </li>;
       })}</ol>}
