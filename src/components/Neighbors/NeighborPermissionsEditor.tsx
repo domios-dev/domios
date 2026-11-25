@@ -16,6 +16,7 @@ import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import { PERMISSION_WORKSPACES, type MachineAccess, type NeighborPermissionDraft } from "./neighborRuntimeClient";
 import { scopeConflicts } from "./neighborScopeConflicts";
 import { LiquidToggle } from "../shared/LiquidToggle";
+import { formatNumericInput, parseNumericInput } from "../shared/numericInputModel";
 import "./neighborPermissions.css";
 
 const ACCESS_OPTIONS: { value: MachineAccess; label: string }[] = [
@@ -83,8 +84,9 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const [error, setError] = useState<string | null>(null);
   const [savedLimit, setSavedLimit] = useState(neighbor.inbound_per_hour);
   useEffect(() => { setSavedLimit(neighbor.inbound_per_hour); }, [neighbor.inbound_per_hour]);
-  const hourly = useStagedValue(savedLimit);
-  const limit = hourly.value;
+  const hourly = useStagedValue(formatNumericInput(savedLimit));
+  const limitText = hourly.value;
+  const limit = parseNumericInput(limitText, { integer: true }) ?? Number.NaN;
   const { pickFolder, folderPicker } = useFolderPicker();
   const accessLabel = useId();
   const areas = useMemoryAreas(true);
@@ -97,18 +99,18 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   // Compared with what was last saved here too, so clearing a limit just set can still be saved as no limit.
   const [savedDaily, setSavedDaily] = useState<number | null>(neighbor.my_daily_limit ?? null);
   useEffect(() => { setSavedDaily(neighbor.my_daily_limit ?? null); }, [neighbor.my_daily_limit]);
-  const dailyInput = useStagedValue(savedDaily === null ? "" : String(savedDaily));
+  const dailyInput = useStagedValue(formatNumericInput(savedDaily));
   const daily = dailyInput.value;
-  const dailyValue = daily.trim() === "" ? null : Number(daily);
-  const dailyValid = dailyValue === null || (Number.isInteger(dailyValue) && dailyValue >= 1 && dailyValue <= 10000);
+  const dailyValue = daily.trim() === "" ? null : parseNumericInput(daily, { integer: true, min: 1, max: 10000 });
+  const dailyValid = daily.trim() === "" || dailyValue !== null;
   const dailyChanged = dailyInput.edited && dailyValue !== savedDaily;
   const [savedFileLimit, setSavedFileLimit] = useState<number | null>(neighbor.my_file_daily_limit_bytes ?? null);
   useEffect(() => { setSavedFileLimit(neighbor.my_file_daily_limit_bytes ?? null); }, [neighbor.my_file_daily_limit_bytes]);
   // An empty field is the default (null), never an explicit 50 MiB, unless the owner types one.
   const fileInput = useStagedValue(mibText(savedFileLimit));
   const fileLimit = fileInput.value;
-  const fileMib = fileLimit.trim() === "" ? null : Number(fileLimit);
-  const fileValid = fileMib === null || (Number.isFinite(fileMib) && fileMib >= 0 && fileMib <= FILE_LIMIT_MIB);
+  const fileMib = fileLimit.trim() === "" ? null : parseNumericInput(fileLimit, { min: 0, max: FILE_LIMIT_MIB });
+  const fileValid = fileLimit.trim() === "" || fileMib !== null;
   const fileBytes = fileMib === null ? null : Math.round(fileMib * MIB);
   const fileChanged = onSaveFileDailyLimit !== undefined && fileInput.edited && fileBytes !== savedFileLimit;
   const limitChanged = hourly.edited && limit !== savedLimit;
@@ -245,7 +247,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       <FormRow className="neighbor-field" label="Messages per day" htmlFor={dailyField}
         hint={dailyValid ? "Empty for no limit." : "Use a whole number from 1 to 10000, or leave it empty."}>
         <div className="neighbor-limit__row">
-          <input id={dailyField} type="number" min={1} max={10000} step={1} inputMode="numeric" placeholder="No limit"
+          <input id={dailyField} type="text" inputMode="numeric" autoComplete="off" spellCheck={false} placeholder="No limit"
             className={`${UI_INPUT.compact} neighbor-limit__input`} value={daily} aria-invalid={!dailyValid} disabled={saving}
             onChange={event => dailyInput.edit(event.currentTarget.value)} />
         </div>
@@ -255,7 +257,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       <FormRow className="neighbor-field" label="Files per day from this friend" htmlFor={fileField}
         hint={!fileValid ? `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.` : savedFileLimit === 0 ? `Files from ${name} are blocked.` : `Empty for ${FILE_LIMIT_MIB} MiB; 0 blocks files.`}>
         <div className="neighbor-limit__row">
-          <input id={fileField} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={String(FILE_LIMIT_MIB)}
+          <input id={fileField} type="text" inputMode="decimal" autoComplete="off" spellCheck={false} placeholder={String(FILE_LIMIT_MIB)}
             className={`${UI_INPUT.compact} neighbor-limit__input`} value={fileLimit} aria-invalid={!fileValid} disabled={!onSaveFileDailyLimit || saving}
             onChange={event => fileInput.edit(event.currentTarget.value)} />
           <span className="neighbor-note">MiB</span>
@@ -265,8 +267,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     <div className="neighbor-limit">
       <FormRow className="neighbor-field" label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
         <div className="neighbor-limit__row">
-          <input id={limitField} type="number" min={1} max={200} step={1} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limit} disabled={saving}
-            onChange={event => hourly.edit(event.currentTarget.valueAsNumber)} />
+          <input id={limitField} type="text" inputMode="numeric" autoComplete="off" spellCheck={false} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limitText} disabled={saving}
+            onChange={event => hourly.edit(event.currentTarget.value)} />
         </div>
       </FormRow>
     </div>
@@ -313,7 +315,7 @@ function EnforcementNote({ enforcement }: { enforcement: FolderEnforcement }) {
 
 /** A stored byte limit as the MiB the field shows, empty for the default. */
 function mibText(bytes: number | null): string {
-  return bytes === null ? "" : String(Math.round((bytes / MIB) * 10) / 10);
+  return bytes === null ? "" : formatNumericInput(Math.round((bytes / MIB) * 10) / 10);
 }
 
 const MIB = 1024 * 1024;

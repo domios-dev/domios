@@ -9,6 +9,7 @@ import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
 import { DecisionRerankCard } from "./DecisionRerankCard";
 import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
 import { Button } from "../shared/Button";
+import { NumericInput } from "../shared/NumericInput";
 import { UI_INPUT } from "../shared/design";
 
 const inputClass = `${UI_INPUT.fullCompact} min-w-0 !h-8 !rounded-lg !text-xs`;
@@ -282,34 +283,23 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
             "memory-settings-extraction-model",
           )}
           <Label text="Dedup threshold">
-            <input
-              type="number"
+            <NumericInput
               min={0.05}
               max={0.5}
               step={0.01}
               value={mem.dedup_threshold}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n) && n > 0) {
-                  onUpdate("memory", { ...mem, dedup_threshold: n });
-                }
-              }}
+              onValueChange={(n) => onUpdate("memory", { ...mem, dedup_threshold: n })}
               className={inputClass}
               data-testid="memory-settings-dedup-threshold"
             />
           </Label>
           <Label text="Worker timeout (s)">
-            <input
-              type="number"
+            <NumericInput
               min={10}
               max={3600}
+              integer
               value={mem.worker_timeout_seconds}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n) && n > 0) {
-                  onUpdate("memory", { ...mem, worker_timeout_seconds: n });
-                }
-              }}
+              onValueChange={(n) => onUpdate("memory", { ...mem, worker_timeout_seconds: n })}
               className={inputClass}
               data-testid="memory-settings-worker-timeout"
             />
@@ -399,17 +389,12 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
             onChange={(v) => onUpdate("memory", { ...mem, file_sync_enabled: v })}
           />
           <Label text="Interval (min)">
-            <input
-              type="number"
+            <NumericInput
               min={5}
               max={1440}
+              integer
               value={mem.file_sync_interval_minutes}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n) && n >= 5) {
-                  onUpdate("memory", { ...mem, file_sync_interval_minutes: n });
-                }
-              }}
+              onValueChange={(n) => onUpdate("memory", { ...mem, file_sync_interval_minutes: n })}
               className={inputClass}
               data-testid="memory-settings-file-sync-interval"
             />
