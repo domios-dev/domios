@@ -36,6 +36,37 @@ function assertScrollablePanel(label: string) {
   assert.equal(panel.contains(document.querySelector('[aria-label="Linked to this tab"]')), false, "the header stays outside the scrolling body");
 }
 
+function resolveFlexRow(
+  items: readonly { base: number; shrink: number; min?: number }[],
+  available: number,
+): number[] {
+  const sizes = items.map((item) => item.base);
+  const frozen = items.map(() => false);
+  for (;;) {
+    const deficit = sizes.reduce((sum, size) => sum + size, 0) - available;
+    if (deficit <= 1e-6) return sizes;
+    const totalScaled = items.reduce(
+      (sum, item, index) => (frozen[index] ? sum : sum + item.shrink * item.base),
+      0,
+    );
+    if (totalScaled <= 0) return sizes;
+    let clamped = false;
+    items.forEach((item, index) => {
+      if (frozen[index]) return;
+      const next = sizes[index] - deficit * ((item.shrink * item.base) / totalScaled);
+      const floor = item.min ?? 0;
+      if (next <= floor) {
+        sizes[index] = floor;
+        frozen[index] = true;
+        clamped = true;
+      } else {
+        sizes[index] = next;
+      }
+    });
+    if (!clamped) return sizes;
+  }
+}
+
 async function main() {
   const win = new Window({ url: "http://localhost/" });
   for (const key of ["window", "document", "navigator", "localStorage", "HTMLElement", "HTMLButtonElement", "SVGElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "CustomEvent"]) {
@@ -46,16 +77,20 @@ async function main() {
   stylesheet.textContent = readFileSync(new URL("./composerContext.css", import.meta.url), "utf8");
   document.head.append(stylesheet);
 
-  const [{ __setInvokeForTest, __setListenForTest }, { ComposerContextHeader }, { OPEN_JOB_EVENT }, { MuxStateStoreContext }, { createMuxStateStore }] = await Promise.all([
+  const [{ __setInvokeForTest, __setListenForTest }, { ComposerContextHeader }, { OPEN_JOB_EVENT }, { MultiplexerActionsContext, MuxStateStoreContext }, { createMuxStateStore }, { PlansProvider }, { FIXTURE_PLAN, FIXTURE_TASK }, { configureDaemonTransport }, { muxMockFetch }] = await Promise.all([
     import("../../lib/bridge"),
     import("./ComposerContextHeader"),
     import("../Jobs/openJobEvent"),
     import("../../store/multiplexer/context"),
     import("../../store/multiplexer/selectorStore"),
+    import("../Canvas/PlansProvider"),
+    import("../Canvas/cards/fixtures.testdata"),
+    import("../../lib/daemonBootstrap"),
+    import("../../lib/muxMockFetch.testdata"),
   ]);
   const state = {
     workspaces: [], tabs: {
-      "tab-a": { agent_type: "codex" }, "tab-b": { agent_type: "codex" }, "claude-tab": { agent_type: "claude" },
+      "tab-a": { agent_type: "codex" }, "tab-b": { agent_type: "codex" }, "claude-tab": { agent_type: "claude" }, "tab-worker": { agent_type: "codex" },
     }, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
   } as unknown as ExtendedState;
@@ -304,6 +339,148 @@ async function main() {
   await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]')!.click(); });
   assert.equal(goalReads.length, 1);
   assert.equal(host.childElementCount, 0, "a failed read removes the button, strip, and any error UI");
+
+  const longTaskName = "Night wave: twenty more Home-feed Threads replies with follow-ups";
+  const longPlanTitle = "Threads daily engagement and follow-up campaign";
+  const workerDelayed: DelayedMessage = { ...delayed, id: "worker-later-1", tabId: "tab-worker" };
+  const workerPlan = {
+    ...FIXTURE_PLAN,
+    id: "pl-threads",
+    revision: "1",
+    title: longPlanTitle,
+    status: "active" as const,
+    owner: { tab_id: "tab-orch", session_id: "sess-orch", title: "Orchestrator" },
+    tasks: [{ ...FIXTURE_TASK, id: "task-threads", name: longTaskName, status: "in_progress" as const, assigned_tab_id: "tab-worker" }],
+  };
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = muxMockFetch(async (input) => {
+    const url = String(input);
+    if (url.includes("chat=1") || url.includes("view=summary")) {
+      return Response.json({ plans: [workerPlan] });
+    }
+    return Response.json({
+      plans: [{
+        plan_id: workerPlan.id,
+        file_path: "/tmp/pl-threads.json",
+        owner: workerPlan.owner,
+        title: longPlanTitle,
+        status: "active",
+        updated_at: 100,
+        assigned_tab_ids: ["tab-worker"],
+      }],
+    });
+  });
+  configureDaemonTransport({ origin: win.location.origin, token: "fixture" });
+  const planApi = {
+    mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],
+    enabled: true, host: "127.0.0.1", port: 7686, token: "fixture", cors: true,
+  };
+  try {
+    for (const width of [1280, 720]) {
+      await act(async () => { win.happyDOM.setWindowSize({ width, height: 900 }); });
+      await act(async () => { root.render(null); });
+      await act(async () => {
+        root.render(
+          <MultiplexerActionsContext.Provider value={{} as never}>
+            <MuxStateStoreContext.Provider value={store}>
+              <PlansProvider api={planApi}>
+                <ComposerContextHeader
+                  tabId="tab-worker"
+                  workspaceId="workspace-a"
+                  delayed={[workerDelayed]}
+                  adapter={adapter}
+                  onEditDelayed={() => undefined}
+                  onDeleteDelayed={() => undefined}
+                  onScheduleDelayed={() => undefined}
+                />
+              </PlansProvider>
+            </MuxStateStoreContext.Provider>
+          </MultiplexerActionsContext.Provider>,
+        );
+      });
+      await act(async () => { await Promise.resolve(); });
+      const titleButton = requireControl<HTMLButtonElement>('button.ct-ctx__title[data-kind="task"]');
+      const prefix = requireControl<HTMLElement>(".ct-ctx__prefix");
+      const primary = requireControl<HTMLElement>(".ct-ctx__primary");
+      const secondary = requireControl<HTMLElement>(".ct-ctx__secondary");
+      assert.equal(prefix.textContent, "Task:");
+      assert.equal(primary.textContent, longTaskName);
+      assert.equal(secondary.textContent, `· Plan: ${longPlanTitle}`);
+      assert.equal(titleButton.title, `Task: ${longTaskName} · Plan: ${longPlanTitle}`);
+
+      const prefixStyle = window.getComputedStyle(prefix);
+      const primaryStyle = window.getComputedStyle(primary);
+      const secondaryStyle = window.getComputedStyle(secondary);
+      assert.equal(prefixStyle.flexShrink, "0", "Task: prefix does not shrink");
+      assert.equal(primaryStyle.flexShrink, "1", "task title keeps unit shrink factor");
+      assert.equal(Number.parseFloat(primaryStyle.minWidth), 0);
+      assert.equal(primaryStyle.overflow, "hidden");
+      assert.equal(primaryStyle.textOverflow, "ellipsis");
+      assert.equal(Number.parseFloat(secondaryStyle.minWidth), 0);
+      assert.equal(secondaryStyle.overflow, "hidden");
+      assert.equal(secondaryStyle.textOverflow, "ellipsis");
+
+      const primaryShrink = Number(primaryStyle.flexShrink);
+      const secondaryShrink = Number(secondaryStyle.flexShrink);
+      assert.ok(secondaryShrink >= 10_000 * primaryShrink, "plan text yields completely before task title");
+
+      // CSS Flexbox §9.7 allocation using the actual computed flex-shrink values:
+      const [taskWhenFits, planWhenFits] = resolveFlexRow(
+        [{ base: 430, shrink: primaryShrink }, { base: 345, shrink: secondaryShrink }],
+        480,
+      );
+      assert.ok(taskWhenFits >= 430 - 1 / 64, `task name keeps full width when it fits (got ${taskWhenFits})`);
+      assert.ok(planWhenFits <= 50.02, `plan text absorbs overflow (got ${planWhenFits})`);
+
+      const [taskWhenTight, planWhenTight] = resolveFlexRow(
+        [{ base: 430, shrink: primaryShrink }, { base: 345, shrink: secondaryShrink }],
+        360,
+      );
+      assert.equal(planWhenTight, 0, "plan text yields to 0 before task name truncates");
+      assert.equal(taskWhenTight, 360, "task name receives the full remaining width");
+
+      const delayedChip = requireControl<HTMLButtonElement>('button[aria-label="1 delayed message"]');
+      const delayedLabel = delayedChip.querySelector<HTMLElement>(".ct-ctx-kind__label");
+      assert.ok(delayedLabel, "delayed chip renders its label element on desktop");
+      assert.equal(window.getComputedStyle(delayedChip).flexShrink, "0");
+      assert.equal(window.getComputedStyle(delayedChip.querySelector("svg")!).flexShrink, "0");
+      assert.equal(delayedChip.querySelector(".ct-ctx-kind__count")?.textContent, "1");
+      if (width <= 760) {
+        assert.equal(window.getComputedStyle(delayedLabel).display, "none", "narrow width collapses Delayed text so the task title gets the space");
+      } else {
+        assert.notEqual(window.getComputedStyle(delayedLabel).display, "none", "wide width keeps Delayed label visible");
+      }
+    }
+
+    await act(async () => { win.happyDOM.setWindowSize({ width: 390, height: 900 }); });
+    await act(async () => { root.render(null); });
+    await act(async () => {
+      root.render(
+        <MultiplexerActionsContext.Provider value={{} as never}>
+          <MuxStateStoreContext.Provider value={store}>
+            <PlansProvider api={planApi}>
+              <ComposerContextHeader
+                tabId="tab-worker"
+                workspaceId="workspace-a"
+                delayed={[workerDelayed]}
+                adapter={adapter}
+                onEditDelayed={() => undefined}
+                onDeleteDelayed={() => undefined}
+                onScheduleDelayed={() => undefined}
+              />
+            </PlansProvider>
+          </MuxStateStoreContext.Provider>
+        </MultiplexerActionsContext.Provider>,
+      );
+    });
+    await act(async () => { await Promise.resolve(); });
+    const phonePill = requireControl<HTMLButtonElement>('[data-testid="composer-context-pill"]');
+    assert.equal(phonePill.querySelector(".ct-ctx-pill__title")?.textContent, longTaskName, "phone pill shows the working task title, not the plan title");
+    assert.equal(phonePill.querySelector(".ct-ctx-pill__icon")?.getAttribute("data-kind"), "task");
+    assert.equal(phonePill.title, `Task: ${longTaskName} · Plan: ${longPlanTitle}`);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 
   await act(async () => { root.unmount(); });
   console.log("Composer context header wiring passed");
