@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { appearanceLookKey, appearancePaletteKey, type AppearanceLook } from "../lib/appearance";
+import { appearanceLookKey, type AppearanceLook } from "../lib/appearance";
 import { listenAppearanceCommit, type AppearanceCommit } from "../lib/appearanceClient";
 import { animateAppearance, finishAppearanceMotion, takeAppearancePress } from "../lib/appearanceMotion";
 import { effectiveWallpaper } from "../lib/chatWallpaper";
@@ -87,7 +87,6 @@ export function useAppearanceMotion({ ready, appearance: { theme, wallpaper: bac
     const undo = !switching && (matched?.commit.undo ?? false);
     const origin = switching ? switchOrigin : pressed?.origin;
     return animateAppearance({ look: incoming.look, proposal, undo, origin,
-      fadeContent: appearancePaletteKey(before.look.theme) !== appearancePaletteKey(incoming.look.theme),
       drawDoodles: isNewDoodlePattern(before.look, incoming.look) }, apply);
   }, [incoming, ready, assetReady, asset, peerId]);
 

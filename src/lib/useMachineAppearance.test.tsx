@@ -74,6 +74,7 @@ it("applies a config update and an explicit machine switch inside one transition
   const motionPreferences = vi.spyOn(window, "matchMedia");
   const motion = () => document.documentElement.dataset.appearanceMotion;
   const origin = () => document.documentElement.style.getPropertyValue("--ct-appearance-origin");
+  const radius = () => document.documentElement.style.getPropertyValue("--ct-appearance-radius");
   function Fixture() {
     const selected = useMachineAppearance(config, true);
     const { look } = useAppearanceMotion(selected);
@@ -101,13 +102,17 @@ it("applies a config update and an explicit machine switch inside one transition
     expect(start).toHaveBeenCalledTimes(1);
     expect(motion()).toBe("wave");
     expect(origin()).toBe("200px 200px");
-    expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(true);
+    expect(parseFloat(radius())).toBeGreaterThan(0);
+    expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(false);
     expect(rootNode.textContent).toBe(`${DEFAULT_THEME.name} · none`);
     await act(async () => {
       transitions[0].update();
       expect(rootNode.textContent).toBe("External theme · none");
       transitions[0].finish();
     });
+    expect(motion()).toBeUndefined();
+    expect(origin()).toBe("");
+    expect(radius()).toBe("");
     await act(async () => receive("config-changed", { theme: reorderedTheme }));
     expect(start).toHaveBeenCalledTimes(1);
 
@@ -119,7 +124,6 @@ it("applies a config update and an explicit machine switch inside one transition
     await act(async () => receive("config-changed", { theme: reorderedTheme, chat_wallpaper: nextWallpaper }));
     expect(start).toHaveBeenCalledTimes(2);
     expect(origin()).toBe("156px 134px");
-    expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(false);
     await act(async () => {
       transitions[1].update();
       expect(rootNode.textContent).toBe("External theme · space");
@@ -129,7 +133,6 @@ it("applies a config update and an explicit machine switch inside one transition
     await act(async () => setWorkspaceBrowseTarget({ id: "different", name: "Different" }, { x: 28, y: 90 }));
     expect(start).toHaveBeenCalledTimes(3);
     expect(origin()).toBe("28px 90px");
-    expect(document.documentElement.hasAttribute("data-appearance-content-fade")).toBe(false);
     expect(rootNode.textContent).toBe("External theme · space");
     await act(async () => {
       transitions[2].update();
