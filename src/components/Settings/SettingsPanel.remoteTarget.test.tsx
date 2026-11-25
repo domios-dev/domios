@@ -316,7 +316,7 @@ describe("Settings remote target routing", () => {
     const librarian = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Enable Librarian (background skill vectorizer)"]');
     expect(librarian).not.toBeNull();
     await act(async () => librarian!.click());
-    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").at(-1)?.[1]).toMatchObject({
+    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").slice(-1)[0]?.[1]).toMatchObject({
       peerId: "r161",
       config: expect.objectContaining({ memory: expect.objectContaining({ librarian_enabled: false }) }),
     });
@@ -347,7 +347,7 @@ describe("Settings remote target routing", () => {
     const bellSwitch = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Show the bell"]');
     expect(bellSwitch).not.toBeNull();
     await act(async () => bellSwitch!.click());
-    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").at(-1)?.[1]).toMatchObject({
+    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").slice(-1)[0]?.[1]).toMatchObject({
       peerId: "r161",
     });
     expect(onLocalUpdate).not.toHaveBeenCalled();
@@ -363,7 +363,7 @@ describe("Settings remote target routing", () => {
     const autoCliToggle = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Update harness CLIs automatically"]');
     expect(autoCliToggle).not.toBeNull();
     await act(async () => autoCliToggle!.click());
-    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").at(-1)?.[1]).toMatchObject({
+    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").slice(-1)[0]?.[1]).toMatchObject({
       peerId: "r161",
       config: expect.objectContaining({ updater: expect.objectContaining({ auto_update_provider_clis: false }) }),
     });
@@ -400,7 +400,7 @@ describe("Settings remote target routing", () => {
     const visibility = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Show in workspace menu"]');
     expect(visibility).not.toBeNull();
     await act(async () => visibility!.click());
-    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").at(-1)?.[1]).toMatchObject({
+    expect(fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").slice(-1)[0]?.[1]).toMatchObject({
       peerId: "r161",
     });
     expect(onLocalUpdate).not.toHaveBeenCalled();
@@ -496,7 +496,7 @@ describe("Settings remote target routing", () => {
     const ligatures = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Ligatures"]');
     await act(async () => ligatures!.click());
     await flush();
-    const lastWrite = fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").at(-1)?.[1] as { config: AppConfig };
+    const lastWrite = fixture.invoke.mock.calls.filter(([cmd]) => cmd === "update_config").slice(-1)[0]?.[1] as { config: AppConfig };
     expect(lastWrite.config.font.family).toBe("newer-remote-font");
     expect(lastWrite.config.memory.librarian_enabled).toBe(false);
     expect(lastWrite.config.font.ligatures).toBe(false);

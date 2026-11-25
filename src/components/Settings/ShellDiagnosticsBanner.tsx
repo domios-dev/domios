@@ -14,12 +14,13 @@ interface ShellDiagnostics {
 
 export function ShellDiagnosticsBanner({ onDismissSettings }: { onDismissSettings: () => void }) {
   const remoteTarget = useSettingsRemoteTarget();
+  const isRemote = remoteTarget !== null;
   const [diag, setDiag] = useState<ShellDiagnostics | null>(null);
 
   useEffect(() => {
-    if (remoteTarget) return;
+    if (isRemote) return;
     invoke<ShellDiagnostics>("get_shell_diagnostics").then(setDiag).catch(() => {});
-  }, [remoteTarget]);
+  }, [isRemote]);
 
   if (remoteTarget || !diag || diag.platform !== "windows" || diag.pwsh_installed) return null;
 

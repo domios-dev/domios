@@ -257,7 +257,7 @@ async function main() {
     pressArrow(liveDedup, "ArrowDown");
     pressArrow(liveDedup, "ArrowDown");
   });
-  assert(liveDedup.value === "0.18", `two ArrowDowns must show '0.18', got '${liveDedup.value}'`);
+  assert((liveDedup.value as string) === "0.18", `two ArrowDowns must show '0.18', got '${liveDedup.value}'`);
   assert(pendingWrites.length === 1 && pendingWrites[0].threshold === 0.19, "only first write is in flight while second queues");
 
   // First write settles and echoes 0.19 mid-burst.
@@ -265,14 +265,14 @@ async function main() {
     pendingWrites.shift()!.resolve();
     await Promise.resolve();
   });
-  assert(liveDedup.value === "0.18", `delayed 0.19 echo must not overwrite focused draft '0.18', got '${liveDedup.value}'`);
+  assert((liveDedup.value as string) === "0.18", `delayed 0.19 echo must not overwrite focused draft '0.18', got '${liveDedup.value}'`);
 
   await act(async () => {
     pressArrow(liveDedup, "ArrowDown");
     pressArrow(liveDedup, "ArrowDown");
     pressArrow(liveDedup, "ArrowDown");
   });
-  assert(liveDedup.value === "0.15", `five ArrowDowns from 0.20 must reach '0.15', got '${liveDedup.value}'`);
+  assert((liveDedup.value as string) === "0.15", `five ArrowDowns from 0.20 must reach '0.15', got '${liveDedup.value}'`);
 
   // Drain all remaining queued writes and echoes.
   while (pendingWrites.length > 0) {
@@ -285,7 +285,7 @@ async function main() {
 
   assert(maxConcurrentWrites === 1, `config writes must be serialized, observed maxConcurrentWrites=${maxConcurrentWrites}`);
   assert(savedConfig.memory.dedup_threshold === 0.15, `final saved dedup_threshold must be 0.15, got ${savedConfig.memory.dedup_threshold}`);
-  assert(liveDedup.value === "0.15", `final displayed dedup_threshold must be '0.15', got '${liveDedup.value}'`);
+  assert((liveDedup.value as string) === "0.15", `final displayed dedup_threshold must be '0.15', got '${liveDedup.value}'`);
 
   await act(async () => liveRoot.unmount());
   liveHost.remove();
