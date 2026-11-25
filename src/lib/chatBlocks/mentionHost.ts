@@ -14,6 +14,32 @@ import { watchMentionState } from "../mentionSources/live";
 import { tabActivity } from "../tabActivity";
 import { surfaceBacking } from "../surfaceTab";
 import { isBrowserSurface } from "../../components/Surface/surfaceIcon";
+import { parseCompositeTabId } from "../remoteTabTransport";
+import { cleanMachineName } from "../machineIdentity";
+import type { Tab } from "../types";
+
+function resolveLocalTabRef(tabs: Readonly<Record<string, Tab>>, ref: string): Tab | null {
+  if (tabs[ref]) return tabs[ref];
+  const matches = Object.values(tabs).filter(tab => !tab.id.startsWith("mesh:") && !tab.remote_peer_id && tab.id.startsWith(ref));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function resolveAttachedRemoteTabRef(tabs: Readonly<Record<string, Tab>>, targetId: string): Tab | null {
+  if (tabs[targetId]) return tabs[targetId];
+  const route = parseCompositeTabId(targetId);
+  if (!route) return null;
+  const loweredPeer = route.peerId.toLowerCase();
+  const peerMatches = Object.values(tabs).filter(tab => {
+    if (!tab.remote_peer_id || !tab.remote_tab_id) return false;
+    if (tab.remote_peer_id === route.peerId) return true;
+    const display = cleanMachineName(tab.remote_peer_name, tab.remote_peer_id) ?? tab.remote_peer_name ?? "";
+    return (tab.remote_peer_name?.toLowerCase() === loweredPeer || display.toLowerCase() === loweredPeer);
+  });
+  const exact = peerMatches.filter(tab => tab.remote_tab_id === route.remoteTabId);
+  if (exact.length === 1) return exact[0];
+  const prefixed = peerMatches.filter(tab => tab.remote_tab_id?.startsWith(route.remoteTabId));
+  return prefixed.length === 1 ? prefixed[0] : null;
+}
 
 export function createMentionHost(ports: {
   mux: Pick<MuxStateStore, "getState" | "subscribe">;
@@ -49,16 +75,21 @@ export function createMentionHost(ports: {
     let value: ChatMentionValue | null = null;
     if ((scope.workspaceId || scope.peerId) && kind === "tab") {
       const targetId = scope.peerId && !id.startsWith("mesh:") ? `mesh:${scope.peerId}/${id}` : id;
-      const peerTab = ports.readPeerTab?.(targetId);
-      const tab = peerTab?.tab ?? state.tabs[targetId];
+      const isRemote = targetId.startsWith("mesh:");
+      const peerTab = isRemote ? ports.readPeerTab?.(targetId) : undefined;
+      const tab = peerTab?.tab ?? (isRemote ? resolveAttachedRemoteTabRef(state.tabs, targetId) : resolveLocalTabRef(state.tabs, targetId));
       if (tab) {
-        const activity = tabActivity(tab, peerTab?.status ?? state.tabStatuses[targetId]);
+        const resolvedId = tab.id;
+        const activity = tabActivity(tab, peerTab?.status ?? state.tabStatuses[resolvedId]);
         const surface = surfaceBacking(tab);
-        value = { title: tab.title, kind, id: targetId, tabKind: surface ? isBrowserSurface(surface) ? "browser" : "surface" : tab.agent_type ? "agent" : "shell",
+        const peerName = peerTab?.peerName ?? (tab.remote_peer_id ? cleanMachineName(tab.remote_peer_name, tab.remote_peer_id) ?? tab.remote_peer_name ?? undefined : undefined);
+        value = { title: tab.title, kind, id: resolvedId, tabKind: surface ? isBrowserSurface(surface) ? "browser" : "surface" : tab.agent_type ? "agent" : "shell",
           providerId: tab.agent_type, providerName: ports.providerName?.(tab.agent_type), role: tab.role ?? undefined,
-          workspaceName: peerTab?.workspaceName ?? state.workspaces.find(ws => ws.id === tab.workspace_id || ws.tabs.includes(targetId))?.name,
+          peerName,
+          workspaceName: peerTab?.workspaceName ?? state.workspaces.find(ws => ws.id === tab.workspace_id || ws.tabs.includes(resolvedId))?.name,
           activity: activity.kind === "working" ? "working" : activity.kind === "waiting-on-user" ? "waiting" : activity.kind === "failed" ? "error" : "idle" };
         knownTabs.set(targetId, value);
+        knownTabs.set(resolvedId, value);
       } else {
         const known = knownTabs.get(targetId);
         if (known) value = { ...known, state: "closed", activity: "idle" };

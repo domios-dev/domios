@@ -6,7 +6,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { createMentionHost } from "./mentionHost";
 import { createValueFeed } from "./valueFeed";
 import type { Plan } from "../../components/Canvas/types";
-import { peerMentionTabs } from "../mentionSources/peerTabs";
+import { resolvePeerMentionTab, type MentionPeerInventory } from "../mentionSources/peerTabs";
 
 async function main() {
   let state = { tabs: { self: { id: "self", title: "Real name", tab_type: "Terminal", pty_id: null, cwd: "/repo", workspace_id: "ws", team_id: "own" } },
@@ -21,16 +21,20 @@ async function main() {
   let planSubscriptions = 0;
   let muxReads = 0;
   const peerTabId = "mesh:blackstar/vela";
-  const peerTabs = peerMentionTabs({
+  const peerShortTabId = "mesh:blackstar/0db72b9f-1234-5678-9abc-def012345678";
+  const peerInventory: MentionPeerInventory = {
     generals: [{ peerId: "blackstar", name: "BLACKSTAR", sessions: [], availability: "online" }],
     peerWorkspaces: [{ peerId: "blackstar", workspace: { ...state.workspaces[0], id: "host-ws", name: "Host project" },
-      teams: [], tabs: [{ viewerId: peerTabId, tab: { ...state.tabs.self, id: "vela", title: "Vela" } }] }],
-  }, "blackstar");
+      teams: [], tabs: [
+        { viewerId: peerTabId, tab: { ...state.tabs.self, id: "vela", title: "Vela" } },
+        { viewerId: peerShortTabId, tab: { ...state.tabs.self, id: "0db72b9f-1234-5678-9abc-def012345678", title: "Lumen", agent_type: "acp" } },
+      ] }],
+  };
   const host = createMentionHost({ mux: {
     getState: () => { muxReads++; return mux.getState(); },
     subscribe: (listener) => { muxSubscriptions++; const off = mux.subscribe(listener); return () => { muxSubscriptions--; off(); }; },
   }, plans: { get: feed.get, set: feed.set, subscribe: (listener) => { planSubscriptions++; const off = feed.subscribe(listener); return () => { planSubscriptions--; off(); }; } },
-    readPeerTab: (id) => peerTabs.get(id),
+    readPeerTab: (id) => resolvePeerMentionTab(peerInventory, id),
     readGraph: async (scope) => { reads++; assert.equal(scope.teamId, "own"); return { ...fixtureGraph(), nodes: blueprintDeleted ? [] : [fixtureNode({ id: "bp_real", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: "own" }, "Real Blueprint"), fixtureNode({ id: "bp_workspace", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: null }, "Workspace Blueprint")] }; },
     openPlan: (target) => opened.push(target), openTab: (ws, tab) => opened.push([ws, tab]), openBlueprint: (ws, team, id) => opened.push([ws, team, id]),
   });
@@ -47,7 +51,15 @@ async function main() {
   const peerTab = key("tab", peerTabId);
   assert.equal(host.binding.read(peerTab)?.title, "Vela");
   assert.equal(host.binding.read(peerTab)?.workspaceName, "Host project");
+  assert.equal(host.binding.read(peerTab)?.peerName, "BLACKSTAR");
   host.open(peerTab); assert.deepEqual(opened.pop(), ["host-ws", peerTabId]);
+  const peerByNameAndPrefix = key("tab", "mesh:BLACKSTAR/0db72b9f");
+  assert.equal(host.binding.read(peerByNameAndPrefix)?.title, "Lumen");
+  assert.equal(host.binding.read(peerByNameAndPrefix)?.peerName, "BLACKSTAR");
+  host.open(peerByNameAndPrefix); assert.deepEqual(opened.pop(), ["host-ws", peerShortTabId]);
+  state = { ...state, tabs: { ...state.tabs, "0db72b9f-local": { ...state.tabs.self, id: "0db72b9f-local", title: "LocalLumen" } } };
+  assert.equal(host.binding.read(key("tab", "0db72b9f"))?.title, "LocalLumen");
+  state = { ...state, tabs: { self: state.tabs.self } };
   const peerComposerId = "mesh:blackstar/elgar";
   state = { ...state, tabs: { ...state.tabs,
     [peerComposerId]: { ...state.tabs.self, id: peerComposerId, remote_peer_id: "blackstar", remote_tab_id: "elgar" },

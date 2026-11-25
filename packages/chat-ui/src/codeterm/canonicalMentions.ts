@@ -10,7 +10,8 @@ export function canonicalMentions(text: string): CanonicalMention[] {
   const rows: CanonicalMention[] = [];
   for (const marker of referenceMarkers(text)) {
     if (marker.kind !== "tab" && !(marker.kind === "task" && !marker.plan)) continue;
-    rows.push({ ...marker, label: marker.id, kind: marker.kind });
+    const id = marker.kind === "tab" && marker.peer ? `mesh:${marker.peer}/${marker.id}` : marker.id;
+    rows.push({ ...marker, id, label: id, kind: marker.kind });
   }
   if (!text.includes("(blueprint ")) return rows;
   const masked: Array<[number, number]> = [];

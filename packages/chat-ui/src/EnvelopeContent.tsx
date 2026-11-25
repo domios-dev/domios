@@ -3,14 +3,10 @@ import type { ReactNode } from "react";
 import { InlineAttachmentText } from "./AttachmentCapsule";
 import { VoiceCard } from "./MarkdownBody";
 import { ReplyQuote } from "./ReplyQuote";
-import { referenceMarkers } from "./codeterm/referenceMarkers";
 
 function segmentText(segment: Exclude<MessageSegment, { type: "frame" | "attachment" }>): string {
   if (segment.type === "text") return segment.text;
-  if (segment.type === "unknown_frame" && !segment.body) {
-    const [marker] = referenceMarkers(segment.raw);
-    if (marker?.start === 0 && marker.end === segment.raw.length) return segment.raw;
-  }
+  if (segment.type === "unknown_frame" && !segment.body && !segment.attrs.from) return segment.raw;
   return segment.body;
 }
 

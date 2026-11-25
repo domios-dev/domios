@@ -2,7 +2,9 @@ import { referenceMarkers } from "../../../packages/chat-ui/src/codeterm/referen
 import { attachmentPathName, formatAttachmentMarker, parseAttachmentMarkers } from "@codeterm/chat-core";
 
 export function composerTokenMarkers(text: string) {
-  const tabs = referenceMarkers(text).filter(marker => marker.kind === "tab").map(marker => ({ ...marker, title: undefined as string | undefined }));
+  const tabs = referenceMarkers(text)
+    .filter(marker => marker.kind === "tab")
+    .map(marker => ({ ...marker, id: marker.peer ? `mesh:${marker.peer}/${marker.id}` : marker.id, title: undefined as string | undefined }));
   const files = [...text.matchAll(/<domios\s+[^<>]*\btype="attachment"[^<>]*\/>/g)].flatMap(match => {
     const file = parseAttachmentMarkers(match[0]).attachments[0];
     return file && !file.reply && ["file", "image", "folder", "video", "document"].includes(file.kind)

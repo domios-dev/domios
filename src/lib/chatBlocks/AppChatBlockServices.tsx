@@ -29,7 +29,7 @@ import type { PlanRead } from "../../components/Canvas/planProjection";
 import { planRevision } from "../../components/Canvas/planProjection";
 import { webRequestContext } from "../webApi";
 import { mentionScopeForTab } from "../mentionSources/scope";
-import { peerMentionTabs, type MentionPeerInventory, type PeerMentionTab } from "../mentionSources/peerTabs";
+import { resolvePeerMentionTab, type MentionPeerInventory, type PeerMentionTab } from "../mentionSources/peerTabs";
 import { parseCompositeTabId } from "../remoteTabTransport";
 import { watchMentionState } from "../mentionSources/live";
 import { resolveTabRef } from "./agentBlockState";
@@ -83,19 +83,12 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
     let indexedInventory: MentionPeerInventory | undefined;
     const peerIndex = new Map<string, Map<string, PeerMentionTab>>();
     const readPeerTab = (id: string) => {
-      const route = parseCompositeTabId(id);
-      if (!route) return undefined;
       const inventory = peerTabs.get();
       if (indexedInventory !== inventory) {
         indexedInventory = inventory;
         peerIndex.clear();
       }
-      let tabs = peerIndex.get(route.peerId);
-      if (!tabs) {
-        tabs = peerMentionTabs(inventory, route.peerId);
-        peerIndex.set(route.peerId, tabs);
-      }
-      return tabs.get(id);
+      return resolvePeerMentionTab(inventory, id, peerIndex);
     };
     const activeWorkspace = () => {
       const state = mux.getState();
@@ -142,9 +135,12 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       mentions: createMentionHost({
         mux, plans: plainPlans, taskReferences:references, readPeerTab, watchPeerTabs: peerTabs.subscribe,
         providerName: (id) => getAgentDescriptor(id)?.display_name,
-        renderAvatar: (value) => value.tabKind === "agent" ? <AgentIcon providerId={value.providerId} tab={mux.getState().tabs[value.id]} style={{ width: 12, height: 12 }} />
-          : value.tabKind === "browser" && value.state === "closed" ? undefined
-          : value.tabKind === "browser" || value.tabKind === "surface" ? <SurfaceIcon backing={surfaceBacking(mux.getState().tabs[value.id])} size={11} /> : undefined,
+        renderAvatar: (value) => {
+          const tab = mux.getState().tabs[value.id] ?? readPeerTab(value.id)?.tab;
+          return value.tabKind === "agent" ? <AgentIcon providerId={value.providerId} tab={tab} style={{ width: 12, height: 12 }} />
+            : value.tabKind === "browser" && value.state === "closed" ? undefined
+            : value.tabKind === "browser" || value.tabKind === "surface" ? <SurfaceIcon backing={surfaceBacking(tab)} size={11} /> : undefined;
+        },
         readGraph: async (scope, signal) => {
           const graphs = await Promise.all((scope.teamId ? [scope.teamId, null] : [null]).map((teamId) => hostAutomationAdapter.read({ connection_id: "composer", workspace_id: scope.workspaceId!, team_id: teamId }, signal)));
           return { ...graphs[0], nodes: graphs.flatMap((graph) => graph.nodes) };
