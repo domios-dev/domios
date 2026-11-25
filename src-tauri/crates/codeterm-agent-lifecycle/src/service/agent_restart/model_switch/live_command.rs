@@ -246,6 +246,7 @@ pub trait LiveCommandSwitchExt {
         model: &str,
         effort: Option<&str>,
         after_turn: bool,
+        mid_turn: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError>;
     fn run_declared_model_command(
         &self,
@@ -254,6 +255,7 @@ pub trait LiveCommandSwitchExt {
         template: &ModelSwitchCommand,
         commands: &crate::agent::provider::ModelSwitchCommands,
         deadline: Instant,
+        mid_turn: bool,
     ) -> Result<Option<pending::CommandEvidence>, ModelSwitchError>;
     fn run_model_command(
         &self,
@@ -262,7 +264,7 @@ pub trait LiveCommandSwitchExt {
         template: &ModelSwitchCommand,
         source: &ModelSwitchTranscript,
         deadline: Instant,
-        buffering: bool,
+        turn: during_turn::CommandTurnState,
     ) -> Result<Option<pending::CommandEvidence>, ModelSwitchError>;
 }
 
@@ -338,6 +340,7 @@ impl LiveCommandSwitchExt for ServiceContext {
         model: &str,
         effort: Option<&str>,
         after_turn: bool,
+        mid_turn: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let _claim = {
             let mut tracker = self
@@ -544,7 +547,14 @@ impl LiveCommandSwitchExt for ServiceContext {
                 sequence.wait_for_idle(self, &target, false)?;
             }
             let evidence = self
-                .run_declared_model_command(&target, command_effort, command, &commands, deadline)
+                .run_declared_model_command(
+                    &target,
+                    command_effort,
+                    command,
+                    &commands,
+                    deadline,
+                    mid_turn,
+                )
                 .map_err(|error| match error {
                     ModelSwitchError::InputNotReady(reason) if index > 0 => {
                         ModelSwitchError::LiveCommandFailed(reason)
@@ -663,6 +673,7 @@ impl LiveCommandSwitchExt for ServiceContext {
         template: &ModelSwitchCommand,
         commands: &crate::agent::provider::ModelSwitchCommands,
         deadline: Instant,
+        mid_turn: bool,
     ) -> Result<Option<pending::CommandEvidence>, ModelSwitchError> {
         if commands.confirmation_source
             == crate::agent::provider::ModelSwitchConfirmationSource::SessionIdentity
@@ -670,17 +681,18 @@ impl LiveCommandSwitchExt for ServiceContext {
             self.run_session_identity_command(target, effort, template, deadline)
                 .map(|_| None)
         } else {
-            let buffering = commands.during_turn
-                && self.mux.read().get_tab(&target.tab_id).is_some_and(|tab| {
-                    self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Working)
-                });
+            let working = self.mux.read().get_tab(&target.tab_id).is_some_and(|tab| {
+                self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Working)
+            });
+            let turn =
+                during_turn::CommandTurnState::resolve(commands.during_turn, mid_turn, working);
             self.run_model_command(
                 target,
                 effort,
                 template,
                 &commands.transcript,
                 deadline,
-                buffering,
+                turn,
             )
         }
     }
@@ -692,7 +704,7 @@ impl LiveCommandSwitchExt for ServiceContext {
         template: &ModelSwitchCommand,
         source: &ModelSwitchTranscript,
         deadline: Instant,
-        buffering: bool,
+        turn: during_turn::CommandTurnState,
     ) -> Result<Option<pending::CommandEvidence>, ModelSwitchError> {
         let model = target.model.as_str();
         let display_name = target.display_name.as_str();
@@ -955,7 +967,7 @@ impl LiveCommandSwitchExt for ServiceContext {
                         break true;
                     }
                     if pending::can_await_buffered_stdout(
-                        buffering,
+                        turn.buffering,
                         generation != injected_generation.get(),
                         picker.as_ref().is_none_or(CommandPicker::submitted),
                         prompt.as_ref().is_none_or(CommandPrompt::answered),
@@ -1013,7 +1025,7 @@ impl LiveCommandSwitchExt for ServiceContext {
             .unsubscribe_screen_changes(pty_id, &signal);
         let result = if result.is_err()
             && prompt_error.is_none()
-            && buffering
+            && turn.buffering
             && injected.get()
             && target.current(self)
             && self.command_input_restored(target)
@@ -1048,30 +1060,17 @@ impl LiveCommandSwitchExt for ServiceContext {
             },
         )
         .map_err(|error| {
-            let during_turn = self
-                .agent_registry
-                .with_provider(&target.provider, |provider| {
-                    provider
-                        .model_switch_commands()
-                        .is_some_and(|commands| commands.during_turn)
-                })
-                .unwrap_or(false);
-            if during_turn {
-                return ModelSwitchError::DuringTurnIncident {
-                    stage: format!(
-                        "{}:{:?}",
-                        if effort.is_some() { "effort" } else { "model" },
-                        stage.get()
-                    ),
-                    screen: observed_screen.into_inner(),
-                    reason: error,
-                };
-            }
-            if not_ready.get() && !injected.get() {
-                ModelSwitchError::InputNotReady(error)
-            } else {
-                ModelSwitchError::LiveCommandFailed(error)
-            }
+            during_turn::command_failure_error(
+                turn,
+                format!(
+                    "{}:{:?}",
+                    if effort.is_some() { "effort" } else { "model" },
+                    stage.get()
+                ),
+                observed_screen.into_inner(),
+                not_ready.get() && !injected.get(),
+                error,
+            )
         })
         .map(|_| {
             awaiting_buffer.get().then(|| pending::CommandEvidence {

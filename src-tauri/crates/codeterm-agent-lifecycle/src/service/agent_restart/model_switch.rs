@@ -571,9 +571,12 @@ impl ModelSwitchExt for ServiceContext {
                     requested,
                     effort.as_deref(),
                     staged.is_some(),
+                    mid_turn,
                 )
                 .map_err(|error| {
-                    if mid_turn && during_turn {
+                    if (mid_turn && during_turn)
+                        || matches!(error, ModelSwitchError::DuringTurnIncident { .. })
+                    {
                         self.during_turn_switch_incident(&snap, error)
                     } else {
                         error

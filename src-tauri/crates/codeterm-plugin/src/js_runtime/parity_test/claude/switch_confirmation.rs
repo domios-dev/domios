@@ -16,6 +16,15 @@ fn during_turn_command_capability_native_js_parity() {
     let js = js.model_switch_commands().unwrap();
     assert!(native.during_turn);
     assert_eq!(native, js);
+    let current_picker = provider_fixture("claude", "model-switch/live-2.1.332-picker.txt");
+    for commands in [&native, &js] {
+        let screen_regex =
+            regex::Regex::new(&commands.model.picker.as_ref().unwrap().screen_regex).unwrap();
+        assert!(screen_regex.is_match(&current_picker));
+        assert!(
+            !screen_regex.is_match(&current_picker.replace("s to use this session only · ", ""))
+        );
+    }
     assert!(native.model.prompt.is_some());
     assert!(native.effort.as_ref().unwrap().prompt.is_some());
     assert_eq!(native.transcript.additional_record_sources.len(), 1);
