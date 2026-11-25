@@ -2,9 +2,11 @@ import { expect, it } from "vitest";
 import {
   choiceForSessionSection,
   defaultNewSessionChoice,
+  isProviderSelectable,
   readPersistedNewSessionChoice,
   resolvePersistedChoice,
   resolveProviderModel,
+  unavailableProviderIds,
 } from "./newSessionChoice";
 import type { ProviderDescriptor } from "./types";
 
@@ -95,5 +97,24 @@ it("never defaults to or retains an unavailable provider", () => {
     mode: "pair",
     orchestratorProviderId: "claude",
     plannerProviderId: "claude",
+  });
+});
+
+it("treats an explicit disabled set as sole authority so a probe-installed provider overrides a stale unavailable descriptor", () => {
+  const staleCursor = makeProvider("cursor", "unavailable");
+  const claude = makeProvider("claude", "available");
+  const disabledAfterInstall = unavailableProviderIds([staleCursor, claude], { cursor: true, claude: true });
+
+  expect(disabledAfterInstall.has("cursor")).toBe(false);
+  expect(isProviderSelectable(staleCursor, disabledAfterInstall)).toBe(true);
+  expect(resolvePersistedChoice([staleCursor, claude], {
+    mode: "single",
+    providerId: "cursor",
+    modelId: "cursor-model",
+  }, disabledAfterInstall)).toEqual({
+    mode: "single",
+    providerId: "cursor",
+    modelId: "cursor-model",
+    effortId: undefined,
   });
 });

@@ -119,12 +119,13 @@ afterEach(async () => {
   host.remove();
 });
 
-async function renderPicker(props: { onClose?: () => void; section?: "general" | "workspace" } = {}) {
+async function renderPicker(props: { onClose?: () => void; section?: "general" | "workspace"; initialProviderId?: string } = {}) {
   await act(async () => {
     root!.render(
       <NewSessionPicker
         workspaceId={workspace.id}
         section={props.section}
+        initialProviderId={props.initialProviderId}
         workspaceCwd={workspace.cwd}
         onClose={props.onClose ?? (() => undefined)}
       />,
@@ -764,4 +765,39 @@ it("leaves Start disabled without preselecting an unavailable provider when none
   expect(buttonNamed("Orchestrator provider")?.getAttribute("data-value")).toBe("");
   expect(buttonNamed("Planner provider")?.getAttribute("data-value")).toBe("");
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(true);
+});
+
+it("keeps a probe-installed provider selected across window focus even when its descriptor still says unavailable", async () => {
+  localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode", modelId: "live-1" }));
+  fixture.providers.providers = [
+    { id: "cursor", display_name: "Cursor", availability: "unavailable", available_models: [{ id: "cursor-1", display_name: "Cursor 1" }], default_model: "cursor-1", reasoning_efforts: [] },
+    { id: "opencode", display_name: "OpenCode", availability: "available", available_models: [{ id: "live-1", display_name: "Live 1" }], default_model: "live-1", reasoning_efforts: [] },
+  ] as never[];
+  vi.mocked(probeProviderInstallMap).mockResolvedValue({ cursor: true, opencode: true });
+
+  await renderPicker({ section: "workspace" });
+  await choose("Agent provider", "Cursor");
+  expect(buttonNamed("Agent provider")?.getAttribute("data-value")).toBe("cursor");
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(false);
+
+  // Window focus triggers probe(true) with a fresh installMap object; selection must survive.
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(vi.mocked(probeProviderInstallMap).mock.calls.length).toBeGreaterThanOrEqual(2);
+  expect(buttonNamed("Agent provider")?.getAttribute("data-value")).toBe("cursor");
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(false);
+});
+
+it("honors initialProviderId when the install probe confirms it is installed despite a stale unavailable descriptor", async () => {
+  localStorage.clear();
+  fixture.providers.providers = [
+    { id: "cursor", display_name: "Cursor", availability: "unavailable", available_models: [{ id: "cursor-1", display_name: "Cursor 1" }], default_model: "cursor-1", reasoning_efforts: [] },
+    { id: "opencode", display_name: "OpenCode", availability: "available", available_models: [{ id: "live-1", display_name: "Live 1" }], default_model: "live-1", reasoning_efforts: [] },
+  ] as never[];
+  vi.mocked(probeProviderInstallMap).mockResolvedValue({ cursor: true, opencode: true });
+
+  await renderPicker({ section: "workspace", initialProviderId: "cursor" });
+  expect(buttonNamed("Agent provider")?.getAttribute("data-value")).toBe("cursor");
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(false);
 });
