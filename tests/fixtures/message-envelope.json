@@ -758,6 +758,7 @@
   },
   {
     "name": "opening tag cut before its close",
+    "quoted": true,
     "raw": "opaque owner body\n<domios from=\"tab\" lab",
     "route": "stream_content",
     "segments": [
@@ -767,7 +768,7 @@
       },
       {
         "attrs": {},
-        "body": "",
+        "body": "<domios from=\"tab\" lab",
         "raw": "<domios from=\"tab\" lab",
         "type": "partial_frame"
       }
@@ -836,5 +837,50 @@
       }
     ],
     "source": "synthetic agent sender with model attribution"
+  },
+  {
+    "name": "routed paired tab mention",
+    "raw": "<domios from=\"tab\">Ask <domios type=\"tab\" id=\"x\">Elgar</domios> to rerun</domios>Owner reply",
+    "route": "stream_content",
+    "quoted": true,
+    "segments": [
+      {
+        "type": "frame",
+        "kind": "tab",
+        "from": "tab",
+        "attrs": { "from": "tab" },
+        "body": "Ask <domios type=\"tab\" id=\"x\">Elgar</domios> to rerun",
+        "tip": null
+      },
+      { "type": "text", "text": "Owner reply" }
+    ],
+    "source": "review reproduction with a following owner message"
+  },
+  {
+    "name": "routed unpaired tab mention",
+    "raw": "<domios from=\"tab\">An opening <domios type=\"tab\" id=\"x\"> stays literal</domios>",
+    "route": "host_injected",
+    "quoted": true,
+    "segments": [
+      {
+        "type": "frame",
+        "kind": "tab",
+        "from": "tab",
+        "attrs": { "from": "tab" },
+        "body": "An opening <domios type=\"tab\" id=\"x\"> stays literal",
+        "tip": null
+      }
+    ],
+    "source": "terminal closer tie-break: the host wrapped a literal unpaired opening; raw stream exclusion still awaits the outer close"
+  },
+  {
+    "name": "inline unpaired tab mention",
+    "raw": "Example <domios from=\"tab\">An opening <domios type=\"tab\" id=\"x\"> stays literal</domios>",
+    "route": "stream_content",
+    "quoted": true,
+    "segments": [
+      { "type": "text", "text": "Example <domios from=\"tab\">An opening <domios type=\"tab\" id=\"x\"> stays literal</domios>" }
+    ],
+    "source": "off a line boundary the terminal closer pairs with the innermost opening; the incomplete inline sender stays literal"
   }
 ]
