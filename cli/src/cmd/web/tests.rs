@@ -99,3 +99,171 @@ fn peer_lookup_accepts_installation_id_prefix_instance_id_and_names() {
         );
     }
 }
+
+#[test]
+fn peer_lookup_refuses_cross_machine_collisions_across_stages() {
+    // Machine A renamed "studio" in registry while offline; Machine B advertises "studio" online.
+    let cross_machine = serde_json::json!({
+        "paired": [
+            {
+                "instance_id": "peer-a",
+                "instance_name": "old-a",
+                "online": false
+            },
+            {
+                "instance_id": "peer-b",
+                "instance_name": "studio",
+                "online": true
+            }
+        ],
+        "installations": [
+            {
+                "installation_id": "7a835b57-inst-a",
+                "instance_id": "peer-a",
+                "name": "studio",
+                "active": true,
+                "online": false
+            },
+            {
+                "installation_id": "99999999-inst-b",
+                "instance_id": "peer-b",
+                "name": "workstation",
+                "active": true,
+                "online": true
+            }
+        ]
+    });
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&cross_machine, "studio"),
+        None,
+        "offline registry name on machine A vs online advertised name on machine B must refuse"
+    );
+
+    // Cross-stage prefix collision: machine A's installation_id prefix vs machine B's instance_id prefix.
+    let prefix_collision = serde_json::json!({
+        "paired": [
+            {
+                "instance_id": "11111111-peer-a",
+                "instance_name": "alpha",
+                "online": false
+            },
+            {
+                "instance_id": "7a835b57-peer-b",
+                "instance_name": "beta",
+                "online": true
+            }
+        ],
+        "installations": [
+            {
+                "installation_id": "7a835b57-inst-a",
+                "instance_id": "11111111-peer-a",
+                "name": "alpha",
+                "active": true,
+                "online": false
+            },
+            {
+                "installation_id": "99999999-inst-b",
+                "instance_id": "7a835b57-peer-b",
+                "name": "beta",
+                "active": true,
+                "online": true
+            }
+        ]
+    });
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&prefix_collision, "7a835b57"),
+        None,
+        "installation_id prefix on machine A vs instance_id prefix on machine B must refuse"
+    );
+
+    // Offline active registry installation with null instance_id vs online peer with same name.
+    let unlinked_offline_vs_online = serde_json::json!({
+        "paired": [
+            {
+                "instance_id": "peer-b",
+                "instance_name": "studio",
+                "online": true
+            }
+        ],
+        "installations": [
+            {
+                "installation_id": "inst-a",
+                "instance_id": null,
+                "name": "studio",
+                "active": true,
+                "online": false
+            },
+            {
+                "installation_id": "inst-b",
+                "instance_id": "peer-b",
+                "name": "studio",
+                "active": true,
+                "online": true
+            }
+        ]
+    });
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&unlinked_offline_vs_online, "studio"),
+        None
+    );
+}
+
+#[test]
+fn peer_lookup_prefers_online_for_stale_duplicate_of_same_machine() {
+    // codeterm#434 without installation ids: stale offline duplicate does not hide live peer.
+    let legacy_dup = serde_json::json!({
+        "paired": [
+            {
+                "instance_id": "a4db6f3d-dead",
+                "instance_name": "BLACKSTAR",
+                "online": false
+            },
+            {
+                "instance_id": "2556b3f9-live",
+                "instance_name": "BLACKSTAR",
+                "online": true
+            }
+        ],
+        "installations": []
+    });
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&legacy_dup, "BLACKSTAR").as_deref(),
+        Some("2556b3f9-live")
+    );
+
+    // codeterm#434 with matching installation id on both records.
+    let same_inst_dup = serde_json::json!({
+        "paired": [
+            {
+                "instance_id": "a4db6f3d-dead",
+                "instance_name": "BLACKSTAR",
+                "online": false
+            },
+            {
+                "instance_id": "2556b3f9-live",
+                "instance_name": "BLACKSTAR",
+                "online": true
+            }
+        ],
+        "installations": [
+            {
+                "installation_id": "inst-blackstar",
+                "instance_id": "a4db6f3d-dead",
+                "name": "BLACKSTAR",
+                "active": true,
+                "online": false
+            },
+            {
+                "installation_id": "inst-blackstar",
+                "instance_id": "2556b3f9-live",
+                "name": "BLACKSTAR",
+                "active": true,
+                "online": true
+            }
+        ]
+    });
+    assert_eq!(
+        resolve_peer_instance_id_from_response(&same_inst_dup, "BLACKSTAR").as_deref(),
+        Some("2556b3f9-live")
+    );
+}

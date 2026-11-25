@@ -887,8 +887,11 @@ mod tests {
             inst_id.into(),
             peer(peer_id, "ROG", true),
         );
-        mesh.paired_peers
-            .insert("id-old".into(), peer("id-old", "ROG", false));
+        // Same-installation stale offline duplicate (#434): online record wins.
+        mesh.insert_account_peer_with_installation_for_test(
+            inst_id.into(),
+            peer("id-old", "ROG", false),
+        );
         for target in ["rog", peer_id, "66c926f1", inst_id, "7a835b57"] {
             assert_eq!(
                 resolve_dispatch_peer(&mesh, target).unwrap().instance_id,
@@ -901,8 +904,11 @@ mod tests {
             "id-old"
         );
         assert!(resolve_dispatch_peer(&mesh, "foreign").is_err());
-        mesh.paired_peers
-            .insert("id-b".into(), peer("id-b", "ROG", true));
+        // Different installation sharing the name must refuse even when offline.
+        mesh.insert_account_peer_with_installation_for_test(
+            "8b946c68-2222-3333-4444-000000000002".into(),
+            peer("id-other-machine", "ROG", false),
+        );
         assert!(resolve_dispatch_peer(&mesh, "ROG").is_err());
     }
 

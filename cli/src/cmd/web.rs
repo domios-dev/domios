@@ -246,9 +246,6 @@ pub(crate) fn resolve_peer_instance_id_from_response(
     peers: &serde_json::Value,
     target: &str,
 ) -> Option<String> {
-    let target_lower = target.to_ascii_lowercase();
-    let is_short_id =
-        target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
     let paired = peers.get("paired").and_then(|p| p.as_array());
     if let Some(arr) = paired {
         if let Some(id) = arr.iter().find_map(|p| {
@@ -258,91 +255,122 @@ pub(crate) fn resolve_peer_instance_id_from_response(
             return Some(id);
         }
     }
+
+    struct Candidate {
+        instance_id: String,
+        installation_id: Option<String>,
+        online: bool,
+    }
+
+    let configured_name = |name: &str| match name.rfind(" [") {
+        Some(at) if name.ends_with(']') => &name[..at],
+        _ => name,
+    };
+    let name_matches = |name: &str| {
+        name.eq_ignore_ascii_case(target) || configured_name(name).eq_ignore_ascii_case(target)
+    };
+    let target_lower = target.to_ascii_lowercase();
+    let is_short_id =
+        target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+
+    let mut inst_by_instance_id = std::collections::HashMap::<&str, &str>::new();
     if let Some(rows) = peers.get("installations").and_then(|v| v.as_array()) {
-        let from_installations = |pred: &dyn Fn(&serde_json::Value) -> bool| -> Option<String> {
-            let matches: Vec<&serde_json::Value> = rows
-                .iter()
-                .filter(|row| {
-                    row["active"] != false
-                        && row["instance_id"].as_str().is_some_and(|id| !id.is_empty())
-                        && pred(row)
-                })
-                .collect();
-            let online: Vec<&serde_json::Value> = matches
-                .iter()
-                .copied()
-                .filter(|row| row["online"] == true)
-                .collect();
-            let chosen = match online.as_slice() {
-                [only] => *only,
-                [] if matches.len() == 1 => matches[0],
-                _ => return None,
-            };
-            chosen["instance_id"].as_str().map(str::to_string)
-        };
-        if let Some(id) = from_installations(&|row| {
-            row["installation_id"]
-                .as_str()
-                .is_some_and(|id| id.eq_ignore_ascii_case(target))
-        }) {
-            return Some(id);
-        }
-        if is_short_id {
-            if let Some(id) = from_installations(&|row| {
-                row["installation_id"]
-                    .as_str()
-                    .is_some_and(|id| id.to_ascii_lowercase().starts_with(&target_lower))
-            }) {
-                return Some(id);
+        for row in rows {
+            if row["active"] == false {
+                continue;
             }
-        }
-        if let Some(id) = from_installations(&|row| {
-            row["name"]
-                .as_str()
-                .is_some_and(|name| name.eq_ignore_ascii_case(target))
-        }) {
-            return Some(id);
+            if let (Some(inst_id), Some(peer_id)) = (
+                row["installation_id"].as_str().filter(|s| !s.is_empty()),
+                row["instance_id"].as_str().filter(|s| !s.is_empty()),
+            ) {
+                inst_by_instance_id.insert(peer_id, inst_id);
+            }
         }
     }
-    paired.and_then(|arr| {
-        let find = |pred: &dyn Fn(&serde_json::Value) -> bool| -> Option<String> {
-            let matches: Vec<&serde_json::Value> = arr.iter().filter(|p| pred(p)).collect();
-            let online: Vec<&serde_json::Value> = matches
-                .iter()
-                .copied()
-                .filter(|p| p["online"] == true)
-                .collect();
-            let chosen = match online.as_slice() {
-                [only] => *only,
-                [] if matches.len() == 1 => matches[0],
-                _ => return None,
-            };
-            chosen
-                .get("instance_id")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
+
+    let mut by_instance = std::collections::BTreeMap::<String, Candidate>::new();
+    let mut matched_installations = std::collections::BTreeSet::<String>::new();
+    let mut record = |instance_id: Option<&str>, installation_id: Option<&str>, online: bool| {
+        if let Some(inst) = installation_id {
+            matched_installations.insert(inst.to_ascii_lowercase());
+        }
+        let Some(instance_id) = instance_id else {
+            return;
         };
-        if is_short_id {
-            if let Some(id) = find(&|p| {
-                p.get("instance_id")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|pid| pid.to_ascii_lowercase().starts_with(&target_lower))
-            }) {
-                return Some(id);
+        let entry = by_instance
+            .entry(instance_id.to_string())
+            .or_insert_with(|| Candidate {
+                instance_id: instance_id.to_string(),
+                installation_id: installation_id.map(str::to_string),
+                online,
+            });
+        entry.online |= online;
+        if entry.installation_id.is_none() {
+            entry.installation_id = installation_id.map(str::to_string);
+        }
+    };
+
+    if let Some(rows) = peers.get("installations").and_then(|v| v.as_array()) {
+        for row in rows {
+            if row["active"] == false {
+                continue;
+            }
+            let inst_id = row["installation_id"].as_str().filter(|s| !s.is_empty());
+            let name = row["name"].as_str();
+            let hits = inst_id.is_some_and(|id| {
+                id.eq_ignore_ascii_case(target)
+                    || (is_short_id && id.to_ascii_lowercase().starts_with(&target_lower))
+            }) || name.is_some_and(name_matches);
+            if hits {
+                record(
+                    row["instance_id"].as_str().filter(|s| !s.is_empty()),
+                    inst_id,
+                    row["online"] == true,
+                );
             }
         }
-        find(&|p| {
-            p.get("instance_name")
+    }
+
+    if let Some(arr) = paired {
+        for p in arr {
+            let Some(peer_id) = p
+                .get("instance_id")
                 .and_then(|v| v.as_str())
-                .is_some_and(|name| {
-                    name.eq_ignore_ascii_case(target)
-                        || name
-                            .rfind(" [")
-                            .filter(|_| name.ends_with(']'))
-                            .is_some_and(|at| name[..at].eq_ignore_ascii_case(target))
-                })
-        })
-    })
+                .filter(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            let inst_name = p.get("instance_name").and_then(|v| v.as_str());
+            let hits = (is_short_id && peer_id.to_ascii_lowercase().starts_with(&target_lower))
+                || inst_name.is_some_and(name_matches);
+            if hits {
+                record(
+                    Some(peer_id),
+                    inst_by_instance_id.get(peer_id).copied(),
+                    p["online"] == true,
+                );
+            }
+        }
+    }
+
+    let candidates: Vec<Candidate> = by_instance.into_values().collect();
+    if matched_installations.len() > 1
+        || (!matched_installations.is_empty()
+            && candidates.iter().any(|c| c.installation_id.is_none()))
+    {
+        return None;
+    }
+    match candidates.as_slice() {
+        [] => None,
+        [only] => Some(only.instance_id.clone()),
+        _ => {
+            let online: Vec<&Candidate> = candidates.iter().filter(|c| c.online).collect();
+            match online.as_slice() {
+                [only] => Some(only.instance_id.clone()),
+                _ => None,
+            }
+        }
+    }
 }
 
 fn local_web_token(base: &str) -> Result<String, crate::local_api::LocalApiError> {
