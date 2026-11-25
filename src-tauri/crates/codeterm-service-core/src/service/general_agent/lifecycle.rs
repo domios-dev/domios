@@ -435,23 +435,27 @@ fn start_general_agent_inner(
         }
     };
     svc.emit_boot_stage(&tab_id, BootStage::PtyStarting, None);
-    let force_fresh = state::take_fresh_session_requirement();
     let session_id = if let Some(source) = chat_source {
-        match pty_handoff::prepare(
-            svc,
-            &source,
-            provider_name,
-            resume_sessions_enabled && !force_fresh,
-            &general_cwd,
-        ) {
-            Ok(session) => {
+        let prepared = state::prepare_with_fresh_session_requirement(
+            &state::fresh_session_path(),
+            |force_fresh| {
+                let session = pty_handoff::prepare(
+                    svc,
+                    &source,
+                    provider_name,
+                    resume_sessions_enabled && !force_fresh,
+                    &general_cwd,
+                )?;
                 if let Some(id) = session.as_deref() {
                     state::persist_session_id(provider_name, id);
                 } else {
                     state::clear_session_id();
                 }
-                session
-            }
+                Ok(session)
+            },
+        );
+        match prepared {
+            Ok(session) => session,
             Err(reason) => {
                 fail_general_agent_start(svc, mux, &tab_id, &reason);
                 return;
@@ -465,7 +469,7 @@ fn start_general_agent_inner(
             provider_name,
             &general_cwd,
             resume_sessions_enabled,
-            force_fresh,
+            state::take_fresh_session_requirement(),
         )
     };
 
