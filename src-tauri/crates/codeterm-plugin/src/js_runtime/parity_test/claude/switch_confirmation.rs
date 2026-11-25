@@ -12,11 +12,12 @@ fn during_turn_command_capability_native_js_parity() {
         assert_eq!(native.model_switch_terminal_label(model).as_deref(), label);
         assert_eq!(js.model_switch_terminal_label(model).as_deref(), label);
     }
+    let provider_id = js.id().to_string();
     let native = native.model_switch_commands().unwrap();
     let js = js.model_switch_commands().unwrap();
     assert!(native.during_turn);
     assert_eq!(native, js);
-    let current_picker = provider_fixture("claude", "model-switch/live-2.1.332-picker.txt");
+    let current_picker = provider_fixture(&provider_id, "model-switch/live-2.1.332-picker.txt");
     for commands in [&native, &js] {
         let screen_regex =
             regex::Regex::new(&commands.model.picker.as_ref().unwrap().screen_regex).unwrap();

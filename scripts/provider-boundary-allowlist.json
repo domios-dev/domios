@@ -2255,13 +2255,6 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/switch_confirmation.rs",
-      "token": "claude",
-      "count": 1,
-      "justification": "Provider-scoped native/JS parity test reads the bundled plugin's own live picker fixture by plugin directory.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/catalog.rs",
       "token": "Claude",
       "count": 4,
