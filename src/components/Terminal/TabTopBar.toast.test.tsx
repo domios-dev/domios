@@ -86,7 +86,42 @@ it.each([
   }
 });
 
-it("announces restoring and starting stages in the header subtitle and reverts on ready, sleeping, attention, and failure", async () => {
+it("keeps role and machine visible and never reveals the restoring subtitle on a short restore", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const tab = {
+    id: "mesh:other/tab-short-restore",
+    title: "Main",
+    role: "Manager",
+    role_profile: "general_agent",
+    agent_type: "fixture",
+    agent_session_id: "session-a",
+    remote_peer_name: "Other",
+    frozen: true,
+  } as Tab;
+  try {
+    await act(async () => {
+      root.render(<TabHeaderTitle tab={tab} restore={restoreStageView(tab, { requested: true })} />);
+    });
+    const waitingStatus = host.querySelector('[role="status"]');
+    expect(waitingStatus?.closest('[aria-hidden="true"]')).not.toBeNull();
+    const visibleText = [...host.querySelectorAll("span")]
+      .filter(el => el.children.length === 0 && !el.closest('[aria-hidden="true"]'))
+      .map(el => el.textContent)
+      .join("");
+    expect(visibleText).toBe("MainGeneral Agent · Other");
+
+    await act(async () => {
+      root.render(<TabHeaderTitle tab={tab} restore={restoreStageView({ ...tab, frozen: false, boot_stage: "agent_ready" })} />);
+    });
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(host.textContent).toBe("MainGeneral Agent · Other");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("announces restoring and starting stages in the header subtitle after deferral and reverts on ready, sleeping, attention, and failure", async () => {
   const host = document.createElement("div");
   const root = createRoot(host);
   const tab = {
@@ -98,12 +133,25 @@ it("announces restoring and starting stages in the header subtitle and reverts o
     agent_session_id: "session-a",
     frozen: true,
   } as Tab;
+  const animation = async (type: string, name: string) => act(async () => {
+    const target = host.querySelector('[role="status"]')?.parentElement;
+    expect(target).not.toBeNull();
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, "animationName", { value: name });
+    target!.dispatchEvent(event);
+  });
   try {
     await act(async () => {
       rememberMachineIdentities({ ...localMesh, installations: [otherInstallation] });
       root.render(<TabHeaderTitle tab={tab} restore={restoreStageView(tab, { requested: true })} />);
     });
+    expect(host.querySelector('[role="status"]')?.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(host.textContent).toContain("General Agent · Local");
+
+    await animation("animationstart", "ct-presence-enter");
+    await animation("animationend", "ct-presence-enter");
     const restoringStatus = host.querySelector('[role="status"]');
+    expect(restoringStatus?.closest('[aria-hidden="true"]')).toBeNull();
     expect(restoringStatus?.getAttribute("aria-live")).toBe("polite");
     expect(restoringStatus?.getAttribute("aria-label")).toBe("Restoring…");
     expect(restoringStatus?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
@@ -114,19 +162,24 @@ it("announces restoring and starting stages in the header subtitle and reverts o
       root.render(<TabHeaderTitle tab={startingTab} restore={transcriptLoadingStageView(startingTab)} />);
     });
     const startingStatus = host.querySelector('[role="status"]');
+    expect(startingStatus?.closest('[aria-hidden="true"]')).toBeNull();
     expect(startingStatus?.getAttribute("aria-live")).toBe("polite");
     expect(startingStatus?.getAttribute("aria-label")).toBe("Starting…");
     expect(host.textContent).toBe("MainGeneral Agent · Starting…");
 
     for (const view of [
+      restoreStageView({ ...tab, frozen: false, boot_stage: "agent_ready" }),
       restoreStageView(tab),
       restoreStageView({ ...tab, frozen: false, boot_stage: "spawn_failed", boot_failure_reason: "opaque" }),
       restoreStageView({ ...tab, frozen: false, boot_stage: "awaiting_owner_prompt" }),
-      restoreStageView({ ...tab, frozen: false, boot_stage: "agent_ready" }),
     ]) {
       await act(async () => {
         root.render(<TabHeaderTitle tab={tab} restore={view} />);
       });
+      if (host.querySelector('[role="status"]')) {
+        expect(host.querySelector('[role="status"]')?.closest('[aria-hidden="true"]')).not.toBeNull();
+        await animation("animationend", "ct-presence-exit");
+      }
       expect(host.querySelector('[role="status"]')).toBeNull();
       expect(host.textContent).toBe("MainGeneral Agent · Local");
     }
