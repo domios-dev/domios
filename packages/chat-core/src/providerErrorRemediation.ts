@@ -1,4 +1,4 @@
-export interface ProviderErrorCommand {
+interface ProviderErrorCommand {
   command: string;
   label?: string;
 }

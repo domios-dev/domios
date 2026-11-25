@@ -5,6 +5,7 @@ import type { EnrichedChatEntry } from "./chatEnrichment";
 const entry = (msg: EnrichedChatEntry["msg"]): EnrichedChatEntry => ({
   msg,
   item: { kind: "message", message: msg },
+  origin: undefined,
 });
 
 const retryableRemediation = {
