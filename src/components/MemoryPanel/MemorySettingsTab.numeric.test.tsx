@@ -108,9 +108,13 @@ async function main() {
   const interval = host.querySelector('[data-testid="memory-settings-file-sync-interval"]') as HTMLInputElement | null;
   assert(dedup && timeout && interval, "all three memory numeric settings inputs must render");
 
+  const readDedupValue = () => dedup.value;
+  const readThreshold = () => currentConfig.memory.dedup_threshold;
+  const updateCount = () => updates.length;
+
   assert(dedup.type === "text", `dedup threshold must use text input to avoid OS locale formatting, got '${dedup.type}'`);
   assert(dedup.inputMode === "decimal", `dedup threshold inputMode must be decimal, got '${dedup.inputMode}'`);
-  assert(dedup.value === "0.15", `dedup threshold must display '0.15', got '${dedup.value}'`);
+  assert(readDedupValue() === "0.15", `dedup threshold must display '0.15', got '${readDedupValue()}'`);
 
   assert(timeout.type === "text" && timeout.inputMode === "numeric", "worker timeout must use numeric text input");
   assert(timeout.value === "1800", `worker timeout must display '1800', got '${timeout.value}'`);
@@ -121,35 +125,35 @@ async function main() {
     dedup.focus();
     setInputValue(dedup, "0.");
   });
-  assert(updates.length === 0, "incomplete decimal draft must not mutate config");
-  assert(dedup.value === "0.", `incomplete decimal draft must stay editable, got '${dedup.value}'`);
+  assert(updateCount() === 0, "incomplete decimal draft must not mutate config");
+  assert(readDedupValue() === "0.", `incomplete decimal draft must stay editable, got '${readDedupValue()}'`);
 
   await act(async () => {
     setInputValue(dedup, "0.25");
   });
   await renderTab();
-  assert(updates.length === 1 && currentConfig.memory.dedup_threshold === 0.25, "dot-decimal value must persist as 0.25");
-  assert(dedup.value === "0.25", `persisted value must round-trip as '0.25', got '${dedup.value}'`);
+  assert(updateCount() === 1 && readThreshold() === 0.25, "dot-decimal value must persist as 0.25");
+  assert(readDedupValue() === "0.25", `persisted value must round-trip as '0.25', got '${readDedupValue()}'`);
 
   await act(async () => {
     setInputValue(dedup, "0,35");
   });
-  assert(updates.length === 1 && currentConfig.memory.dedup_threshold === 0.25, "locale comma input must not mutate config");
+  assert(updateCount() === 1 && readThreshold() === 0.25, "locale comma input must not mutate config");
   assert(dedup.getAttribute("aria-invalid") === "true", "locale comma input must mark field invalid");
 
   await act(async () => {
     dedup.blur();
     dedup.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
   });
-  assert(dedup.value === "0.25", `blur must restore committed dot-decimal value, got '${dedup.value}'`);
+  assert(readDedupValue() === "0.25", `blur must restore committed dot-decimal value, got '${readDedupValue()}'`);
 
   await act(async () => {
     dedup.focus();
     dedup.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", code: "ArrowUp", bubbles: true, cancelable: true }) as unknown as Event);
   });
   await renderTab();
-  assert(currentConfig.memory.dedup_threshold === 0.26, `ArrowUp must step cleanly to 0.26, got ${currentConfig.memory.dedup_threshold} (input.value='${dedup.value}', updates=${updates.length})`);
-  assert(dedup.value === "0.26", `stepped value must display as '0.26', got '${dedup.value}'`);
+  assert(readThreshold() === 0.26, `ArrowUp must step cleanly to 0.26, got ${readThreshold()} (input.value='${readDedupValue()}', updates=${updateCount()})`);
+  assert(readDedupValue() === "0.26", `stepped value must display as '0.26', got '${readDedupValue()}'`);
 
   await act(async () => root.unmount());
   __setInvokeForTest(null);

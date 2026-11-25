@@ -381,23 +381,26 @@ test("schema number fields render locale-independent dot-decimal text inputs", a
 
   const input = host.querySelector('[data-testid="settings-schema-number"][data-settings-field="threshold"]');
   assert(input instanceof HTMLInputElement, "schema number input should render");
+  const readInputValue = () => input.value;
+  const patchCount = () => patches.length;
+  const readThreshold = () => values.threshold;
   assert(input.type === "text", `schema number input must use type='text', got '${input.type}'`);
   assert(input.inputMode === "decimal", `schema number input must use decimal inputMode, got '${input.inputMode}'`);
-  assert(input.value === "0.15", `schema number input must show '0.15', got '${input.value}'`);
+  assert(readInputValue() === "0.15", `schema number input must show '0.15', got '${readInputValue()}'`);
 
   await act(async () => {
     setNativeValue(input, "0,25");
     dispatchFormChange(input);
   });
-  assert(patches.length === 0 && values.threshold === 0.15, "locale comma input must not mutate schema config");
+  assert(patchCount() === 0 && readThreshold() === 0.15, "locale comma input must not mutate schema config");
 
   await act(async () => {
     setNativeValue(input, "0.35");
     dispatchFormChange(input);
   });
   await rerender();
-  assert(patches.length === 1 && values.threshold === 0.35, "dot-decimal value should persist as 0.35");
-  assert(input.value === "0.35", `schema number input should round-trip as '0.35', got '${input.value}'`);
+  assert(patchCount() === 1 && readThreshold() === 0.35, "dot-decimal value should persist as 0.35");
+  assert(readInputValue() === "0.35", `schema number input should round-trip as '0.35', got '${readInputValue()}'`);
 
   await act(async () => root.unmount());
 });
