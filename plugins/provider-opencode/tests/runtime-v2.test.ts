@@ -185,6 +185,60 @@ check("settles an owned quota error once with a balance notice and API error row
   params.type="session.execution.failed";
   assert.deepEqual(runtimeReduce(ctx,failed.state,[quota]).events,[]);
 });
+check("classifies expired OpenCode Console key on free Zen models in live events and reloaded history without affecting third-party providers",()=>{
+  const {ctx,frames}=prepared("v2-expired-console-key");
+  ctx.settings={model:"opencode/beam-free"};
+  ctx.activeTurnId="expired-turn";
+  const started=copy(frames.find(frame=>(frame.params as Record<string,JsonValue>).type === "session.execution.started")!);
+  const failure=copy(started), params=failure.params as Record<string,JsonValue>;
+  const rawMessage="This API key has expired. Create a new API key in OpenCode Console and replace it in your client or secret store. Signing in again will not renew this key. Manage your API keys at https://opencode.ai/console/account#api-keys.";
+  const error={
+    type:"provider.auth",
+    status:401,
+    message:rawMessage,
+    response:{body:JSON.stringify({error:{type:"authentication_error",code:"api_key_expired",message:rawMessage}})},
+  };
+  params.id="expired-key-event";
+  params.type="session.execution.failed";
+  params.data={sessionID:ctx.threadId!,error};
+  const working=runtimeReduce(ctx,null,[started]);
+  const failed=runtimeReduce(ctx,working.state,[failure]);
+  const notice=failed.events.find(event=>event.kind === "notice");
+  const item=failed.events.find(event=>event.kind === "chatItem")?.item;
+  assert.ok(notice && notice.kind === "notice" && notice.message.includes("opencode auth login") && notice.message.includes("opencode auth logout"));
+  assert.equal(item?.systemSubtype,"api_error");
+  assert.deepEqual((item?.toolInput as {remediation?:unknown})?.remediation,{
+    code:"api_key_expired",
+    title:"Stored OpenCode Console key has expired",
+    message:"Your stored OpenCode Console key has expired. Sign in again with opencode auth login, or remove the key with opencode auth logout to use free models anonymously.",
+    commands:[
+      {label:"Sign in again",command:"opencode auth login"},
+      {label:"Remove key to use free models anonymously",command:"opencode auth logout"},
+    ],
+    retry:true,
+    rawDetail:rawMessage,
+  });
+
+  const history=v2History([{
+    id:"msg_expired",type:"assistant",time:{created:1795648339203,completed:1795648339392},
+    model:{providerID:"opencode",id:"beam-free"},content:[],finish:"error",error,
+  }]);
+  assert.equal(history.length,1);
+  assert.equal(history[0].systemSubtype,"api_error");
+  assert.deepEqual(history[0].toolInput,item?.toolInput);
+
+  const foreignProvider=prepared("v2-third-party-auth-error");
+  foreignProvider.ctx.settings={model:"deepseek/deepseek-chat"};
+  foreignProvider.ctx.activeTurnId="third-party-turn";
+  const thirdPartyFailure=copy(failure);
+  const thirdPartyParams=thirdPartyFailure.params as Record<string,JsonValue>;
+  thirdPartyParams.id="third-party-auth";
+  thirdPartyParams.data={sessionID:foreignProvider.ctx.threadId!,error:{type:"provider.auth",status:401,message:"Invalid DeepSeek API key",body:{error:{type:"authentication_error",code:"invalid_api_key"}}}};
+  const thirdPartyReduced=runtimeReduce(foreignProvider.ctx,null,[thirdPartyFailure]);
+  const thirdPartyItem=thirdPartyReduced.events.find(event=>event.kind === "chatItem")?.item;
+  assert.equal(thirdPartyItem?.content,"Invalid DeepSeek API key");
+  assert.equal(thirdPartyItem?.toolInput,undefined);
+});
 check("recorded thinking, shell and text stay reconcilable across an active interrupt",()=>{
   const ctx=loaded("v2-stream-and-stop"), {frames,interrupt}=fixture.streamAndInterrupt;
   const type=(frame:RuntimeFrame)=>(frame.params as Record<string,JsonValue>).type;

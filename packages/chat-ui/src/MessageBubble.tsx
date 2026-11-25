@@ -4,7 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, userMessageAttachments } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, materializeToolEvent, parseProviderErrorRemediation, readableSystemReminder, shortTabRef, systemOriginLabel, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -32,6 +32,7 @@ import { TaskStridesBlock } from "./TaskStridesBlock";
 import { ChatNoticeCard } from "./ChatNoticeCard";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import { BoundedNoticeText } from "./BoundedNoticeText";
+import { ProviderErrorNotice } from "./ProviderErrorNotice";
 import { MessageTimeFrame } from "./MessageTimeFrame";
 import { messageRowTime } from "./messageRowTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
@@ -488,6 +489,10 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   if (message.type === "system" || message.type === "local_command") {
     if (message.systemSubtype === "api_error") {
+      const remediation = parseProviderErrorRemediation(message.toolInput);
+      if (remediation) {
+        return <ProviderErrorNotice remediation={remediation} onRetry={remediation.retry ? onContinueTurn : undefined} />;
+      }
       return <div role="alert" aria-label="Provider API error" className="mb-2 w-full rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}><BoundedNoticeText text={message.content} /></div>;
     }
     if (message.systemSubtype === "turn_stop_reason") {

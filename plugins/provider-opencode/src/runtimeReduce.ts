@@ -6,7 +6,7 @@ import {binding} from "./runtimeState";
 import {parseUsageRecord} from "./usageRecord";
 import {count} from "../../provider-shared/usageRecord";
 import {v2Reduce} from "./runtimeV2Reduce";
-import {runtimeErrorMessage, runtimeTurnErrorEvents} from "./turnErrors";
+import {classifiedTurnError, runtimeTurnErrorEvents} from "./turnErrors";
 
 interface Part {seq:number;bytes:number}
 interface Echo {text:boolean;files:number[];itemId?:string}
@@ -134,8 +134,8 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       if (turn && state.completed.includes(turn)) continue;
       const interrupted=error.name === "MessageAbortedError";
       if (!interrupted) {
-        const message=runtimeErrorMessage(error,"OpenCode reported a session error");
-        events.push(...runtimeTurnErrorEvents(ctx.threadId,turn,turn ? ++state.seq : state.seq,message));
+        const {content,remediation}=classifiedTurnError(error,ctx.settings.model,"OpenCode reported a session error");
+        events.push(...runtimeTurnErrorEvents(ctx.threadId,turn,turn ? ++state.seq : state.seq,content,remediation));
       }
       if (turn) completeTurn(state,turn);
       events.push({kind:"turnState",threadId:ctx.threadId,...(turn ? {turnId:turn} : {}),state:"idle",detail:interrupted ? "interrupted" : "failed"});
