@@ -45,7 +45,7 @@ export function referenceMarkers(text: string): ReferenceMarker[] {
     const allowed = ALLOWED_ATTRS[kind as ReferenceKind];
     if ([...attrs.keys()].some((name) => !allowed.has(name))) continue;
     if (kind === "section" && !plan) continue;
-    if (peer !== undefined && (!peer || /[/?&#\s]/.test(peer) || id.startsWith("mesh:"))) continue;
+    if (peer !== undefined && (!peer.trim() || /[\r\n\t]/.test(peer) || /[/?&#\s]/.test(id) || id.startsWith("mesh:"))) continue;
     rows.push({ start: token.index!, end: token.index! + token[0].length, text: token[0], kind: kind as ReferenceKind, id, ...(plan ? { plan } : {}), ...(peer ? { peer } : {}) });
   }
   return rows;

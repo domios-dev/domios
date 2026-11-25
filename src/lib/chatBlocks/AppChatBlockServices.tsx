@@ -88,7 +88,7 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
         indexedInventory = inventory;
         peerIndex.clear();
       }
-      return resolvePeerMentionTab(inventory, id, peerIndex);
+      return resolvePeerMentionTab(inventory, id, peerIndex, mux.getState().tabs);
     };
     const activeWorkspace = () => {
       const state = mux.getState();
@@ -136,7 +136,9 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
         mux, plans: plainPlans, taskReferences:references, readPeerTab, watchPeerTabs: peerTabs.subscribe,
         providerName: (id) => getAgentDescriptor(id)?.display_name,
         renderAvatar: (value) => {
-          const tab = mux.getState().tabs[value.id] ?? readPeerTab(value.id)?.tab;
+          const attached = mux.getState().tabs[value.id];
+          const peer = !attached && value.id.startsWith("mesh:") ? readPeerTab(value.id) : undefined;
+          const tab = attached ?? (typeof peer === "object" ? peer.tab : undefined);
           return value.tabKind === "agent" ? <AgentIcon providerId={value.providerId} tab={tab} style={{ width: 12, height: 12 }} />
             : value.tabKind === "browser" && value.state === "closed" ? undefined
             : value.tabKind === "browser" || value.tabKind === "surface" ? <SurfaceIcon backing={surfaceBacking(tab)} size={11} /> : undefined;

@@ -34,7 +34,6 @@ import { chatWindowRows } from "./chatWindowRowsModel";
 import { composerRunningTool, projectChatTranscriptActivity, supportsChatTranscriptActivity } from "./chatTranscriptActivity";
 import { latestFailedToolCallId as findLatestFailedToolCallId, latestTurnStopNoticeId, submitTurnContinuation } from "./chatTurnTail";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
-import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
@@ -1024,7 +1023,6 @@ function TabSessionChatBody({
                 Boolean(deliverySend.status && queue.claimed.includes(deliverySend.status.send_id))) : undefined}
               deliveryBehindTurn={deliverySend ? queuedBehindTurn(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
-              ariaLabel={chatMessageAccessibleName(msg.type, msg.content, id => tabTitleMap.get(id))}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && reports.length === 0 && messageSelection.selected.has(nextId)}
               selecting={messageSelection.active}
@@ -1043,8 +1041,7 @@ function TabSessionChatBody({
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
         {promptPart && <ChatMessageRow
-          msg={{ id: promptPart.id, type: "assistant" }}
-          ariaLabel={chatMessageAccessibleName("assistant", promptPart.prompt.question)}
+          msg={{ id: promptPart.id, type: "assistant", content: promptPart.prompt.question }}
           selected={false}
           joinNext={false}
           selecting={false}

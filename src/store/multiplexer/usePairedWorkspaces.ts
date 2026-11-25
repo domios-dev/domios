@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import type { PlanIndexEntry } from "../../components/Canvas/plansApi";
 import { remoteTeamName } from "../../components/Sidebar/remoteOwnership";
-import { cleanMachineName } from "../../lib/machineIdentity";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
@@ -10,7 +9,7 @@ import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/wo
 import { pairedGeneralCacheScope, readPairedGeneralCache, writePairedGeneralCache, type CachedPeerGeneral } from "./pairedGeneralCache";
 import type { PairedRoster } from "./useMeshPeerProjection";
 import {
-  pairedAvailability, projectBrowsedWorkspaces, projectPairedGeneral, resolvePeerLastActiveTab,
+  pairedAvailability, pairedPeerIdentity, projectBrowsedWorkspaces, projectPairedGeneral, resolvePeerLastActiveTab,
   type BrowsedWorkspace, type GeneralAvailability, type PairedGeneral, type PeerLastActiveSelection, type PeerOrdinaryTabSummary,
 } from "./pairedWorkspaceProjection";
 
@@ -291,8 +290,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     const known = live?.account === cacheAccount && live.publicKey === peer.public_key ? live : undefined;
     const observed = pairedAvailability(peer, peers?.installations);
     return {
-      peerId: peer.instance_id,
-      name: accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
+      ...pairedPeerIdentity(peer, peers?.installations, accountNames.peers.get(peer.instance_id)),
       teamNames: known?.teamNames,
       lastActiveTab: known?.lastActiveTab,
       availability: observed === "reconnecting" ? known?.availability ?? observed : observed,

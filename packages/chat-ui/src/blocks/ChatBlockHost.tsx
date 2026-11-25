@@ -12,7 +12,7 @@ import type { TasksBlockState } from "./tasksBlockModel";
 import type { CanonicalMentionKind } from "../codeterm/canonicalMentions";
 
 export interface ChatMentionValue {
-  state?: "loading" | "closed";
+  state?: "loading" | "closed" | "ambiguous";
   title: string;
   kind: CanonicalMentionKind;
   id: string;

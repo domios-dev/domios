@@ -80,7 +80,7 @@ export interface ChatTranscriptRowProps {
   canContinueTurn?: boolean;
   forkable: boolean;
   revertible: boolean;
-  ariaLabel: string;
+  ariaLabel?: string;
   context: ChatTranscriptRowContext;
 }
 

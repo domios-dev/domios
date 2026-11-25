@@ -40,34 +40,65 @@ export function peerMentionTabs(inventory: MentionPeerInventory, peerId: string)
   return result;
 }
 
-function findMentionPeer(inventory: MentionPeerInventory, peerRef: string): PairedGeneral | undefined {
-  const exact = inventory.generals.find(row => row.peerId === peerRef);
-  if (exact) return exact;
-  const lowered = peerRef.toLowerCase();
-  const byName = inventory.generals.filter(row => {
-    const display = cleanMachineName(row.name, row.peerId) ?? row.name;
-    return row.name.toLowerCase() === lowered || display.toLowerCase() === lowered;
+type MentionPeerIdentity = Pick<PairedGeneral, "peerId" | "name" | "instanceName" | "installation">;
+export type PeerMentionResult = PeerMentionTab | "Ambiguous peer" | "Ambiguous tab" | undefined;
+
+function matchingPeers(peers: readonly MentionPeerIdentity[], ref: string): MentionPeerIdentity[] {
+  const needle = ref.toLowerCase();
+  const exact = peers.filter(peer => peer.peerId === ref || peer.installation?.installation_id === ref);
+  if (exact.length) return exact;
+  if (/^[a-f0-9-]{6,}$/i.test(ref)) {
+    const prefixes = peers.filter(peer => peer.peerId.toLowerCase().startsWith(needle)
+      || peer.installation?.installation_id.toLowerCase().startsWith(needle));
+    if (prefixes.length) return prefixes;
+  }
+  return peers.filter(peer => {
+    const qualifier = /^(.*) \[([^\]]*)\]$/.exec(peer.instanceName ?? "");
+    const devName = qualifier?.[2].startsWith("dev-") ? qualifier[2].slice(4) : undefined;
+    return [peer.name, peer.installation?.name, peer.instanceName, qualifier?.[1], devName]
+      .some(name => name?.toLowerCase() === needle);
   });
-  return byName.length === 1 ? byName[0] : undefined;
 }
 
-/** Resolves a `mesh:<peer>/<tab>` mention by peer id or unique peer name, and exact or unique-prefix tab id. */
 export function resolvePeerMentionTab(
   inventory: MentionPeerInventory,
   targetId: string,
   cache?: Map<string, Map<string, PeerMentionTab>>,
-): PeerMentionTab | undefined {
-  const route = parseCompositeTabId(targetId);
-  if (!route) return undefined;
-  const peer = findMentionPeer(inventory, route.peerId);
-  if (!peer) return undefined;
-  let tabs = cache?.get(peer.peerId);
-  if (!tabs) {
-    tabs = peerMentionTabs(inventory, peer.peerId);
-    cache?.set(peer.peerId, tabs);
+  attached: Readonly<Record<string, Tab>> = {},
+): PeerMentionResult {
+  // A mention may name a machine with spaces or punctuation. Only its resolved ID is a transport route.
+  const slash = targetId.lastIndexOf("/");
+  if (!targetId.startsWith("mesh:") || slash <= 5) return undefined;
+  const peerRef = targetId.slice(5, slash);
+  const tabRef = targetId.slice(slash + 1);
+  if (!tabRef || /[?&#\s]/.test(tabRef)) return undefined;
+  const candidates = new Map<string, MentionPeerIdentity>(inventory.generals.map(peer => [peer.peerId, peer]));
+  const attachedTabs = Object.values(attached);
+  for (const tab of attachedTabs) {
+    const peerId = tab.remote_peer_id;
+    if (!peerId || !tab.remote_tab_id || candidates.has(peerId) || tab.id !== `mesh:${peerId}/${tab.remote_tab_id}`) continue;
+    const instanceName = tab.remote_peer_name ?? undefined;
+    candidates.set(peerId, { peerId, instanceName, name: cleanMachineName(instanceName, peerId) ?? instanceName ?? "" });
   }
-  const exact = tabs.get(`mesh:${peer.peerId}/${route.remoteTabId}`);
+  const peers = matchingPeers([...candidates.values()], peerRef);
+  if (peers.length > 1) return "Ambiguous peer";
+  if (!peers.length) return undefined;
+  const { peerId, name } = peers[0];
+  let tabs = cache?.get(peerId);
+  if (!tabs) {
+    tabs = peerMentionTabs(inventory, peerId);
+    cache?.set(peerId, tabs);
+  }
+  const id = `mesh:${peerId}/${tabRef}`;
+  const exact = tabs.get(id);
   if (exact) return exact;
-  const matches = [...tabs.values()].filter(entry => entry.tab.remote_tab_id?.startsWith(route.remoteTabId));
-  return matches.length === 1 ? matches[0] : undefined;
+  const matches = new Map([...tabs].filter(([key]) => key.startsWith(id)));
+  for (const tab of attachedTabs) {
+    if (tab.remote_peer_id !== peerId || !tab.remote_tab_id?.startsWith(tabRef)
+      || !tab.workspace_id || tab.id !== `mesh:${peerId}/${tab.remote_tab_id}`) continue;
+    const result = { tab, workspaceId: tab.workspace_id, peerName: name };
+    if (tab.id === id) return result;
+    if (!matches.has(tab.id)) matches.set(tab.id, result);
+  }
+  return matches.size > 1 ? "Ambiguous tab" : matches.values().next().value;
 }

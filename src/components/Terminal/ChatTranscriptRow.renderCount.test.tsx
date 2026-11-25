@@ -6,9 +6,11 @@ import { beginChatSendRetry, addChatSend, setChatSendDraft, failChatSendRequest,
   useChatSends, __setChatSendRepositoryForTest } from "./chatSendStore";
 import { deliveryState, type DeliverySend } from "./chatDeliveryModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import { ChatBlockHostProvider, type ChatMentionValue } from "@codeterm/chat-ui";
+import { LinkedText } from "../../../packages/chat-ui/src/codeterm/LinkedText";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 import { ChatTranscriptRow, type ChatTranscriptRowContext } from "./ChatTranscriptRow";
-import type { MessageRowHandlers } from "./ChatMessageRow";
+import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { recordDroppedUploads } from "./DroppedUploadNotice";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { __setInvokeForTest } from "../../lib/bridge";
@@ -35,6 +37,38 @@ const context: ChatTranscriptRowContext = {
   resolvePlanRef: () => null, onRerunShellCommand: () => {}, onStopReminder: () => {}, onOpenJobs: () => {}, onFocusTab: () => {},
   onJumpToMessage: () => {}, onAnswerAsk: () => {}, deleteSend: () => {}, retrySend: () => {}, forkFrom: () => {}, revertTo: () => {},
 };
+
+it("updates the article name and remote chip together when the peer inventory changes", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const subscribers = new Set<() => void>();
+  const content = 'Ask <domios type="tab" id="worker" peer="Desk #2" />';
+  let value: ChatMentionValue | null = null;
+  const binding = {
+    read: (key: string) => key === JSON.stringify(["here", "tab", "mesh:Desk #2/worker"]) ? value : null,
+    subscribe: (listener: () => void) => { subscribers.add(listener); return () => subscribers.delete(listener); },
+    refresh: () => {},
+  };
+  try {
+    await act(async () => root.render(<ChatBlockHostProvider value={{ mentionTabId: "here", mentions: { binding, open: vi.fn() } }}>
+      <ChatMessageRow msg={{ id: "m", type: "user", content }} selected={false} selecting={false} joinNext={false} cursor handlers={handlers}>
+        <LinkedText text={content} />
+      </ChatMessageRow>
+    </ChatBlockHostProvider>));
+    const article = host.querySelector('[role="article"]')!;
+    expect(article.getAttribute("aria-label")).toBe("user message: Ask @Unknown tab");
+    value = { id: "mesh:peer/worker", title: "Lumen", kind: "tab" };
+    await act(async () => subscribers.forEach(listener => listener()));
+    expect(article.getAttribute("aria-label")).toBe("user message: Ask @Lumen");
+    expect(article.querySelector('button[aria-label="Lumen, shell tab"]')).not.toBeNull();
+    value = { ...value, title: "Ambiguous peer", state: "ambiguous" };
+    await act(async () => subscribers.forEach(listener => listener()));
+    expect(article.getAttribute("aria-label")).toBe("user message: Ask @Ambiguous peer");
+    expect(article.textContent).toContain("Ambiguous peer");
+    expect(article.querySelector('button[data-ref-kind="tab"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); }
+});
 
 it("omitted attachment retry stays sending during preparation without recovery controls and sends once", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
