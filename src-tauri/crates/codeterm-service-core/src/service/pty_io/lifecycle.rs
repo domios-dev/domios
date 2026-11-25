@@ -1004,12 +1004,14 @@ impl ServiceContext {
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             self.chatbackend_close(&plugin_id, &session_id)?;
             self.clear_tab_agent_identity_explicitly(tab_id, "user stopped the agent");
+            self.close_owned_browser_tabs(tab_id);
             return Ok(());
         }
         let pty_id = self.resolve_pty_id(tab_id)?;
         self.pty_ownership.release_pty(&pty_id);
         kill_live_tab_pty(&mut self.pty.lock(), &pty_id)?;
         self.clear_tab_agent_identity_explicitly(tab_id, "user stopped the agent");
+        self.close_owned_browser_tabs(tab_id);
         Ok(())
     }
 

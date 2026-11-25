@@ -29,6 +29,63 @@ fn startup_drops_orphan_teams_and_requests_durable_resync() {
 }
 
 #[test]
+fn startup_drops_orphan_surfaces_and_requests_durable_resync() {
+    use codeterm_service_core::multiplexer::types::{SurfaceBacking, TabBacking};
+
+    let (mut mux, live_owner) = MultiplexerState::new();
+    let ws_id = mux.find_workspace_for_tab(&live_owner).unwrap();
+    let make_browser = |id: &str| {
+        TabBacking::Surface(SurfaceBacking {
+            plugin_id: "browser".into(),
+            surface_id: "browser".into(),
+            instance_id: id.into(),
+            owner_label: true,
+            resume_url: None,
+            resume_profile: None,
+        })
+    };
+
+    let live_surface = mux.create_tab(&ws_id).unwrap();
+    {
+        let tab = mux.get_tab_mut(&live_surface).unwrap();
+        tab.backing = make_browser("live");
+        tab.parent_tab_id = Some(live_owner.clone());
+    }
+    let standalone_surface = mux.create_tab(&ws_id).unwrap();
+    mux.get_tab_mut(&standalone_surface).unwrap().backing = make_browser("standalone");
+    let orphan_surface = mux.create_tab(&ws_id).unwrap();
+    {
+        let tab = mux.get_tab_mut(&orphan_surface).unwrap();
+        tab.backing = make_browser("orphan");
+        tab.parent_tab_id = Some(live_owner.clone());
+    }
+
+    let mut snapshot = mux.to_session_snapshot();
+    // Simulate a persisted snapshot whose owner tab disappeared (e.g. aafea4c3 -> 8bf0b3cd).
+    for tab in &mut snapshot.workspaces[0].tabs {
+        if tab.id == orphan_surface {
+            if let codeterm_service_core::session::store::SplitNodeSnapshot::Leaf {
+                parent_tab_id,
+                ..
+            } = &mut tab.split_tree
+            {
+                *parent_tab_id = Some("8bf0b3cd".into());
+            }
+        }
+    }
+
+    let mut boot_resync = false;
+    reconcile_startup_surfaces(&mut snapshot, &mut boot_resync);
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+
+    assert!(boot_resync);
+    assert!(restored.get_tab(&orphan_surface).is_none());
+    assert!(restored.get_tab(&live_surface).is_some());
+    assert!(restored.get_tab(&standalone_surface).is_some());
+    assert!(restored.get_tab(&live_owner).is_some());
+}
+
+#[test]
 fn storage_cutover_unavailable_startup_skips_default_workspace_and_rejects_persistence() {
     let storage = StorageAuthority::Unavailable {
         storage: None,

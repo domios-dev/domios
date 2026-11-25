@@ -198,3 +198,55 @@ fn merge_does_not_steal_an_agent_session_already_claimed_live() {
         "claimed session id is not duplicated onto the restored tab"
     );
 }
+
+#[test]
+fn merge_drops_orphaned_surfaces_while_keeping_standalone_and_live_owned_surfaces() {
+    use crate::multiplexer::types::SurfaceBacking;
+
+    let (mut live, live_owner) = MultiplexerState::new();
+    let mut snapshot = backup(&[("ws_backup", None, &[])]);
+    let surface_tab = |id: &str, parent: Option<&str>| {
+        let mut leaf = terminal_leaf(id, parent);
+        if let SplitNodeSnapshot::Leaf {
+            surface,
+            agent_type,
+            agent_session_id,
+            ..
+        } = &mut leaf
+        {
+            *agent_type = None;
+            *agent_session_id = None;
+            *surface = Some(SurfaceBacking {
+                plugin_id: "browser".into(),
+                surface_id: "browser".into(),
+                instance_id: id.into(),
+                owner_label: true,
+                resume_url: None,
+                resume_profile: None,
+            });
+        }
+        TabSnapshot {
+            last_active_at_ms: None,
+            last_opened_at_ms: None,
+            id: id.into(),
+            title: id.into(),
+            description: None,
+            sort_order: 0,
+            split_tree: leaf,
+        }
+    };
+    snapshot.workspaces[0].tabs = vec![
+        surface_tab("orphan-surf", Some("gone-owner")),
+        surface_tab("owned-surf", Some(&live_owner)),
+        surface_tab("standalone-surf", None),
+    ];
+
+    let report = live.merge_session_snapshot(&snapshot);
+    assert_eq!(report.tabs_added, 2);
+    assert!(live.get_tab("orphan-surf").is_none());
+    assert_eq!(
+        live.get_tab("owned-surf").unwrap().parent_tab_id.as_deref(),
+        Some(live_owner.as_str())
+    );
+    assert_eq!(live.get_tab("standalone-surf").unwrap().parent_tab_id, None);
+}
