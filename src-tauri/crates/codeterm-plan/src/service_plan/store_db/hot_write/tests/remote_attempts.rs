@@ -21,6 +21,7 @@ fn remote_dispatch_transactions_are_bounded_and_peer_failures_roll_back() {
                 "Peer",
                 "provider",
                 None,
+                Some("origin-orchestrator"),
                 "base",
                 "destination",
                 30,

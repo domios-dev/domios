@@ -385,15 +385,15 @@ pub use store_db::read_projections::provider_switch::{
 };
 pub use task_authority_projection::{
     BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
-    PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,
-    RemoteWorkerBindingRead, RestartAttemptRead, ReviewBindingRestoreRead,
-    ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
-    RuntimeSessionAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead,
-    TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
-    TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
-    TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
-    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead, WorkerLossRead,
-    WorkerLossRecoveryRead, WorkerLossReplacementRead,
+    PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteAttemptDeliveryRead,
+    RemoteRecoveryAttemptRead, RemoteWorkerBindingRead, RestartAttemptRead,
+    ReviewBindingRestoreRead, ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery,
+    RuntimeAttemptRestoreRead, RuntimeSessionAttemptRead, TaskAttemptBindingRead,
+    TaskBindingRestoreRead, TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest,
+    TaskContinuityRead, TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead,
+    TaskLaneAdmissionRead, TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead,
+    TaskRestartQuery, TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead,
+    WorkerLossRead, WorkerLossRecoveryRead, WorkerLossReplacementRead,
 };
 
 pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};

@@ -13,4 +13,4 @@ pub use crate::hierarchy::remote_report::HierarchyRemoteReportExt;
 pub use crate::hierarchy::report_diagnostics::HierarchyReportDiagnosticsExt;
 pub use crate::hierarchy::team_plan_creation::HierarchyTeamPlanCreationExt;
 pub use crate::hierarchy::worker_handoff::HierarchyWorkerHandoffExt;
-pub use crate::hierarchy::HierarchyExt;
+pub use crate::hierarchy::{HierarchyExt, RemoteTaskReportDelivery};
