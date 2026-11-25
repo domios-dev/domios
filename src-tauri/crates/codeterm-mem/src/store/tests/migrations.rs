@@ -122,3 +122,38 @@ fn failed_old_schema_open_preserves_file_and_journal_mode() {
     drop(conn);
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
+
+#[test]
+fn concurrent_store_opens_succeed_within_busy_timeout() {
+    use std::sync::{Arc, Barrier};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("knowledge.db");
+    let blobs = dir.path().join("blobs");
+    let _seed = crate::backend::SqliteMemStore::open(&path, &blobs).unwrap();
+
+    let threads = 6usize;
+    let barrier = Arc::new(Barrier::new(threads));
+    let mut handles = Vec::with_capacity(threads);
+    for index in 0..threads {
+        let path = path.clone();
+        let blobs = blobs.clone();
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || -> Result<(), String> {
+            barrier.wait();
+            if index % 2 == 0 {
+                crate::backend::SqliteMemStore::open_read_only(&path, &blobs)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            } else {
+                crate::backend::SqliteMemStore::open(&path, &blobs).map(|_| ())
+            }
+        }));
+    }
+    for handle in handles {
+        handle
+            .join()
+            .expect("store open thread panicked")
+            .expect("concurrent SqliteMemStore opens must succeed");
+    }
+}
