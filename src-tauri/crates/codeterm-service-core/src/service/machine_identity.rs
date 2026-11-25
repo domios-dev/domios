@@ -45,7 +45,7 @@ impl ServiceContext {
             format!("Change icon for {name}?"),
             format!(
                 "Apply the requested machine identity on {name}?\n\n{}",
-                json!(identity)
+                json!({ "kind": identity.kind })
             ),
             vec!["Apply".into(), "Cancel".into()],
         )?;

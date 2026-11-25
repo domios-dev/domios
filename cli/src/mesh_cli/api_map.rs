@@ -730,7 +730,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             } => (
                 "POST".into(),
                 "/api/mesh/identity".into(),
-                Some(serde_json::json!({ "kind": kind }).to_string()),
+                Some(serde_json::json!({ "kind": kind, "color": "graphite" }).to_string()),
             ),
             MeshAction::Identity { .. } => unsupported("Use either --mesh or --peer for the target"),
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),

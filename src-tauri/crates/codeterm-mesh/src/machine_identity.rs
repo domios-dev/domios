@@ -18,10 +18,37 @@ pub enum MachineKind {
     Other,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+// Keep emitting a neutral wire color until 1.23.2 peers leave the fleet.
+const LEGACY_WIRE_COLOR: &str = "graphite";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct WireMachineIdentity {
+    kind: MachineKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ts_rs::TS)]
 pub struct MachineIdentity {
     pub kind: MachineKind,
+}
+
+impl Serialize for MachineIdentity {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        WireMachineIdentity {
+            kind: self.kind,
+            color: Some(LEGACY_WIRE_COLOR.to_owned()),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MachineIdentity {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = WireMachineIdentity::deserialize(deserializer)?;
+        Ok(Self { kind: wire.kind })
+    }
 }
 
 impl MachineIdentity {
@@ -156,25 +183,18 @@ struct SavedIdentity {
     revision: Revision,
 }
 
-fn parse_saved(text: &str) -> Result<SavedIdentity, String> {
-    let mut value: serde_json::Value =
-        serde_json::from_str(text).map_err(|error| error.to_string())?;
-    if let Some(identity) = value
-        .get_mut("revision")
-        .and_then(|revision| revision.get_mut("identity"))
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        identity.remove("color");
-    }
-    serde_json::from_value(value).map_err(|error| error.to_string())
-}
-
 fn state_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(|text| parse_saved(text).map(|_| ()))
+    StateFile::new(path).with_validator(|text| {
+        serde_json::from_str::<SavedIdentity>(text)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })
 }
 
 pub(crate) fn load(path: &Path, instance_id: &str) -> Option<Revision> {
-    match state_file(path).load(parse_saved) {
+    match state_file(path)
+        .load(|text| serde_json::from_str::<SavedIdentity>(text).map_err(|error| error.to_string()))
+    {
         Loaded::Parsed(saved) | Loaded::Recovered { value: saved, .. }
             if saved.instance_id == instance_id =>
         {
@@ -193,8 +213,16 @@ pub(crate) fn save(path: &Path, instance_id: &str, revision: Revision) -> Result
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireRevision {
+    identity: WireMachineIdentity,
+    number: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignedMachineIdentity {
-    revision: Revision,
+    revision: WireRevision,
     signature: String,
 }
 
@@ -208,17 +236,24 @@ where
 }
 
 impl SignedMachineIdentity {
-    fn message(instance_id: &str, revision: Revision) -> Option<Vec<u8>> {
+    fn message(instance_id: &str, revision: &WireRevision) -> Option<Vec<u8>> {
         let mut message = b"domios-mesh-machine-identity-v1\0".to_vec();
         message.extend(serde_json::to_vec(&(instance_id, revision)).ok()?);
         Some(message)
     }
 
     pub(crate) fn sign(instance_id: &str, private_key: &str, revision: Revision) -> Option<Self> {
+        let wire = WireRevision {
+            identity: WireMachineIdentity {
+                kind: revision.identity.kind,
+                color: Some(LEGACY_WIRE_COLOR.to_owned()),
+            },
+            number: revision.number,
+        };
         let seed: [u8; 32] = STANDARD.decode(private_key).ok()?.try_into().ok()?;
-        let signature = SigningKey::from_bytes(&seed).sign(&Self::message(instance_id, revision)?);
+        let signature = SigningKey::from_bytes(&seed).sign(&Self::message(instance_id, &wire)?);
         Some(Self {
-            revision,
+            revision: wire,
             signature: STANDARD.encode(signature.to_bytes()),
         })
     }
@@ -229,9 +264,14 @@ impl SignedMachineIdentity {
         }
         let key = crate::crown::verifying_key_from_b64(public_key).ok()?;
         let signature = Signature::from_slice(&STANDARD.decode(&self.signature).ok()?).ok()?;
-        key.verify(&Self::message(instance_id, self.revision)?, &signature)
+        key.verify(&Self::message(instance_id, &self.revision)?, &signature)
             .ok()?;
-        Some(self.revision)
+        Some(Revision {
+            identity: MachineIdentity {
+                kind: self.revision.identity.kind,
+            },
+            number: self.revision.number,
+        })
     }
 }
 

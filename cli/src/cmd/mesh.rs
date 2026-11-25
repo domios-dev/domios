@@ -30,7 +30,8 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         MeshAction::Identity {
             action: mesh_cli::MeshIdentityAction::Set { kind, peer },
         } => {
-            let identity = serde_json::json!({ "kind": kind });
+            // Keep sending the neutral legacy color until 1.23.2 peers leave the fleet.
+            let identity = serde_json::json!({ "kind": kind, "color": "graphite" });
             let path = "/api/account/mesh/identity";
             let result = if let Some(peer) = peer {
                 mesh_cli::mesh_relay_fetch_json(

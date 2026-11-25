@@ -119,7 +119,10 @@ fn mesh_identity_set_accepts_kind_only_and_rejects_color() {
     let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
     assert_eq!(method, "POST");
     assert_eq!(path, "/api/mesh/identity");
-    assert_eq!(body.as_deref(), Some(r#"{"kind":"laptop"}"#));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(body.as_deref().unwrap()).unwrap(),
+        serde_json::json!({ "kind": "laptop", "color": "graphite" })
+    );
 
     crate::Cli::try_parse_from([
         "domios", "mesh", "identity", "set", "--kind", "server", "--peer", "ubunta",
