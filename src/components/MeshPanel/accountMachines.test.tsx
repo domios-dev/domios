@@ -150,7 +150,7 @@ describe("switched-account binding projection", () => {
     });
     expect(view.machines[0].target).toEqual(targetOf(remote));
     const peer: PeerStatus = {
-      instance_id: "peer-blackstar-1", name: "BLACKSTAR", ip: "100.64.0.9", api_port: 7685,
+      instance_id: "peer-blackstar-1", name: "BLACKSTAR", ip: "192.0.2.9", api_port: 7685,
       online: true, access_level: "full", last_seen: null, relay_protocol_version: 2,
     };
     const projected = canvas(view, [peer]);
