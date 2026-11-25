@@ -96,13 +96,11 @@ impl CapabilityProbeHost for AccountProbeHost {
         })
     }
 
-    fn cli_binary(&self, provider: &str) -> Option<String> {
+    fn cli_path(&self, provider: &str) -> Option<PathBuf> {
         self.svc
             .agent_registry
-            .with_provider(provider, |provider| {
-                provider.cli_binary().map(str::to_string)
-            })
-            .flatten()
+            .provider_arc(provider)?
+            .resolved_cli_path()
     }
 
     fn matching_tabs(&self, provider: &str, project: Option<&Path>) -> Vec<String> {

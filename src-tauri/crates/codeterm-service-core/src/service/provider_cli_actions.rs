@@ -366,7 +366,10 @@ fn completion_summary_with_output(
     failure_output: Option<&str>,
 ) -> String {
     let mut summary = completion_summary(provider, operation, completion, status);
-    if let Some(detail) = failure_output.map(str::trim).filter(|text| !text.is_empty()) {
+    if let Some(detail) = failure_output
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
         summary.push_str(&format!("\n{detail}"));
     }
     summary

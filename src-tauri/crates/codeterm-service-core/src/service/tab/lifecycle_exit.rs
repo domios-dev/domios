@@ -68,7 +68,7 @@ fn clear_agent_identity_after_prompt_clear(
 }
 
 #[derive(Default)]
-struct ClearedAgentIdentity {
+pub(crate) struct ClearedAgentIdentity {
     cleared: bool,
     browsers_removed: bool,
     prompt_identity: Option<codeterm_types::pty::PromptIdentity>,
@@ -87,6 +87,15 @@ fn clear_agent_identity_with_prompt(
         prompt_identity: identity.filter(|_| cleared),
         pty_id: pty_id.filter(|_| cleared),
     }
+}
+
+pub(crate) fn clear_explicit_agent_identity(
+    tab: &mut crate::multiplexer::types::Tab,
+) -> ClearedAgentIdentity {
+    let retired_recipient = tab.restorable_launch.exited_chat_binding.take().is_some();
+    let mut identity = clear_agent_identity_with_prompt(tab);
+    identity.cleared |= retired_recipient;
+    identity
 }
 
 fn clear_exited_agent_identity(tab: &mut crate::multiplexer::types::Tab) -> ClearedAgentIdentity {
@@ -269,15 +278,18 @@ impl ServiceContext {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map(|tab| {
-                    let retired_recipient =
-                        tab.restorable_launch.exited_chat_binding.take().is_some();
-                    let mut identity = clear_agent_identity_with_prompt(tab);
-                    identity.cleared |= retired_recipient;
-                    identity
-                })
+                .map(clear_explicit_agent_identity)
                 .unwrap_or_default()
         };
+        self.finish_explicit_agent_identity_clear(tab_id, cause, cleared)
+    }
+
+    pub(crate) fn finish_explicit_agent_identity_clear(
+        &self,
+        tab_id: &str,
+        cause: &str,
+        cleared: ClearedAgentIdentity,
+    ) -> bool {
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
             tab_id,

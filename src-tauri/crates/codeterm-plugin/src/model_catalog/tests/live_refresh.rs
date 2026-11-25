@@ -47,7 +47,7 @@ impl AgentProvider for ResolvingStub {
         None
     }
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        let _ = crate::js_runtime::probe_bin(&self.binary);
+        let _ = self.resolved_cli_path();
         if let Some(change) = &self.during_discovery {
             change();
         }

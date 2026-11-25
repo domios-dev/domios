@@ -178,6 +178,7 @@ async function verifyRemoteReconnectRecovery() {
     };
   };
   let startAttempts = 0;
+  const attempts = () => startAttempts;
   const chatChannels: string[] = [];
   const stopChannel = onRemoteTransportState(change => {
     if (change.ordinaryTabId === tabId && change.channel === "chat") chatChannels.push(change.availability);
@@ -203,6 +204,7 @@ async function verifyRemoteReconnectRecovery() {
   }) as never);
 
   let latestState: ChatAttachmentState = "idle";
+  const currentState = (): ChatAttachmentState => latestState;
   function RemoteHarness() {
     const session = useChatSession({ tabId, agentSessionId: "remote-session", sessionBindingNonce: "nonce" });
     latestState = session.attachmentState;
@@ -212,8 +214,8 @@ async function verifyRemoteReconnectRecovery() {
   const root = createRoot(host);
   try {
     await act(async () => root.render(<RemoteHarness />));
-    assert(startAttempts === 1, "initial remote chat_start ran once");
-    assert(latestState === "failed", "initial remote failure entered failed state");
+    assert(attempts() === 1, "initial remote chat_start ran once");
+    assert(currentState() === "failed", "initial remote failure entered failed state");
     assert(readRemoteChatStatus(tabId, "peer-air").failure !== undefined, "remote failure recorded");
 
     await act(async () => {
@@ -221,8 +223,8 @@ async function verifyRemoteReconnectRecovery() {
       await Promise.resolve();
       await Promise.resolve();
     });
-    assert(startAttempts === 2, "peer rail reconcile retried remote chat_start");
-    assert(latestState === "attached", "reconcile re-attached the remote chat");
+    assert(attempts() === 2, "peer rail reconcile retried remote chat_start");
+    assert(currentState() === "attached", "reconcile re-attached the remote chat");
     assert(readRemoteChatStatus(tabId, "peer-air").failure === undefined, "re-attach cleared remote chat failure");
     assert(chatChannels.includes("available"), "re-attach published chat channel available");
   } finally {

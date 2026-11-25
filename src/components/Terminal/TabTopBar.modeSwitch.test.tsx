@@ -103,7 +103,7 @@ function makeState(tab: Tab): ExtendedState {
 it.each([
   {
     name: "local tab header",
-    tab: { id: "tab-local", title: "Ohm", agent_type: "claude", role: "Agent", cwd: "/tmp" } as Tab,
+    tab: { id: "tab-local", title: "Ohm", agent_type: "claude", role: "Agent", cwd: "/tmp" } as unknown as Tab,
   },
   {
     name: "remote machine tab header",
@@ -115,7 +115,7 @@ it.each([
       remote_peer_id: "eight",
       remote_peer_name: "eight",
       cwd: "/tmp",
-    } as Tab,
+    } as unknown as Tab,
   },
 ])("sizes both Chat and Terminal segments to 22px cells inside a 48x26 switch in $name", async ({ tab }) => {
   setAgentDescriptors([
@@ -123,7 +123,7 @@ it.each([
   ]);
   const peers: MeshPeersResponse = {
     local_instance_name: "Local",
-    local_machine_identity: { kind: "desktop", color: "blue" },
+    local_machine_identity: { kind: "desktop" },
     machine_identities: {},
     installations: [],
     paired: [{ instance_id: "eight", instance_name: "eight", online: true }] as MeshPeersResponse["paired"],

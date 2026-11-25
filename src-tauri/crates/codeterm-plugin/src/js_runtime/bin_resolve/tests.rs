@@ -135,8 +135,7 @@ fn resolve_bin_probe_accepts_platform_executable_suffix() {
     let _guard = TEST_LOCK.lock();
     RESOLVED_BINS.lock().clear();
     let name = format!("bwext_{}", uuid::Uuid::new_v4().simple());
-    let dir =
-        std::env::temp_dir().join(format!("host_exec_ext_{}", uuid::Uuid::new_v4().simple()));
+    let dir = std::env::temp_dir().join(format!("host_exec_ext_{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(&dir).unwrap();
     #[cfg(windows)]
     let bin_path = dir.join(format!("{name}.exe"));
@@ -194,12 +193,9 @@ fn explicit_and_relative_extensionless_paths_are_checked_directly() {
     let explicit =
         probe_bin_with_environment(absolute.to_str().unwrap(), &[], &environment).resolution;
     #[cfg(windows)]
-    let suffixed = probe_bin_with_environment(
-        explicit_suffixed.to_str().unwrap(),
-        &[],
-        &environment,
-    )
-    .resolution;
+    let suffixed =
+        probe_bin_with_environment(explicit_suffixed.to_str().unwrap(), &[], &environment)
+            .resolution;
     let relative_input = absolute
         .strip_prefix(std::env::current_dir().unwrap())
         .unwrap()

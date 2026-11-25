@@ -49,11 +49,6 @@ pub(super) fn misses_still_hold<'a>(
     unresolved.into_iter().all(|binary| !found(binary))
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub(super) fn binary_found(binary: &str) -> bool {
-    binary_found_in(binary, &[])
-}
-
 pub(super) fn binary_found_in(binary: &str, extra_dirs: &[std::path::PathBuf]) -> bool {
     matches!(
         codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(binary, extra_dirs).resolution,

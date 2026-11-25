@@ -18,40 +18,55 @@ enum OpeningScan {
     Truncated {
         has_from: bool,
         has_non_from: bool,
+        inline_prefix: bool,
     },
     Inert,
 }
 
-fn scan_domios_opening(text: &str) -> OpeningScan {
-    let Some(tail) = text.strip_prefix(FRAME_OPEN) else {
-        return OpeningScan::Inert;
+fn inline_sender_prefix(completed: &str, pending: &str) -> bool {
+    let Some(attrs) = domios::parse_attributes(completed) else {
+        return false;
     };
-    if tail.is_empty() {
-        return OpeningScan::Truncated {
-            has_from: false,
-            has_non_from: false,
-        };
+    let has_sender = attrs.get("from").is_some_and(|value| !value.is_empty());
+    let Some((name, value)) = pending.split_once('=') else {
+        return has_sender;
+    };
+    if attrs.contains_key(name) {
+        return false;
     }
-    if !matches!(
-        tail.as_bytes()[0],
-        b' ' | b'\t' | b'\r' | b'\n' | b'>' | b'/'
-    ) {
+    if value.is_empty() {
+        return has_sender || name == "from";
+    }
+    // Inside an open quote, arbitrary prose is indistinguishable from an attribute value.
+    name == "from"
+        && value.strip_prefix('"').is_some_and(|prefix| {
+            FrameKind::ALL
+                .iter()
+                .any(|kind| kind.as_str().starts_with(prefix))
+        })
+}
+
+fn scan_domios_opening(text: &str) -> OpeningScan {
+    if !text.starts_with(FRAME_OPEN) {
         return OpeningScan::Inert;
     }
     let bytes = text.as_bytes();
     let mut pos = FRAME_OPEN.len();
     let mut has_from = false;
     let mut has_non_from = false;
+    let truncated = |has_from, has_non_from, pending: usize| OpeningScan::Truncated {
+        has_from,
+        has_non_from,
+        inline_prefix: has_from
+            && inline_sender_prefix(&text[FRAME_OPEN.len()..pending], &text[pending..]),
+    };
     loop {
         let ws_start = pos;
         while pos < bytes.len() && matches!(bytes[pos], b' ' | b'\t' | b'\r' | b'\n') {
             pos += 1;
         }
         if pos == bytes.len() {
-            return OpeningScan::Truncated {
-                has_from,
-                has_non_from,
-            };
+            return truncated(has_from, has_non_from, pos);
         }
         if bytes[pos] == b'>' {
             return OpeningScan::Complete {
@@ -62,10 +77,7 @@ fn scan_domios_opening(text: &str) -> OpeningScan {
         }
         if bytes[pos] == b'/' {
             if pos + 1 == bytes.len() {
-                return OpeningScan::Truncated {
-                    has_from,
-                    has_non_from,
-                };
+                return OpeningScan::Inert;
             }
             if bytes[pos + 1] == b'>' {
                 return OpeningScan::Complete {
@@ -89,10 +101,7 @@ fn scan_domios_opening(text: &str) -> OpeningScan {
         let name = &text[name_start..pos];
         if pos == bytes.len() {
             let could_be_from = "from".starts_with(name);
-            return OpeningScan::Truncated {
-                has_from,
-                has_non_from: has_non_from || !could_be_from,
-            };
+            return truncated(has_from, has_non_from || !could_be_from, name_start);
         }
         if bytes[pos] != b'=' {
             return OpeningScan::Inert;
@@ -104,18 +113,15 @@ fn scan_domios_opening(text: &str) -> OpeningScan {
         }
         pos += 1;
         if pos == bytes.len() {
-            return OpeningScan::Truncated {
-                has_from,
-                has_non_from,
-            };
+            return truncated(has_from, has_non_from, name_start);
         }
         if bytes[pos] == b'"' {
             pos += 1;
             let Some(rel_end) = text[pos..].find('"') else {
-                return OpeningScan::Truncated {
-                    has_from,
-                    has_non_from,
-                };
+                if text[pos..].contains('<') {
+                    return OpeningScan::Inert;
+                }
+                return truncated(has_from, has_non_from, name_start);
             };
             pos += rel_end + 1;
         } else {
@@ -138,10 +144,7 @@ fn scan_domios_opening(text: &str) -> OpeningScan {
             }
         }
         if pos == bytes.len() {
-            return OpeningScan::Truncated {
-                has_from,
-                has_non_from,
-            };
+            return truncated(has_from, has_non_from, pos);
         }
         if !matches!(bytes[pos], b' ' | b'\t' | b'\r' | b'\n' | b'>' | b'/') {
             return OpeningScan::Inert;
@@ -154,40 +157,40 @@ pub(super) fn opens_frame(text: &str) -> bool {
         scan_domios_opening(text),
         OpeningScan::Complete {
             self_closing: false,
+            has_from: true,
             ..
-        } | OpeningScan::Truncated { .. }
+        } | OpeningScan::Truncated { has_from: true, .. }
+            | OpeningScan::Truncated {
+                has_non_from: false,
+                ..
+            }
     )
 }
 
 pub(super) fn frame_candidate(
     rest: &str,
     boundary: bool,
+    line_start: bool,
     depth: usize,
 ) -> Option<(MessageSegment, usize)> {
     match scan_domios_opening(rest) {
-        OpeningScan::Inert
-        | OpeningScan::Complete {
-            self_closing: true, ..
-        } => None,
         OpeningScan::Complete {
+            end: opening,
             self_closing: false,
-            has_from,
-            ..
-        } => match frame_extent(rest) {
-            Some(consumed) => Some((frame_segment(&rest[..consumed], depth), consumed)),
-            None if has_from => Some((partial_frame(rest), rest.len())),
+            has_from: true,
+        } => match frame_extent(rest, opening, line_start) {
+            Some(consumed) => Some((frame_segment(&rest[..consumed], opening, depth), consumed)),
+            None if boundary => Some((partial_frame(rest, Some(opening)), rest.len())),
             None => None,
         },
         OpeningScan::Truncated {
             has_from,
             has_non_from,
-        } => {
-            if has_from || (boundary && !has_non_from) {
-                Some((partial_frame(rest), rest.len()))
-            } else {
-                None
-            }
+            inline_prefix,
+        } if (boundary && (has_from || !has_non_from)) || inline_prefix => {
+            Some((partial_frame(rest, None), rest.len()))
         }
+        _ => None,
     }
 }
 
@@ -204,24 +207,10 @@ fn opening_end(text: &str) -> Option<usize> {
     None
 }
 
-/// Bytes up to and including the close that balances the leading opening tag;
-/// `None` while that close has not arrived.
-fn frame_extent(text: &str) -> Option<usize> {
-    let opening = match scan_domios_opening(text) {
-        OpeningScan::Complete {
-            end,
-            self_closing: true,
-            ..
-        } => return Some(end),
-        OpeningScan::Complete {
-            end,
-            self_closing: false,
-            ..
-        } => end,
-        OpeningScan::Truncated { .. } | OpeningScan::Inert => return None,
-    };
+fn frame_extent(text: &str, opening: usize, line_start: bool) -> Option<usize> {
     let mut offset = opening;
-    let mut depth = 1;
+    let mut within_nested_sender = Vec::new();
+    let mut first_literal_close = None;
     while offset < text.len() {
         if let Some(end) = quoted_end(text, offset) {
             offset = end;
@@ -229,10 +218,13 @@ fn frame_extent(text: &str) -> Option<usize> {
         }
         let rest = &text[offset..];
         if rest.starts_with(DOMIOS_CLOSE_TAG) {
-            depth -= 1;
             offset += DOMIOS_CLOSE_TAG.len();
-            if depth == 0 {
-                return Some(offset);
+            match within_nested_sender.pop() {
+                None => return Some(offset),
+                Some(false) if line_start && first_literal_close.is_none() => {
+                    first_literal_close = Some(offset);
+                }
+                _ => {}
             }
         } else if rest.starts_with(FRAME_OPEN) {
             match scan_domios_opening(rest) {
@@ -241,12 +233,13 @@ fn frame_extent(text: &str) -> Option<usize> {
                     self_closing,
                     has_from,
                 } => {
-                    if !self_closing && has_from {
-                        depth += 1;
+                    if !self_closing {
+                        within_nested_sender
+                            .push(has_from || within_nested_sender.last() == Some(&true));
                     }
                     offset += end;
                 }
-                OpeningScan::Truncated { has_from: true, .. } => return None,
+                OpeningScan::Truncated { has_from: true, .. } => break,
                 OpeningScan::Truncated {
                     has_from: false, ..
                 }
@@ -258,7 +251,7 @@ fn frame_extent(text: &str) -> Option<usize> {
             offset += rest.chars().next()?.len_utf8();
         }
     }
-    None
+    first_literal_close
 }
 
 fn opening_attributes(tag: &str) -> Option<std::collections::BTreeMap<String, String>> {
@@ -269,24 +262,16 @@ fn opening_attributes(tag: &str) -> Option<std::collections::BTreeMap<String, St
     domios::parse_attributes(inner)
 }
 
-pub(super) fn frame_segment(raw: &str, depth: usize) -> MessageSegment {
-    let opening = opening_end(raw).unwrap_or(raw.len());
-    let self_closing = raw[..opening].ends_with("/>");
+fn frame_segment(raw: &str, opening: usize, depth: usize) -> MessageSegment {
     let attrs = opening_attributes(&raw[..opening]);
-    let content = if self_closing {
-        ""
-    } else {
-        raw[opening..]
-            .strip_suffix(DOMIOS_CLOSE_TAG)
-            .unwrap_or(&raw[opening..])
-    };
+    let content = &raw[opening..raw.len() - DOMIOS_CLOSE_TAG.len()];
     let body = display_body(content, false);
     let kind = attrs
         .as_ref()
         .and_then(|attrs| attrs.get("from"))
         .and_then(|from| FrameKind::from_wire(from));
     match (attrs, kind) {
-        (Some(attrs), Some(kind)) if !self_closing => {
+        (Some(attrs), Some(kind)) => {
             let mut segments = parse_nested(&body, depth + 1, false)
                 .into_iter()
                 .map(|spanned| spanned.segment)
@@ -311,13 +296,13 @@ pub(super) fn frame_segment(raw: &str, depth: usize) -> MessageSegment {
     }
 }
 
-pub(super) fn partial_frame(raw: &str) -> MessageSegment {
-    let (attrs, body) = match opening_end(raw) {
+fn partial_frame(raw: &str, opening: Option<usize>) -> MessageSegment {
+    let (attrs, body) = match opening {
         Some(opening) => (
             opening_attributes(&raw[..opening]).unwrap_or_default(),
             display_body(&raw[opening..], true),
         ),
-        None => (Default::default(), String::new()),
+        None => (Default::default(), raw.to_string()),
     };
     MessageSegment::PartialFrame {
         raw: raw.to_string(),

@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.39",
-  "minCodeterm": "1.20.2",
+  "version": "1.14.40",
+  "minCodeterm": "1.23.3",
   "hostApi": 2,
   "accounts": {
     "credentialFiles": [

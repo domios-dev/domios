@@ -32,6 +32,8 @@ export function TabLaunchFailure({ tabId, workspace, cwd, reason, actions = [], 
   const notInstalled = parseProviderNotInstalled(reason);
   if (notInstalled) {
     return <ProviderNotInstalledNotice
+      key={tabId}
+      tabId={tabId}
       info={notInstalled}
       rawReason={reason ?? ""}
       inline={inline}

@@ -216,9 +216,6 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 && unexpected
                 && engine::for_tab(&expired.tab_id)
                     .is_some_and(|current| Arc::ptr_eq(&current, &session));
-            let close_browsers = !matches!(reason, RuntimeFailure::Superseded)
-                && crate::crash::shutdown::active_shutdown().is_none()
-                && !will_recover;
             let owner = svc.clone();
             let ending = expired.clone();
             let detail = format!("runtime process ended: {reason}");
@@ -226,9 +223,6 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 owner
                     .run_watcher
                     .runtime_process_exited(&owner, &ending, detail);
-                if close_browsers {
-                    owner.close_owned_browser_tabs(&ending.tab_id);
-                }
             })
             .await;
             if will_recover {

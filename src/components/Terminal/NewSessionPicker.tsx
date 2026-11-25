@@ -426,7 +426,7 @@ export function NewSessionPicker({
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
     await finishSpawn(async () => {
       const created = await createTab(workspaceId, targetCwd, choice.shellProfile);
-      return created ? { workspaceId, tabId: created.tab_id } : null;
+      return created ? { workspaceId, tabId: created.id } : null;
     });
   }, [choice, createTab, finishSpawn, selectedWorkspace?.cwd, workspaceCwd, workspaceId]);
 

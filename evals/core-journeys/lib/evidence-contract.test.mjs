@@ -100,7 +100,7 @@ test("missing duration, build sha, instance, shared port or journey coverage is 
 
 test("missing tab, session and listener ids are rejected", () => {
   assert.match(errorsOf(run((results) => { results.state.tabs = []; })), /recorded no tab ids/);
-  assert.match(errorsOf(run((results) => { delete results.state.tabs[0].session; })), /recorded no session id/);
+  assert.match(errorsOf(run((results) => { delete results.state.tabs[0].session; })), /lacks matching tab and session evidence/);
   assert.match(errorsOf(run((results) => { delete results.state.before_restart.listener; })), /listener lacks pid/);
   assert.match(errorsOf(run((results) => { results.state.workspace = {}; })), /workspace\.id missing/);
 });
@@ -186,7 +186,7 @@ function withoutControlFixture(results) {
 function j4Only(results) {
   results.selection = select({ journeys: "J4" });
   results.checks = results.checks.filter((check) => !["J1", "J2", "J3"].includes(check.journey));
-  results.checks.splice(1, 0, ...["restore_fixture_ready", "restore_fixture_reply"].map((name) => ({ ...results.checks[0], journey: "J4", name, subject: "claude" })));
+  results.checks.splice(1, 0, ...["restore_fixture_ready", "restore_fixture_reply"].map((name) => ({ ...results.checks[0], journey: "J4", name, subject: "claude", evidence: { tab: "tab1", session: "session1" } })));
   withoutControlFixture(results);
   for (const tab of results.state.tabs) tab.journey = "J4";
   results.state.model_policy.launches = [{ ...results.state.model_policy.launches[0], path: "J4-spawn" }];
@@ -201,6 +201,26 @@ function j1Only(results) {
   results.state.screenshots = results.state.screenshots.filter((shot) => shot.phase === "setup");
   results.state.model_policy.launches = results.state.model_policy.launches.filter((launch) => launch.path === "J1-spawn");
 }
+
+test("the long-history reply requires its own tab and session even when the canary matches", () => {
+  for (const reuseSession of [false, true]) {
+    const dir = run(results => {
+      j1Only(results);
+      const tab = results.state.tabs.find(entry => entry.provider === "opencode");
+      const history = { ...tab, id: "history-tab", session: reuseSession ? tab.session : "history-session" };
+      results.state.tabs.push(history);
+      const identities = results.state.model_policy.identities;
+      identities[history.id] = { ...identities[tab.id], session: history.session };
+      for (const [name, fixture] of [["send_reply_own_session", tab], ["long_history_turn", history]]) {
+        results.checks.push({ ...results.checks[2], subject: tab.provider, name, evidence: { tab: fixture.id, session: fixture.session, answer: "canary" } });
+      }
+    }, { restart: null });
+    try {
+      if (reuseSession) assert.match(errorsOf(dir), /history reply lacks a session distinct from the stop fixture/);
+      else assert.deepEqual(validateRun(dir).errors, []);
+    } finally { rmSync(dir, { recursive: true }); }
+  }
+});
 
 test("a J4-only run with its own restore fixtures is complete evidence; checks of unselected journeys are not", () => {
   assert.deepEqual(errorsOf(run(j4Only)), "");

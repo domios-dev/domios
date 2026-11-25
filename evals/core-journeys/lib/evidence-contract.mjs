@@ -9,7 +9,7 @@ import { ACCESS_LEVELS } from "../journeys/neighbors.mjs";
 
 export const VERDICTS = ["pass", "fail", "skip"];
 export const PHASES = ["setup", "verify", "cleanup"];
-const FIRST_REPLY = { J1: "send_reply_own_session", J4: "restore_fixture_reply" };
+const FIXTURE_REPLIES = new Set(["J1/send_reply_own_session", "J1/long_history_turn", "J4/restore_fixture_reply"]);
 const SHARED_PORTS = [7685, 7686];
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -70,10 +70,18 @@ function checkIds(results, expected, errors) {
   const tabs = Array.isArray(state.tabs) ? state.tabs : [];
   if (!tabs.length) errors.push("results.json: state.tabs recorded no tab ids");
   tabs.forEach((tab, index) => { if (!isText(tab?.id)) errors.push(`results.json: state.tabs[${index}].id missing`); });
-  for (const [journey, name] of Object.entries(FIRST_REPLY)) {
-    const replied = new Set(results.checks.filter((check) => check?.journey === journey && check.name === name && check.verdict === "pass").map((check) => check.subject));
-    for (const tab of tabs.filter((entry) => entry?.journey === journey && replied.has(entry.provider))) {
-      if (!isText(tab.session)) errors.push(`results.json: ${journey} tab ${tab.id} answered but recorded no session id`);
+  for (const check of results.checks) {
+    if (check?.verdict !== "pass" || !FIXTURE_REPLIES.has(`${check.journey}/${check.name}`)) continue;
+    const tab = tabs.find(entry => entry && entry.id === check.evidence?.tab && entry.provider === check.subject && entry.journey === check.journey);
+    if (!isText(tab?.session) || tab.session !== check.evidence?.session) {
+      errors.push(`results.json: ${check.journey} ${check.name} for ${check.subject} lacks matching tab and session evidence`);
+    }
+    if (check.name === "long_history_turn") {
+      const first = results.checks.find(entry => entry?.journey === "J1" && entry.name === "send_reply_own_session"
+        && entry.subject === check.subject && entry.verdict === "pass")?.evidence;
+      if (!first?.session || first.session === tab?.session || first.tab === tab?.id) {
+        errors.push(`results.json: ${check.subject} history reply lacks a session distinct from the stop fixture`);
+      }
     }
   }
   if (!expected.includes("verify")) return;
