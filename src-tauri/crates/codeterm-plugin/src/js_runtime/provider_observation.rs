@@ -39,7 +39,7 @@ impl ProviderObservation {
             .as_deref()
             .filter(|binary| sandbox.can_exec(binary))
         {
-            Some(binary) => crate::provider_version::observe(binary),
+            Some(binary) => crate::provider_version::observe_in(binary, sandbox.extra_bin_dirs()),
             None => VersionObservation {
                 version: None,
                 status: ProbeStatus::Unreadable,

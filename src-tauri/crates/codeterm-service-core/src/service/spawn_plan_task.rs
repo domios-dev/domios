@@ -457,13 +457,20 @@ impl ServiceContext {
                 let tab = mux
                     .get_tab_mut(tab_id)
                     .ok_or_else(|| format!("remote task-bound Worker tab {tab_id} disappeared"))?;
-                tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
-                    plan_id: Some(binding.plan_id.clone()),
-                    task_id: Some(binding.task_id.clone()),
-                    attempt_id: Some(binding.attempt_id.clone()),
-                    spawn_handle: None,
-                    bound_at: epoch_ms(),
+                let already_bound = tab.task_binding.as_ref().is_some_and(|existing| {
+                    existing.plan_id.as_deref() == Some(binding.plan_id.as_str())
+                        && existing.task_id.as_deref() == Some(binding.task_id.as_str())
+                        && existing.attempt_id.as_deref() == Some(binding.attempt_id.as_str())
                 });
+                if !already_bound {
+                    tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                        plan_id: Some(binding.plan_id.clone()),
+                        task_id: Some(binding.task_id.clone()),
+                        attempt_id: Some(binding.attempt_id.clone()),
+                        spawn_handle: None,
+                        bound_at: epoch_ms(),
+                    });
+                }
                 tab.report_target_mesh_peer = Some(binding.origin_peer_id.clone());
             }
             return Ok(());

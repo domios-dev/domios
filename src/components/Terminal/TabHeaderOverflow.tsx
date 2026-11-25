@@ -22,6 +22,7 @@ function useHeaderOverflow(isActive: boolean) {
     const actions = inline?.parentElement;
     if (!slot || !inline || !actions) return;
     slot.append(chips);
+    if (!isActive) return () => { chips.remove(); };
     if (open) panelSlot.current?.focus({ preventScroll: true });
 
     const bar = inline.closest(".ct-tab-top-bar");
@@ -50,7 +51,9 @@ function useHeaderOverflow(isActive: boolean) {
         const box = boxes[index];
         const hidden = !allFit && box.width > 0
           && (box.top - bounds.top >= TAB_BAR_CONTROL_H || box.right > bounds.right + 0.5);
-        item.toggleAttribute("data-tab-chip-clipped", hidden);
+        if (item.hasAttribute("data-tab-chip-clipped") !== hidden) {
+          item.toggleAttribute("data-tab-chip-clipped", hidden);
+        }
         if (hidden) clipped += 1;
       });
       setCount(clipped);
@@ -71,7 +74,7 @@ function useHeaderOverflow(isActive: boolean) {
       mutations.disconnect();
       chips.remove();
     };
-  }, [chips, open]);
+  }, [chips, isActive, open]);
 
   return { chips, inlineSlot, panelSlot, trigger, count, open, paneWidth, setExpanded };
 }

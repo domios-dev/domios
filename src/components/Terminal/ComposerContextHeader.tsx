@@ -346,7 +346,9 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   };
 
   const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + Number(hasPluginError);
-  const PillIcon = plan ? Map : kinds.length > 0 ? KIND_ICON[kinds[0]] : heartbeats.length > 0 ? HeartPulse : hasGoal ? Target : TriangleAlert;
+  const workingTask = plan?.activity?.kind === "working" ? plan.activity : null;
+  const PillIcon = workingTask ? CircleCheck : plan ? Map : kinds.length > 0 ? KIND_ICON[kinds[0]] : heartbeats.length > 0 ? HeartPulse : hasGoal ? Target : TriangleAlert;
+  const pillTitle = workingTask?.taskTitle ?? plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (heartbeats.length > 0 ? SYSTEM_ORIGIN_LABEL : hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents");
   const pill = phone && (
     <button
       type="button"
@@ -355,14 +357,15 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       aria-controls={total > 0 ? linkedGroupId : undefined}
       aria-expanded={unfolded}
       aria-label={unfolded ? "Hide plan and linked items" : "Show plan and linked items"}
+      title={workingTask ? `Task: ${workingTask.taskTitle} · Plan: ${workingTask.planTitle}` : undefined}
       onMouseDown={keepComposerFocus}
       onClick={() => {
         setUnfolded(!unfolded);
         if (unfolded) setRequested(null);
       }}
     >
-      <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
-      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (heartbeats.length > 0 ? SYSTEM_ORIGIN_LABEL : hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents")}</span>
+      <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={workingTask ? "task" : plan ? "plan" : kinds[0]} />
+      <span className="ct-ctx-pill__title">{pillTitle}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
       {total > 0 && <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />}
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
@@ -403,7 +406,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />
-              {!phone && label && <span className="ct-ctx-kind__label max-w-56 truncate">{label}</span>}
+              {!phone && label && <span className="ct-ctx-kind__label">{label}</span>}
               {(phone || kind === "delayed" || !label && (kind === "background" || counts[kind] > 1)) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
               {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
             </ComposerContextChip>
@@ -462,6 +465,7 @@ function ContextTitle({ kind, prefix, primary, secondary, extra, onOpen }: {
   onOpen?: () => void;
 }) {
   const Icon = kind === "plan" ? Map : kind === "task" ? CircleCheck : KIND_ICON[kind];
+  const tooltip = secondary ? `${prefix} ${primary} · ${secondary}` : `${prefix} ${primary}`;
   const body = (
     <>
       <Icon size={13} aria-hidden="true" className="ct-ctx__title-icon" />
@@ -472,9 +476,9 @@ function ContextTitle({ kind, prefix, primary, secondary, extra, onOpen }: {
     </>
   );
   return onOpen ? (
-    <button type="button" className="ct-ctx__title" data-kind={kind} title={`${prefix} ${primary}`} onMouseDown={keepComposerFocus} onClick={onOpen}>{body}</button>
+    <button type="button" className="ct-ctx__title" data-kind={kind} title={tooltip} onMouseDown={keepComposerFocus} onClick={onOpen}>{body}</button>
   ) : (
-    <span className="ct-ctx__title" data-kind={kind} title={`${prefix} ${primary}`}>{body}</span>
+    <span className="ct-ctx__title" data-kind={kind} title={tooltip}>{body}</span>
   );
 }
 

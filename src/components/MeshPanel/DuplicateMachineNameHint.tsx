@@ -19,7 +19,7 @@ export function DuplicateMachineNameHint({ name, others, peerId, rename, classNa
   const anchor = useRef<HTMLButtonElement>(null);
   const identity = useMeshMachineIdentity(peerId, open);
   if (!others) return null;
-  const renameLabel = `Rename ${name} in Icon and colour`;
+  const renameLabel = `Rename ${name} in Machine icon`;
   return <p className={`m-0 text-[length:var(--ct-font-size-meta)] text-[var(--ct-muted-fg)] ${className}`} onClick={(event) => event.stopPropagation()}>
     {sameMachineNameDescription(others)}
     {" · "}

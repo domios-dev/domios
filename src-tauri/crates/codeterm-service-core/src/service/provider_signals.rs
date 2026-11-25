@@ -292,7 +292,19 @@ pub(crate) fn refresh_auth(svc: &ServiceContext, tab_id: &str) {
                 .ok()
                 .and_then(|invocation| {
                     codeterm_plugin::provider_account::with_context(invocation, || {
-                        let result = super::provider_signals_probe::capture(&binary, &probe);
+                        let install_dirs = svc
+                            .agent_registry
+                            .with_provider(&provider_id, |provider| {
+                                provider.cli_install_dirs(
+                                    crate::agent::provider::current_platform_tag(),
+                                )
+                            })
+                            .unwrap_or_default();
+                        let result = super::provider_signals_probe::capture_in(
+                            &binary,
+                            &install_dirs,
+                            &probe,
+                        );
                         result.as_ref().and_then(|record| {
                             svc.agent_registry
                                 .with_provider(&provider_id, |provider| {

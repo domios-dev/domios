@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use super::{finish_run, AgentRunKind, Ordering, RunWatcherRegistry};
 use crate::agent::chat_types::ChatMsg;
+use crate::service::role_policy::CronSettlement;
 use crate::service::ServiceContext;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
@@ -33,7 +34,7 @@ impl CompletionBarrier {
 
 pub struct PendingCompletion {
     pub barrier: CompletionBarrier,
-    summary: String,
+    outcome: CronSettlement,
     provider: String,
     cwd: String,
     session: String,
@@ -60,14 +61,14 @@ impl RunWatcherRegistry {
         svc: &ServiceContext,
         tab_id: &str,
         run_id: &str,
-        summary: &str,
+        outcome: &CronSettlement,
     ) -> Result<(), String> {
-        if let Some(result) = self.request_runtime_cron_completion(svc, tab_id, run_id, summary) {
+        if let Some(result) = self.request_runtime_cron_completion(svc, tab_id, run_id, outcome) {
             return result;
         }
         let state = self.cron_completion_state(svc, tab_id, run_id)?;
-        if state.cron_completion.lock().is_some() {
-            return Ok(());
+        if let Some(pending) = state.cron_completion.lock().as_ref() {
+            return pending.outcome.confirm_outcome(outcome);
         }
         let (provider, cwd, session, nonce) = {
             let mux = svc.mux.read();
@@ -150,7 +151,14 @@ impl RunWatcherRegistry {
         {
             return Err("cron completion lost its original watcher".into());
         }
-        *state.cron_completion.lock() = Some(PendingCompletion {
+        let mut slot = state.cron_completion.lock();
+        if let Some(pending) = slot.as_ref() {
+            return pending.outcome.confirm_outcome(outcome);
+        }
+        if state.completed.load(Ordering::Acquire) {
+            return Err("Cron watcher already claimed completion".into());
+        }
+        *slot = Some(PendingCompletion {
             barrier: CompletionBarrier {
                 stopped: false,
                 assistant_ids: if matches!(&state.kind, AgentRunKind::StepRun { .. }) {
@@ -159,7 +167,7 @@ impl RunWatcherRegistry {
                     messages.iter().map(|message| message.id.clone()).collect()
                 },
             },
-            summary: summary.into(),
+            outcome: outcome.clone(),
             provider,
             cwd,
             session,
@@ -170,6 +178,7 @@ impl RunWatcherRegistry {
             #[cfg(any(test, feature = "test-support"))]
             source_path,
         });
+        drop(slot);
         drop(cron);
         drop(mux);
         log::info!("[cron] completion requested; awaiting completed turn and durable answer: tab={tab_id} run={run_id}");
@@ -282,9 +291,12 @@ impl RunWatcherRegistry {
         };
         if let AgentRunKind::StepRun { run_id } = &state.kind {
             if state.cron_completion.lock().is_none() {
-                if let Err(error) =
-                    self.request_cron_completion(svc, tab_id, run_id, "agent turn completed")
-                {
+                if let Err(error) = self.request_cron_completion(
+                    svc,
+                    tab_id,
+                    run_id,
+                    &CronSettlement::success("agent turn completed"),
+                ) {
                     self.fail_now(svc, &state.pty_id, error);
                     return true;
                 }
@@ -362,7 +374,7 @@ impl RunWatcherRegistry {
                 );
                 return;
             }
-            let summary = {
+            let outcome = {
                 let pending = state.cron_completion.lock();
                 let Some(pending) = pending
                     .as_ref()
@@ -375,7 +387,7 @@ impl RunWatcherRegistry {
                     );
                     return;
                 };
-                pending.summary.clone()
+                pending.outcome.clone()
             };
             if state.completed.swap(true, Ordering::AcqRel) {
                 return;
@@ -387,7 +399,7 @@ impl RunWatcherRegistry {
             let finisher = service.clone();
             let ending = state.clone();
             let _ = crate::async_runtime::spawn_blocking(move || {
-                finish_run(&finisher, &ending, true, summary)
+                finish_run(&finisher, &ending, outcome.success, outcome.summary)
             })
             .await;
             service.run_watcher.retire_finished_watcher(&state);

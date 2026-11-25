@@ -177,8 +177,10 @@ fn acceptance_is_written_and_never_fabricates_delivery() {
 fn runtime_turn_input_carries_images_once_and_preserves_marker_text() {
     let text =
         "describe <domios type=\"attachment\" kind=\"image\" path=\"C:/images/a&amp;b.jpg\" />";
-    let input = super::turn_input(&format!("{text}\n{text}"));
-    assert_eq!(input.text, format!("{text}\n{text}"));
+    let message =
+        format!("<domios from=tab>Example <domios type=tab>opening</domios>owner: {text}\n{text}");
+    let input = super::turn_input(&message);
+    assert_eq!(input.text, message);
     assert_eq!(input.attachments.len(), 1);
     assert_eq!(
         input.attachments[0].path.as_deref(),
@@ -300,4 +302,14 @@ fn inline_images_can_fit_input_but_exceed_the_combined_hook_argument_limit() {
         super::MAX_RUNTIME_VALUE_BYTES
     )
     .is_err());
+}
+
+#[test]
+fn detects_sign_in_required_launch_errors() {
+    assert!(super::is_sign_in_required_launch_error(
+        "Runtime tab 961f8af1 degraded: Sign-in required"
+    ));
+    assert!(!super::is_sign_in_required_launch_error(
+        "Runtime tab 961f8af1 degraded: Pipe closed"
+    ));
 }

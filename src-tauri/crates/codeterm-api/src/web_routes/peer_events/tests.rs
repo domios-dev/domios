@@ -231,3 +231,89 @@ async fn peer_appearance_and_config_topics_follow_read_host_and_strip_bodies() {
     assert_eq!(frames[2]["event_type"], "config-changed");
     assert_eq!(frames[2]["data"], serde_json::json!({}));
 }
+
+#[tokio::test]
+async fn peer_provider_cli_topics_follow_read_host_and_strip_status_bodies() {
+    use codeterm_service_core::mesh::types::Permission;
+    let started = SystemEvent::Generic {
+        event_type: "provider-cli-started".into(),
+        data: serde_json::json!({ "provider": "fixture", "tab_id": "cli-tab" }),
+    };
+    let completed = SystemEvent::Generic {
+        event_type: "provider-cli-completed".into(),
+        data: serde_json::json!({
+            "provider": "fixture",
+            "operation": "install",
+            "tab_id": "installer-tab",
+            "success": true,
+            "summary": "fixture CLI updated to 2.0.0",
+            "status": { "searched": vec!["x".repeat(50_000)] },
+        }),
+    };
+    let available = SystemEvent::Generic {
+        event_type: "provider-cli-update-available".into(),
+        data: serde_json::json!({ "provider": "fixture" }),
+    };
+    for event in [&started, &completed, &available] {
+        assert!(topic_allowed(&AccessLevel::Full, event, |_| false));
+        assert!(topic_allowed(&AccessLevel::ReadOnly, event, |_| false));
+        assert!(!topic_allowed(&AccessLevel::AgentIsolated, event, |_| true));
+        assert!(!topic_allowed(
+            &AccessLevel::Custom(vec![Permission::ReadTabs]),
+            event,
+            |_| true,
+        ));
+    }
+
+    let events = Arc::new(crate::events::EventBroadcaster::new());
+    let census = crate::stream_census::StreamCensus::default();
+    let stream = super::super::events_sse_filtered(
+        events.clone(),
+        EventsStreamQuery {
+            since: Some(format!("{}:0", events.boot_id())),
+            tab_id: None,
+            scope: Some(PeerEventScope::Peer),
+        },
+        &census,
+        |event| topic_allowed(&AccessLevel::Full, event, |_| false),
+    );
+    let mut body = stream.into_response().into_body().into_data_stream();
+    events.publish(started);
+    events.publish(completed);
+    events.publish(available);
+
+    let mut frames = Vec::new();
+    for _ in 0..4 {
+        let next = tokio::time::timeout(std::time::Duration::from_secs(2), body.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let text = std::str::from_utf8(&next).unwrap().trim();
+        let frame: serde_json::Value =
+            serde_json::from_str(text.strip_prefix("data: ").unwrap()).unwrap();
+        frames.push(frame);
+    }
+    assert_eq!(frames[0]["event_type"], "peer-replay-complete");
+    assert_eq!(frames[1]["event_type"], "provider-cli-started");
+    assert_eq!(
+        frames[1]["data"],
+        serde_json::json!({ "provider": "fixture" })
+    );
+    assert_eq!(frames[2]["event_type"], "provider-cli-completed");
+    assert_eq!(
+        frames[2]["data"],
+        serde_json::json!({
+            "provider": "fixture",
+            "operation": "install",
+            "tab_id": "installer-tab",
+            "summary": "fixture CLI updated to 2.0.0",
+            "success": true,
+        })
+    );
+    assert_eq!(frames[3]["event_type"], "provider-cli-update-available");
+    assert_eq!(
+        frames[3]["data"],
+        serde_json::json!({ "provider": "fixture" })
+    );
+}

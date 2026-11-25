@@ -495,11 +495,136 @@ impl MultiplexerState {
 
         for surface_id in owned_surfaces {
             if self.tabs.contains_key(&surface_id) {
-                pty_ids.extend(self.close_tab_inner(&surface_id)?);
+                pty_ids.extend(self.force_remove_surface_tab(&surface_id));
+                pty_ids.extend(self.force_remove_owned_surfaces(&surface_id));
             }
         }
 
         Ok(pty_ids)
+    }
+
+    /// Force-remove a surface tab that can no longer outlive its owner, ignoring
+    /// protection or workspace close reservations so no orphan surface survives.
+    pub(super) fn force_remove_surface_tab(&mut self, surface_id: &str) -> Vec<String> {
+        let mut pty_ids = Vec::new();
+        if let Some(pty_id) = self.tabs.get(surface_id).and_then(|p| p.pty_id.clone()) {
+            self.pty_to_tab.remove(&pty_id);
+            pty_ids.push(pty_id);
+        }
+        let workspace_id = self.detach_tab_from_workspaces(surface_id);
+        self.record_closed_transcript(surface_id);
+        for child_id in self.get_children_ids(surface_id) {
+            if let Some(child) = self.tabs.get_mut(&child_id) {
+                if !child.closes_with_owner() {
+                    child.parent_tab_id = None;
+                    child.depth = 0;
+                    if child.report_target_tab_id.as_deref() == Some(surface_id) {
+                        child.report_target_tab_id = None;
+                    }
+                }
+            }
+        }
+        self.tabs.remove(surface_id);
+        if self.focused_tab_id.as_deref() == Some(surface_id) {
+            self.focused_tab_id = workspace_id
+                .as_deref()
+                .and_then(|workspace_id| self.get_workspace(workspace_id))
+                .and_then(|workspace| workspace.active_tab_id.as_deref())
+                .filter(|active_tab_id| self.require_focusable_tab(active_tab_id).is_ok())
+                .map(str::to_string);
+            if self.focused_tab_id.is_none() {
+                self.fallback_focus_to_general();
+            }
+        }
+        pty_ids
+    }
+
+    pub(super) fn force_remove_owned_surfaces(&mut self, owner_id: &str) -> Vec<String> {
+        let mut pty_ids = Vec::new();
+        let mut pending = vec![owner_id.to_string()];
+        let mut visited = std::collections::HashSet::new();
+        while let Some(current_owner) = pending.pop() {
+            if !visited.insert(current_owner.clone()) {
+                continue;
+            }
+            let owned: Vec<String> = self
+                .tabs
+                .values()
+                .filter(|tab| {
+                    tab.parent_tab_id.as_deref() == Some(current_owner.as_str())
+                        && tab.closes_with_owner()
+                })
+                .map(|tab| tab.id.clone())
+                .collect();
+            for surface_id in owned {
+                pty_ids.extend(self.force_remove_surface_tab(&surface_id));
+                pending.push(surface_id);
+            }
+        }
+        pty_ids
+    }
+
+    /// Remove every owner-bound surface whose owner tab no longer exists.
+    /// Standalone surfaces (`parent_tab_id == None`) and surfaces with live owners stay intact.
+    pub fn prune_orphaned_surfaces(&mut self) -> Vec<(String, String)> {
+        let mut pruned = Vec::new();
+        loop {
+            let mut batch: Vec<(String, String)> = self
+                .tabs
+                .values()
+                .filter_map(|tab| {
+                    if !tab.closes_with_owner() {
+                        return None;
+                    }
+                    let owner = tab.parent_tab_id.as_deref()?;
+                    (owner == tab.id.as_str() || !self.tabs.contains_key(owner))
+                        .then(|| (tab.id.clone(), owner.to_string()))
+                })
+                .collect();
+            if batch.is_empty() {
+                break;
+            }
+            batch.sort_unstable();
+            for (surface_id, owner_id) in batch {
+                if self.tabs.contains_key(&surface_id) {
+                    let _ = self.force_remove_surface_tab(&surface_id);
+                    pruned.push((surface_id, owner_id));
+                }
+            }
+        }
+        pruned
+    }
+
+    fn detach_tab_from_workspaces(&mut self, tab_id: &str) -> Option<String> {
+        let mut detached_ws = None;
+        for ws in &mut self.workspaces {
+            while let Some(idx) = ws.tabs.iter().position(|candidate| candidate == tab_id) {
+                detached_ws = Some(ws.id.clone());
+                let closed_tab_id = ws.tabs.remove(idx);
+                if ws.active_tab_id.as_deref() == Some(closed_tab_id.as_str()) {
+                    let owner = self.tabs.get(&closed_tab_id).and_then(|tab| {
+                        tab.surface()?;
+                        let owner = tab.parent_tab_id.as_ref()?;
+                        ws.tabs.contains(owner).then_some(owner)
+                    });
+                    ws.active_tab_id = owner
+                        .iter()
+                        .copied()
+                        .chain(ws.tabs[idx..].iter())
+                        .chain(ws.tabs[..idx].iter().rev())
+                        .find(|id| {
+                            self.tabs.get(*id).is_some_and(|tab| {
+                                tab.surface().is_none()
+                                    && !tab.is_transcript_router()
+                                    && !tab.hidden
+                                    && tab.show_in_tabbar
+                            })
+                        })
+                        .cloned();
+                }
+            }
+        }
+        detached_ws
     }
 
     fn close_tab_cascade_inner(&mut self, tab_id: &str) -> Result<Vec<String>, String> {
@@ -597,6 +722,47 @@ mod tests {
             state.get_tab(&without_pending).unwrap().pending_delivery,
             None
         );
+    }
+
+    #[test]
+    fn closing_owner_removes_protected_owned_surface_and_rollback_removes_owned_surface() {
+        use crate::multiplexer::types::{SurfaceBacking, TabBacking};
+
+        let make_surface = |id: &str| {
+            TabBacking::Surface(SurfaceBacking {
+                plugin_id: "browser".into(),
+                surface_id: "browser".into(),
+                instance_id: id.into(),
+                owner_label: true,
+                resume_url: None,
+                resume_profile: None,
+            })
+        };
+
+        let (mut state, root) = MultiplexerState::new();
+        let ws_id = state.find_workspace_for_tab(&root).unwrap();
+        let owner = state.create_tab(&ws_id).unwrap();
+        let protected_surface = state.create_tab(&ws_id).unwrap();
+        {
+            let tab = state.get_tab_mut(&protected_surface).unwrap();
+            tab.backing = make_surface("prot");
+            tab.parent_tab_id = Some(owner.clone());
+            tab.protected = true;
+        }
+        state.close_tab(&owner).unwrap();
+        assert!(state.get_tab(&owner).is_none());
+        assert!(state.get_tab(&protected_surface).is_none());
+
+        let rollback_owner = state.create_tab(&ws_id).unwrap();
+        let rollback_surface = state.create_tab(&ws_id).unwrap();
+        {
+            let tab = state.get_tab_mut(&rollback_surface).unwrap();
+            tab.backing = make_surface("rb");
+            tab.parent_tab_id = Some(rollback_owner.clone());
+        }
+        state.rollback_spawn_tab(&ws_id, &rollback_owner);
+        assert!(state.get_tab(&rollback_owner).is_none());
+        assert!(state.get_tab(&rollback_surface).is_none());
     }
 }
 

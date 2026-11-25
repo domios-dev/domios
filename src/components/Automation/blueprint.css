@@ -708,7 +708,7 @@
   .bp-node, .bp-wire, .ct-run-row .ct-run-row__reveal { transition: none; }
   .bp-node[data-state="running"], .ct-run-row .ct-detail__dot[data-live], .ct-run-row__steps { animation: none; }
 }
-[data-motion="paused"] .bp-node[data-state="running"] { animation: none; }
+[data-motion="paused"] :is(.bp-node[data-state="running"], .ct-run-row .ct-detail__dot[data-live]) { animation: none; }
 [data-motion="paused"] :is(.bp-node, .bp-wire, .ct-run-row, .ct-run-row__reveal) { transition: none; }
 @media (hover: none) {
   .ct-run-row .ct-run-row__reveal { opacity: 1; }

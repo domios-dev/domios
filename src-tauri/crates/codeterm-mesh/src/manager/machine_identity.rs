@@ -94,7 +94,7 @@ pub fn set_machine_identity(
         return Ok(false);
     }
     if expected_revision.is_some_and(|expected| expected != previous.number) {
-        return Err("The machine's icon and colour changed after this request".into());
+        return Err("The machine's icon changed after this request".into());
     }
     let revision = Revision {
         identity,

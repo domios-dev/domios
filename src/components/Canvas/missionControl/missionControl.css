@@ -344,16 +344,26 @@
 }
 
 .mc-gate-desk {
+  position: relative;
+}
+
+.mc-gate-desk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc-warn) 45%, transparent);
   animation: mc-gate-glow 2.4s ease-in-out infinite;
 }
 
 @keyframes mc-gate-glow {
   0%,
   100% {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc-warn) 20%, transparent);
+    opacity: 0.44;
   }
   50% {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc-warn) 45%, transparent);
+    opacity: 1;
   }
 }
 
@@ -412,8 +422,9 @@
   animation: none;
 }
 
-.mc-live-shell .mc-gate-desk:has(.mc-task-card) {
-  animation: mc-gate-glow 2.4s ease-in-out infinite;
+.mc-live-shell .mc-gate-desk:not(:has(.mc-task-card))::after {
+  animation: none;
+  opacity: 0;
 }
 
 .mc-live-shell .mc-panel[data-stressed="true"],
@@ -567,6 +578,7 @@
 .mc-avatar-qa-fail {
   animation: mc-qa-fail-return 1.6s var(--mc-ease) infinite;
   border-color: var(--mc-danger) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-danger) 55%, transparent);
 }
 
 @keyframes mc-dispatch-swell {
@@ -583,11 +595,9 @@
   0%,
   100% {
     transform: translateX(0);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-danger) 40%, transparent);
   }
   50% {
     transform: translateX(-4px);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-danger) 65%, transparent);
   }
 }
 

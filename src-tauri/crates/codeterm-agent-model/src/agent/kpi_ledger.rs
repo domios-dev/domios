@@ -19,7 +19,7 @@ pub use board_queries::DailyTokenUsage;
 
 pub use usage_rows::{CumulativeUsage, RebuiltResponse, UsageCursorState, UsageRebuildOutcome};
 
-const CURRENT_KPI_SCHEMA_VERSION: u32 = 6;
+const CURRENT_KPI_SCHEMA_VERSION: u32 = 7;
 
 const EVENT_COLUMNS: &str = r#"
     schema_version, plan_id, task_id, tab_id, role, provider, model,
@@ -193,11 +193,21 @@ impl ProviderModelUsage {
     }
 }
 
+#[derive(Default)]
+struct ProviderModelCache {
+    entry: Option<(u64, Vec<ProviderModelUsage>)>,
+    reads: u64,
+}
+
 pub struct KpiLedger {
     conn: Mutex<Connection>,
     /// Bumped on every commit so a cached analytics read knows it is stale.
     generation: AtomicU64,
+    /// Bumped only when `token_usage` rows change, so non-token writes keep the
+    /// provider/model spend cache warm.
+    token_usage_generation: AtomicU64,
     analytics_cache: Mutex<analytics::AggregateCache>,
+    provider_model_cache: Mutex<ProviderModelCache>,
 }
 
 impl KpiLedger {
@@ -218,7 +228,9 @@ impl KpiLedger {
         Ok(Self {
             conn: Mutex::new(conn),
             generation: AtomicU64::new(0),
+            token_usage_generation: AtomicU64::new(0),
             analytics_cache: Mutex::default(),
+            provider_model_cache: Mutex::default(),
         })
     }
 
@@ -270,6 +282,10 @@ impl KpiLedger {
                          COMMIT;"
                     )?;
                     version = 6;
+                }
+                6 => {
+                    Self::add_v7_hot_read_indexes_and_rollup(conn)?;
+                    version = 7;
                 }
                 CURRENT_KPI_SCHEMA_VERSION => return Ok(()),
                 _ if version > CURRENT_KPI_SCHEMA_VERSION => {
@@ -383,6 +399,152 @@ impl KpiLedger {
         )
     }
 
+    /// Indexes per-tab output-token reads and maintains a small `(provider, model)`
+    /// rollup table so board-state spend reads never rescan the full `kpi_events` log.
+    fn add_v7_hot_read_indexes_and_rollup(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            BEGIN IMMEDIATE;
+
+            CREATE INDEX IF NOT EXISTS idx_kpi_tab_output_tokens
+                ON kpi_events(tab_id, kind, output_tokens);
+
+            CREATE TABLE IF NOT EXISTS kpi_provider_model_totals (
+                provider              TEXT NOT NULL,
+                model_is_null         INTEGER NOT NULL,
+                model                 TEXT NOT NULL,
+                turns                 INTEGER NOT NULL DEFAULT 0,
+                input_tokens          INTEGER NOT NULL DEFAULT 0,
+                uncached_input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens         INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (provider, model_is_null, model)
+            );
+
+            DELETE FROM kpi_provider_model_totals;
+
+            INSERT INTO kpi_provider_model_totals (
+                provider, model_is_null, model, turns,
+                input_tokens, uncached_input_tokens, output_tokens
+            )
+            SELECT provider,
+                   CASE WHEN model IS NULL THEN 1 ELSE 0 END,
+                   COALESCE(model, ''),
+                   COUNT(*),
+                   COALESCE(SUM(input_tokens), 0),
+                   COALESCE(SUM(uncached_input_tokens), 0),
+                   COALESCE(SUM(output_tokens), 0)
+            FROM kpi_events
+            WHERE kind = 'token_usage'
+            GROUP BY provider, CASE WHEN model IS NULL THEN 1 ELSE 0 END, COALESCE(model, '');
+
+            CREATE TRIGGER IF NOT EXISTS kpi_model_totals_ai
+            AFTER INSERT ON kpi_events
+            WHEN NEW.kind = 'token_usage'
+            BEGIN
+                INSERT INTO kpi_provider_model_totals (
+                    provider, model_is_null, model, turns,
+                    input_tokens, uncached_input_tokens, output_tokens
+                ) VALUES (
+                    NEW.provider,
+                    CASE WHEN NEW.model IS NULL THEN 1 ELSE 0 END,
+                    COALESCE(NEW.model, ''),
+                    1,
+                    COALESCE(NEW.input_tokens, 0),
+                    COALESCE(NEW.uncached_input_tokens, 0),
+                    COALESCE(NEW.output_tokens, 0)
+                )
+                ON CONFLICT(provider, model_is_null, model) DO UPDATE SET
+                    turns = turns + 1,
+                    input_tokens = input_tokens + excluded.input_tokens,
+                    uncached_input_tokens = uncached_input_tokens + excluded.uncached_input_tokens,
+                    output_tokens = output_tokens + excluded.output_tokens;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS kpi_model_totals_ad
+            AFTER DELETE ON kpi_events
+            WHEN OLD.kind = 'token_usage'
+            BEGIN
+                UPDATE kpi_provider_model_totals SET
+                    turns = turns - 1,
+                    input_tokens = input_tokens - COALESCE(OLD.input_tokens, 0),
+                    uncached_input_tokens = uncached_input_tokens - COALESCE(OLD.uncached_input_tokens, 0),
+                    output_tokens = output_tokens - COALESCE(OLD.output_tokens, 0)
+                WHERE provider = OLD.provider
+                  AND model_is_null = (CASE WHEN OLD.model IS NULL THEN 1 ELSE 0 END)
+                  AND model = COALESCE(OLD.model, '');
+                DELETE FROM kpi_provider_model_totals
+                WHERE provider = OLD.provider
+                  AND model_is_null = (CASE WHEN OLD.model IS NULL THEN 1 ELSE 0 END)
+                  AND model = COALESCE(OLD.model, '')
+                  AND turns <= 0;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS kpi_model_totals_au_same
+            AFTER UPDATE ON kpi_events
+            WHEN OLD.kind = 'token_usage'
+              AND NEW.kind = 'token_usage'
+              AND OLD.provider = NEW.provider
+              AND OLD.model IS NEW.model
+            BEGIN
+                UPDATE kpi_provider_model_totals SET
+                    input_tokens = input_tokens + COALESCE(NEW.input_tokens, 0) - COALESCE(OLD.input_tokens, 0),
+                    uncached_input_tokens = uncached_input_tokens + COALESCE(NEW.uncached_input_tokens, 0) - COALESCE(OLD.uncached_input_tokens, 0),
+                    output_tokens = output_tokens + COALESCE(NEW.output_tokens, 0) - COALESCE(OLD.output_tokens, 0)
+                WHERE provider = NEW.provider
+                  AND model_is_null = (CASE WHEN NEW.model IS NULL THEN 1 ELSE 0 END)
+                  AND model = COALESCE(NEW.model, '');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS kpi_model_totals_au_old
+            AFTER UPDATE ON kpi_events
+            WHEN OLD.kind = 'token_usage'
+              AND NOT (NEW.kind = 'token_usage' AND OLD.provider = NEW.provider AND OLD.model IS NEW.model)
+            BEGIN
+                UPDATE kpi_provider_model_totals SET
+                    turns = turns - 1,
+                    input_tokens = input_tokens - COALESCE(OLD.input_tokens, 0),
+                    uncached_input_tokens = uncached_input_tokens - COALESCE(OLD.uncached_input_tokens, 0),
+                    output_tokens = output_tokens - COALESCE(OLD.output_tokens, 0)
+                WHERE provider = OLD.provider
+                  AND model_is_null = (CASE WHEN OLD.model IS NULL THEN 1 ELSE 0 END)
+                  AND model = COALESCE(OLD.model, '');
+                DELETE FROM kpi_provider_model_totals
+                WHERE provider = OLD.provider
+                  AND model_is_null = (CASE WHEN OLD.model IS NULL THEN 1 ELSE 0 END)
+                  AND model = COALESCE(OLD.model, '')
+                  AND turns <= 0;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS kpi_model_totals_au_new
+            AFTER UPDATE ON kpi_events
+            WHEN NEW.kind = 'token_usage'
+              AND NOT (OLD.kind = 'token_usage' AND OLD.provider = NEW.provider AND OLD.model IS NEW.model)
+            BEGIN
+                INSERT INTO kpi_provider_model_totals (
+                    provider, model_is_null, model, turns,
+                    input_tokens, uncached_input_tokens, output_tokens
+                ) VALUES (
+                    NEW.provider,
+                    CASE WHEN NEW.model IS NULL THEN 1 ELSE 0 END,
+                    COALESCE(NEW.model, ''),
+                    1,
+                    COALESCE(NEW.input_tokens, 0),
+                    COALESCE(NEW.uncached_input_tokens, 0),
+                    COALESCE(NEW.output_tokens, 0)
+                )
+                ON CONFLICT(provider, model_is_null, model) DO UPDATE SET
+                    turns = turns + 1,
+                    input_tokens = input_tokens + excluded.input_tokens,
+                    uncached_input_tokens = uncached_input_tokens + excluded.uncached_input_tokens,
+                    output_tokens = output_tokens + excluded.output_tokens;
+            END;
+
+            PRAGMA user_version = 7;
+            COMMIT;
+            "#,
+        )
+    }
+
     fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
         conn.query_row("PRAGMA user_version", [], |r| {
             let version = r.get::<_, i64>(0)?;
@@ -394,11 +556,20 @@ impl KpiLedger {
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
 
+    fn committed_token_usage(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.token_usage_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// Write-once: always appends, unlike OrchestrationLedger's UPSERT-on-report.
     pub fn insert(&self, event: &KpiEventInput) -> Result<(), String> {
         let conn = self.conn.lock();
         Self::insert_with(&conn, event)?;
-        self.committed();
+        if event.kind == KpiEventKind::TokenUsage {
+            self.committed_token_usage();
+        } else {
+            self.committed();
+        }
         Ok(())
     }
 
@@ -452,7 +623,11 @@ impl KpiLedger {
         }
         tx.commit()
             .map_err(|e| format!("kpi ledger commit: {}", e))?;
-        self.committed();
+        if events.iter().any(|e| e.kind == KpiEventKind::TokenUsage) {
+            self.committed_token_usage();
+        } else {
+            self.committed();
+        }
         Ok(())
     }
 
@@ -466,7 +641,15 @@ impl KpiLedger {
     }
 
     pub fn output_tokens_for_tab(&self, tab_id: &str) -> Result<Option<u64>, String> {
-        self.conn.lock().query_row("SELECT SUM(output_tokens) FROM kpi_events WHERE tab_id = ?1 AND kind = 'token_usage'",params![tab_id],|row|row.get::<_,Option<i64>>(0)).map(|n|n.map(|n|n.max(0) as u64)).map_err(|e|e.to_string())
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare_cached(
+                "SELECT SUM(output_tokens) FROM kpi_events WHERE tab_id = ?1 AND kind = 'token_usage'",
+            )
+            .map_err(|e| e.to_string())?;
+        stmt.query_row(params![tab_id], |row| row.get::<_, Option<i64>>(0))
+            .map(|n| n.map(|n| n.max(0) as u64))
+            .map_err(|e| e.to_string())
     }
 
     fn list_where(
@@ -589,35 +772,53 @@ impl KpiLedger {
     pub fn aggregate_token_usage_by_provider_model(
         &self,
     ) -> Result<Vec<ProviderModelUsage>, String> {
-        let conn = self.conn.lock();
-        let mut stmt = conn
-            .prepare(
-                r#"SELECT provider, model, COUNT(*),
-                          COALESCE(SUM(input_tokens), 0),
-                          COALESCE(SUM(uncached_input_tokens), 0),
-                          COALESCE(SUM(output_tokens), 0)
-                   FROM kpi_events
-                   WHERE kind = ?1
-                   GROUP BY provider, model
-                   ORDER BY COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) DESC,
-                            provider ASC"#,
-            )
-            .map_err(|e| format!("kpi ledger provider/model prepare: {}", e))?;
-        let rows = stmt
-            .query_map(params![KpiEventKind::TokenUsage.label()], |r| {
-                Ok(ProviderModelUsage {
-                    provider: r.get(0)?,
-                    model: r.get::<_, Option<String>>(1)?,
-                    turns: r.get::<_, i64>(2)? as u64,
-                    input_tokens: r.get::<_, i64>(3)? as u64,
-                    uncached_input_tokens: r.get::<_, i64>(4)? as u64,
-                    output_tokens: r.get::<_, i64>(5)? as u64,
+        let generation = self.token_usage_generation.load(Ordering::SeqCst);
+        if let Some((cached_gen, rows)) = self.provider_model_cache.lock().entry.as_ref() {
+            if *cached_gen == generation {
+                return Ok(rows.clone());
+            }
+        }
+        let rows = {
+            let conn = self.conn.lock();
+            let mut stmt = conn
+                .prepare_cached(
+                    r#"SELECT provider,
+                              CASE WHEN model_is_null = 1 THEN NULL ELSE model END,
+                              turns,
+                              input_tokens,
+                              uncached_input_tokens,
+                              output_tokens
+                       FROM kpi_provider_model_totals
+                       WHERE turns > 0
+                       ORDER BY input_tokens + output_tokens DESC,
+                                provider ASC"#,
+                )
+                .map_err(|e| format!("kpi ledger provider/model prepare: {}", e))?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(ProviderModelUsage {
+                        provider: r.get(0)?,
+                        model: r.get::<_, Option<String>>(1)?,
+                        turns: r.get::<_, i64>(2)?.max(0) as u64,
+                        input_tokens: r.get::<_, i64>(3)?.max(0) as u64,
+                        uncached_input_tokens: r.get::<_, i64>(4)?.max(0) as u64,
+                        output_tokens: r.get::<_, i64>(5)?.max(0) as u64,
+                    })
                 })
-            })
-            .map_err(|e| format!("kpi ledger provider/model query: {}", e))?
-            .filter_map(Result::ok)
-            .collect();
+                .map_err(|e| format!("kpi ledger provider/model query: {}", e))?
+                .filter_map(Result::ok)
+                .collect::<Vec<_>>();
+            rows
+        };
+        let mut cache = self.provider_model_cache.lock();
+        cache.reads += 1;
+        cache.entry = Some((generation, rows.clone()));
         Ok(rows)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn provider_model_reads(&self) -> u64 {
+        self.provider_model_cache.lock().reads
     }
 
     pub fn aggregate_for_plan(&self, plan_id: &str) -> Result<Option<PlanAggregate>, String> {

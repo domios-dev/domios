@@ -92,6 +92,7 @@ pub(super) struct PlanDatabase {
     connection: Mutex<Connection>,
     readers: Option<reader_pool::ReaderPool>,
     pub(super) pending_changes: Mutex<super::change_feed::PendingPlanChanges>,
+    board_state_cache: Mutex<board_state_queries::BoardStateCache>,
 }
 
 fn register_all_functions(connection: &Connection) -> Result<(), PlanError> {
@@ -152,6 +153,7 @@ impl PlanDatabase {
             connection: Mutex::new(connection),
             readers,
             pending_changes: Mutex::new(super::change_feed::PendingPlanChanges::default()),
+            board_state_cache: Mutex::default(),
         })
     }
 

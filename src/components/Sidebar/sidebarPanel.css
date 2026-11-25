@@ -68,7 +68,6 @@
   border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
   border-radius: var(--ct-radius-lg);
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
-  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-sm);
   color: var(--ct-fg);
   font-size: var(--ct-font-size-meta);
@@ -270,6 +269,7 @@
   background: var(--ct-accent);
   opacity: 1;
   transform: scale(1);
+  contain: strict;
   animation: ct-compact-rail-pulse 1.6s var(--ct-ease-liquid-breathe) infinite;
 }
 

@@ -7,13 +7,11 @@ use crate::domios::DOMIOS_PASTED_MARKER;
 
 mod markup;
 
-use markup::{
-    attachment, frame_extent, frame_segment, opens_frame, partial_frame, paste, quoted_end,
-};
+use markup::{attachment, frame_candidate, opens_frame, paste, quoted_end};
 
 /// Bumped whenever a segment shape or a parse decision changes, so a client
 /// built against another grammar can refuse rather than misrender.
-pub const ENVELOPE_GRAMMAR_VERSION: u32 = 2;
+pub const ENVELOPE_GRAMMAR_VERSION: u32 = 4;
 
 const MAX_DEPTH: usize = 64;
 
@@ -258,14 +256,12 @@ pub(crate) fn parse_nested(text: &str, depth: usize, allow_frames: bool) -> Vec<
             offset += consumed;
             continue;
         }
-        if allow_frames && opens_frame(rest) {
-            let (segment, consumed) = match frame_extent(rest) {
-                Some(consumed) => (frame_segment(&rest[..consumed], depth), consumed),
-                None => (partial_frame(rest), rest.len()),
-            };
-            out.push(text, offset..offset + consumed, segment);
-            offset += consumed;
-            continue;
+        if allow_frames {
+            if let Some((segment, consumed)) = frame_candidate(rest, boundary, line_start, depth) {
+                out.push(text, offset..offset + consumed, segment);
+                offset += consumed;
+                continue;
+            }
         }
         if boundary {
             if let Some(found) = paste(rest) {

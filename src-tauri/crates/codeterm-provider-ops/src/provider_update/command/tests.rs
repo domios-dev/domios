@@ -312,9 +312,126 @@ fn provider_update_command_job_waits_for_child_after_parent_and_closed_streams()
 
 #[test]
 fn provider_update_command_pre_spawn_refusal_has_no_running_child() {
-    let failure = run_update_command("updater update; injected")
+    let failure = run_update_command("updater update; injected", &[])
         .err()
         .unwrap();
     assert!(failure.child_stopped);
     assert!(failure.reason.starts_with("Resolve:"));
+}
+
+#[test]
+fn provider_update_command_propagates_resolved_search_path_to_inherited_child() {
+    let root = tempfile::tempdir().unwrap();
+    let stripped = root.path().join("stripped");
+    let tools = root.path().join("tools");
+    let bin_dir = root.path().join("updater-bin");
+    std::fs::create_dir(&stripped).unwrap();
+    std::fs::create_dir(&tools).unwrap();
+    std::fs::create_dir(&bin_dir).unwrap();
+    let executable = bin_dir.join("updater");
+    let policy = ResolutionPolicy::Confined(codeterm_plugin::js_runtime::BinSearchEnvironment {
+        inherited_path: Some(stripped.as_os_str().to_owned()),
+        machine_path: codeterm_plugin::js_runtime::EnvironmentValue::Missing,
+        user_path: codeterm_plugin::js_runtime::EnvironmentValue::Value(
+            tools.as_os_str().to_owned(),
+        ),
+        pathext: None,
+    });
+    let search_path = child_search_path(&executable, &policy).unwrap();
+    let entries: Vec<PathBuf> = std::env::split_paths(&search_path).collect();
+    assert_eq!(entries, vec![stripped, tools, bin_dir]);
+
+    let invocation = Invocation {
+        executable,
+        args: Vec::new(),
+        cwd: None,
+        environment: EnvironmentPolicy::Inherited {
+            search_path: Some(search_path.clone()),
+        },
+        execution: std::time::Duration::from_secs(5),
+        cleanup: std::time::Duration::from_secs(1),
+        controls: ExecutorControls::default(),
+    };
+    let command = invocation.command();
+    assert_eq!(
+        command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("PATH")),
+        Some((std::ffi::OsStr::new("PATH"), Some(search_path.as_os_str())))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_update_command_resolves_shebang_interpreter_and_child_tools_via_search_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let tools = root.path().join("tools");
+    let bin_dir = root.path().join("bin");
+    std::fs::create_dir(&tools).unwrap();
+    std::fs::create_dir(&bin_dir).unwrap();
+
+    // Mirrors macOS GUI failures: `/usr/bin/env <interp>` (exit 127) and child tool spawn (os error 2).
+    let interp = tools.join("opaque-interp");
+    std::os::unix::fs::symlink("/bin/sh", &interp).unwrap();
+    let helper = tools.join("opaque-helper");
+    std::fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let shebang_updater = bin_dir.join("shebang-updater");
+    std::fs::write(&shebang_updater, "#!/usr/bin/env opaque-interp\nexit 0\n").unwrap();
+    std::fs::set_permissions(&shebang_updater, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let helper_updater = bin_dir.join("helper-updater");
+    std::fs::write(&helper_updater, "#!/bin/sh\nopaque-helper\n").unwrap();
+    std::fs::set_permissions(&helper_updater, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let stripped_path = OsString::from("/usr/bin:/bin");
+    let policy = ResolutionPolicy::Confined(codeterm_plugin::js_runtime::BinSearchEnvironment {
+        inherited_path: Some(stripped_path.clone()),
+        machine_path: codeterm_plugin::js_runtime::EnvironmentValue::Missing,
+        user_path: codeterm_plugin::js_runtime::EnvironmentValue::Value(
+            tools.as_os_str().to_owned(),
+        ),
+        pathext: None,
+    });
+
+    for updater in [&shebang_updater, &helper_updater] {
+        let stripped_failure = run_invocation(Invocation {
+            executable: updater.clone(),
+            args: Vec::new(),
+            cwd: None,
+            environment: EnvironmentPolicy::Inherited {
+                search_path: Some(stripped_path.clone()),
+            },
+            execution: std::time::Duration::from_secs(10),
+            cleanup: std::time::Duration::from_secs(1),
+            controls: ExecutorControls::default(),
+        })
+        .expect_err("stripped GUI PATH must fail to locate non-system interpreter/tools");
+        assert!(
+            stripped_failure.reason.contains("ParentExit:"),
+            "{}",
+            stripped_failure.reason
+        );
+
+        let enriched = child_search_path(updater, &policy);
+        let result = run_invocation(Invocation {
+            executable: updater.clone(),
+            args: Vec::new(),
+            cwd: None,
+            environment: EnvironmentPolicy::Inherited {
+                search_path: enriched,
+            },
+            execution: std::time::Duration::from_secs(10),
+            cleanup: std::time::Duration::from_secs(1),
+            controls: ExecutorControls::default(),
+        });
+        assert!(
+            result.is_ok(),
+            "enriched search PATH must succeed: {:?}",
+            result.err().map(|err| err.reason)
+        );
+    }
 }

@@ -9,7 +9,7 @@ import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { AgentIcon } from "../AgentIcon";
 import { Button } from "../shared/Button";
 import { MachineGlyph, MachineIconBadge } from "../shared/MachineGlyph";
-import { machineColourLabel, MachineIdentityControls, MachineIdentitySaveError } from "./MachineIdentityControls";
+import { MachineIdentityControls, MachineIdentitySaveError } from "./MachineIdentityControls";
 
 export function useMachineJoin(enabled: boolean, peerId?: string) {
   const [view, setView] = useState<MachineIdentityView>();
@@ -57,11 +57,11 @@ export function MachineIdentityEditor({ name, value, setValue, error, retry, onC
 }) {
   const providerId = useContext(PageDataContext)?.config.config.general_agent.agent_provider;
   const displayName = cleanMachineName(name) ?? "This machine";
-  const appearance = `${MACHINE_KINDS[value.kind].label} · ${machineColourLabel(value.color)}`;
-  return <div role="group" aria-label="Icon and colour" className="machine-identity-editor">
+  const appearance = MACHINE_KINDS[value.kind].label;
+  return <div role="group" aria-label="Machine icon" className="machine-identity-editor">
     {phone && <span className="machine-identity-editor__handle" aria-hidden="true" />}
     <div className="flex items-center justify-between text-[length:var(--ct-font-size-md)] font-semibold">
-      Icon and colour
+      Machine icon
       {!phone && <Button size="compact" variant="icon" aria-label="Close" onClick={onClose}><X size={14} /></Button>}
     </div>
     <div className="machine-identity-editor__preview" aria-hidden="true">

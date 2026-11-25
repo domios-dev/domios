@@ -59,9 +59,38 @@ pub enum RunCompletion {
     ExplicitFinish,
 }
 
+#[derive(Clone)]
 pub struct CronSettlement {
     pub success: bool,
     pub summary: String,
+}
+
+impl CronSettlement {
+    pub fn success(summary: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            summary: summary.into(),
+        }
+    }
+
+    pub(crate) fn confirm_recorded(
+        &self,
+        status: &crate::cron::store::CronRunStatus,
+    ) -> Result<(), String> {
+        if !self.success && *status != crate::cron::store::CronRunStatus::Failed {
+            return Err(format!(
+                "Cron run already has status {status:?}; cannot record failed completion"
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn confirm_outcome(&self, requested: &Self) -> Result<(), String> {
+        if self.success != requested.success {
+            return Err("Cron completion already requested with a different status".into());
+        }
+        Ok(())
+    }
 }
 
 pub trait RolePolicy: Send + Sync {

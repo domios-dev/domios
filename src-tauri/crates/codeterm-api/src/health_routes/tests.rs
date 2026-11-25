@@ -15,6 +15,11 @@ fn identify_advertises_delayed_recurrence_capability() {
     assert!(IDENTIFY_FEATURES.contains(&"delayed_recurrence"));
 }
 
+#[test]
+fn identify_advertises_provider_cli_completion_rail() {
+    assert!(IDENTIFY_FEATURES.contains(&"provider_cli_completion_rail"));
+}
+
 mod display_name {
     use axum::extract::State;
     use codeterm_service_core::multiplexer::state::MultiplexerState;

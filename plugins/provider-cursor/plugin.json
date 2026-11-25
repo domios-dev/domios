@@ -1,7 +1,7 @@
 {
   "id": "cursor",
-  "version": "1.4.10",
-  "minCodeterm": "1.19.2",
+  "version": "1.4.11",
+  "minCodeterm": "1.23.3",
   "hostApi": 2,
   "displayName": "Cursor",
   "binaryName": "cursor-agent",
@@ -100,6 +100,18 @@
     "macos": "curl https://cursor.com/install -fsS | bash",
     "linux": "curl https://cursor.com/install -fsS | bash",
     "windows": "$s = Join-Path $env:TEMP 'codeterm-cursor-install.ps1'; Invoke-WebRequest -Uri 'https://cursor.com/install?win32=true' -OutFile $s -UseBasicParsing; try { & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
+  },
+  "cliInstallDirs": {
+    "macos": [
+      "~/.local/bin"
+    ],
+    "linux": [
+      "~/.local/bin"
+    ],
+    "windows": [
+      "%LOCALAPPDATA%/cursor-agent",
+      "~/AppData/Local/cursor-agent"
+    ]
   },
   "commands": {
     "stopKey": "\u001b",

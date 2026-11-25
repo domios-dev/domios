@@ -2,6 +2,7 @@ use super::ui_projections::board::PlanBoardState;
 use super::{PlanError, PlanStore};
 use crate::plan::{PlanMode, PlanStatus};
 
+#[derive(Clone)]
 pub struct BoardStateRead {
     pub mode: PlanMode,
     pub status: PlanStatus,

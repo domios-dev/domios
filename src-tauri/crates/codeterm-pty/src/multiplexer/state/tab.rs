@@ -124,6 +124,7 @@ impl MultiplexerState {
             self.focused_tab_id = None;
             self.fallback_focus_to_general();
         }
+        let _ = self.force_remove_owned_surfaces(tab_id);
     }
 
     pub fn set_active_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<(), String> {

@@ -193,9 +193,11 @@ export function backgroundCommandName(command: string): string {
 }
 
 export function backgroundOwnsTool(tool: { id?: string; sourceSessionId?: string } | undefined, items: readonly ComposerBackgroundWorkItem[]): boolean {
-  return tool?.id !== undefined && items.some(item => item.kind === "terminal"
-    && (item.sourceItemId === tool.id || item.memberItemIds?.includes(tool.id) === true)
-    && (!tool.sourceSessionId || tool.sourceSessionId === item.threadId));
+  const toolId = tool?.id;
+  const sessionId = tool?.sourceSessionId;
+  return toolId !== undefined && items.some(item => item.kind === "terminal"
+    && (item.sourceItemId === toolId || item.memberItemIds?.includes(toolId) === true)
+    && (!sessionId || sessionId === item.threadId));
 }
 
 function messageOutput(message: NormalizedChatMessage | undefined): string | undefined {

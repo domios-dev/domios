@@ -168,14 +168,14 @@ fn partial_frame_runs_to_the_end_without_a_cut_tag() {
     ] {
         assert_tiles(folded, &parse_envelope_spans(folded));
     }
-    for cut in [
-        "<domios",
-        "<domios from=\"tab\"",
-        "<domios from=\"tab\">opaque </dom",
+    for (cut, expected) in [
+        ("<domios", "<domios"),
+        ("<domios from=\"tab\"", "<domios from=\"tab\""),
+        ("<domios from=\"tab\">opaque </dom", "opaque"),
     ] {
         let segments = parse_envelope(cut);
         assert!(
-            matches!(segments.as_slice(), [MessageSegment::PartialFrame { body, .. }] if !body.contains('<')),
+            matches!(segments.as_slice(), [MessageSegment::PartialFrame { body, .. }] if body == expected),
             "{cut:?}: {segments:?}"
         );
     }
@@ -318,4 +318,97 @@ fn closed_context_shields_unmatched_fences_and_inner_frame_closers() {
             "{quoted}"
         );
     }
+}
+
+#[test]
+fn unclosed_and_malformed_domios_prose_stays_literal_text() {
+    let owner_message = "когда агент упоминает внутренние наши табы или удаленые табы он может в формате <domios ну и там агет писать да? чтоб круто у нас отображалось... типа как <domios type=\"tab\" id=\"0db72b9f\" /> понял?";
+    for literal in [
+        owner_message,
+        "You can write <domios in chat and keep talking.",
+        "в формате <domios",
+        "Use <domios for refs and 10 > 5",
+        "Check <domios type=\"tab\" id=\"0db72b9f\"> without slash",
+        "Incomplete <domios type=\"tab\" id=\"0db",
+        "Example <domios from=\"tab\"> is unclosed and has a visible tail.",
+        "Example <domios from=\"tab and the sentence continues.",
+        "Example <domios from=\"tab\" label=\"the sentence continues.",
+        "Example <domios from=\"tab\" from=system",
+        "Malformed <domios type=\"tab\" /> marker",
+        "Remote <domios type=\"tab\" id=\"0db72b9f\" peer=\"blackstar\" /> chip",
+    ] {
+        let spans = parse_envelope_spans(literal);
+        assert_tiles(literal, &spans);
+        assert_eq!(
+            spans.into_iter().map(|s| s.segment).collect::<Vec<_>>(),
+            vec![MessageSegment::Text {
+                text: literal.to_string(),
+            }],
+            "{literal}"
+        );
+    }
+
+    let routed =
+        format!("<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\">{owner_message}</domios>");
+    let routed_spans = parse_envelope_spans(&routed);
+    assert_tiles(&routed, &routed_spans);
+    assert!(matches!(
+        routed_spans.as_slice(),
+        [SpannedSegment {
+            segment: MessageSegment::Frame {
+                kind: FrameKind::Tab,
+                body,
+                ..
+            },
+            ..
+        }] if body == owner_message
+    ));
+}
+
+#[test]
+fn inert_opening_preserves_the_next_routed_frame_and_owner_tail() {
+    for prefix in [
+        "Example <domios type=\"tab\">before ",
+        "<domios from=\"unfinished ",
+    ] {
+        let source = format!("{prefix}<domios from=tab>body</domios> after");
+        let segments = parse_envelope(&source);
+        assert!(matches!(segments.as_slice(), [
+            MessageSegment::Text { text },
+            MessageSegment::Frame { kind: FrameKind::Tab, body, .. },
+            MessageSegment::Text { text: tail }
+        ] if text == prefix && body == "body" && tail == " after"));
+    }
+}
+
+#[test]
+fn inline_streaming_opening_exposes_its_raw_prefix() {
+    let prefix = "<domios from=\"tab\" lab";
+    let segments = parse_envelope(&format!("before {prefix}"));
+    assert!(matches!(segments.as_slice(), [
+        MessageSegment::Text { text },
+        MessageSegment::PartialFrame { body, raw, .. }
+    ] if text == "before " && body == prefix && raw == prefix));
+}
+
+#[test]
+fn terminal_sender_close_requires_a_line_boundary_and_unpaired_non_sender() {
+    let literal = "<domios type=\"tab\">body";
+    let sender = format!("<domios from=tab>{literal}</domios>");
+    assert!(
+        matches!(parse_envelope(&format!("prefix\n{sender}")).as_slice(), [
+        MessageSegment::Text { .. }, MessageSegment::Frame { body, .. }
+    ] if body == literal)
+    );
+    let raw = "<domios from=tab><domios from=report><domios type=tab>body</domios>";
+    assert!(matches!(
+        parse_envelope(raw).as_slice(),
+        [MessageSegment::PartialFrame { .. }]
+    ));
+    let tail = "owner <domios type=tab>second</domios> then <domios from=\"unfinished prose";
+    assert!(
+        matches!(parse_envelope(&format!("{sender}{tail}")).as_slice(), [
+        MessageSegment::Frame { body, .. }, MessageSegment::Text { text }
+    ] if body == literal && text == tail)
+    );
 }

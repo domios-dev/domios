@@ -161,7 +161,7 @@ impl MultiplexerState {
 
         let tab_ids = workspace.tabs;
 
-        let pty_ids: Vec<String> = tab_ids
+        let mut pty_ids: Vec<String> = tab_ids
             .iter()
             .filter_map(|pid| self.tabs.get(pid))
             .filter_map(|tab| tab.pty_id.clone())
@@ -174,6 +174,9 @@ impl MultiplexerState {
                     self.pty_to_tab.remove(pty_id);
                 }
             }
+        }
+        for pid in &tab_ids {
+            pty_ids.extend(self.force_remove_owned_surfaces(pid));
         }
 
         if self.active_workspace_id.as_deref() == Some(id) {
@@ -435,5 +438,50 @@ mod move_tab_transaction_tests {
             .tabs
             .contains(&synthetic_tab));
         assert!(state.recent_closed_view().is_empty());
+    }
+
+    #[test]
+    fn closing_workspace_removes_owned_surfaces_even_in_another_workspace() {
+        use crate::multiplexer::types::{SurfaceBacking, TabBacking};
+
+        let (mut state, survivor) = MultiplexerState::new();
+        let ws_a = state.find_workspace_for_tab(&survivor).unwrap();
+        let ws_b = state.create_workspace("Second".into(), None).id;
+        let owner = state.create_tab(&ws_b).unwrap();
+
+        let owned_surface = state.create_tab(&ws_a).unwrap();
+        {
+            let tab = state.get_tab_mut(&owned_surface).unwrap();
+            tab.parent_tab_id = Some(owner.clone());
+            tab.backing = TabBacking::Surface(SurfaceBacking {
+                plugin_id: "browser".into(),
+                surface_id: "browser".into(),
+                instance_id: "cross-ws".into(),
+                owner_label: true,
+                resume_url: None,
+                resume_profile: None,
+            });
+        }
+        let standalone_surface = state.create_tab(&ws_a).unwrap();
+        state.get_tab_mut(&standalone_surface).unwrap().backing =
+            TabBacking::Surface(SurfaceBacking {
+                plugin_id: "browser".into(),
+                surface_id: "browser".into(),
+                instance_id: "standalone".into(),
+                owner_label: false,
+                resume_url: None,
+                resume_profile: None,
+            });
+
+        state.close_workspace(&ws_b).unwrap();
+
+        assert!(state.get_tab(&owner).is_none());
+        assert!(state.get_tab(&owned_surface).is_none());
+        assert!(!state
+            .get_workspace(&ws_a)
+            .unwrap()
+            .tabs
+            .contains(&owned_surface));
+        assert!(state.get_tab(&standalone_surface).is_some());
     }
 }

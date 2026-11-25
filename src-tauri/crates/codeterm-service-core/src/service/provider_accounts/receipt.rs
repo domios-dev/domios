@@ -20,12 +20,7 @@ fn declaration(svc: &ServiceContext, provider: &str) -> Option<String> {
 
 fn binary(svc: &ServiceContext, provider: &str) -> Option<String> {
     let adapter = svc.agent_registry.provider_arc(provider)?;
-    let binary = adapter.cli_binary()?;
-    let codeterm_plugin::js_runtime::BinResolution::Found(path) =
-        codeterm_plugin::js_runtime::probe_bin(binary).resolution
-    else {
-        return None;
-    };
+    let path = adapter.resolved_cli_path()?;
     serde_json::to_string(&codeterm_plugin::model_catalog::fingerprint_path(&path)?).ok()
 }
 

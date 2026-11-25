@@ -155,7 +155,11 @@ pub(super) fn prepend_assignment(
         task_name: read.task_name.clone(),
         personality: read.personality.clone(),
         role_guidance: read.role_guidance.clone(),
-        strides: super::stride_context::render_worker_strides(&read.milestones),
+        strides: super::stride_context::render_worker_strides(
+            &read.milestones,
+            (!read.plan_id.trim().is_empty()).then_some(read.plan_id.as_str()),
+            Some(read.task_id.as_str()),
+        ),
         loop_spec: read.loop_spec,
         live_attempt_count: read.live_attempt_count,
         skill_count: if read.plan_id.trim().is_empty() {

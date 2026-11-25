@@ -1082,3 +1082,91 @@ fn taskless_worker_spawn_joins_parent_team_and_returns_its_membership() {
     assert_eq!(serialized["team_id"], team);
     fixture.service.close_tab(&result.tab_id).unwrap();
 }
+
+#[test]
+fn remote_pty_worker_spawn_stamps_attempt_binding_before_startup_supervision() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace = mux.create_workspace("remote pty startup".into(), None).id;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("remote-pty-fixture")
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
+    ));
+    let identity = crate::service::startup_lease::StartupTaskIdentity {
+        plan_id: "plan-remote".into(),
+        task_id: "task-remote".into(),
+        attempt_id: "attempt-remote".into(),
+    };
+    let params = SpawnAgentParams {
+        agent: Some("remote-pty-fixture".into()),
+        workspace_id: Some(workspace),
+        plan_id: Some(identity.plan_id.clone()),
+        task_id: Some(identity.task_id.clone()),
+        task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+            plan_id: identity.plan_id.clone(),
+            task_id: identity.task_id.clone(),
+            attempt_id: identity.attempt_id.clone(),
+            lane_base: Some("base-sha".into()),
+        }),
+        remote_task_binding: Some(crate::service::RemoteTaskBinding {
+            plan_id: identity.plan_id.clone(),
+            task_id: identity.task_id.clone(),
+            attempt_id: identity.attempt_id.clone(),
+            origin_peer_id: "origin-peer".into(),
+        }),
+        report_target_mesh_peer: Some("origin-peer".into()),
+        ..Default::default()
+    };
+    let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(params);
+    // Call spawn_visible_agent_impl directly without post-spawn bind_worker_plan_task_or_rollback_tab,
+    // reproducing the exact window where the background PTY thread activates startup supervision.
+    let handle = fixture
+        .service
+        .spawn_visible_agent_impl(spec, None)
+        .unwrap();
+    {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&handle.tab_id).unwrap();
+        let binding = tab
+            .task_binding
+            .as_ref()
+            .expect("remote task binding stamped before launch");
+        assert_eq!(binding.plan_id.as_deref(), Some("plan-remote"));
+        assert_eq!(binding.task_id.as_deref(), Some("task-remote"));
+        assert_eq!(binding.attempt_id.as_deref(), Some("attempt-remote"));
+        assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("origin-peer"));
+    }
+    fixture.service.close_tab(&handle.tab_id).unwrap();
+
+    // Verify stamped authority directly satisfies activate_agent_startup_supervision without a local waiter.
+    let verified_tab_id = {
+        let mut mux = fixture.service.mux.write();
+        let ws = mux.list_workspaces()[0].id.clone();
+        let tab_id = mux.create_tab(&ws).unwrap();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        crate::service::spawn::stamp_launch_authority(
+            tab,
+            &SpawnAgentParams {
+                remote_task_binding: Some(crate::service::RemoteTaskBinding {
+                    plan_id: identity.plan_id.clone(),
+                    task_id: identity.task_id.clone(),
+                    attempt_id: identity.attempt_id.clone(),
+                    origin_peer_id: "origin-peer".into(),
+                }),
+                ..Default::default()
+            },
+        );
+        tab.pty_id = Some("pty-remote-race".into());
+        tab.session_binding_nonce = Some("nonce-remote-race".into());
+        tab_id
+    };
+    fixture
+        .service
+        .activate_agent_startup_supervision(
+            &verified_tab_id,
+            "pty-remote-race",
+            "nonce-remote-race",
+            Some(&identity),
+        )
+        .expect("remote PTY launch must pass startup supervision without a local supervisor");
+}

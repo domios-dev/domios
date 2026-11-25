@@ -202,7 +202,7 @@ Missing `protocol_version` is refused, including relayed reports. Update peer CL
 | `cron.trigger` | `{id}` | Manually trigger cron job |
 | `cron.cancel` | `{id}` | Stop currently-running executions (`{cancelled: N}`) without deleting the job |
 | `cron.history` | `{id}` | Get run history |
-| `cron.complete` | `{run_id, summary?, caller_tab_id?, session_binding_nonce?}` | Complete a cron run. A tab caller must match the owning tab and its binding nonce; no tab identity means the local human path. |
+| `cron.complete` | `{run_id, status?, summary?, caller_tab_id?, session_binding_nonce?, human_confirmed?}` | Record `success` (default) or `failed`. The owning tab supplies its binding nonce. A local human without tab identity confirms with `--yes`. |
 | `services.list` | `{kind?, enabled?}` | List registered services (cron + daemon). |
 | `services.create` | `{name, kind:"daemon", health_mode, ...}` | Register a daemon-kind service. Same body shape as `POST /api/services`. Returns `{service, token}`; rejects non-daemon kinds with `-32602` (use `cron.create` for cron jobs). |
 | `services.get` | `{id}` | Get one service (with latest health snapshot). |
@@ -222,4 +222,4 @@ For `team.rename`, the host credential without selected tab context uses the tru
 
 Plan writes require the live bound session of the Plan owner or Planner. They, and a Planner-authored `plan.create` from a live launch presenting its own nonce, wait on the binding event through the startup deadline without blocking the HTTP runtime. On expiry HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`; the socket error carries the same type and retryability in `data`. A settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error on both transports. Pending status never authorizes the mutation.
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->

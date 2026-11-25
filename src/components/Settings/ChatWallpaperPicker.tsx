@@ -27,7 +27,7 @@ interface StagedWallpaper {
 
 function thumbnailStyle(theme: ThemeConfig, wallpaper: ChatWallpaper, light: boolean, scale: number, assetUrl?: string) {
   const thumbnail = { ...wallpaper, background: { ...wallpaper.background, scale } };
-  return wallpaperRenderStyle(theme, thumbnail, light, assetUrl, undefined, wallpaperThumbnailIntensity(light));
+  return wallpaperRenderStyle(theme, thumbnail, light, assetUrl, wallpaperThumbnailIntensity(light));
 }
 
 export function ChatWallpaperPicker({ config, showOwnInitially, stage }: { config: AppConfig; showOwnInitially?: boolean; stage?: StagedWallpaper }) {
@@ -36,14 +36,13 @@ export function ChatWallpaperPicker({ config, showOwnInitially, stage }: { confi
     peerId={stage.peerId} ready={stage.ready} stage={stage.update} discard={stage.discard} ask={stage.ask} showOwnInitially={showOwnInitially} />;
   const appearance = selected?.appearance ?? { theme: config.theme, wallpaper: config.chat_wallpaper ?? null };
   return <Picker key={`${selected?.peerId ?? "local"}:${appearance.theme.name}`} theme={appearance.theme} installed={appearance.wallpaper}
-    machineColor={selected?.identity?.color} peerId={selected?.peerId} ready={selected?.ready ?? true}
+    peerId={selected?.peerId} ready={selected?.ready ?? true}
     project={selected?.projectWallpaper} showOwnInitially={showOwnInitially} />;
 }
 
 interface PickerProps {
   theme: ThemeConfig;
   installed: ChatWallpaper | null;
-  machineColor?: Parameters<typeof wallpaperRenderStyle>[4];
   peerId?: string;
   ready: boolean;
   project?: (wallpaper: ChatWallpaper | null) => void;
@@ -53,7 +52,7 @@ interface PickerProps {
   ask?: StagedWallpaper["ask"];
 }
 
-function Picker({ theme, installed, machineColor, peerId, ready, project, showOwnInitially, stage, discard, ask }: PickerProps) {
+function Picker({ theme, installed, peerId, ready, project, showOwnInitially, stage, discard, ask }: PickerProps) {
   const themeIsLight = isLightColor(theme.background);
   const [lightOverride, setLightOverride] = useState<boolean>();
   const light = lightOverride ?? themeIsLight;
@@ -246,7 +245,7 @@ function Picker({ theme, installed, machineColor, peerId, ready, project, showOw
         </div>
         <div className="ct-wallpaper-preview__chat" data-preview-theme={light ? "light" : "dark"} style={{
           ...themeToCSS(displayedTheme),
-          ...wallpaperRenderStyle(displayedTheme, source ?? undefined, light, asset?.url, machineColor),
+          ...wallpaperRenderStyle(displayedTheme, source ?? undefined, light, asset?.url),
         } as CSSProperties}>
           <span className="ct-chat-wallpaper" aria-hidden="true" />
           <div className="ct-wallpaper-preview__messages">

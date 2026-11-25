@@ -61,10 +61,21 @@ pub struct MeshManager {
     pending_links: HashMap<String, account_admission::PendingLink>,
     account_ready: bool,
     remote_access_epoch: u64,
+    mesh_enable_generation: u64,
     peer_grant_epochs: HashMap<String, u64>,
 }
 
 impl MeshManager {
+    pub fn mesh_enable_generation(&self) -> u64 {
+        self.mesh_enable_generation
+    }
+
+    pub fn note_mesh_enabled(&mut self) -> u64 {
+        self.peer_request_retry.clear();
+        self.mesh_enable_generation = self.mesh_enable_generation.wrapping_add(1);
+        self.mesh_enable_generation
+    }
+
     pub fn record_announce_outcome(&mut self, peer_id: &str, acknowledged: bool) {
         if acknowledged {
             self.unacked_announce.remove(peer_id);
@@ -104,7 +115,6 @@ impl MeshManager {
         let ident = identity::IdentityManager::new(identity, instance_name);
         let machine_identity = crate::machine_identity::Revision {
             identity: crate::machine_identity::MachineIdentity::inferred(
-                &ident.identity.instance_id,
                 std::env::consts::OS,
                 std::env::var_os("DISPLAY").is_none()
                     && std::env::var_os("WAYLAND_DISPLAY").is_none(),
@@ -151,6 +161,7 @@ impl MeshManager {
             pending_links: HashMap::new(),
             account_ready: true,
             remote_access_epoch: 0,
+            mesh_enable_generation: 0,
             peer_grant_epochs: HashMap::new(),
         }
     }

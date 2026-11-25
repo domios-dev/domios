@@ -7,26 +7,26 @@
     {
       "id": "claude",
       "path": "provider-claude",
-      "version": "1.14.39",
-      "minCodeterm": "1.20.2"
+      "version": "1.14.40",
+      "minCodeterm": "1.23.3"
     },
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.14.85",
-      "minCodeterm": "1.22.1"
+      "version": "1.14.86",
+      "minCodeterm": "1.23.3"
     },
     {
       "id": "opencode",
       "path": "provider-opencode",
-      "version": "1.14.35",
-      "minCodeterm": "1.21.0"
+      "version": "1.14.36",
+      "minCodeterm": "1.23.3"
     },
     {
       "id": "cursor",
       "path": "provider-cursor",
-      "version": "1.4.10",
-      "minCodeterm": "1.19.2"
+      "version": "1.4.11",
+      "minCodeterm": "1.23.3"
     },
     {
       "id": "chat-preprocessor",

@@ -1,6 +1,6 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { deriveColor } from "../../lib/colors";
-import { cleanMachineName, desaturateMachineColor, machineColor, machineGlyphColor, machineLabel, UNKNOWN_MACHINE, type MachineIdentity } from "../../lib/machineIdentity";
+import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLabel, UNKNOWN_MACHINE, type MachineIdentity } from "../../lib/machineIdentity";
 import { REMOTE_CHAT_COPY, remoteMachineName } from "../../lib/remoteChatState";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { asleepDuration } from "../../lib/tabSleep";
@@ -94,7 +94,6 @@ export function TeamMachinePill({ id, name, identity }: { id: string; name: stri
     className="ct-neutral-badge sidebar-team-machine-pill"
     data-remote={identity ? "true" : undefined}
     title={name}
-    style={identity ? { "--ct-plan-tone": `var(--ct-machine-${machineColor(identity.color)})` } as CSSProperties : undefined}
   >
     {identity && <MachineGlyph {...identity} />}
     <span className="sidebar-team-machine-pill__label min-w-0 truncate">{name}</span>

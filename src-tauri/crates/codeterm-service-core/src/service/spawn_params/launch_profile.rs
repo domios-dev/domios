@@ -160,14 +160,15 @@ impl ServiceContext {
         provider: &str,
         requested: Option<&str>,
     ) -> Result<(), LaunchProfileRefusal> {
-        let capability = self
-            .agent_registry
-            .with_provider(provider, |provider| provider.agent_runtime())
-            .flatten();
+        let adapter = self.agent_registry.provider_arc(provider);
+        let capability = adapter.as_ref().and_then(|p| p.agent_runtime());
         validate(provider, capability.as_ref(), requested, |id, profile| {
+            let Some(adapter) = adapter.as_ref() else {
+                return false;
+            };
             launch_profile_install::profile_root(provider).is_ok_and(|root| {
                 matches!(
-                    launch_profile_install::detect(&root, id, profile),
+                    launch_profile_install::detect(&root, id, profile, &adapter.cli_search_dirs()),
                     InstallState::Installed | InstallState::Detected
                 )
             })

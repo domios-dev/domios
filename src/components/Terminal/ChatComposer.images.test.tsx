@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MessageBubble } from "@codeterm/chat-ui";
-import { parseAttachmentMarkers } from "@codeterm/chat-core";
+import { formatAttachmentMarker, parseAttachmentMarkers } from "@codeterm/chat-core";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
@@ -189,4 +189,73 @@ it.each([
     expect(view.host.querySelector('[role="status"][data-state="failed"]')?.getAttribute("aria-label")).toContain(reason);
     if (["upload", "resolution", "handoff"].includes(stage)) expect(send.draft).toBeDefined();
   } finally { await view.dispose(); }
+});
+
+it("transfers remote pasted attachment tags once and keeps viewer-local paths out of optimistic and sent payloads", async () => {
+  const tabId = "mesh:blackstar/orch-1";
+  const localPath = "/var/folders/viewer/codeterm-chat/local-shot.png";
+  const remotePath = "C:\\Users\\User\\.domios\\uploads\\abcd1234-local-shot.png";
+  const optimisticContents: string[] = [];
+  const transferred: unknown[] = [];
+  const sent: string[] = [];
+  uploads.store = async () => localPath;
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "mesh_transfer_attachment") {
+      transferred.push(args);
+      return { path: remotePath, kind: "file", size: 5, reference: null } as T;
+    }
+    if (command === "chat_send_text") {
+      sent.push(String(args?.text));
+      return { tab_id: tabId, send_id: "s1", correlationId: String(args?.clientToken), state: "delivered", error: null, ledger_id: "l", sequence: 1, retained_from: 0 } as T;
+    }
+    if (["chat_send_status", "chat_send_dismissals", "delayed_send_list", "cron_list", "list_agent_providers"].includes(command)) return [] as T;
+    return { items: [], receiverTargets: {} } as T;
+  });
+  __setListenForTest(async () => () => {});
+  const state = {
+    workspaces: [],
+    tabs: { [tabId]: { id: tabId, pty_id: null, tab_type: "Terminal", title: "Remote", cwd: null } },
+    teams: [], notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+    active_workspace_id: null, focused_tab_id: null,
+  } as ExtendedState;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const store = createMuxStateStore(() => state);
+  let bubbles = 0;
+  try {
+    await act(async () => root.render(
+      <DraftStorageFixture><MuxStateStoreContext.Provider value={store}><ComposerIssuesProvider>
+        <ChatComposer tabId={tabId} tabProvider={null} pendingPrompt={null}
+          attachments={[]} addAttachments={() => {}} removeAttachment={() => {}} clearAttachments={() => {}}
+          handlePasteEvent={() => {}} onWillSendMessage={() => {}}
+          addOptimistic={(content) => {
+            optimisticContents.push(content);
+            const id = `remote-${++bubbles}`;
+            addChatSend(tabId, { id, correlationId: id, content, sentAtMs: bubbles });
+            return id;
+          }}
+          updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} />
+      </ComposerIssuesProvider></MuxStateStoreContext.Provider></DraftStorageFixture>,
+    ));
+    const editor = host.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"]')!;
+    const pasteEvent = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: {
+        items: [],
+        files: [],
+        getData: (type: string) => type === "text/plain" ? `check ${formatAttachmentMarker(localPath, "image", "image1")}` : "",
+      } as unknown as DataTransfer,
+    });
+    await act(async () => { editor.dispatchEvent(pasteEvent); });
+    await act(async () => { editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })); });
+    expect(transferred).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+    expect(optimisticContents[0]).not.toContain(localPath);
+    expect(sent[0]).not.toContain(localPath);
+    expect(parseAttachmentMarkers(sent[0]).attachments.map((a) => a.path)).toEqual([remotePath]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });

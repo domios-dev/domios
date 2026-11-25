@@ -23,6 +23,7 @@ export interface ChatMentionValue {
   providerId?: string | null;
   providerName?: string;
   role?: string;
+  peerName?: string;
   workspaceName?: string;
   activity?: "working" | "waiting" | "error" | "idle";
 }

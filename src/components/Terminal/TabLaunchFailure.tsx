@@ -8,6 +8,8 @@ import { InlineErrorNotice, type ErrorNoticeAction } from "../shared/ErrorNotice
 import type { ErrorDescription } from "../../lib/describeError";
 import { paneStateModel } from "../shared/paneStateModel";
 import { PaneState } from "../shared/PaneState";
+import { parseProviderNotInstalled } from "../../lib/providerNotInstalled";
+import { ProviderNotInstalledNotice } from "./ProviderNotInstalledNotice";
 
 export function relocateTabFolder(tabId: string, path: string) {
   return recoverTabFolder(tabId, path, {
@@ -27,6 +29,18 @@ export function TabLaunchFailure({ tabId, workspace, cwd, reason, actions = [], 
 }) {
   const mux = useContext(MultiplexerActionsContext);
   const close = tabId && workspace && mux ? () => mux.closeTab(workspace.id, tabId) : undefined;
+  const notInstalled = parseProviderNotInstalled(reason);
+  if (notInstalled) {
+    return <ProviderNotInstalledNotice
+      key={tabId}
+      tabId={tabId}
+      info={notInstalled}
+      rawReason={reason ?? ""}
+      inline={inline}
+      onRetry={actions[0]?.onClick}
+      onClose={close}
+    />;
+  }
   if (inline) return <InlineErrorNotice error={reason} description={description} actions={actions} operation="restoring this session" />;
   return workspace && paneStateModel(reason).actions.includes("choose-folder")
     ? <FolderPaneState workspace={workspace} error={reason} cwd={cwd} actions={actions} onClose={close}

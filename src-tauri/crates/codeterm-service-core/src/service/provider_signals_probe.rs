@@ -2,8 +2,17 @@ use codeterm_plugin::provider::AuthStatusProbe;
 use serde_json::Value;
 use tokio::io::AsyncReadExt;
 
+#[cfg(test)]
 pub(super) fn capture(binary: &str, probe: &AuthStatusProbe) -> Option<Value> {
-    capture_result(binary, probe).ok()
+    capture_in(binary, &[], probe)
+}
+
+pub(super) fn capture_in(
+    binary: &str,
+    extra_dirs: &[std::path::PathBuf],
+    probe: &AuthStatusProbe,
+) -> Option<Value> {
+    capture_result_in(binary, extra_dirs, probe).ok()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -26,9 +35,13 @@ async fn await_probe(
         .ok_or(ProbeFailure::Unavailable)
 }
 
-pub fn capture_result(binary: &str, probe: &AuthStatusProbe) -> Result<Value, ProbeFailure> {
+pub fn capture_result_in(
+    binary: &str,
+    extra_dirs: &[std::path::PathBuf],
+    probe: &AuthStatusProbe,
+) -> Result<Value, ProbeFailure> {
     let codeterm_plugin::js_runtime::BinResolution::Found(binary) =
-        codeterm_plugin::js_runtime::probe_bin(binary).resolution
+        codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(binary, extra_dirs).resolution
     else {
         return Err(ProbeFailure::Unavailable);
     };

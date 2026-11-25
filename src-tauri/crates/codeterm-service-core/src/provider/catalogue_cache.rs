@@ -30,6 +30,14 @@ impl<K: Eq, V: Clone> RevisionCache<K, V> {
         }
         self.entries.insert(key, (revision, value));
     }
+
+    pub fn remove(&mut self, key: &str) {
+        self.entries.remove(key);
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 /// No revision moves when a CLI is installed, so a memoized miss is served
@@ -41,9 +49,9 @@ pub(super) fn misses_still_hold<'a>(
     unresolved.into_iter().all(|binary| !found(binary))
 }
 
-pub(super) fn binary_found(binary: &str) -> bool {
+pub(super) fn binary_found_in(binary: &str, extra_dirs: &[std::path::PathBuf]) -> bool {
     matches!(
-        codeterm_plugin::js_runtime::probe_bin(binary).resolution,
+        codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(binary, extra_dirs).resolution,
         codeterm_plugin::js_runtime::BinResolution::Found(_)
     )
 }
@@ -54,11 +62,26 @@ pub(super) fn unresolved_cli(status: &ProviderCliStatus) -> Option<&str> {
         .flatten()
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn unresolved_listing(values: &[serde_json::Value]) -> impl Iterator<Item = &str> {
     values
         .iter()
         .filter(|value| value["availability"] != "available")
         .filter_map(|value| value["cli_status"]["binary"].as_str())
+}
+
+pub(super) fn unresolved_listing_entries(
+    values: &[serde_json::Value],
+) -> impl Iterator<Item = (&str, &str)> {
+    values
+        .iter()
+        .filter(|value| value["availability"] != "available")
+        .filter_map(|value| {
+            Some((
+                value["id"].as_str()?,
+                value["cli_status"]["binary"].as_str()?,
+            ))
+        })
 }
 
 #[cfg(test)]

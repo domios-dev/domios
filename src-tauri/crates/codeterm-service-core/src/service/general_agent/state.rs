@@ -142,6 +142,21 @@ pub(super) fn take_fresh_session_requirement() -> bool {
     }
 }
 
+pub(super) fn prepare_with_fresh_session_requirement<T>(
+    marker: &Path,
+    prepare: impl FnOnce(bool) -> Result<T, String>,
+) -> Result<T, String> {
+    let fresh = marker
+        .try_exists()
+        .map_err(|error| format!("Cannot read General's fresh-session request: {error}"))?;
+    let prepared = prepare(fresh)?;
+    if fresh {
+        std::fs::remove_file(marker)
+            .map_err(|error| format!("Cannot clear General's fresh-session request: {error}"))?;
+    }
+    Ok(prepared)
+}
+
 pub(super) fn detect_owned_session_id(
     registry: &crate::agent::registry::AgentRegistry,
     provider_name: &str,
@@ -223,7 +238,7 @@ fn session_state_path() -> std::path::PathBuf {
         .join("general-agent-session.json")
 }
 
-fn fresh_session_path() -> std::path::PathBuf {
+pub(super) fn fresh_session_path() -> std::path::PathBuf {
     general_dir().join("state").join("force-fresh-session")
 }
 

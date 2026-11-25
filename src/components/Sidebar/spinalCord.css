@@ -195,6 +195,7 @@
   width: 100%;
   height: auto;
   margin: 2px 0 6px;
+  contain: layout paint;
 }
 
 .ct-spinal-graphic__line {
@@ -237,7 +238,7 @@
 }
 
 .ct-spinal-graphic__bone {
-  fill: color-mix(in srgb, var(--ct-accent) 22%, var(--ct-bg));
+  fill: color-mix(in srgb, var(--ct-accent) 34%, var(--ct-bg));
   stroke: color-mix(in srgb, var(--ct-accent) 45%, transparent);
   animation: ct-spinal-bone-glow 2.4s var(--ct-ease-liquid-breathe) infinite;
 }
@@ -346,8 +347,8 @@
 }
 
 @keyframes ct-spinal-bone-glow {
-  0%, 100% { fill: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-bg)); }
-  50% { fill: color-mix(in srgb, var(--ct-accent) 38%, var(--ct-bg)); }
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

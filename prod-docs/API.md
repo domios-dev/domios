@@ -58,9 +58,9 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/account/mesh/identity` | — | Read this machine's name, identity and whether it has made a choice |
-| POST | `/api/account/mesh/identity` | `{kind,color}` | Save as owner, or request owner approval as an authenticated agent |
+| POST | `/api/account/mesh/identity` | `{kind}` | Save as owner, or request owner approval as an authenticated agent |
 | GET | `/api/mesh/identity` | — | Read a paired target's identity through the signed relay |
-| POST | `/api/mesh/identity` | `{kind,color}` | Save or request owner approval on the paired target through the signed relay |
+| POST | `/api/mesh/identity` | `{kind}` | Save or request owner approval on the paired target through the signed relay |
 
 An identity mutation reports `saved` with the identity or `awaiting_owner` with the notification ID.
 
@@ -220,4 +220,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 255 -->
+<!-- revision: 256 -->

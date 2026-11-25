@@ -191,7 +191,7 @@ fn node_command(node: &Path, script: &Path) -> codeterm_plugin::agent_runtime::A
 }
 
 async fn package_manager(target: &Path, archive: &Path) -> Result<PathBuf, String> {
-    let runner = super::resolve_binary("npm")?.ok_or("npm is not installed")?;
+    let runner = super::resolve_binary("npm", &[])?.ok_or("npm is not installed")?;
     let runner = runner.canonicalize().map_err(|_| "npm path unavailable")?;
     let cli = if runner.extension().is_some_and(|ext| ext == "cmd") {
         runner
@@ -204,7 +204,7 @@ async fn package_manager(target: &Path, archive: &Path) -> Result<PathBuf, Strin
     if !cli.is_file() || cli.extension().is_none_or(|ext| ext != "js") {
         return Err("A native npm CLI entry point is required".into());
     }
-    let node = super::resolve_binary("node")?.ok_or("Node.js is not installed")?;
+    let node = super::resolve_binary("node", &[])?.ok_or("Node.js is not installed")?;
     let invocation = node_command(&node, &cli);
     let mut command = tokio::process::Command::new(&invocation.binary);
     crate::process_util::no_window_tokio(&mut command);

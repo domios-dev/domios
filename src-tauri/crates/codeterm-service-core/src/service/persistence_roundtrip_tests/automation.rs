@@ -4,6 +4,7 @@ use crate::cron::store::{
     CronCreateParams, CronRunInfo, CronRunStatus, CronStorageOptions, CronStore,
 };
 use crate::plugin::js_runtime::{JsProvider, PluginVm};
+use crate::service::role_policy::CronSettlement;
 use crate::service::spawn::TabHandle;
 use crate::service::ServiceContext;
 use crate::storage::Storage;
@@ -235,7 +236,7 @@ fn cron_complete_accepts_sessionless_hidden_run_owner() {
                 &cron,
                 &wake,
                 &run.run_id,
-                Some("finished"),
+                CronSettlement::success("finished"),
                 caller,
                 nonce,
                 human_confirmed,
@@ -303,6 +304,15 @@ fn cron_complete_accepts_sessionless_hidden_run_owner() {
 
 #[test]
 fn cron_run_start_finish_and_history_round_trip_expected_pass() {
+    explicit_cron_completion_round_trip(true);
+}
+
+#[test]
+fn cron_failed_completion_survives_provider_stop_duplicate_and_restart() {
+    explicit_cron_completion_round_trip(false);
+}
+
+fn explicit_cron_completion_round_trip(success: bool) {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
     let service = &instance.fixture.service;
@@ -322,22 +332,26 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
     let nonce = service.ensure_session_binding_nonce(tab_id);
     service.set_agent_session_id(tab_id, Some(SESSION.into()));
 
-    let complete = |summary, nonce| {
+    let complete = |summary: &str, nonce, success| {
         service.cron_complete(
             &cron,
             &wake,
             &run.run_id,
-            Some(summary),
+            CronSettlement {
+                success,
+                summary: summary.into(),
+            },
             Some(tab_id),
             Some(nonce),
             false,
         )
     };
-    assert!(complete("foreign completion", "foreign nonce").is_err());
-    assert!(complete("finished", &nonce)
+    assert!(complete("foreign completion", "foreign nonce", success).is_err());
+    assert!(complete("finished", &nonce, success)
         .expect("request completion")
         .is_none());
-    assert!(complete("duplicate", &nonce)
+    assert!(complete("conflicting outcome", &nonce, !success).is_err());
+    assert!(complete("duplicate", &nonce, success)
         .expect("repeat completion request")
         .is_none());
 
@@ -375,9 +389,13 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
     }
     instance.fixture.ui.unlisten(listener);
     assert!(service.mux.read().get_tab(tab_id).is_none());
-    assert!(complete("late duplicate", &nonce)
+    assert!(complete("late duplicate", &nonce, success)
         .expect("repeat settled completion")
         .is_none());
+
+    if success {
+        assert!(complete("late failure", &nonce, false).is_err());
+    }
 
     let spawn_error = "fixture spawn failed";
     assert_eq!(
@@ -390,7 +408,7 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
     let history = service.cron_history(&cron, &created.id).unwrap();
     let failed_run_id = history
         .iter()
-        .find(|row| row.status == CronRunStatus::Failed)
+        .find(|row| row.run_id != run.run_id && row.status == CronRunStatus::Failed)
         .expect("failed trigger records its run")
         .run_id
         .clone();
@@ -408,9 +426,16 @@ fn cron_run_start_finish_and_history_round_trip_expected_pass() {
     let saved = history
         .iter()
         .find(|row| row.run_id == run.run_id)
-        .expect("successful run survived restart");
+        .expect("explicitly completed run survived restart");
     assert_eq!(saved.tab_id.as_deref(), Some(tab_id));
-    assert_eq!(saved.status, CronRunStatus::Success);
+    assert_eq!(
+        saved.status,
+        if success {
+            CronRunStatus::Success
+        } else {
+            CronRunStatus::Failed
+        }
+    );
     assert!(saved.finished_at.is_some());
     assert_eq!(saved.session_id.as_deref(), Some(SESSION));
     assert_eq!(saved.summary.as_deref(), Some("finished"));

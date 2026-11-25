@@ -5,9 +5,194 @@ use serde::Serialize;
 use crate::routes::AppState;
 
 const MAX_LANE_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
+const REMOTE_LAUNCH_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+const DISPATCH_PENDING: &str =
+    "peer_worker_launch_pending: the peer is still settling this dispatch attempt";
+
+#[derive(Default)]
+struct InFlightDispatches(parking_lot::Mutex<std::collections::HashSet<(String, String)>>);
+
+struct PendingDispatch<'a> {
+    attempts: &'a InFlightDispatches,
+    key: (String, String),
+}
+
+impl InFlightDispatches {
+    fn begin(
+        &self,
+        peer: &str,
+        attempt: &str,
+    ) -> Result<PendingDispatch<'_>, (StatusCode, String)> {
+        let key = (peer.to_owned(), attempt.to_owned());
+        if !self.0.lock().insert(key.clone()) {
+            return Err((StatusCode::CONFLICT, DISPATCH_PENDING.into()));
+        }
+        Ok(PendingDispatch {
+            attempts: self,
+            key,
+        })
+    }
+
+    fn contains(&self, peer: &str, attempt: &str) -> bool {
+        self.0
+            .lock()
+            .contains(&(peer.to_owned(), attempt.to_owned()))
+    }
+}
+
+impl Drop for PendingDispatch<'_> {
+    fn drop(&mut self) {
+        self.attempts.0.lock().remove(&self.key);
+    }
+}
 
 fn lane_bundle_size_allowed(size: u64, limit: u64) -> bool {
     size <= limit
+}
+
+fn provider_auth_required_message(
+    provider_id: &str,
+    display_name: &str,
+    peer_name: &str,
+) -> String {
+    format!(
+        "peer_provider_auth_required: {display_name} ('{provider_id}') is not signed in on peer '{peer_name}'; sign in on {peer_name} before dispatching"
+    )
+}
+
+fn provider_display_name(
+    svc: &codeterm_service_core::service::ServiceContext,
+    provider_id: &str,
+) -> String {
+    svc.agent_registry
+        .with_provider(provider_id, |provider| provider.display_name().to_string())
+        .unwrap_or_else(|| provider_id.to_string())
+}
+
+fn cleanup_suffix(cleanup: Result<(), String>) -> String {
+    match cleanup {
+        Ok(()) => String::new(),
+        Err(error) => format!("; lane cleanup failed: {error}"),
+    }
+}
+
+fn classify_spawn_failure(
+    svc: &codeterm_service_core::service::ServiceContext,
+    provider_id: &str,
+    peer_name: &str,
+    error: &str,
+    cleanup: Result<(), String>,
+) -> (StatusCode, String) {
+    let suffix = cleanup_suffix(cleanup);
+    if codeterm_service_core::service::agent_runtime::transport::is_sign_in_required_launch_error(
+        error,
+    ) {
+        let display_name = provider_display_name(svc, provider_id);
+        return (
+            StatusCode::CONFLICT,
+            format!(
+                "{}{suffix}",
+                provider_auth_required_message(provider_id, &display_name, peer_name)
+            ),
+        );
+    }
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("peer_worker_spawn_failed: {error}{suffix}"),
+    )
+}
+
+fn preflight_remote_worker_provider(
+    svc: &codeterm_service_core::service::ServiceContext,
+    provider_id: &str,
+    workspace_id: &str,
+    peer_name: &str,
+) -> Result<(), (StatusCode, String)> {
+    if svc.agent_registry.provider_arc(provider_id).is_none()
+        && svc.chatbackend_registry.get(provider_id).is_some()
+    {
+        return Ok(());
+    }
+    codeterm_service_core::service::spawn::provider_launch_preflight(
+        &svc.agent_registry,
+        provider_id,
+        true,
+    )
+    .map_err(|error| {
+        (
+            StatusCode::CONFLICT,
+            format!("peer_worker_spawn_failed: {error}"),
+        )
+    })?;
+    match codeterm_service_core::service::spawn_cli::provider_auth_preflight(
+        svc,
+        provider_id,
+        Some(workspace_id),
+    ) {
+        Ok(
+            codeterm_service_core::service::spawn_cli::ProviderAuthPreflightOutcome::Inconclusive(
+                reason,
+            ),
+        ) => {
+            log::warn!(
+                "[remote-dispatch] auth preflight inconclusive for provider={} on peer={}: {}",
+                provider_id,
+                peer_name,
+                reason
+            );
+            Ok(())
+        }
+        Ok(_) => Ok(()),
+        Err(required) => Err((
+            StatusCode::CONFLICT,
+            provider_auth_required_message(
+                &required.provider_id,
+                &required.display_name,
+                peer_name,
+            ),
+        )),
+    }
+}
+
+fn observe_failed_launch_state(
+    svc: &codeterm_service_core::service::ServiceContext,
+    tab_id: &str,
+) -> Option<String> {
+    let mux = svc.mux.read();
+    let Some(tab) = mux.get_tab(tab_id) else {
+        return Some("worker tab disappeared during launch".into());
+    };
+    if tab
+        .agent_runtime_state
+        .as_ref()
+        .and_then(|state| state.get("auth"))
+        .and_then(serde_json::Value::as_str)
+        == Some("signedOut")
+    {
+        return Some(
+            codeterm_service_core::service::agent_runtime::model::RuntimeFailure::SignInRequired
+                .to_string(),
+        );
+    }
+    tab.boot_failure_reason.clone()
+}
+
+fn await_remote_launch_outcome(
+    svc: &codeterm_service_core::service::ServiceContext,
+    tab_id: &str,
+    ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    match codeterm_service_core::async_runtime::block_on(async {
+        tokio::time::timeout(timeout, ready_rx).await
+    }) {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(observe_failed_launch_state(svc, tab_id)
+            .unwrap_or_else(|| "worker launch ended without a readiness result".into())),
+        Err(_) => Err(observe_failed_launch_state(svc, tab_id)
+            .unwrap_or_else(|| "worker launch readiness deadline elapsed".into())),
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -272,333 +457,7 @@ pub(crate) fn remote_worker_spawn_params(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        create_lane_bundle_with_limit, lane_bundle_size_allowed, MeshWorkerLaneBundleRequest,
-        MAX_LANE_BUNDLE_BYTES,
-    };
-    use crate::routes::AppState;
-    use codeterm_service_core::mesh::types::AccessLevel;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
-
-    mod bundle_range;
-
-    fn app_state(fixture: &ServiceFixture) -> crate::routes::AppState {
-        let config = codeterm_service_core::config::schema::AppConfig::default();
-        let mut mesh = codeterm_service_core::mesh::MeshManager::new("bundle-origin".into(), 0);
-        mesh.insert_account_peer_for_test(codeterm_service_core::mesh::types::PairedPeer {
-            instance_id: "peer-origin".into(),
-            instance_name: "Origin".into(),
-            addresses: vec![],
-            api_port: 0,
-            public_key: String::new(),
-            paired_at: "now".into(),
-            last_seen: None,
-            online: true,
-            is_primary: false,
-            access_level: AccessLevel::Full,
-            domios_version: None,
-            domios_build: None,
-            web_ui: None,
-            relay_protocol_version: 0,
-            consecutive_misses: 0,
-            last_active_ms: None,
-        });
-        crate::routes::AppState {
-            frontend_dev_url: None,
-            svc: std::sync::Arc::new(fixture.service.clone()),
-            cron: std::sync::Arc::new(parking_lot::Mutex::new(
-                codeterm_service_core::cron::store::CronStore::new_with_path(
-                    fixture.temp.path().join("worker-bundle-crons.json"),
-                ),
-            )),
-            cron_wake: Default::default(),
-            api_port: 0,
-            update_state: std::sync::Arc::new(parking_lot::Mutex::new(
-                codeterm_update::UpdateState {
-                    install_method: codeterm_update::InstallMethod::Unknown,
-                    last_check: None,
-                    last_check_time: None,
-                    channel: config.updater.channel,
-                    phase: codeterm_update::UpdatePhase::Idle,
-                    last_error: None,
-                    phase_changed_at: None,
-                    downloaded_bytes: 0,
-                    download_total_bytes: None,
-                },
-            )),
-            config: std::sync::Arc::new(parking_lot::Mutex::new(config)),
-            mesh: std::sync::Arc::new(parking_lot::Mutex::new(mesh)),
-            keepawake: std::sync::Arc::new(parking_lot::Mutex::new(None)),
-            resize_owner: std::sync::Arc::new(parking_lot::Mutex::new(Default::default())),
-            rest_api: std::sync::Arc::new(codeterm_service_core::startup::RestApiControl::new()),
-            test_clock: None,
-            events: fixture.service.events.clone(),
-            web_dist: None,
-        }
-    }
-
-    fn git(cwd: &std::path::Path, args: &[&str]) -> String {
-        let mut command = codeterm_util::process_util::git_command();
-        let output = command.current_dir(cwd).args(args).output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
-    }
-
-    fn bundle_fixture(
-        peer_target: &str,
-    ) -> (
-        AppState,
-        MeshWorkerLaneBundleRequest,
-        String,
-        tempfile::TempDir,
-        ServiceFixture,
-    ) {
-        let root = tempfile::tempdir().unwrap();
-        let repo = root.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-        git(&repo, &["init", "-q"]);
-        git(&repo, &["config", "user.name", "Worker"]);
-        git(&repo, &["config", "user.email", "worker@example.test"]);
-        git(
-            &repo,
-            &["remote", "add", "origin", "https://example.test/repo.git"],
-        );
-        std::fs::write(repo.join("base.txt"), "base").unwrap();
-        git(&repo, &["add", "base.txt"]);
-        git(&repo, &["commit", "-qm", "base"]);
-        let base = git(&repo, &["rev-parse", "HEAD"]);
-        git(&repo, &["switch", "-qc", "lane/remote-test"]);
-        std::fs::write(repo.join("lane.txt"), "lane").unwrap();
-        git(&repo, &["add", "lane.txt"]);
-        git(&repo, &["commit", "-qm", "lane"]);
-        let tip = git(&repo, &["rev-parse", "HEAD"]);
-        let (mut mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        if let Some(cwd) = mux.get_tab_mut(&tab_id) {
-            cwd.cwd = Some(repo.display().to_string());
-            cwd.provisioned_cwd = Some(repo.display().to_string());
-            cwd.task_binding = Some(codeterm_service_core::multiplexer::types::TaskBinding {
-                plan_id: Some("plan-1".into()),
-                task_id: Some("task-1".into()),
-                attempt_id: Some("attempt-1".into()),
-                spawn_handle: None,
-                bound_at: 1,
-            });
-            cwd.report_target_mesh_peer = Some(peer_target.into());
-        }
-        let fixture = ServiceFixture::new(mux);
-        let state = app_state(&fixture);
-        let identity = codeterm_service_core::service::worker_lane::legacy_repository_identity(
-            repo.to_str().unwrap(),
-        )
-        .unwrap();
-        let request = MeshWorkerLaneBundleRequest {
-            repository_identity: identity,
-            repository_identities: vec![],
-            branch: "lane/remote-test".into(),
-            base_commit: base,
-            plan_id: "plan-1".into(),
-            task_id: "task-1".into(),
-            attempt_id: "attempt-1".into(),
-            report_sha: tip.clone(),
-        };
-        (state, request, tip, root, fixture)
-    }
-
-    #[test]
-    fn worker_dispatch_status_recovers_spawn_and_refuses_foreign_attempt() {
-        let (state, lane, _, _root, fixture) = bundle_fixture("peer-origin");
-        let tab_id = {
-            let mut mux = fixture.service.mux.write();
-            let tab_id = mux.all_tabs().next().unwrap().id.clone();
-            mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce = Some("worker-nonce".into());
-            tab_id
-        };
-        let mut request = super::MeshWorkerDispatchRequest {
-            repository_identity: lane.repository_identity,
-            repository_identities: lane.repository_identities,
-            base_commit: lane.base_commit,
-            plan_id: lane.plan_id,
-            task_id: lane.task_id,
-            attempt_id: lane.attempt_id,
-            origin_tab_id: "origin".into(),
-            provider: "provider".into(),
-            model: None,
-            reasoning_effort: None,
-            speed: None,
-            description: None,
-            task_description_managed: false,
-            brief: String::new(),
-            clone_url: None,
-        };
-        let response = super::observed_worker_dispatch(&state, "peer-origin", &request)
-            .unwrap()
-            .0;
-        assert_eq!(response["worker_tab_id"], tab_id);
-        assert_eq!(response["session_binding_nonce"], "worker-nonce");
-        assert_eq!(response["branch"], "lane/remote-test");
-        assert_eq!(response["base_commit"], request.base_commit);
-        request.attempt_id = "foreign-attempt".into();
-        assert_eq!(
-            super::observed_worker_dispatch(&state, "peer-origin", &request)
-                .unwrap_err()
-                .0,
-            axum::http::StatusCode::NOT_FOUND
-        );
-        state
-            .mesh
-            .lock()
-            .paired_peers
-            .get_mut("peer-origin")
-            .unwrap()
-            .access_level = AccessLevel::ReadOnly;
-        assert_eq!(
-            super::observed_worker_dispatch(&state, "peer-origin", &request)
-                .unwrap_err()
-                .0,
-            axum::http::StatusCode::FORBIDDEN
-        );
-    }
-
-    #[test]
-    fn worker_lane_bundle_size_cap_rejects_oversize_without_allocating_bundle() {
-        assert!(lane_bundle_size_allowed(
-            MAX_LANE_BUNDLE_BYTES,
-            MAX_LANE_BUNDLE_BYTES
-        ));
-        assert!(!lane_bundle_size_allowed(
-            MAX_LANE_BUNDLE_BYTES + 1,
-            MAX_LANE_BUNDLE_BYTES
-        ));
-    }
-
-    #[test]
-    fn create_lane_bundle_refuses_binding_to_foreign_origin() {
-        let (state, request, _, _root, _fixture) = bundle_fixture("different-peer");
-        let error = create_lane_bundle_with_limit(
-            state,
-            "peer-origin".into(),
-            request,
-            MAX_LANE_BUNDLE_BYTES,
-        )
-        .unwrap_err();
-        assert_eq!(error.0, axum::http::StatusCode::NOT_FOUND);
-    }
-
-    #[test]
-    fn create_lane_bundle_refuses_bundle_over_size_limit() {
-        let (state, request, _, _root, _fixture) = bundle_fixture("peer-origin");
-        let error =
-            create_lane_bundle_with_limit(state, "peer-origin".into(), request, 1).unwrap_err();
-        assert_eq!(
-            error.0,
-            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
-            "{}",
-            error.1
-        );
-    }
-
-    #[test]
-    fn create_lane_bundle_refuses_head_or_lane_tip_different_from_report_sha() {
-        let (state, mut request, _, _root, _fixture) = bundle_fixture("peer-origin");
-        request.report_sha = "unreviewed-sha".into();
-        let error = create_lane_bundle_with_limit(
-            state,
-            "peer-origin".into(),
-            request,
-            MAX_LANE_BUNDLE_BYTES,
-        )
-        .unwrap_err();
-        assert_eq!(error.0, axum::http::StatusCode::CONFLICT);
-    }
-
-    #[test]
-    fn create_lane_bundle_returns_refs_for_owned_attempt() {
-        let (state, request, tip, _root, _fixture) = bundle_fixture("peer-origin");
-        let response = create_lane_bundle_with_limit(
-            state,
-            "peer-origin".into(),
-            request,
-            MAX_LANE_BUNDLE_BYTES,
-        )
-        .unwrap()
-        .0;
-        assert_eq!(response["branch"], "lane/remote-test");
-        assert_eq!(response["lane_tip"], tip);
-        assert!(response["bundle"]
-            .as_str()
-            .is_some_and(|bundle| !bundle.is_empty()));
-    }
-
-    #[test]
-    fn remote_worker_spawn_succeeds_on_a_peer_without_a_local_orchestrator() {
-        let mut mux = codeterm_service_core::multiplexer::state::MultiplexerState::empty();
-        let workspace_id = mux.create_workspace("remote worker peer".into(), None).id;
-        let fixture = ServiceFixture::new(mux);
-        fixture.set_agent_full_access(true);
-        fixture.service.agent_registry.register_provider(Box::new(
-            codeterm_service_core::agent::test_provider::MockProvider::new("remote-mock")
-                .with_launch_binary(
-                    codeterm_service_core::agent::test_provider::test_shell_binary(),
-                ),
-        ));
-        let worktree = fixture.temp.path().display().to_string();
-        let request = super::MeshWorkerDispatchRequest {
-            repository_identity: "sha256:fixture".into(),
-            repository_identities: vec![],
-            base_commit: "base".into(),
-            plan_id: "plan-origin".into(),
-            task_id: "task-origin".into(),
-            attempt_id: "attempt-origin".into(),
-            origin_tab_id: "origin-orchestrator".into(),
-            provider: "remote-mock".into(),
-            model: None,
-            reasoning_effort: None,
-            speed: None,
-            description: Some("remote task summary".into()),
-            task_description_managed: true,
-            brief: "remote brief".into(),
-            clone_url: None,
-        };
-        let mut params = super::remote_worker_spawn_params(
-            request,
-            workspace_id,
-            worktree,
-            "peer-origin".into(),
-            "origin",
-        );
-        // Brief delivery needs the desktop session store, which the fixture lacks.
-        params.task = None;
-        let result = fixture.service.spawn_agent_sync(params).unwrap();
-        {
-            let mux = fixture.service.mux.read();
-            let tab = mux.get_tab(&result.tab_id).unwrap();
-            assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("peer-origin"));
-            let ownership = tab.ownership.as_ref().expect("stamped remote ownership");
-            assert_eq!(ownership.peer_id, "peer-origin");
-            assert_eq!(
-                ownership.controller_tab_id.as_deref(),
-                Some("origin-orchestrator")
-            );
-            assert_eq!(
-                tab.report_target_tab_id.as_deref(),
-                Some("origin-orchestrator")
-            );
-            assert_eq!(tab.description.as_deref(), Some("remote task summary"));
-            assert_eq!(
-                tab.description_origin,
-                codeterm_service_core::multiplexer::types::TabDescriptionOrigin::Task
-            );
-            let binding = tab.task_binding.as_ref().expect("task binding");
-            assert_eq!(binding.attempt_id.as_deref(), Some("attempt-origin"));
-        }
-        fixture.service.close_tab(&result.tab_id).unwrap();
-    }
-}
+mod tests;
 
 pub async fn mesh_worker_dispatch(
     AxumState(state): AxumState<AppState>,
@@ -618,7 +477,7 @@ fn dispatch_authenticated_worker(
     origin_peer_id: String,
     request: MeshWorkerDispatchRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (origin_peer_name, origin_peer_id) = {
+    let (origin_peer_name, local_peer_name) = {
         let mesh = state.mesh.lock();
         let Some(peer) = mesh.paired_peers.get(&origin_peer_id) else {
             return Err((StatusCode::UNAUTHORIZED, "origin peer is not paired".into()));
@@ -629,8 +488,12 @@ fn dispatch_authenticated_worker(
                 "remote worker dispatch requires Full mesh access".into(),
             ));
         }
-        (peer.instance_name.clone(), origin_peer_id)
+        (peer.instance_name.clone(), mesh.ident.instance_name.clone())
     };
+    let _pending = state
+        .svc
+        .ext_or_init(InFlightDispatches::default)
+        .begin(&origin_peer_id, &request.attempt_id)?;
     let workspaces = {
         let mux = state.svc.mux.read();
         mux.list_workspaces()
@@ -692,6 +555,12 @@ fn dispatch_authenticated_worker(
             ));
         }
     }
+    preflight_remote_worker_provider(
+        &state.svc,
+        &request.provider,
+        &workspace_id,
+        &local_peer_name,
+    )?;
     let lane_label = format!("{}-{}", request.plan_id, request.task_id);
     let lane = codeterm_service_core::service::worker_lane::provision_isolated_lane_at_base(
         &canonical_cwd,
@@ -732,37 +601,73 @@ fn dispatch_authenticated_worker(
         origin_peer_id,
         &origin_peer_name,
     );
-    let result = match state.svc.spawn_agent_sync(spawn) {
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let result = match state.svc.spawn_agent_sync_with_ready(spawn, Some(ready_tx)) {
         Ok(result) => result,
         Err(error) => {
             codeterm_service_core::service::team_template_remote::release_hosting_lease(
                 &lease_holder,
             );
             let cleanup = lane.cleanup();
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                match cleanup {
-                    Ok(()) => format!("peer_worker_spawn_failed: {error}"),
-                    Err(cleanup) => {
-                        format!("peer_worker_spawn_failed: {error}; lane cleanup failed: {cleanup}")
-                    }
-                },
+            return Err(classify_spawn_failure(
+                &state.svc,
+                &request.provider,
+                &local_peer_name,
+                &error,
+                cleanup,
             ));
         }
     };
     codeterm_service_core::service::team_template_remote::HostingLeases::global()
         .transfer(&lease_holder, &result.tab_id);
-    let worker_tab = state
-        .svc
-        .mux
-        .read()
-        .get_tab(&result.tab_id)
-        .map(|tab| tab.session_binding_nonce.clone());
-    // A Worker tab that closed before the lease moved onto it never sees its own close.
-    if worker_tab.is_none() {
-        codeterm_service_core::service::team_template_remote::release_hosting_lease(&result.tab_id);
-    }
-    let nonce = worker_tab.flatten();
+    let ready = await_remote_launch_outcome(
+        &state.svc,
+        &result.tab_id,
+        ready_rx,
+        REMOTE_LAUNCH_READY_WAIT,
+    )
+    .and_then(|()| {
+        state
+            .svc
+            .mux
+            .read()
+            .get_tab(&result.tab_id)
+            .and_then(|tab| tab.session_binding_nonce.clone())
+            .filter(|nonce| !nonce.is_empty())
+            .ok_or_else(|| "worker tab or session binding disappeared during launch".to_owned())
+    });
+    let nonce = match ready {
+        Ok(nonce) => nonce,
+        Err(error) => {
+            codeterm_service_core::service::team_template_remote::release_hosting_lease(
+                &result.tab_id,
+            );
+            let cleanup = match state.svc.close_tab_with_reason(
+                &result.tab_id,
+                codeterm_service_core::multiplexer::types::TabCloseReason::SpawnRollback,
+            ) {
+                Err(close) if state.svc.mux.read().get_tab(&result.tab_id).is_some() => {
+                    state.svc.emit_boot_stage(
+                        &result.tab_id,
+                        codeterm_types::pty::BootStage::SpawnFailed,
+                        Some(&error),
+                    );
+                    Err(format!(
+                        "lane retained because worker tab {} could not close: {close}",
+                        result.tab_id
+                    ))
+                }
+                _ => lane.cleanup(),
+            };
+            return Err(classify_spawn_failure(
+                &state.svc,
+                &request.provider,
+                &local_peer_name,
+                &error,
+                cleanup,
+            ));
+        }
+    };
     Ok(Json(serde_json::json!({
         "session_binding_nonce": nonce,
         "keepawake": keepawake,
@@ -807,6 +712,13 @@ fn observed_worker_dispatch(
     }
     let worker = {
         let mux = state.svc.mux.read();
+        if state
+            .svc
+            .ext_or_init(InFlightDispatches::default)
+            .contains(peer_id, &request.attempt_id)
+        {
+            return Err((StatusCode::CONFLICT, DISPATCH_PENDING.into()));
+        }
         let found = mux.all_tabs().find_map(|tab| {
             let binding = tab.task_binding.as_ref()?;
             if binding.plan_id.as_deref() != Some(&request.plan_id)
@@ -820,16 +732,27 @@ fn observed_worker_dispatch(
                 tab.id.clone(),
                 tab.provisioned_cwd.clone().or_else(|| tab.cwd.clone())?,
                 tab.session_binding_nonce.clone()?,
+                (tab.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)).then(|| {
+                    tab.boot_failure_reason
+                        .clone()
+                        .unwrap_or_else(|| "worker launch failed".into())
+                }),
             ))
         });
         found
     };
-    let (tab_id, cwd, nonce) = worker.ok_or_else(|| {
+    let (tab_id, cwd, nonce, failure) = worker.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             "remote worker attempt not found".into(),
         )
     })?;
+    if let Some(reason) = failure {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("peer_worker_spawn_failed: {reason}"),
+        ));
+    }
     if !codeterm_service_core::service::worker_lane::repository_matches(
         &cwd,
         &request.repository_identities,

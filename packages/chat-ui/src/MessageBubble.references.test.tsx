@@ -3,6 +3,7 @@ import test from "node:test";
 import { act } from "react";
 import type { MessageSegment } from "@codeterm/chat-core";
 import type { ResolvedChatPlanRef } from "./codeterm/LinkedText";
+import { ChatBlockHostProvider, type ChatMentionValue } from "./blocks/ChatBlockHost";
 import { MessageBubble, mount } from "./dsBlocks.testdata";
 
 test("user reference markers survive structured envelope projection and receive resolved labels", async () => {
@@ -68,5 +69,62 @@ test("envelope reference projection preserves code examples and other unknown fr
     await view.render(<MessageBubble message={{ id: "code-user", type: "user", content: "", segments }} onOpenPlan={() => assert.fail("code must stay inert")} />);
     assert.equal(view.host.querySelectorAll('[data-testid="chat-task-link"]').length, 0);
     assert.equal(view.host.textContent, `Code: \`${marker}\`. Preserved bodyPartial body`);
+  } finally { await view.close(); }
+});
+
+test("unclosed or malformed domios tags stay literal text in user and agent bubbles while valid tab chips render", async () => {
+  const view = await mount();
+  const ownerMessage = 'когда агент упоминает внутренние наши табы или удаленые табы он может в формате <domios ну и там агет писать да? чтоб круто у нас отображалось... типа как <domios type="tab" id="0db72b9f" /> понял?';
+  const live: Record<string, ChatMentionValue> = {
+    "0db72b9f": { kind: "tab", id: "0db72b9f", title: "Lumen", tabKind: "agent", providerName: "Antigravity" },
+    "mesh:blackstar/0db72b9f": { kind: "tab", id: "mesh:blackstar/0db72b9f", title: "Vela", tabKind: "agent", peerName: "BLACKSTAR" },
+  };
+  const host = {
+    mentionTabId: "self",
+    mentions: {
+      binding: { subscribe: () => () => {}, read: (key: string) => live[(JSON.parse(key) as string[])[2]] ?? null, refresh: () => {} },
+      open: () => {},
+    },
+  };
+  try {
+    // 1. User bubble without segments (plain text path)
+    await view.render(<ChatBlockHostProvider value={host}>
+      <MessageBubble message={{ id: "owner-plain", type: "user", content: ownerMessage }} />
+    </ChatBlockHostProvider>);
+    assert.equal(view.host.querySelectorAll('[data-testid="chat-tab-link"]').length, 1);
+    assert.equal(view.host.querySelector('[data-testid="chat-tab-link"]')?.textContent, "Lumen");
+    assert.ok(view.host.textContent?.includes("в формате <domios ну и там агет писать да? чтоб круто у нас отображалось... типа как "));
+    assert.ok(view.host.textContent?.includes(" понял?"));
+
+    // 2. User bubble with structured text segment (Rust parse_envelope output)
+    await view.render(<ChatBlockHostProvider value={host}>
+      <MessageBubble message={{ id: "owner-seg", type: "user", content: ownerMessage, segments: [{ type: "text", text: ownerMessage }] }} />
+    </ChatBlockHostProvider>);
+    assert.equal(view.host.querySelectorAll('[data-testid="chat-tab-link"]').length, 1);
+    assert.ok(view.host.textContent?.includes("в формате <domios ну и там агет писать да?"));
+    assert.ok(view.host.textContent?.includes(" понял?"));
+
+    // 3. Agent bubble (Markdown + rehype-raw + rehype-sanitize) with unclosed tag, malformed tag, valid local & remote tags, and code
+    const agentMessage = [
+      ownerMessage,
+      "",
+      'Stray <domios in prose, malformed <domios type="tab" />, unclosed <domios foo bar>, remote <domios type="tab" id="0db72b9f" peer="blackstar" />.',
+      "",
+      'Code: `<domios type="tab" id="0db72b9f" />`',
+      "",
+      "```text",
+      '<domios type="tab" id="0db72b9f" peer="blackstar" />',
+      "```",
+    ].join("\n");
+    await view.render(<ChatBlockHostProvider value={host}>
+      <MessageBubble message={{ id: "agent-mixed", type: "assistant", content: agentMessage }} />
+    </ChatBlockHostProvider>);
+    const chips = [...view.host.querySelectorAll('[data-testid="chat-tab-link"]')].map(el => el.textContent);
+    assert.deepEqual(chips, ["Lumen", "Vela"]);
+    assert.ok(view.host.textContent?.includes("в формате <domios ну и там агет писать да?"));
+    assert.ok(view.host.textContent?.includes("Stray <domios in prose"));
+    assert.ok(view.host.textContent?.includes('malformed <domios type="tab" />'));
+    assert.ok(view.host.textContent?.includes("unclosed <domios foo bar>"));
+    assert.ok(view.host.querySelector("code")?.textContent?.includes('<domios type="tab" id="0db72b9f" />'));
   } finally { await view.close(); }
 });
