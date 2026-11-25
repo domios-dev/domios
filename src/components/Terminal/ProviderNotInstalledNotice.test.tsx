@@ -3,6 +3,20 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderCliStatus } from "../../lib/providerCli";
 
+import type { PeerEvent } from "../../lib/peerEventRail";
+
+const peerObservers = new Map<string, Set<(event: PeerEvent) => void>>();
+vi.mock("../../lib/peerEventRail", () => ({
+  peerEventRail: {
+    observe(peerId: string, listener: (event: PeerEvent) => void) {
+      const listeners = peerObservers.get(peerId) ?? new Set();
+      peerObservers.set(peerId, listeners);
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  },
+}));
+
 const events = new Map<string, (event: { payload: unknown }) => void>();
 
 vi.mock("../../lib/bridge", () => ({
@@ -88,6 +102,42 @@ describe("ProviderNotInstalledNotice via TabLaunchFailure", () => {
     } finally {
       await act(async () => root.unmount());
       host.remove();
+    }
+  });
+
+  it("retries a remote tab only on its own peer's matching installer completion", async () => {
+    const peerId = "fixture-peer";
+    const providerId = "opaque-harness";
+    const status = { installer: "remote-installer", installer_prerequisites: [] };
+    vi.mocked(invoke).mockImplementation(async command => command === "provider_cli_status"
+      ? status : { tab_id: "installer", launch_state: "command_dispatched" });
+    const retry = vi.fn();
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const emit = (peer: string, id: string) => {
+      for (const listener of peerObservers.get(peer) ?? []) listener({
+        type: "provider-cli-completed",
+        data: { provider: providerId, operation: "install", tab_id: id, success: true, summary: "installed" },
+      });
+    };
+    try {
+      await act(async () => root.render(
+        <TabLaunchFailure tabId={`mesh:${peerId}/agent`} reason={MISSING_REASON}
+          actions={[{ label: "Restart", onClick: retry }]} />,
+      ));
+      expect(invoke).toHaveBeenCalledWith("provider_cli_status", { providerId, peerId });
+      expect(host.textContent).toContain("remote-installer");
+      await act(async () => { host.querySelector<HTMLButtonElement>('[data-testid="provider-install-action"]')!.click(); });
+      expect(invoke).toHaveBeenCalledWith("install_provider_in_tab", { providerId, peerId });
+      expect(events.has("provider-cli-completed")).toBe(false);
+      await act(async () => { emit("other-peer", "installer"); emit(peerId, "other-installer"); });
+      expect(retry).not.toHaveBeenCalled();
+      await act(async () => { emit(peerId, "installer"); });
+      expect(invoke).toHaveBeenCalledWith("provider_cli_status", { providerId, peerId, refresh: true });
+      expect(retry).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.unmount());
+      peerObservers.clear();
     }
   });
 

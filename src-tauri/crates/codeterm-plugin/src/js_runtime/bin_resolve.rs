@@ -86,10 +86,6 @@ fn resolve_bin_memoized(bin: &str, extra_dirs: &[PathBuf]) -> BinResolution {
     resolve_bin_memoized_with_context(bin, &context)
 }
 
-pub fn probe_bin(bin: &str) -> BinProbe {
-    probe_bin_current(bin, &well_known_bin_dirs())
-}
-
 pub fn probe_bin_with_extra_dirs(bin: &str, extra_dirs: &[PathBuf]) -> BinProbe {
     probe_bin_current(bin, &combined_bin_dirs(extra_dirs))
 }
@@ -216,7 +212,7 @@ fn search_context(
     }
 }
 
-/// Joins the same search ladder used by `probe_bin` into a deduplicated `PATH`
+/// Joins the same search ladder used by `probe_bin_with_extra_dirs` into a deduplicated `PATH`
 /// value so spawned subprocesses find interpreters and helper tools.
 pub fn merged_search_path(
     environment: &BinSearchEnvironment,

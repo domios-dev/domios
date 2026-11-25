@@ -468,11 +468,12 @@ pub fn begin_registry_install(
 }
 
 fn catalog(svc: &ServiceContext) -> Result<Value, String> {
-    let capability = svc
+    let adapter = svc
         .agent_registry
-        .with_provider(PROVIDER, |p| p.agent_runtime())
-        .flatten()
+        .provider_arc(PROVIDER)
         .ok_or("ACP provider unavailable")?;
+    let dirs = adapter.cli_search_dirs();
+    let capability = adapter.agent_runtime().ok_or("ACP provider unavailable")?;
     let profiles = capability
         .launch_profiles
         .ok_or("ACP launch profiles unavailable")?;
@@ -506,7 +507,7 @@ fn catalog(svc: &ServiceContext) -> Result<Value, String> {
                 break;
             }
         }
-        states.push(json!({"id":id,"install":installer::detect(&root,&id,&profile),"auth":auth,
+        states.push(json!({"id":id,"install":installer::detect(&root,&id,&profile,&dirs),"auth":auth,
             "ownerConfigured":profile.owner_configured,"canInstall":profile.install.is_some(),"registryId":profile.registry_id,"iconUrl":profile.icon_url}));
     }
     Ok(Value::Array(states))
@@ -537,6 +538,10 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
             no_active_setup(&id)?;
             validate(svc, &id, &profile)?;
             let root = installer::profile_root(PROVIDER)?;
+            let adapter = svc
+                .agent_registry
+                .provider_arc(PROVIDER)
+                .ok_or("ACP provider unavailable")?;
             installer::confirm_local(
                 &root,
                 &id,
@@ -545,6 +550,7 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
                     binary: profile.binary.clone(),
                     args: profile.args.clone(),
                 },
+                &adapter.cli_search_dirs(),
                 true,
             )?;
             save(svc, &id, profile)

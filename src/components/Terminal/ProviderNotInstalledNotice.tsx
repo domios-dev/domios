@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CodeBlock } from "@codeterm/chat-ui/CodeBlock";
 import type { ProviderNotInstalledInfo } from "../../lib/providerNotInstalled";
 import { installerShellLanguage, missingInstallerPrerequisites } from "../../lib/providerCli";
+import { resolveProviderCliTarget } from "../../lib/providerCliTarget";
 import { installAndWait } from "../../lib/firstRunInstall";
 import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
 import { Button } from "../shared/Button";
@@ -9,24 +10,30 @@ import { BrandState } from "../brand/BrandState";
 import { brandStateModel } from "../brand/brandStateModel";
 
 export function ProviderNotInstalledNotice({
+  tabId,
   info,
   rawReason,
   onRetry,
   onClose,
   inline = false,
 }: {
+  tabId?: string;
   info: ProviderNotInstalledInfo;
   rawReason: string;
   onRetry?: () => void | Promise<void>;
   onClose?: () => void;
   inline?: boolean;
 }) {
-  const { status, refresh } = useProviderCliStatus(info.providerId);
+  const { peerId } = resolveProviderCliTarget({ callerTabId: tabId });
+  const { status, refresh } = useProviderCliStatus(info.providerId, peerId);
   const [installing, setInstalling] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
-  useEffect(() => () => { controllerRef.current?.abort(); }, []);
+  useEffect(() => () => {
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+  }, []);
 
   const installCommand = status?.installer ?? info.installCommand;
   const prerequisites = missingInstallerPrerequisites(status);
@@ -39,7 +46,7 @@ export function ProviderNotInstalledNotice({
     setInstalling(true);
     setInstallError(null);
     try {
-      await installAndWait(info.providerId, controller.signal);
+      await installAndWait(info.providerId, controller.signal, peerId);
       if (controllerRef.current !== controller) return;
       await refresh();
       await onRetry?.();

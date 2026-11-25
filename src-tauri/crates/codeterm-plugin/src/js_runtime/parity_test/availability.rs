@@ -179,6 +179,11 @@ fn provider_cli_install_dirs_resolve_binary_outside_path_without_restart() {
         }}"#
     );
     let manifest: super::super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+    let observation = super::super::provider_observation::ProviderObservation::from_manifest(Some(
+        &manifest_json,
+    ));
+    let sandbox = super::super::host_api::PluginSandbox::unrestricted()
+        .with_extra_bin_dirs(manifest.cli_install_dirs(platform));
     let vm = super::super::PluginVm::from_source_with(
         "declared-dir-fixture",
         "module.exports.default = {};".to_string(),
@@ -195,7 +200,16 @@ fn provider_cli_install_dirs_resolve_binary_outside_path_without_restart() {
     assert_eq!(before.installed, Some(false));
     assert!(before.searched.contains(&dir));
 
-    std::fs::write(&binary_path, b"#!/bin/sh\necho 1.0.0\n").unwrap();
+    assert_eq!(
+        observation.version(&sandbox).status,
+        crate::provider_version::ProbeStatus::Missing
+    );
+    let script = if cfg!(windows) {
+        "@echo 1.0.0\r\n"
+    } else {
+        "#!/bin/sh\necho 1.0.0\n"
+    };
+    std::fs::write(&binary_path, script).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -208,9 +222,23 @@ fn provider_cli_install_dirs_resolve_binary_outside_path_without_restart() {
         js.observe_launch_binary().availability,
         ProviderAvailability::Available
     );
+    assert_eq!(
+        crate::provider_version::refresh(&binary_path)
+            .version
+            .as_deref(),
+        Some("1.0.0")
+    );
+    assert_eq!(
+        observation.version(&sandbox).version.as_deref(),
+        Some("1.0.0")
+    );
     let after = crate::provider_cli::manifest_cli_status(&manifest, platform).unwrap();
     assert_eq!(after.installed, Some(true));
     assert_eq!(after.resolved_path.as_deref(), Some(binary_path.as_path()));
+    assert_eq!(
+        js.resolved_cli_path().as_deref(),
+        Some(binary_path.as_path())
+    );
     assert_eq!(js.cli_install_dirs(platform), vec![dir.clone()]);
     assert_eq!(
         manifest
@@ -254,5 +282,8 @@ fn bundled_providers_with_installers_declare_install_locations() {
             );
         }
     }
-    assert!(checked > 0, "expected at least one bundled installable provider");
+    assert!(
+        checked > 0,
+        "expected at least one bundled installable provider"
+    );
 }

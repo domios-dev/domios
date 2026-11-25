@@ -23,7 +23,7 @@ it("shares a link, resumes its cursor and reconciles once after each replay", ()
   receive("appearance-committed", { event: "e1", machine: "peer", proposal: "p1", undo: false }, "boot-a", 3);
   receive("config-changed", {}, "boot-a", 4);
   receive("provider-cli-started", { provider: "claude" }, "boot-a", 5);
-  receive("provider-cli-completed", { provider: "claude", summary: "claude CLI updated to 2.0.0", success: true }, "boot-a", 6);
+  receive("provider-cli-completed", { provider: "claude", operation: "install", tab_id: "installer", summary: "installed", success: true }, "boot-a", 6);
   receive("provider-cli-update-available", { provider: "codex" }, "boot-a", 7);
   expect(events).toEqual([
     { type: "reconcile" },
@@ -31,7 +31,7 @@ it("shares a link, resumes its cursor and reconciles once after each replay", ()
     { type: "appearance-committed", data: { event: "e1", machine: "peer", proposal: "p1", undo: false } },
     { type: "config-changed" },
     { type: "provider-cli-started", data: { provider: "claude" } },
-    { type: "provider-cli-completed", data: { provider: "claude", summary: "claude CLI updated to 2.0.0", success: true } },
+    { type: "provider-cli-completed", data: { provider: "claude", operation: "install", tab_id: "installer", summary: "installed", success: true } },
     { type: "provider-cli-update-available", data: { provider: "codex" } },
   ]);
   calls[0][2]?.onEnd?.({ reason: "eof" });

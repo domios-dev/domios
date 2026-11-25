@@ -67,6 +67,7 @@ impl ProviderRegistry {
                         super::profile_readiness::observe(
                             &descriptor.id,
                             capability,
+                            &provider.cli_search_dirs(),
                             &self.profile_readiness_cache,
                         )
                     })
@@ -123,8 +124,12 @@ impl ProviderRegistry {
     ) -> Option<codeterm_plugin::provider_cli::ProviderCliStatus> {
         let provider = self.agents.provider_arc(id)?;
         let capability = provider.agent_runtime()?;
-        let mut status =
-            super::profile_readiness::observe(id, &capability, &self.profile_readiness_cache)?;
+        let mut status = super::profile_readiness::observe(
+            id,
+            &capability,
+            &provider.cli_search_dirs(),
+            &self.profile_readiness_cache,
+        )?;
         status.display_name = Some(provider.display_name().to_owned());
         Some(status)
     }
@@ -144,7 +149,11 @@ impl ProviderRegistry {
         }
     }
 
-    pub(super) fn provider_install_dirs(&self, id: &str, platform: &str) -> Vec<std::path::PathBuf> {
+    pub(super) fn provider_install_dirs(
+        &self,
+        id: &str,
+        platform: &str,
+    ) -> Vec<std::path::PathBuf> {
         self.agents
             .provider_arc(id)
             .map(|provider| provider.cli_install_dirs(platform))

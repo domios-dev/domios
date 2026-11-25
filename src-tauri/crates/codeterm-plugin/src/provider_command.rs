@@ -14,7 +14,7 @@ pub fn command(binary: &Path) -> Result<Command, String> {
             let _ = file.take(4096).read_to_end(&mut head);
         }
         if let Some(interpreter) = env_interpreter(&head) {
-            let probe = crate::js_runtime::probe_bin(interpreter);
+            let probe = crate::js_runtime::probe_bin_with_extra_dirs(interpreter, &[]);
             let crate::js_runtime::BinResolution::Found(path) = probe.resolution else {
                 return Err(format!(
                     "Cannot launch {binary:?}: shebang interpreter {interpreter:?} is unavailable; searched {:?}. Install the interpreter or a native CLI entry point.",

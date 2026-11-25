@@ -222,8 +222,8 @@ fn validate_command(command: &AgentRuntimeCommand) -> Result<(), String> {
     }
     Ok(())
 }
-fn resolve_binary(binary: &str) -> Result<Option<PathBuf>, String> {
-    match codeterm_plugin::js_runtime::probe_bin(binary).resolution {
+fn resolve_binary(binary: &str, dirs: &[PathBuf]) -> Result<Option<PathBuf>, String> {
+    match codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(binary, dirs).resolution {
         codeterm_plugin::js_runtime::BinResolution::Found(path) => Ok(Some(path)),
         codeterm_plugin::js_runtime::BinResolution::Missing => Ok(None),
         codeterm_plugin::js_runtime::BinResolution::Unknown => {
@@ -231,14 +231,19 @@ fn resolve_binary(binary: &str) -> Result<Option<PathBuf>, String> {
         }
     }
 }
-pub fn detect(root: &Path, id: &str, profile: &RuntimeLaunchProfile) -> InstallState {
+pub fn detect(
+    root: &Path,
+    id: &str,
+    profile: &RuntimeLaunchProfile,
+    dirs: &[PathBuf],
+) -> InstallState {
     match read_receipt(root, id, profile) {
         Ok(Some(_)) => InstallState::Installed,
         Err(_) => InstallState::Unknown,
         Ok(None) if profile.install.is_some() || profile.owner_configured => {
             InstallState::NotInstalled
         }
-        Ok(None) => match resolve_binary(&profile.binary) {
+        Ok(None) => match resolve_binary(&profile.binary, dirs) {
             Ok(Some(_)) => InstallState::Detected,
             Ok(None) => InstallState::NotInstalled,
             Err(_) => InstallState::Unknown,
@@ -274,13 +279,14 @@ pub fn confirm_local(
     id: &str,
     profile: &RuntimeLaunchProfile,
     command: AgentRuntimeCommand,
+    dirs: &[PathBuf],
     confirmed: bool,
 ) -> Result<InstallReceipt, String> {
     if !confirmed || !profile.owner_configured {
         return Err("Owner confirmation of the local command is required".into());
     }
     validate_command(&command)?;
-    let binary = resolve_binary(&command.binary)?.ok_or("Local agent binary not found")?;
+    let binary = resolve_binary(&command.binary, dirs)?.ok_or("Local agent binary not found")?;
     let mut command = command;
     command.binary = binary.to_string_lossy().into_owned();
     receipt(
@@ -396,10 +402,13 @@ pub fn catalog(
     svc: &crate::service::ServiceContext,
     provider: &str,
 ) -> Result<Vec<ProfileState>, String> {
-    let capability = svc
+    let adapter = svc
         .agent_registry
-        .with_provider(provider, |p| p.agent_runtime())
-        .flatten()
+        .provider_arc(provider)
+        .ok_or("Runtime provider unavailable")?;
+    let dirs = adapter.cli_search_dirs();
+    let capability = adapter
+        .agent_runtime()
         .ok_or("Runtime provider unavailable")?;
     let profiles = capability
         .launch_profiles
@@ -410,7 +419,7 @@ pub fn catalog(
         .map(|(id, profile)| ProfileState {
             id: id.clone(),
             config_options: super::profile_options::read(&root, id, profile),
-            install: detect(&root, id, profile),
+            install: detect(&root, id, profile, &dirs),
             auth: "unknown",
             can_install: profile.install.is_some(),
             owner_configured: profile.owner_configured,
