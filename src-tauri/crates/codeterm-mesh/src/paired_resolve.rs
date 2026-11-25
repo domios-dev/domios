@@ -610,11 +610,13 @@ mod tests {
                 online: true,
             },
         ];
-        let link_of = |id: &str| match id {
-            "peer-prod" => Some("inst-prod"),
-            "peer-dev" => Some("inst-dev"),
-            _ => None,
-        };
+        fn link_of(id: &str) -> Option<&'static str> {
+            match id {
+                "peer-prod" => Some("inst-prod"),
+                "peer-dev" => Some("inst-dev"),
+                _ => None,
+            }
+        }
 
         let prod = resolve_paired_peer(&peers, &installations, link_of, "studio")
             .expect("exact prod name must beat DEV-suffixed peer");
