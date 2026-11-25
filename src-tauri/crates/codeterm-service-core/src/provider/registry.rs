@@ -5,9 +5,7 @@
 use std::sync::Arc;
 
 use super::catalogue_cache::RevisionCache;
-use crate::agent::provider::{
-    observe_launch_binary, observe_launch_binary_in, ProviderDescriptor, ProviderTransport,
-};
+use crate::agent::provider::{observe_launch_binary_in, ProviderDescriptor, ProviderTransport};
 use crate::agent::registry::{AgentRegistry, ProviderStartupStatus};
 use crate::chatbackend::ChatBackendRegistryHandle;
 
@@ -98,6 +96,9 @@ impl ProviderRegistry {
         let mut ids = self.chat_backends.ids();
         ids.sort();
         for id in ids {
+            if out.iter().any(|agent| agent.id == id) {
+                continue;
+            }
             let Some(backend) = self.chat_backends.get(&id) else {
                 continue;
             };
@@ -105,14 +106,10 @@ impl ProviderRegistry {
                 continue;
             }
             if let Some(mut descriptor) = self.chat_backends.descriptor(&id) {
-                descriptor.availability = if metadata_only {
-                    crate::agent::provider::ProviderAvailability::Unknown
-                } else {
-                    observe_launch_binary(descriptor.cli_binary.as_deref()).availability
-                };
-                if !out.iter().any(|agent| agent.id == descriptor.id) {
-                    out.push(descriptor);
+                if metadata_only {
+                    descriptor.availability = crate::agent::provider::ProviderAvailability::Unknown;
                 }
+                out.push(descriptor);
             }
         }
         out

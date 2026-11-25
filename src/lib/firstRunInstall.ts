@@ -1,4 +1,6 @@
 import { peerEventRail } from "./peerEventRail";
+import { localJson } from "./webApi";
+import { relayToPeer } from "./transport/tabs";
 import { listen } from "./bridge";
 import { launchProviderInstaller } from "./providerInstall";
 
@@ -10,7 +12,17 @@ export interface InstallCompletion {
   summary: string;
 }
 
-export async function installAndWait(providerId: string, signal: AbortSignal, peerId?: string): Promise<void> {
+async function supportsInstallCompletion(peerId: string): Promise<boolean> {
+  const identity = await relayToPeer({ json: localJson }, peerId, "GET", "/api/identify", null) as { features?: unknown } | null;
+  return Array.isArray(identity?.features) && identity.features.includes("provider_cli_completion_rail");
+}
+
+export async function installAndWait(providerId: string, signal: AbortSignal, peerId?: string): Promise<"installed" | "dispatched"> {
+  if (peerId !== undefined && !await supportsInstallCompletion(peerId)) {
+    if (signal.aborted) throw new Error("Installation canceled");
+    await launchProviderInstaller(providerId, peerId);
+    return "dispatched";
+  }
   const observed = new Map<string, InstallCompletion>();
   let target: string | undefined;
   let accept: (event: InstallCompletion) => void = () => {};
@@ -40,6 +52,7 @@ export async function installAndWait(providerId: string, signal: AbortSignal, pe
     const early = observed.get(target);
     const result = early ?? await completed;
     if (!result.success) throw new Error(result.summary);
+    return "installed";
   } finally {
     stop();
     clearTimeout(deadline);
