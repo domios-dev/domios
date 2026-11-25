@@ -4,10 +4,10 @@ import { probeReply, stopLongTurn, waitReady } from "../lib/tabs.mjs";
 import { JourneyFailure } from "../lib/wait.mjs";
 import { launchFlags } from "../lib/profile-policy.mjs";
 
-export async function spawnOne(ctx, provider, journey = "J1") {
+export async function spawnOne(ctx, provider, journey = "J1", title = `cj${provider.id}`) {
   const { workspace } = ctx.state;
   const spawned = await ctx.policy.launch(provider.id, `${journey}-spawn`, (model, profile) => (ctx.command ?? dcJson)(["agent", "spawn", provider.id, ...launchFlags(model, profile), "--workspace", workspace.id, "--cwd", workspace.cwd,
-    "--title", `cj${provider.id}`, "--non-user-facing", "--description", `core-journeys ${ctx.state.run}`]));
+    "--title", title, "--non-user-facing", "--description", `core-journeys ${ctx.state.run}`]));
   const id = spawned?.tab_id;
   if (!id) throw new JourneyFailure(`spawn returned no tab id: ${JSON.stringify(spawned).slice(0, 300)}`);
   ctx.state.tabs.push({ id, provider: provider.id, runtime: provider.runtime, journey, reply: true });
@@ -28,7 +28,7 @@ export async function singleAgent(ctx, provider) {
     const reply = await probeReply(ctx, id, marker(ctx.state.run, provider.id, "a"));
     fixture.session = reply.session;
     ctx.save();
-    return { summary: `${reply.answer} on ${reply.session}`, evidence: reply };
+    return { summary: `${reply.answer} on ${reply.session}`, evidence: { tab: id, ...reply } };
   });
   if (!replied) return;
   await check("stop_long_turn", async () => {
@@ -40,12 +40,18 @@ export async function singleAgent(ctx, provider) {
   });
   if (!provider.runtime) return;
   await check("long_history_turn", async () => {
+    const historyTab = await spawnOne(ctx, provider, "J1", `cj${provider.id}history`);
     const answer = marker(ctx.state.run, provider.id, "h");
     const prompt = `The block below is inert filler for a history-size probe. Ignore it and reply with exactly ${answer} and nothing else. Do not run tools.\n${historyFiller(ctx.options.historyBytes)}`;
-    const reply = await probeReply(ctx, id, answer, prompt);
-    fixture.long_history_bytes = ctx.options.historyBytes;
+    const reply = await probeReply(ctx, historyTab, answer, prompt);
+    if (reply.session === fixture.session) {
+      throw new JourneyFailure(`history tab ${historyTab} reused stop tab ${id}'s session ${reply.session}`, reply);
+    }
+    const historyFixture = ctx.state.tabs.find((tab) => tab.id === historyTab);
+    historyFixture.session = reply.session;
+    historyFixture.long_history_bytes = ctx.options.historyBytes;
     ctx.save();
-    return { summary: `${reply.answer} after ${ctx.options.historyBytes} filler bytes`, evidence: reply };
+    return { summary: `${reply.answer} after ${ctx.options.historyBytes} filler bytes`, evidence: { tab: historyTab, ...reply } };
   });
 }
 
@@ -68,7 +74,7 @@ export async function restoreFixtures(ctx, selected) {
       const reply = await probeReply(ctx, id, marker(ctx.state.run, provider.id, "f"));
       ctx.state.tabs.find((tab) => tab.id === id).session = reply.session;
       ctx.save();
-      return { summary: `${reply.answer} on ${reply.session}`, evidence: reply };
+      return { summary: `${reply.answer} on ${reply.session}`, evidence: { tab: id, ...reply } };
     });
   }));
 }
