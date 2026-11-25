@@ -22,11 +22,11 @@ pub(super) fn prepare(
         ));
     }
     let same_provider = source.agent_type.as_deref() == Some(provider);
-    let session = if same_provider && resume {
-        let id = source
-            .agent_session_id
-            .as_deref()
-            .ok_or("Cannot resume General: this tab has no bound PTY session")?;
+    let session = source
+        .agent_session_id
+        .clone()
+        .filter(|_| same_provider && resume);
+    if let Some(id) = session.as_deref() {
         if !state::session_id_is_owned(
             &svc.agent_registry,
             provider,
@@ -40,10 +40,7 @@ pub(super) fn prepare(
                     .into(),
             );
         }
-        Some(id.to_owned())
-    } else {
-        None
-    };
+    }
 
     let tab_id = &source.id;
     let _claim = svc.pty_ownership.acquire(tab_id)?;
