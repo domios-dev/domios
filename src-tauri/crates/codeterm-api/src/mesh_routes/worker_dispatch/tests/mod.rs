@@ -154,6 +154,7 @@ fn worker_dispatch_status_recovers_spawn_and_refuses_foreign_attempt() {
         model: None,
         reasoning_effort: None,
         speed: None,
+        title: None,
         description: None,
         task_description_managed: false,
         brief: String::new(),
@@ -292,24 +293,27 @@ fn remote_worker_spawn_succeeds_on_a_peer_without_a_local_orchestrator() {
         model: None,
         reasoning_effort: None,
         speed: None,
+        title: Some("Alias".into()),
         description: Some("remote task summary".into()),
         task_description_managed: true,
         brief: "remote brief".into(),
         clone_url: None,
     };
     let mut params = super::remote_worker_spawn_params(
-        request,
-        workspace_id,
-        worktree,
+        request.clone(),
+        workspace_id.clone(),
+        worktree.clone(),
         "peer-origin".into(),
         "origin",
     );
     // Brief delivery needs the desktop session store, which the fixture lacks.
     params.task = None;
     let result = fixture.service.spawn_agent_sync(params).unwrap();
+    assert_eq!(result.title, "Alias");
     {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&result.tab_id).unwrap();
+        assert_eq!(tab.title, "Alias");
         assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("peer-origin"));
         let ownership = tab.ownership.as_ref().expect("stamped remote ownership");
         assert_eq!(ownership.peer_id, "peer-origin");
@@ -330,6 +334,31 @@ fn remote_worker_spawn_succeeds_on_a_peer_without_a_local_orchestrator() {
         assert_eq!(binding.attempt_id.as_deref(), Some("attempt-origin"));
     }
     fixture.service.close_tab(&result.tab_id).unwrap();
+
+    // Without an explicit persona, the peer allocates a real executor name, never "Remoteattemp".
+    let mut unnamed = request;
+    unnamed.attempt_id = "attempt_abcdef".into();
+    unnamed.title = None;
+    let mut unnamed_params = super::remote_worker_spawn_params(
+        unnamed,
+        workspace_id,
+        worktree,
+        "peer-origin".into(),
+        "origin",
+    );
+    unnamed_params.task = None;
+    let unnamed_result = fixture.service.spawn_agent_sync(unnamed_params).unwrap();
+    assert!(
+        !unnamed_result.title.starts_with("Remote"),
+        "remote worker must not use truncated Remote placeholder, got {}",
+        unnamed_result.title
+    );
+    assert!(
+        unnamed_result.title.chars().all(char::is_alphabetic) && !unnamed_result.title.is_empty(),
+        "unnamed remote worker should receive an executor persona name, got {}",
+        unnamed_result.title
+    );
+    fixture.service.close_tab(&unnamed_result.tab_id).unwrap();
 }
 
 #[test]

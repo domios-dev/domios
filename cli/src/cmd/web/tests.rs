@@ -67,3 +67,35 @@ fn local_web_link_port_override_suppresses_https_but_keeps_host_priority() {
     assert_eq!(link.url, "http://100.64.0.5:7777/#token=tok");
     assert_eq!(link.port, 7777);
 }
+
+#[test]
+fn peer_lookup_accepts_installation_id_prefix_instance_id_and_names() {
+    let peers = serde_json::json!({
+        "paired": [{
+            "instance_id": "66c926f1-aaaa-bbbb-cccc-000000000001",
+            "instance_name": "acceptance-r161 [dev-r161]",
+            "online": true
+        }],
+        "installations": [{
+            "installation_id": "7a835b57-1111-2222-3333-000000000001",
+            "instance_id": "66c926f1-aaaa-bbbb-cccc-000000000001",
+            "name": "acceptance-r161",
+            "active": true,
+            "online": true
+        }]
+    });
+    for target in [
+        "7a835b57-1111-2222-3333-000000000001",
+        "7a835b57",
+        "66c926f1-aaaa-bbbb-cccc-000000000001",
+        "66c926f1",
+        "acceptance-r161",
+        "acceptance-r161 [dev-r161]",
+    ] {
+        assert_eq!(
+            resolve_peer_instance_id_from_response(&peers, target).as_deref(),
+            Some("66c926f1-aaaa-bbbb-cccc-000000000001"),
+            "{target}"
+        );
+    }
+}

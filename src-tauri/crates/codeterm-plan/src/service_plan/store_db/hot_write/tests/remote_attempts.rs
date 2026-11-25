@@ -56,6 +56,7 @@ fn remote_dispatch_transactions_are_bounded_and_peer_failures_roll_back() {
                 "remote",
                 "peer",
                 "remote-worker",
+                None,
                 "lane",
                 "remote/path",
                 "base",

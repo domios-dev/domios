@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use super::types::PairedPeer;
+use super::types::{AccountInstallation, PairedPeer};
 
 /// One candidate considered when a target matched more than one paired record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,7 +43,7 @@ pub enum ResolvePairedError {
 
 /// The advertised name without its trailing ` [dev-suffix]`, i.e. the name the
 /// owner configured.
-fn configured_name(advertised: &str) -> &str {
+pub fn configured_name(advertised: &str) -> &str {
     match advertised.rfind(" [") {
         Some(at) if advertised.ends_with(']') => &advertised[..at],
         _ => advertised,
@@ -59,57 +59,105 @@ fn candidate_of(peer: &PairedPeer) -> PairedNameCandidate {
     }
 }
 
-/// Peers whose id starts with `target` (the short id `mesh status` prints).
-/// Only a hex-looking token of 6+ characters counts, so a name is never read
-/// as an id prefix.
-fn id_prefix_matches<'a>(
+fn peer_installation_id<'a, F>(
+    peer: &'a PairedPeer,
+    installations: &'a [AccountInstallation],
+    link_installation_id: &F,
+) -> Option<&'a str>
+where
+    F: Fn(&str) -> Option<&'a str>,
+{
+    link_installation_id(&peer.instance_id).or_else(|| {
+        installations
+            .iter()
+            .find(|row| row.active && row.instance_id.as_deref() == Some(peer.instance_id.as_str()))
+            .map(|row| row.installation_id.as_str())
+    })
+}
+
+fn peer_registry_name<'a>(
+    installation_id: Option<&str>,
+    installations: &'a [AccountInstallation],
+) -> Option<&'a str> {
+    let installation_id = installation_id?;
+    installations
+        .iter()
+        .find(|row| row.active && row.installation_id == installation_id)
+        .map(|row| row.name.as_str())
+}
+
+fn is_short_id_token(target: &str) -> bool {
+    target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+/// Peers whose instance id or linked installation id starts with `target`
+/// (the short ids `mesh status` and `mesh peers` print). Only a hex-looking
+/// token of 6+ characters counts, so a name is never read as an id prefix.
+fn id_prefix_matches<'a, F>(
     peers: &'a HashMap<String, PairedPeer>,
+    installations: &'a [AccountInstallation],
+    link_installation_id: &F,
     target: &str,
-) -> Vec<&'a PairedPeer> {
-    let hex_like = target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
-    if !hex_like {
+) -> Vec<&'a PairedPeer>
+where
+    F: Fn(&str) -> Option<&'a str>,
+{
+    if !is_short_id_token(target) {
         return Vec::new();
     }
     let needle = target.to_ascii_lowercase();
     peers
         .values()
-        .filter(|p| p.instance_id.to_ascii_lowercase().starts_with(&needle))
+        .filter(|p| {
+            p.instance_id.to_ascii_lowercase().starts_with(&needle)
+                || peer_installation_id(p, installations, link_installation_id)
+                    .is_some_and(|id| id.to_ascii_lowercase().starts_with(&needle))
+        })
         .collect()
 }
 
-/// Peers answering to `target` by name: the full advertised name first, then
-/// the configured name (advertised name minus its dev suffix).
-fn name_matches<'a>(peers: &'a HashMap<String, PairedPeer>, target: &str) -> Vec<&'a PairedPeer> {
+/// Peers answering to `target` by name: exact advertised or registry display
+/// name first, then configured name (minus any trailing ` [dev-suffix]`).
+fn name_matches<'a, F>(
+    peers: &'a HashMap<String, PairedPeer>,
+    installations: &'a [AccountInstallation],
+    link_installation_id: &F,
+    target: &str,
+) -> Vec<&'a PairedPeer>
+where
+    F: Fn(&str) -> Option<&'a str>,
+{
     let exact: Vec<&PairedPeer> = peers
         .values()
-        .filter(|p| p.instance_name.eq_ignore_ascii_case(target))
+        .filter(|p| {
+            let registry = peer_registry_name(
+                peer_installation_id(p, installations, link_installation_id),
+                installations,
+            );
+            p.instance_name.eq_ignore_ascii_case(target)
+                || registry.is_some_and(|name| name.eq_ignore_ascii_case(target))
+        })
         .collect();
     if !exact.is_empty() {
         return exact;
     }
     peers
         .values()
-        .filter(|p| configured_name(&p.instance_name).eq_ignore_ascii_case(target))
+        .filter(|p| {
+            let registry = peer_registry_name(
+                peer_installation_id(p, installations, link_installation_id),
+                installations,
+            );
+            configured_name(&p.instance_name).eq_ignore_ascii_case(target)
+                || registry.is_some_and(|name| configured_name(name).eq_ignore_ascii_case(target))
+        })
         .collect()
 }
 
-/// Resolve a paired peer by instance_id (exact key), then unique short-id
-/// prefix, then case-insensitive advertised or configured `instance_name`.
-/// Stale offline duplicates of a name never hide the live record
-/// (codeterm#434), but two online records under one name are refused as
-/// `Ambiguous` rather than silently picking one.
-pub fn resolve_paired_by_name<'a>(
-    peers: &'a HashMap<String, PairedPeer>,
+fn select_candidate<'a>(
     target: &str,
+    mut matches: Vec<&'a PairedPeer>,
 ) -> Result<&'a PairedPeer, ResolvePairedError> {
-    if let Some(p) = peers.get(target) {
-        return Ok(p);
-    }
-
-    let mut matches = id_prefix_matches(peers, target);
-    if matches.is_empty() {
-        matches = name_matches(peers, target);
-    }
     if matches.is_empty() {
         return Err(ResolvePairedError::NotFound);
     }
@@ -128,6 +176,53 @@ pub fn resolve_paired_by_name<'a>(
             candidates: candidates(&online),
         }),
     }
+}
+
+/// Resolve a paired peer by any identifier the CLI prints: exact `instance_id`,
+/// exact `installation_id`, unique short-id prefix (of either id), or
+/// case-insensitive advertised/registry/configured name. Stale offline
+/// duplicates never hide the live record (codeterm#434), while two online
+/// records under one selector are refused as `Ambiguous`.
+pub fn resolve_paired_peer<'a, F>(
+    peers: &'a HashMap<String, PairedPeer>,
+    installations: &'a [AccountInstallation],
+    link_installation_id: F,
+    target: &str,
+) -> Result<&'a PairedPeer, ResolvePairedError>
+where
+    F: Fn(&str) -> Option<&'a str>,
+{
+    if let Some(p) = peers.get(target) {
+        return Ok(p);
+    }
+
+    let exact_installation: Vec<&PairedPeer> = peers
+        .values()
+        .filter(|p| {
+            peer_installation_id(p, installations, &link_installation_id)
+                .is_some_and(|id| id.eq_ignore_ascii_case(target))
+        })
+        .collect();
+    match exact_installation.as_slice() {
+        [only] => return Ok(*only),
+        [] => {}
+        _ => return select_candidate(target, exact_installation),
+    }
+
+    let mut matches = id_prefix_matches(peers, installations, &link_installation_id, target);
+    if matches.is_empty() {
+        matches = name_matches(peers, installations, &link_installation_id, target);
+    }
+    select_candidate(target, matches)
+}
+
+/// Resolve a paired peer by instance_id (exact key), then unique short-id
+/// prefix, then case-insensitive advertised or configured `instance_name`.
+pub fn resolve_paired_by_name<'a>(
+    peers: &'a HashMap<String, PairedPeer>,
+    target: &str,
+) -> Result<&'a PairedPeer, ResolvePairedError> {
+    resolve_paired_peer(peers, &[], |_| None, target)
 }
 
 #[cfg(test)]
@@ -283,5 +378,61 @@ mod tests {
         let peers = duplicate_store();
         let resolved = resolve_paired_by_name(&peers, "BLACKSTAR").expect("resolves");
         assert_eq!(resolved.instance_id, "2556b3f9-live");
+    }
+
+    #[test]
+    fn resolves_by_installation_id_short_prefix_instance_id_and_registry_name() {
+        let instance_id = "66c926f1-aaaa-bbbb-cccc-000000000001";
+        let installation_id = "7a835b57-1111-2222-3333-000000000001";
+        let mut peers = HashMap::new();
+        peers.insert(
+            instance_id.into(),
+            peer(instance_id, "acceptance-r161 [dev-r161]", true, 2),
+        );
+        peers.insert(
+            "99999999-0000-0000-0000-000000000002".into(),
+            peer("99999999-0000-0000-0000-000000000002", "other", true, 2),
+        );
+        let installations = vec![AccountInstallation {
+            installation_id: installation_id.into(),
+            name: "r161-registry".into(),
+            active: true,
+            signed_out: false,
+            membership_expires_at: None,
+            endpoint_expires_at: None,
+            instance_id: None,
+            online: false,
+        }];
+        let link_of = |id: &str| (id == instance_id).then_some(installation_id);
+        for target in [
+            installation_id,
+            "7a835b57",
+            "7A835B57",
+            instance_id,
+            "66c926f1",
+            "acceptance-r161",
+            "acceptance-r161 [dev-r161]",
+            "r161-registry",
+        ] {
+            let resolved = resolve_paired_peer(&peers, &installations, link_of, target)
+                .unwrap_or_else(|error| panic!("{target} must resolve, got {error:?}"));
+            assert_eq!(resolved.instance_id, instance_id, "{target}");
+        }
+
+        // Exact installation_id resolves an offline single record, while a duplicate live record wins.
+        peers.get_mut(instance_id).unwrap().online = false;
+        let offline = resolve_paired_peer(&peers, &installations, link_of, installation_id)
+            .expect("exact installation id resolves offline record");
+        assert_eq!(offline.instance_id, instance_id);
+
+        let newer = "66c926f1-aaaa-bbbb-cccc-000000000099";
+        peers.insert(
+            newer.into(),
+            peer(newer, "acceptance-r161 [dev-r161]", true, 2),
+        );
+        let link_both = |id: &str| (id == instance_id || id == newer).then_some(installation_id);
+        let live = resolve_paired_peer(&peers, &installations, link_both, installation_id)
+            .expect("live record wins over stale offline duplicate for same installation");
+        assert_eq!(live.instance_id, newer);
     }
 }

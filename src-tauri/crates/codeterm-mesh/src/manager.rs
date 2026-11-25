@@ -332,6 +332,41 @@ impl MeshManager {
         }
     }
 
+    pub fn resolve_peer(
+        &self,
+        target: &str,
+    ) -> Result<&PairedPeer, crate::paired_resolve::ResolvePairedError> {
+        crate::paired_resolve::resolve_paired_peer(
+            &self.paired_peers,
+            &self.account_installations,
+            |instance_id| {
+                self.links
+                    .get(instance_id)
+                    .and_then(|r| r.installation_id())
+            },
+            target,
+        )
+    }
+
+    /// Resolves a peer like [`Self::resolve_peer`], also accepting a unique
+    /// offline match for local peer-maintenance operations (`set-addr`, `announce --to`).
+    pub fn resolve_peer_including_offline(
+        &self,
+        target: &str,
+    ) -> Result<&PairedPeer, crate::paired_resolve::ResolvePairedError> {
+        match self.resolve_peer(target) {
+            Ok(peer) => Ok(peer),
+            Err(crate::paired_resolve::ResolvePairedError::NoOnlineCandidate {
+                candidates,
+                ..
+            }) if candidates.len() == 1 => self
+                .paired_peers
+                .get(&candidates[0].instance_id)
+                .ok_or(crate::paired_resolve::ResolvePairedError::NotFound),
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn account_peer_revoked(&self, instance_id: &str) -> bool {
         self.links
             .get(instance_id)

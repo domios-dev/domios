@@ -392,11 +392,8 @@ fn resolve_paired_peer(api: &LocalApiClient, base: &str, target: &str) -> Result
         .get("paired")
         .and_then(|v| v.as_array())
         .ok_or_else(|| "no paired peers in /api/mesh/peers response".to_string())?;
-    let peer = paired.iter().find(|p| {
-        p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
-            || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
-    });
-    let Some(peer) = peer else {
+    let id = crate::cmd::web::resolve_peer_instance_id_from_response(&val, target);
+    let Some(id) = id else {
         let names: Vec<&str> = paired
             .iter()
             .filter_map(|p| p.get("instance_name").and_then(|v| v.as_str()))
@@ -407,11 +404,6 @@ fn resolve_paired_peer(api: &LocalApiClient, base: &str, target: &str) -> Result
             names.join(", ")
         ));
     };
-    let id = peer
-        .get("instance_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(target)
-        .to_string();
     Ok(id)
 }
 
