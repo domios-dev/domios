@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "tab/lifecycle_exit.rs"]
 mod lifecycle_exit;
+pub(crate) use lifecycle_exit::clear_explicit_agent_identity;
 mod runtime_shutdown;
 #[cfg(any(test, feature = "test-support"))]
 pub use runtime_shutdown::RuntimeStopOverride;
