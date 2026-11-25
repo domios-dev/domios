@@ -187,7 +187,7 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **`CronRunStatus` enum:** `Running`, `AwaitingOwnerPrompt`, `Success`, `Failed`, `Cancelled`. Run objects expose optional `cancel_reason`: `user_cancel`, `superseded`, `restart_reconcile`, `timeout`, or `owner_closed`. Explicit cancel records `user_cancel`; startup orphan reconciliation records `restart_reconcile`. Historical runs without evidence of a cause omit it. A cron waiting on an owner prompt uses `AwaitingOwnerPrompt`; `POST /api/crons/:id/cancel` cancels both running states.
 
-**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab**; observe progress via the cron tabl / `cron_read_log`, not as a regular tab. A prompt that blocks the run reaches its creator tab when one is recorded, otherwise it notifies the user. Completed oneshot jobs are removed while their run history remains available by job ID. When done, the agent calls `domios cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.domios/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections.
+**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab**; observe progress via the cron tabl / `cron_read_log`, not as a regular tab. A prompt that blocks the run reaches its creator tab when one is recorded, otherwise it notifies the user. Completed oneshot jobs are removed while their run history remains available by job ID. The agent calls `domios cron complete --run-id UUID` on success or adds `--status failed --summary "reason"` on failure (socket method `cron.complete`). A reported failure appears in run history and counts toward the usual consecutive-failure notifications. Logs are saved to `~/.domios/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections.
 
 **Placement and lifecycle:** Cron placement resolves caller workspace, validated workspace environment, then focus; live Team callers inherit their Team unless `--no-team`. Override with `--workspace` or membership-checked `--team`. Edit via `PUT /api/crons/:id` to preserve identity/history. Deleting a job kills its active tabs and removes logs; closing its workspace deletes its jobs and history. See `domios docs CONFIG`.
 
@@ -208,4 +208,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `domios docs API-SERVICES`. Notifications and webhooks: `domios docs API-TABS`. Secret storage and updates: `domios docs API-STATE`.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->
