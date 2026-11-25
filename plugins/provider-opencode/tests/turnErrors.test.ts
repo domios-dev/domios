@@ -3,7 +3,7 @@ import { ioTestExport } from "../../provider-shared/tests/hostIo";
 
 import { describe, expect, it } from "vitest";
 import { MODEL_REJECTION_QUERY, parseOpencodeModels, sessionModelIdentity } from "../src/helpers";
-import { rejectedModelIds, sessionObservations, turnError, unavailableModelError } from "../src/turnErrors";
+import { classifyOpencodeConsoleKeyError, rejectedModelIds, sessionObservations, turnError, unavailableModelError } from "../src/turnErrors";
 
 const error = { role: "assistant", providerID: "opencode", modelID: "exo-free",
   error: { name: "APIError", data: { message: "Model exo-free has been deprecated", statusCode: 410, isRetryable: false } } };
@@ -36,6 +36,79 @@ describe("OpenCode assistant errors", () => {
   it("filters live deprecated and unavailable models while retaining unknown availability", () => {
     expect(parseOpencodeModels('opencode/exo-free\n{"status":"deprecated"}\nvendor/off\n{"available":false}\nvendor/unknown\n{"name":"Unknown"}')?.map((model) => model.id)).toEqual(["vendor/unknown"]);
     expect(parseOpencodeModels('opencode/exo-free\n{"status":"deprecated"}')).toEqual([]);
+  });
+  it("classifies expired and invalid OpenCode Console keys into actionable typed failures", () => {
+    const expiredBody = JSON.stringify({
+      error: {
+        type: "authentication_error",
+        code: "api_key_expired",
+        message: "This API key has expired. Create a new API key in OpenCode Console and replace it in your client or secret store. Signing in again will not renew this key. Manage your API keys at https://opencode.ai/console/account#api-keys.",
+      },
+    });
+    const v2Expired = {
+      type: "provider.auth",
+      status: 401,
+      message: "This API key has expired. Create a new API key in OpenCode Console and replace it in your client or secret store.",
+      response: { body: expiredBody },
+    };
+    const remediation = classifyOpencodeConsoleKeyError(v2Expired, "opencode/beam-free");
+    expect(remediation).toMatchObject({
+      code: "api_key_expired",
+      title: "Stored OpenCode Console key has expired",
+      retry: true,
+      commands: [
+        { command: "opencode auth login" },
+        { command: "opencode auth logout" },
+      ],
+    });
+    expect(remediation?.message).toContain("opencode auth login");
+    expect(remediation?.message).toContain("opencode auth logout");
+    expect(remediation?.rawDetail).toContain("This API key has expired");
+
+    const v2Message = {
+      type: "assistant",
+      model: { providerID: "opencode", id: "beam-free" },
+      finish: "error",
+      error: v2Expired,
+    };
+    expect(turnError(v2Message)).toEqual(v2Expired);
+    expect(sessionObservations(v2Message)).toMatchObject({ api_error: "auth_expiry", clears_api_error: false });
+
+    const v1Expired = {
+      name: "APIError",
+      data: { statusCode: 401, isRetryable: false, message: "This API key has expired.", responseBody: expiredBody },
+    };
+    expect(classifyOpencodeConsoleKeyError(v1Expired, "opencode/deepseek-v4.1-flash-free")?.code).toBe("api_key_expired");
+    expect(sessionObservations({ role: "assistant", providerID: "opencode", modelID: "beam-free", error: v1Expired })).toMatchObject({ api_error: "auth_expiry", clears_api_error: false });
+
+    const invalidKey = {
+      type: "provider.auth",
+      status: 401,
+      body: { error: { type: "authentication_error", code: "invalid_api_key", message: "Invalid API key" } },
+    };
+    expect(classifyOpencodeConsoleKeyError(invalidKey, "opencode/beam-free")).toMatchObject({
+      code: "invalid_api_key",
+      retry: true,
+      commands: [
+        { command: "opencode auth login" },
+        { command: "opencode auth logout" },
+      ],
+    });
+    expect(sessionObservations({ type: "assistant", model: { providerID: "opencode", id: "beam-free" }, error: invalidKey })).toMatchObject({ api_error: "authentication", clears_api_error: false });
+
+    const genericFreeZen401 = { type: "provider.auth", status: 401, message: "Unauthorized" };
+    expect(classifyOpencodeConsoleKeyError(genericFreeZen401, "opencode/beam-free")?.code).toBe("invalid_api_key");
+  });
+  it("keeps third-party providers, paid models without stale keys, and non-auth errors unaffected", () => {
+    const expiredBody = JSON.stringify({ error: { type: "authentication_error", code: "api_key_expired", message: "This API key has expired." } });
+    const thirdPartyExpired = { type: "provider.auth", status: 401, message: "This API key has expired.", response: { body: expiredBody } };
+    expect(classifyOpencodeConsoleKeyError(thirdPartyExpired, "deepseek/deepseek-chat")).toBeNull();
+    expect(classifyOpencodeConsoleKeyError(thirdPartyExpired, "anthropic/claude-sonnet-4-6")).toBeNull();
+    expect(classifyOpencodeConsoleKeyError({ type: "provider.auth", status: 401, message: "API key required" }, "opencode/gpt-5.5")).toBeNull();
+    expect(classifyOpencodeConsoleKeyError({ type: "provider.auth", status: 401, message: "Unauthorized" }, "opencode/gpt-5.5")).toBeNull();
+    expect(classifyOpencodeConsoleKeyError({ type: "provider.quota", status: 402, body: { error: { type: "insufficient_balance_error" } } }, "opencode/beam-free")).toBeNull();
+    expect(classifyOpencodeConsoleKeyError(error.error, "opencode/exo-free")).toBeNull();
+    expect(sessionObservations({ type: "assistant", model: { providerID: "opencode", id: "beam-free" }, time: { completed: 50 } })).toEqual({ api_error: null, permission_mode: null, clears_api_error: true });
   });
 });
 

@@ -247,3 +247,8 @@ export { parseDsCanvasFile, isDsCanvasFilePath, DS_CANVAS_FILE_FORMAT, DS_CANVAS
 export { applyDsCanvasEdit, invertDsCanvasEdit, nextDsCanvasNoteId, reconcileDsCanvas, type DsCanvasEdit } from "./dsCanvasEdit";
 export { DsBlockScanner, parseDsBlocks, serializeDsBlock, DS_KINDS, DS_TASK_STATUSES, decodeDsEntities, isDsAbsolutePath, isDsTaskRef, type DsBlock, type DsKind, type DsTaskStatus, type DsTaskItem, type DsTaskSnapshot, type DsLifecycle, type DsAuthority, type DsSegment, type DsFenceSpan } from "./dsBlocks";
 export { pendingSendPosition } from "./sendPlacement";
+export {
+  hasRetryableProviderErrorRemediation,
+  parseProviderErrorRemediation,
+  type ProviderErrorRemediation,
+} from "./providerErrorRemediation";
