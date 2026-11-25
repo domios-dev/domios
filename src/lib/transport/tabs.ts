@@ -9,6 +9,7 @@ import type { ChatSendStatus } from "../../components/Terminal/chatSendStatus";
 import type { SessionBindingFact } from "../../components/Terminal/sessionBindingSurface";
 import type { ResizeOwnerClaim } from "../resizeOwner";
 import { isPromptNotOnScreenResponse } from "../webApi";
+import { hydrateMuxSnapshot } from "../muxRuntimeAssets";
 import { RemotePtyIdCache, writeRemotePty, type RemotePtyWriteResponse } from "../remotePtyIdCache";
 import type { AtomicSpawn, MultiplexerState, ShellProfile } from "../types";
 import type { TransportClient } from "../transportClient";
@@ -54,9 +55,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         provider_registry_install: (a: Args) => clientFor(a).json("POST", `/api/agents/providers/${enc(s(a, "providerId"))}/registry/install`, {id: s(a, "id")}, {timeoutMs: null}),
         provider_remove_profile: (a: Args) => clientFor(a).json("DELETE", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles/${enc(s(a, "name"))}`),
         wake_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/wake`),
-        mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
+        mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state").then(hydrateMuxSnapshot),
         agent_runtime_child_authority: async (a: Args) => {
-            const state = await clientFor(a).json<MultiplexerState>("GET", "/api/mux/state");
+            const state = hydrateMuxSnapshot(await clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"));
             return currentChildAuthority(state.tabs[s(a, "tabId")]);
         },
         agent_runtime_answer_question: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/questions/${enc(s(a, "itemId"))}/answer`, { answers: a.answers }),
@@ -193,7 +194,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             if (!response.ok)
                 throw new Error(response.error ?? "Failed to list remote Tabs");
             if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
-            const snapshot = response.data;
+            const snapshot = hydrateMuxSnapshot(response.data);
             if (!snapshot?.tabs || typeof snapshot.tabs !== "object") throw new Error("Remote peer returned no multiplexer snapshot");
             const tabs = Object.values(snapshot.tabs).filter(tab =>
                 !tab.id.startsWith("mesh:") && !tab.remote_peer_id && !tab.remote_tab_id);
@@ -208,7 +209,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         },
         mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
         // The peer's published multiplexer state: the only read that names both its workspaces and Teams.
-        mesh_peer_mux_state: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/mux/state", null),
+        mesh_peer_mux_state: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/mux/state", null).then(hydrateMuxSnapshot),
         mesh_peer_notifications_list: (a: Args) => relayToPeer(clientFor(a), exactPeerId(a), "GET", "/api/notifications", null),
         mesh_peer_notification_action: (a: Args) => {
             const peerId = exactPeerId(a);
@@ -445,7 +446,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 reasoning_effort: p.reasoningEffort, preset: p.preset, launch_profile: p.launchProfile,
                 account_id: p.accountId,
             });
-            const snapshot = await clientFor(a).json<AtomicSpawn["snapshot"]>("GET", "/api/mux/state");
+            const snapshot = hydrateMuxSnapshot(await clientFor(a).json<AtomicSpawn["snapshot"]>("GET", "/api/mux/state"));
             return { tab_id: result.tab_id, workspace_id: result.workspace_id ?? p.workspaceId, snapshot };
         },
     };

@@ -139,35 +139,33 @@ pub struct TeamResolution {
 }
 
 /// Full state snapshot for frontend hydration.
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, TS)]
 pub struct MultiplexerSnapshot {
     /// Monotonic generation; the reducer drops any snapshot whose value is
     /// `<=` the one already applied. Serialized first so the publisher can
     /// compare snapshot content without it.
     pub generation: u64,
     pub workspaces: Vec<Workspace>,
-    #[serde(serialize_with = "wire_snapshot::tabs")]
     pub tabs: HashMap<String, Tab>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<Team>>", optional)]
     pub teams: Vec<Team>,
     pub active_workspace_id: Option<String>,
     pub focused_tab_id: Option<String>,
     /// Bounded newest-first view of the closed-tab history (across all
     /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
     /// persisted session snapshot — keeps both lean.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<ClosedTabView>>", optional)]
     pub recently_closed: Vec<ClosedTabView>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<ClosedStructureView>>", optional)]
     pub closed_structures: Vec<ClosedStructureView>,
     /// Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from
     /// `TabStatusTracker` so a fresh page load hydrates the same rail color a
     /// live `tab-status-changed` event would have delivered. Only populated by
     /// [`MultiplexerState::snapshot_with_status`] — plain `snapshot()` leaves it
     /// empty since most internal callers don't need it.
-    #[serde(
-        default,
-        skip_serializing_if = "HashMap::is_empty",
-        serialize_with = "wire_snapshot::sorted"
+    #[ts(
+        as = "Option<HashMap<String, codeterm_types::pty::TabStatus>>",
+        optional
     )]
     pub tab_statuses: HashMap<String, codeterm_types::pty::TabStatus>,
 }
