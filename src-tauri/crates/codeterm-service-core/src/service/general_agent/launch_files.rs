@@ -17,6 +17,13 @@ pub(super) fn command(
         crate::service::launch_session_detection::clear_launch_marker(tab);
     }
     let command = if let Some(session) = resume.as_deref() {
+        crate::service::directory_pre_trust::for_tab(
+            svc,
+            &svc.agent_registry,
+            provider,
+            tab,
+            Some(cwd),
+        );
         crate::service::task_files::capture(svc, tab, || {
             build_resume(
                 &svc.agent_registry,

@@ -73,7 +73,7 @@ pub(super) fn execute(
             bounded_read(&path, max_bytes, true, sandbox, operation)
         }
         CanonicalPath { path } => {
-            if !sandbox.can_read(&path) {
+            if !sandbox.can_canonicalize(&path) {
                 return Ok(Value::Null);
             }
             check(operation)?;
