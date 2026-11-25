@@ -874,6 +874,42 @@
     "source": "terminal closer tie-break: the host wrapped a literal unpaired opening; raw stream exclusion still awaits the outer close"
   },
   {
+    "name": "unpaired tab mention followed by newline",
+    "raw": "<domios from=\"tab\">An opening <domios type=\"tab\" id=\"x\"> stays literal</domios>\n",
+    "route": "stream_content",
+    "quoted": true,
+    "segments": [
+      {
+        "type": "frame",
+        "kind": "tab",
+        "from": "tab",
+        "attrs": { "from": "tab" },
+        "body": "An opening <domios type=\"tab\" id=\"x\"> stays literal",
+        "tip": null
+      },
+      { "type": "text", "text": "\n" }
+    ],
+    "source": "routed message with a transcript line ending after the sender close"
+  },
+  {
+    "name": "unpaired tab mention followed by owner text",
+    "raw": "<domios from=\"tab\">An opening <domios type=\"tab\" id=\"x\"> stays literal</domios>Owner reply",
+    "route": "stream_content",
+    "quoted": true,
+    "segments": [
+      {
+        "type": "frame",
+        "kind": "tab",
+        "from": "tab",
+        "attrs": { "from": "tab" },
+        "body": "An opening <domios type=\"tab\" id=\"x\"> stays literal",
+        "tip": null
+      },
+      { "type": "text", "text": "Owner reply" }
+    ],
+    "source": "routed message followed by a separate owner reply in the same record"
+  },
+  {
     "name": "inline unpaired tab mention",
     "raw": "Example <domios from=\"tab\">An opening <domios type=\"tab\" id=\"x\"> stays literal</domios>",
     "route": "stream_content",
