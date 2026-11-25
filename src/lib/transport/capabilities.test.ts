@@ -32,6 +32,30 @@ describe("capabilities HTTP transport", () => {
     ]);
   });
 
+  it("relays provider CLI status and install to the exact peer when peerId is set", async () => {
+    const { transport, calls } = fixture({ ok: true, data: { installed: true }, peer: { instance_id: "blackstar" } });
+    await expect(transport.provider_cli_status({ providerId: "claude", peerId: "blackstar" })).resolves.toEqual({ installed: true });
+    await transport.provider_cli_status({ providerId: "claude", peerId: "blackstar", refresh: true });
+    await transport.install_provider_in_tab({ providerId: "claude", peerId: "blackstar" });
+    await transport.provider_cli_status({ providerId: "claude", peerId: null });
+    await expect(transport.provider_cli_status({ providerId: "claude", peerId: "different" })).rejects.toThrow("different installation");
+    expect(calls).toEqual([
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "blackstar", method: "GET", path: "/api/agents/providers/claude/cli", body: null,
+      }],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "blackstar", method: "GET", path: "/api/agents/providers/claude/cli?refresh=true", body: null,
+      }],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "blackstar", method: "POST", path: "/api/agents/providers/claude/install-in-tab", body: null,
+      }],
+      ["local", "GET", "/api/agents/providers/claude/cli", undefined],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "different", method: "GET", path: "/api/agents/providers/claude/cli", body: null,
+      }],
+    ]);
+  });
+
   it("rejects retired and unregistered commands before dispatch", async () => {
     const { transport, calls } = fixture();
     for (const removed of [

@@ -5,10 +5,13 @@ import type { ProviderCliStatus } from "../../lib/providerCli";
 
 const fixture = vi.hoisted(() => ({
   invoke: vi.fn(), listen: vi.fn(),
+  launchProviderUpdate: vi.fn(),
   complete: null as null | ((event: { payload: { provider: string; summary: string } }) => void),
 }));
 vi.mock("../../lib/bridge", () => ({ invoke: fixture.invoke, listen: fixture.listen }));
+vi.mock("../../lib/providerUpdate", () => ({ launchProviderUpdate: fixture.launchProviderUpdate }));
 import { providerCompatibilityHint } from "../../lib/providerCli";
+import { setWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { ProviderCliControls } from "./ProviderInstallCard";
 
 const missing: ProviderCliStatus = { required: true, installed: false, binary: "tool", resolved_path: null, availability: "unavailable", searched: [], installer: "opaque --install", updater: null };
@@ -17,16 +20,18 @@ let host: HTMLDivElement;
 let root: Root;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
+  setWorkspaceBrowseTarget(null);
   status = missing;
   fixture.invoke.mockReset().mockImplementation(async (command: string) => {
     if (command !== "provider_cli_status") return { tab_id: "utility", launch_state: "command_dispatched" };
     if (status instanceof Error) throw status;
     return status;
   });
+  fixture.launchProviderUpdate.mockReset().mockResolvedValue({ tab_id: "cli-update", launch_state: "command_dispatched" });
   fixture.listen.mockReset().mockImplementation(async (_event: string, callback: typeof fixture.complete) => { fixture.complete = callback; return () => { fixture.complete = null; }; });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+afterEach(async () => { await act(async () => root.unmount()); setWorkspaceBrowseTarget(null); host.remove(); });
 
 const statusText = () => host.querySelector('[role="group"] [role="status"]')?.textContent ?? "";
 const button = (name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
@@ -136,6 +141,33 @@ describe("provider CLI controls", () => {
     expect(fixture.invoke.mock.calls.filter(([command]) => command === "provider_cli_status").slice(-1)[0]?.[1]).toEqual({ providerId: "fixture", refresh: true });
     expect(statusText()).toBe("No launch profiles ready");
     expect(host.querySelector('[aria-label="Install command"]')).toBeNull();
+  });
+
+  it("targets the viewed remote machine for CLI status, update, and install actions in Settings", async () => {
+    setWorkspaceBrowseTarget({ id: "blackstar", name: "BLACKSTAR" });
+    status = {
+      ...missing,
+      installed: true,
+      availability: "available",
+      updater: "opaque --update",
+      latest_version: "2.0.0",
+      display_name: "Fixture",
+    };
+    await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
+    expect(fixture.invoke).toHaveBeenCalledWith("provider_cli_status", { providerId: "fixture", peerId: "blackstar" });
+
+    const updateButton = [...host.querySelectorAll("button")].find(el => el.textContent === "Update");
+    expect(updateButton).toBeDefined();
+    await act(async () => updateButton!.click());
+    expect(fixture.launchProviderUpdate).toHaveBeenCalledExactlyOnceWith("fixture", undefined, "blackstar");
+
+    status = missing;
+    await act(async () => setWorkspaceBrowseTarget({ id: "mac-mini", name: "Mac Mini" }));
+    expect(fixture.invoke).toHaveBeenCalledWith("provider_cli_status", { providerId: "fixture", peerId: "mac-mini" });
+    const installButton = button("Install CLI for fixture");
+    expect(installButton).not.toBeNull();
+    await act(async () => installButton!.click());
+    expect(fixture.invoke).toHaveBeenCalledWith("install_provider_in_tab", { providerId: "fixture", peerId: "mac-mini" });
   });
 
 });

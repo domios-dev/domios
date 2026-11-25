@@ -472,5 +472,8 @@
   "src/components/Terminal/useChatActivationReconcile.test.tsx",
   "src/components/Terminal/TabTopBar.modeSwitch.test.tsx",
   "src/lib/useTabProvider.test.tsx",
-  "src/hooks/useDocumentPerfState.test.tsx"
+  "src/hooks/useDocumentPerfState.test.tsx",
+  "src/lib/providerCliTarget.test.ts",
+  "src/lib/providerUpdate.test.ts",
+  "src/hooks/useProviderCliStatus.test.tsx"
 ]

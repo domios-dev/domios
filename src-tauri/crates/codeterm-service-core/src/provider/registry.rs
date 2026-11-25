@@ -243,11 +243,15 @@ impl ProviderRegistry {
                 );
                 let observe_us = observe_started.elapsed().as_micros();
                 let update_started = std::time::Instant::now();
-                status.update_summary = crate::service::provider_update::status_summary(id);
+                status.update_summary = crate::service::provider_update::status_summary(
+                    id,
+                    status.detected_version.as_deref(),
+                );
                 status.display_name = Some(provider.display_name().to_owned());
                 status.update_job = crate::service::provider_cli_actions::update_job(id);
-                status.latest_version = crate::service::provider_update::newer_target(
+                status.latest_version = crate::service::provider_update::newer_target_for_detected(
                     crate::service::provider_update::available_version(id),
+                    status.detected_version.as_deref(),
                 )
                 .map(|version| version.latest_version);
                 if let Some(capability) = provider.provider_self_update_capability() {

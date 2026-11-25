@@ -1,14 +1,36 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import { ProviderUpdateNotice } from "./ProviderUpdateBubble";
+import { ProviderUpdateBubble, ProviderUpdateNotice } from "./ProviderUpdateBubble";
 
-vi.mock("../../hooks/useProviderCliStatus",()=>({useProviderCliStatus:()=>({status:{required:true,installed:true,latest_version:"1.2.3",updater:{},display_name:"fixture"},refresh:vi.fn()})}));
+const mocked = vi.hoisted(() => ({
+  refresh: vi.fn(async () => undefined),
+  useProviderCliStatus: vi.fn(),
+  launchProviderUpdate: vi.fn(async (..._args: unknown[]) => ({ tab_id: "cli-tab", launch_state: "command_dispatched" })),
+}));
+vi.mock("../../hooks/useProviderCliStatus", () => ({
+  useProviderCliStatus: (...args: unknown[]) => {
+    mocked.useProviderCliStatus(...args);
+    return {
+      status: { required: true, installed: true, latest_version: "1.2.3", updater: "opaque --update", display_name: "fixture" },
+      refresh: mocked.refresh,
+    };
+  },
+}));
+vi.mock("../../lib/providerUpdate", () => ({
+  launchProviderUpdate: mocked.launchProviderUpdate,
+}));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const host = document.createElement("div");
 document.body.appendChild(host);
 const root = createRoot(host);
-afterEach(async () => { await act(async () => root.render(null)); });
+afterEach(async () => {
+  await act(async () => root.render(null));
+  mocked.refresh.mockClear();
+  mocked.useProviderCliStatus.mockClear();
+  mocked.launchProviderUpdate.mockReset().mockResolvedValue({ tab_id: "cli-tab", launch_state: "command_dispatched" });
+});
 
 it("offers update and dismissal and displays the model result in the same status", async () => {
   const update = vi.fn(), dismiss = vi.fn();
@@ -58,4 +80,21 @@ it("shows the provider notice after settlement and preserves dismissal through t
   await render(true);
   await render(false);
   expect(notice()).toBeNull();
+});
+
+it("targets the remote peer and its own tab id for a composite mesh tab and surfaces errors", async () => {
+  await act(async () => root.render(<ProviderUpdateBubble providerId="fixture" callerTabId="mesh:blackstar/remote-tab-9" />));
+  expect(mocked.useProviderCliStatus).toHaveBeenLastCalledWith("fixture", "blackstar");
+  const updateButton = () => [...host.querySelectorAll("button")].find(button => button.textContent === "Update")!;
+  await act(async () => updateButton().click());
+  expect(mocked.launchProviderUpdate).toHaveBeenCalledExactlyOnceWith("fixture", "remote-tab-9", "blackstar");
+  expect(mocked.refresh).toHaveBeenCalledTimes(1);
+
+  mocked.launchProviderUpdate.mockRejectedValueOnce(new Error("Remote updater refused"));
+  await act(async () => updateButton().click());
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("Remote updater refused");
+
+  await act(async () => root.render(<ProviderUpdateBubble providerId="fixture" callerTabId="mesh:other-peer/tab-2" />));
+  expect(mocked.useProviderCliStatus).toHaveBeenLastCalledWith("fixture", "other-peer");
+  expect(host.querySelector('[role="status"]')?.textContent).not.toBe("Remote updater refused");
 });

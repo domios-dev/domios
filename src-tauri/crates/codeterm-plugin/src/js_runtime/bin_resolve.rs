@@ -196,6 +196,57 @@ fn search_context(
     }
 }
 
+/// Joins the same search ladder used by `probe_bin` into a deduplicated `PATH`
+/// value so spawned subprocesses find interpreters and helper tools.
+pub fn merged_search_path(
+    environment: &BinSearchEnvironment,
+    extra_dirs: &[PathBuf],
+) -> Option<OsString> {
+    let mut roots = Vec::new();
+    let mut push_unique = |dir: PathBuf| {
+        if !dir.as_os_str().is_empty() && !roots.contains(&dir) {
+            roots.push(dir);
+        }
+    };
+    if let Some(path) = environment
+        .inherited_path
+        .as_ref()
+        .filter(|p| !p.is_empty())
+    {
+        for dir in split_path_entries(path) {
+            push_unique(dir);
+        }
+    }
+    for value in [&environment.machine_path, &environment.user_path] {
+        if let EnvironmentValue::Value(path) = value {
+            if !path.is_empty() {
+                for dir in split_path_entries(path) {
+                    push_unique(dir);
+                }
+            }
+        }
+    }
+    for dir in extra_dirs {
+        push_unique(dir.clone());
+    }
+    (!roots.is_empty())
+        .then(|| join_valid_paths(&roots))
+        .flatten()
+}
+
+fn join_valid_paths(roots: &[PathBuf]) -> Option<OsString> {
+    if let Ok(joined) = std::env::join_paths(roots) {
+        return Some(joined);
+    }
+    let valid: Vec<_> = roots
+        .iter()
+        .filter(|dir| std::env::join_paths(std::iter::once(dir)).is_ok())
+        .collect();
+    (!valid.is_empty())
+        .then(|| std::env::join_paths(valid).ok())
+        .flatten()
+}
+
 fn split_path_entries(value: &OsStr) -> Vec<PathBuf> {
     std::env::split_paths(value)
         .map(unquote_path_entry)
@@ -1039,5 +1090,25 @@ mod tests {
             resolved, bin_path,
             "a probe-dir resolution must return the platform candidate"
         );
+    }
+
+    #[test]
+    fn merged_search_path_preserves_precedence_and_deduplicates_entries() {
+        let root = std::env::temp_dir().join(format!(
+            "bin_resolve_merged_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let inherited = root.join("inherited");
+        let machine = root.join("machine");
+        let user = root.join("user");
+        let extra = root.join("extra");
+        let environment = environment_with_paths(
+            Some(&inherited),
+            EnvironmentValue::Value(std::env::join_paths([&machine, &inherited]).unwrap()),
+            EnvironmentValue::Value(std::env::join_paths([&user, &machine]).unwrap()),
+        );
+        let joined = merged_search_path(&environment, &[user.clone(), extra.clone()]).unwrap();
+        let entries: Vec<PathBuf> = std::env::split_paths(&joined).collect();
+        assert_eq!(entries, vec![inherited, machine, user, extra]);
     }
 }

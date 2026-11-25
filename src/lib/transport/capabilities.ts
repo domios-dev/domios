@@ -21,11 +21,12 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
   const webJson = client.json.bind(client);
   const localJson = client.localJson.bind(client);
   const currentToken = client.currentToken.bind(client);
-  const usageRead = (a: CapabilityArgs, path: string) => {
-    if (a.peerId === null) return localJson("GET", path);
-    if (typeof a.peerId === "string") return relayToPeer({ json: localJson }, a.peerId, "GET", path, null);
-    return webJson("GET", path);
+  const peerScoped = (a: CapabilityArgs, method: "GET" | "POST", path: string, body?: unknown) => {
+    if (a.peerId === null) return localJson(method, path, body);
+    if (typeof a.peerId === "string") return relayToPeer({ json: localJson }, a.peerId, method, path, body ?? null);
+    return webJson(method, path, body);
   };
+  const usageRead = (a: CapabilityArgs, path: string) => peerScoped(a, "GET", path);
   return {
     account_mesh_state: () => localJson("GET", "/api/account/mesh"),
     account_mesh_enroll: () => localJson("POST", "/api/account/mesh/enroll"),
@@ -104,7 +105,8 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     get_network_info: () => webJson("GET", "/api/network"),
     get_serve_status: () => webJson("GET", "/api/network/serve/status"),
     install_provider_in_tab: (a) =>
-      webJson(
+      peerScoped(
+        a,
         "POST",
         `/api/agents/providers/${enc(s(a, "providerId"))}/install-in-tab`,
       ),
@@ -162,7 +164,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     plugin_remote_task_call: (a) => client.localJson("POST", "/api/plugins/remote-task-call", a),
     plugin_recording_suggestion: (a) => client.localJson("POST", "/api/plugins/recording-suggestion", a),
     plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
-    provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli` + (a.refresh === true ? "?refresh=true" : "")),
+    provider_cli_status: (a) => peerScoped(a, "GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli` + (a.refresh === true ? "?refresh=true" : "")),
     push_channel_roster: () => webJson("GET", "/api/notifications/channels"),
     read_html_preview_file: async (a) => {
       const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page", ...canvasSource(a) });

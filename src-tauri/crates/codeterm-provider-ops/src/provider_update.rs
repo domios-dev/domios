@@ -184,6 +184,36 @@ pub fn newer_target(
     }
 }
 
+/// The provider's update target when it is still newer than the currently detected version.
+pub fn newer_target_for_detected(
+    available: Option<ProviderUpdateAvailability>,
+    detected_version: Option<&str>,
+) -> Option<ProviderUpdateAvailability> {
+    let target = newer_target(available)?;
+    if version_at_least(detected_version, &target.latest_version) {
+        return None;
+    }
+    Some(target)
+}
+
+fn parse_semver(version: &str) -> Option<semver::Version> {
+    semver::Version::parse(version.trim().trim_start_matches('v')).ok()
+}
+
+fn version_newer(detected: Option<&str>, target: &str) -> bool {
+    matches!(
+        (detected.and_then(parse_semver), parse_semver(target)),
+        (Some(detected), Some(target)) if detected > target
+    )
+}
+
+fn version_at_least(detected: Option<&str>, target: &str) -> bool {
+    matches!(
+        (detected.and_then(parse_semver), parse_semver(target)),
+        (Some(detected), Some(target)) if detected >= target
+    )
+}
+
 fn claim_check(provider: &str) -> Option<u64> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -414,25 +444,46 @@ pub fn background_work_changed(service: &impl ProviderUpdateHost, tab_id: &str) 
     tab_became_idle(service, tab_id);
 }
 
-pub fn status_summary(provider: &str) -> Option<String> {
+pub fn status_summary(provider: &str, detected_version: Option<&str>) -> Option<String> {
     let state = storage::read().ok()?;
+    summarize_runs(&state, provider, detected_version)
+}
+
+fn summarize_runs(
+    state: &state::Coordinator,
+    provider: &str,
+    detected_version: Option<&str>,
+) -> Option<String> {
     let run = state
         .runs
         .values()
         .filter(|run| run.provider == provider)
-        .max_by_key(|run| run.started_at)?;
-    Some(match &run.outcome {
-        state::RunOutcome::Running => format!("Updating CLI to {}", run.target),
+        .max_by(|left, right| {
+            left.started_at
+                .cmp(&right.started_at)
+                .then_with(|| parse_semver(&left.target).cmp(&parse_semver(&right.target)))
+        })?;
+    match &run.outcome {
+        state::RunOutcome::Running => Some(format!("Updating CLI to {}", run.target)),
         state::RunOutcome::Succeeded => {
-            format!(
-                "CLI updater completed for target {}; applies at next launch",
-                run.target
-            )
+            if version_newer(detected_version, &run.target) {
+                None
+            } else {
+                Some(format!(
+                    "CLI updater completed for target {}; applies at next launch",
+                    run.target
+                ))
+            }
         }
-        state::RunOutcome::Failed(error) | state::RunOutcome::UnstoppedFailure(error) => {
-            format!("CLI update failed: {error}")
+        state::RunOutcome::Failed(error) => {
+            if version_at_least(detected_version, &run.target) {
+                None
+            } else {
+                Some(format!("CLI update failed: {error}"))
+            }
         }
-    })
+        state::RunOutcome::UnstoppedFailure(error) => Some(format!("CLI update failed: {error}")),
+    }
 }
 
 fn spawn_utility(name: &str, work: impl FnOnce() + Send + 'static) {
