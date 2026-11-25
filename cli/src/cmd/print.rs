@@ -118,6 +118,15 @@ impl CliError {
             data: Some(data),
         }
     }
+
+    /// A CLI failure carrying a typed error code from the closed error contract.
+    pub fn typed(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: None,
+            data: Some(serde_json::json!({ "code": code.as_str() })),
+        }
+    }
 }
 
 fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(String, String)> {

@@ -10,12 +10,16 @@ reads the diary you leave, and everything else is graph mutation work.
    `$(...)`, backticks or shell variables. This run is hidden: a command
    that needs approval stalls it until the deadline kills it, and the night
    is lost. The CLI already sorts, counts and clusters for you.
-2. If a command fails, do not retry it in another shape. Log that stage as
-   `not_run` and go to the next stage.
+2. If a command fails, retry the exact same command once (never rewrite it
+   into another shape or a script). If the retry also fails, record an
+   explicit failure in that stage's log fields (for example,
+   `failed (<brief error>)`) — never leave any field `pending` or `not_run`
+   — and continue to the next stage.
 3. English only in memory. Pass `--skip-extract` on every `mem save`.
 4. NO FABRICATION. Every value in `<log>` comes from a command output you saw
-   in THIS run, never from the template below, a prior diary, or memory. A
-   stage that did not run is `not_run`; a count you did not read is `0`.
+   in THIS run, never from the template below, a prior diary, or memory. If
+   a stage still fails after its single retry, record `failed (<brief error>)`
+   in its log fields rather than `pending`, `not_run`, or an invented count.
 5. Quote diary bodies with single quotes and write the prose without
    apostrophes ("do not", not "don't").
 6. Dream diaries never inflate hubs. A diary (`kind=daily`, `area=_dreams`)
@@ -44,8 +48,10 @@ group: stage 0 `read_memories`, stage 1 `prune_backlinks`, stages 2–3
 `bridge_islands`, stages 4–8 `check_duplicates`, stage 9 `write_diary`.
 
 After EVERY stage, `domios mem update <diary_id> --body '...'` with the full
-log so far (stages not reached yet stay `pending`). If the run is cut short,
-the diary still says what happened.
+log so far (stages not reached yet stay `pending`; once a stage runs or fails
+after its single retry, replace `pending` with its verified output or
+`failed (<brief error>)`). If the run is cut short, the diary still says what
+happened.
 
 ## SUPERVISOR PREFACE
 
@@ -266,9 +272,10 @@ Log `CALIBRATION: skipped=<reason> applied=<APPLIED> archived=<archived>`
 using the supervisor preface's `CALIBRATION` result (`skipped=none` when the
 weekly sweep ran, or `skipped=<reason>` when the preface reports one) and
 counts verified from `mem calibration log` (0 rows when `applied=0` and
-`archived=0` is a verified zero result, not `pending`). Write
-`CALIBRATION: pending` only if `mem calibration log` failed or the preface
-says calibration was unavailable; never invent `not_sunday`.
+`archived=0` is a verified zero result, not `pending`). If
+`mem calibration log` fails after its single retry or the preface says
+calibration was unavailable, write `CALIBRATION: failed (<brief error>)`
+(never `pending` or `not_run`, and never invent `not_sunday`).
 Log `ARCHIVED: <item_id> (<reason>); ...` for every archive row, or
 `ARCHIVED: none`.
 
@@ -346,4 +353,4 @@ The daemon checks your claim against the stored diary either way.
 - If a call needs more than five sub-decisions to justify, pick the simpler
   routing and move on.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

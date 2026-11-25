@@ -5,6 +5,8 @@ impl SqliteMemStore {
         crate::embeddings::ensure_extension_registered();
         let conn = Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|error| ReadOnlyOpenError::Storage(error.to_string()))?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|error| ReadOnlyOpenError::Storage(error.to_string()))?;
         let version: Result<i64, _> =
             conn.query_row("SELECT version FROM mem_schema_version", [], |row| {
                 row.get(0)

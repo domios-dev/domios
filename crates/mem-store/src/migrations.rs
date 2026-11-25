@@ -1,5 +1,5 @@
 use crate::error::MemStoreResult;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 pub const SCHEMA_VERSION: i64 = 3;
 
@@ -9,19 +9,52 @@ pub fn run(conn: &Connection) -> MemStoreResult<()> {
     run_steps(conn, &[baseline, authorship, neighbor_skill_saves])
 }
 
+fn current_version(conn: &Connection) -> MemStoreResult<i64> {
+    let has_table: i64 = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mem_schema_version')",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_table == 0 {
+        return Ok(0);
+    }
+    let version: Option<i64> = conn
+        .query_row(
+            "SELECT version FROM mem_schema_version LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(version.unwrap_or(0))
+}
+
 fn run_steps(conn: &Connection, steps: &[Migration]) -> MemStoreResult<()> {
+    let mut version = current_version(conn)?;
+    if version >= steps.len() as i64 {
+        return Ok(());
+    }
     for (index, step) in steps.iter().enumerate() {
-        let tx = conn.unchecked_transaction()?;
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS mem_schema_version (version INTEGER NOT NULL);
-            INSERT INTO mem_schema_version(version) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM mem_schema_version);")?;
-        let version: i64 =
-            tx.query_row("SELECT version FROM mem_schema_version", [], |r| r.get(0))?;
         let next = index as i64 + 1;
-        if version < next {
+        if version >= next {
+            continue;
+        }
+        // BEGIN IMMEDIATE acquires the write lock up front so busy_timeout waits
+        // instead of failing immediately on a deferred SHARED->RESERVED upgrade.
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+        let tx_version = current_version(&tx)?;
+        if tx_version < next {
+            tx.execute_batch(
+                "CREATE TABLE IF NOT EXISTS mem_schema_version (version INTEGER NOT NULL);
+                INSERT INTO mem_schema_version(version) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM mem_schema_version);",
+            )?;
             step(&tx)?;
             tx.execute("UPDATE mem_schema_version SET version=?1", [next])?;
+            tx.commit()?;
+            version = next;
+        } else {
+            tx.commit()?;
+            version = tx_version;
         }
-        tx.commit()?;
     }
     Ok(())
 }

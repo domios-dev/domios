@@ -2,7 +2,8 @@
 
 use codeterm_mem_store::hubs::{hub_report, HubQuery};
 
-use crate::cmd::graph_mutate::{open_conn, print_or_exit};
+use crate::cmd::graph_mutate::{open_readonly_conn, print_or_exit};
+use crate::cmd::print::CliError;
 
 pub fn hubs_json(
     conn: &rusqlite::Connection,
@@ -18,7 +19,9 @@ pub fn run_hubs(threshold: u32, limit: u32, sample: u32, db_path: Option<&str>) 
         limit,
         sample,
     };
-    print_or_exit(open_conn(db_path).and_then(|conn| hubs_json(&conn, query)));
+    print_or_exit(
+        open_readonly_conn(db_path).and_then(|conn| hubs_json(&conn, query).map_err(CliError::new)),
+    );
 }
 
 #[cfg(test)]
