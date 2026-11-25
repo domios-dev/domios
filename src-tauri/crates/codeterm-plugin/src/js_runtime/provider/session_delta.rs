@@ -98,18 +98,25 @@ impl JsProvider {
         }
         let parsed = self
             .try_call::<JsDelta>("parseSessionDelta", &[chunk, context])
-            .and_then(|d| crate::jsonl_window::rows_from_plugin(d.messages));
+            .map(|d| crate::jsonl_window::rows_from_plugin(d.messages));
         match parsed {
-            Some((mut messages, record_indexes)) => {
+            Some(mut parsed) => {
+                self.warn_skipped_rows(
+                    "parse_session_delta",
+                    &path.to_string_lossy(),
+                    from_offset,
+                    from_offset + consumed_bytes,
+                    &parsed,
+                );
                 crate::jsonl_window::anchor_rows_from_starts(
-                    &mut messages,
-                    &record_indexes,
+                    &mut parsed.messages,
+                    &parsed.record_indexes,
                     &line_starts,
                     from_offset,
                 );
                 SessionDelta {
                     new_offset: from_offset + consumed_bytes,
-                    messages,
+                    messages: parsed.messages,
                 }
             }
             None => {
@@ -151,30 +158,62 @@ impl JsProvider {
         if delta.new_offset != window.meta.new_offset {
             return Err("Parsed session record offset differs from host boundary".into());
         }
-        let (mut messages, indexes) = crate::jsonl_window::rows_from_plugin(delta.messages)
-            .ok_or("Parsed session record row is invalid")?;
+        let mut parsed = crate::jsonl_window::rows_from_plugin(delta.messages);
+        self.warn_skipped_rows(
+            "parse_session_records",
+            window.meta.source_key.as_deref().unwrap_or("<memory>"),
+            window.meta.from_offset,
+            window.meta.new_offset,
+            &parsed,
+        );
         let mut starts = Vec::new();
         for record in &window.records {
             starts.resize(record.row + 1, u64::MAX);
             starts[record.row] = record.offset - window.meta.from_offset;
         }
         starts.push(window.meta.new_offset - window.meta.from_offset);
-        let indexes: Vec<_> = indexes
+        let indexes: Vec<_> = parsed
+            .record_indexes
             .into_iter()
             .map(|index| {
                 index.filter(|index| starts.get(*index).is_some_and(|offset| *offset != u64::MAX))
             })
             .collect();
         crate::jsonl_window::anchor_rows_from_starts(
-            &mut messages,
+            &mut parsed.messages,
             &indexes,
             &starts,
             window.meta.from_offset,
         );
         Ok(SessionDelta {
-            messages,
+            messages: parsed.messages,
             new_offset: window.meta.new_offset,
         })
+    }
+
+    fn warn_skipped_rows(
+        &self,
+        stage: &str,
+        source: &str,
+        from: u64,
+        until: u64,
+        parsed: &crate::jsonl_window::PluginRows,
+    ) {
+        let Some(first) = &parsed.first_skipped else {
+            return;
+        };
+        log::warn!(
+            "[{stage}] plugin '{}' skipped {} invalid row(s) (kept {}) for {} at {}..{}; first_row={} first_record_index={:?}: {}",
+            self.manifest.id,
+            parsed.skipped,
+            parsed.messages.len(),
+            source,
+            from,
+            until,
+            first.row_position,
+            first.record_index,
+            first.reason
+        );
     }
 
     fn session_delta_failed(
