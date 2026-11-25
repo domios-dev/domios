@@ -322,6 +322,16 @@ impl InvocationContext {
     }
 
     pub(crate) fn read_access(&self, path: &Path) -> Option<bool> {
+        self.path_access(path, true)
+    }
+
+    /// Canonicalizing a launch cwd such as `~/.domios` must not list or read
+    /// protected account roots, so only paths at/under protected roots are denied.
+    pub(crate) fn canonical_access(&self, path: &Path) -> Option<bool> {
+        self.path_access(path, false)
+    }
+
+    fn path_access(&self, path: &Path, deny_protected_ancestors: bool) -> Option<bool> {
         let target = codeterm_util::project_roots::canonical_target(path)?;
         if self.isolation.denies(&target).unwrap_or(true) {
             return Some(false);
@@ -367,10 +377,11 @@ impl InvocationContext {
             .iter()
             .any(|root| path.starts_with(root))
             || under(&self.protected_roots)
-            || self.protected_roots.iter().any(|root| {
-                codeterm_util::project_roots::canonical_target(root)
-                    .is_some_and(|root| root.starts_with(&target))
-            });
+            || (deny_protected_ancestors
+                && self.protected_roots.iter().any(|root| {
+                    codeterm_util::project_roots::canonical_target(root)
+                        .is_some_and(|root| root.starts_with(&target))
+                }));
         protected.then_some(false)
     }
 }
