@@ -28,9 +28,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // `debug` refuses with its own message and exit code rather than a
         // verdict; the table declares that shape instead of normalising it.
         ApiVerdict::RefusedInPlace => {
-            crate::cmd::print::fail(
+            crate::cmd::print::fail_refused(
                 2,
                 "`debug` is local-only — refusing to crash a remote peer via --mesh",
+                Some("run this command on the target machine without --mesh"),
             );
         }
         ApiVerdict::Rest => rest_request(cmd),

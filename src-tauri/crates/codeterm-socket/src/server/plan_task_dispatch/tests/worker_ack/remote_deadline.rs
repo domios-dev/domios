@@ -43,6 +43,7 @@ fn remote_dispatch_attempt(
             &attempt_id,
             "peer-origin",
             "remote-worker-tab",
+            None,
             "lane/remote-worker",
             "D:/peer/lane",
             "base-sha",

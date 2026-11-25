@@ -263,3 +263,19 @@ fn typed_template_outcomes_keep_their_body_and_never_read_as_internal() {
         assert_ne!(envelope["error"]["hint"], ErrorCode::Internal.hint());
     }
 }
+
+#[test]
+fn local_only_mesh_refusal_is_typed_refused_not_internal() {
+    let error = CliError::refused(
+        "agent cli is local-only: run it on the target peer",
+        Some("run this command on the target machine without --mesh"),
+    );
+    let envelope = envelope_of(&error);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["error"]["code"], "refused");
+    assert_eq!(
+        envelope["error"]["hint"],
+        "run this command on the target machine without --mesh"
+    );
+    assert_ne!(envelope["error"]["hint"], ErrorCode::Internal.hint());
+}

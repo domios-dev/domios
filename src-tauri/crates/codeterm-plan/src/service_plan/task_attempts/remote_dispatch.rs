@@ -294,6 +294,7 @@ impl PlanStore {
         attempt_id: &str,
         peer_id: &str,
         worker_tab_id: &str,
+        executor_title: Option<&str>,
         branch: &str,
         worktree_path: &str,
         base: &str,
@@ -326,6 +327,12 @@ impl PlanStore {
                     ));
                 }
                 attempt.executor_tab_id = worker_tab_id.to_string();
+                if let Some(title) = executor_title
+                    .map(str::trim)
+                    .filter(|title| !title.is_empty())
+                {
+                    attempt.executor_title = Some(title.to_string());
+                }
                 attempt.session_binding_nonce = Some(session_binding_nonce.to_string());
                 attempt.provider = Some(provider.to_string());
                 attempt.branch = Some(branch.to_string());

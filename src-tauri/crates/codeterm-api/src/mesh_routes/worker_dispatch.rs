@@ -210,6 +210,8 @@ pub struct MeshWorkerDispatchRequest {
     reasoning_effort: Option<String>,
     speed: Option<String>,
     #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
     description: Option<String>,
     #[serde(default)]
     task_description_managed: bool,
@@ -415,12 +417,17 @@ pub(crate) fn remote_worker_spawn_params(
     origin_peer_id: String,
     origin_peer_name: &str,
 ) -> codeterm_service_core::service::SpawnAgentParams {
-    let suffix: String = request.attempt_id.chars().take(6).collect();
+    let title = request
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_owned);
     codeterm_service_core::service::SpawnAgentParams {
         agent: Some(request.provider),
         cwd: Some(worktree_path.clone()),
         provisioned_cwd: Some(worktree_path),
-        title: Some(format!("Remote{suffix}")),
+        title,
         description: request.description,
         task_description_managed: request.task_description_managed,
         plan_id: Some(request.plan_id.clone()),
@@ -730,6 +737,7 @@ fn observed_worker_dispatch(
             }
             Some((
                 tab.id.clone(),
+                mux.display_label_for_tab(&tab.id),
                 tab.provisioned_cwd.clone().or_else(|| tab.cwd.clone())?,
                 tab.session_binding_nonce.clone()?,
                 (tab.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)).then(|| {
@@ -741,7 +749,7 @@ fn observed_worker_dispatch(
         });
         found
     };
-    let (tab_id, cwd, nonce, failure) = worker.ok_or_else(|| {
+    let (tab_id, title, cwd, nonce, failure) = worker.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             "remote worker attempt not found".into(),
@@ -770,6 +778,7 @@ fn observed_worker_dispatch(
         .map_err(|error| (StatusCode::CONFLICT, error))?;
     Ok(Json(serde_json::json!({
         "worker_tab_id": tab_id,
+        "title": title,
         "session_binding_nonce": nonce,
         "state": "awaiting_worker_ack",
         "branch": branch,

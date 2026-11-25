@@ -277,11 +277,20 @@ fn view_with_peer_memberships(
         return view;
     }
     if let Some(registry) = view.registry.as_mut() {
+        let self_installation_id = view
+            .self_installation
+            .as_ref()
+            .map(|self_row| self_row.installation_id.as_str());
         for row in &mut registry.rows {
             if row.active
                 && row.presence != codeterm_account::account_mesh::wire::RegistryPresence::SignedOut
             {
-                if let Some(expiry) = manager.peer_membership_expiry(&row.installation_id) {
+                let renewed = if self_installation_id == Some(row.installation_id.as_str()) {
+                    view.membership_expires_at
+                } else {
+                    manager.peer_membership_expiry(&row.installation_id)
+                };
+                if let Some(expiry) = renewed {
                     row.membership_expires_at =
                         Some(row.membership_expires_at.unwrap_or(0).max(expiry));
                 }

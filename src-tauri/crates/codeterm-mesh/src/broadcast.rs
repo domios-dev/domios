@@ -84,12 +84,22 @@ async fn broadcast_with(
         };
         let announce = snapshot.unwrap_or_else(|| manager.build_announce());
         let membership = manager.advertised_membership();
+        let resolved_target_id = target.and_then(|target| {
+            manager
+                .resolve_peer_including_offline(target)
+                .ok()
+                .map(|peer| peer.instance_id.as_str())
+        });
         let mut work: Vec<_> = manager
             .paired_peers
             .values()
-            .filter(|peer| {
-                target
-                    .is_none_or(|target| target == peer.instance_id || target == peer.instance_name)
+            .filter(|peer| match target {
+                None => true,
+                Some(target) => {
+                    resolved_target_id == Some(peer.instance_id.as_str())
+                        || target == peer.instance_id
+                        || target == peer.instance_name
+                }
             })
             .filter(|peer| {
                 manager.announce_allowed(&peer.instance_id) && !peer.addresses.is_empty()

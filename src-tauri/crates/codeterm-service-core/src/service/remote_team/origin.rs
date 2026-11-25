@@ -167,7 +167,8 @@ impl ServiceContext {
             .try_ext::<crate::MeshStateHandle>()
             .ok_or("Mesh is unavailable")?;
         let mesh = handle.lock();
-        let peer = crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, name)
+        let peer = mesh
+            .resolve_peer(name)
             .map_err(|error| format!("paired peer {name} cannot be resolved: {error:?}"))?;
         authorize_peer_transfer(&peer.access_level, peer.online)?;
         let client = mesh

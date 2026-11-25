@@ -307,6 +307,16 @@ impl MeshManager {
 
     #[cfg(any(test, feature = "test-support"))]
     pub fn insert_account_peer_for_test(&mut self, peer: crate::types::PairedPeer) {
+        let installation_id = peer.instance_id.clone();
+        self.insert_account_peer_with_installation_for_test(installation_id, peer);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn insert_account_peer_with_installation_for_test(
+        &mut self,
+        installation_id: String,
+        peer: crate::types::PairedPeer,
+    ) {
         use crate::account_mesh::VerifiedMembership;
         let account_id = self
             .account
@@ -336,19 +346,19 @@ impl MeshManager {
             .admit(
                 &peer.instance_id,
                 &account_id,
-                &peer.instance_id,
+                &installation_id,
                 &peer.public_key,
-                membership(peer.instance_id.clone()),
+                membership(installation_id.clone()),
             )
             .unwrap();
         if !self
             .account_installations
             .iter()
-            .any(|row| row.installation_id == peer.instance_id)
+            .any(|row| row.installation_id == installation_id)
         {
             self.account_installations
                 .push(crate::types::AccountInstallation {
-                    installation_id: peer.instance_id.clone(),
+                    installation_id,
                     name: peer.instance_name.clone(),
                     active: true,
                     signed_out: false,
