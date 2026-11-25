@@ -4,7 +4,7 @@ use super::*;
 fn provider_version_empty_and_unresolved_commands_are_never_probed() {
     for binary in ["", " ", "\t", "domios-intentionally-absent-version-probe"] {
         assert_eq!(
-            observe(binary),
+            observe_in(binary, &[]),
             VersionObservation::unknown(ProbeStatus::Missing)
         );
     }

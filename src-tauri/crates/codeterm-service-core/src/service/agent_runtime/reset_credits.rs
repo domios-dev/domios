@@ -18,20 +18,21 @@ pub enum ResetCreditsRequest {
 }
 
 pub(super) async fn supported(session: &Session) -> bool {
-    let capability = session
-        .adapter
-        .lock()
-        .as_ref()
-        .and_then(|provider| provider.agent_runtime());
-    let Some(capability) = capability else {
+    let Some(provider) = session.adapter.lock().clone() else {
+        return false;
+    };
+    let Some(capability) = provider.agent_runtime() else {
         return false;
     };
     let Some(minimum) = capability.reset_credits_min_version else {
         return false;
     };
     tokio::task::spawn_blocking(move || {
-        let version =
-            codeterm_plugin::provider_version::observe(&capability.command.binary).version;
+        let version = codeterm_plugin::provider_version::observe_in(
+            &capability.command.binary,
+            &provider.cli_search_dirs(),
+        )
+        .version;
         version_supported(version.as_deref(), &minimum)
     })
     .await

@@ -288,21 +288,16 @@ pub(super) fn dispatch(
         &request,
         Some(WORKER_DISPATCH_DEADLINE),
     ));
-    let observed_spawn = if response.is_err() {
+    let response = super::super::remote_worker_policy::dispatch_response(response, || {
         codeterm_service_core::async_runtime::block_on(client.auth_post_json_within(
             "/api/mesh/worker-dispatch-status",
             &request,
             Some(WORKER_DISPATCH_DEADLINE),
         ))
-        .map_err(|error| {
+        .inspect_err(|error| {
             log::debug!("[remote-dispatch] spawn observation failed for {attempt_id}: {error}");
-            error
         })
-        .ok()
-    } else {
-        None
-    };
-    let response = super::super::remote_worker_policy::dispatch_response(response, observed_spawn);
+    });
     let response = match response {
         Ok(response) => response,
         Err(error) => {

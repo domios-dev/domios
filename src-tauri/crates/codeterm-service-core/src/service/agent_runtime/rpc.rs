@@ -319,6 +319,10 @@ impl Client {
     pub fn ended(&self) -> watch::Receiver<Option<RuntimeFailure>> {
         self.0.ended.subscribe()
     }
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn wait_for_subscriber_exit_for_test(&self) {
+        self.0.events.closed().await;
+    }
     pub(super) fn subscribe(&self) -> broadcast::Receiver<Ingress> {
         self.0
             .initial_events

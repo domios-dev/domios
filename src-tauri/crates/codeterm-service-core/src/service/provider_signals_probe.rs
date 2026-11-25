@@ -35,10 +35,6 @@ async fn await_probe(
         .ok_or(ProbeFailure::Unavailable)
 }
 
-pub fn capture_result(binary: &str, probe: &AuthStatusProbe) -> Result<Value, ProbeFailure> {
-    capture_result_in(binary, &[], probe)
-}
-
 pub fn capture_result_in(
     binary: &str,
     extra_dirs: &[std::path::PathBuf],

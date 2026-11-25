@@ -13,6 +13,7 @@ fn print_cron_ack(json: bool, state: &str, id: &str) {
 
 fn cron_completion_params(
     run_id: &str,
+    status: Option<&str>,
     summary: Option<&str>,
     caller_tab_id: Option<&str>,
     binding_nonce: Option<&str>,
@@ -22,6 +23,9 @@ fn cron_completion_params(
         "run_id": run_id,
         "human_confirmed": human_confirmed,
     });
+    if let Some(status) = status {
+        params["status"] = serde_json::json!(status);
+    }
     if let Some(summary) = summary {
         params["summary"] = serde_json::json!(summary);
     }
@@ -261,6 +265,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
         }
         CronAction::Complete {
             run_id,
+            status,
             summary,
             yes,
         } => {
@@ -268,6 +273,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             let binding_nonce = crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE");
             let params = cron_completion_params(
                 &run_id,
+                status.as_deref(),
                 summary.as_deref(),
                 caller_tab_id.as_deref(),
                 binding_nonce.as_deref(),
@@ -306,42 +312,4 @@ fn caller_workspace_id(client: &mut SocketClient) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::cron_completion_params;
-
-    #[test]
-    fn cron_complete_carries_the_current_tab_binding() {
-        assert_eq!(
-            cron_completion_params(
-                "run-token",
-                Some("summary-token"),
-                Some("tab-token"),
-                Some("nonce-token"),
-                false,
-            ),
-            serde_json::json!({
-                "run_id": "run-token",
-                "summary": "summary-token",
-                "caller_tab_id": "tab-token",
-                "session_binding_nonce": "nonce-token",
-                "human_confirmed": false,
-            })
-        );
-    }
-
-    #[test]
-    fn cron_complete_without_tab_identity_is_unconfirmed_by_default() {
-        assert_eq!(
-            cron_completion_params("run-token", None, None, Some("unused"), false),
-            serde_json::json!({ "run_id": "run-token", "human_confirmed": false })
-        );
-    }
-
-    #[test]
-    fn cron_complete_carries_explicit_human_confirmation() {
-        assert_eq!(
-            cron_completion_params("run-token", None, None, None, true),
-            serde_json::json!({ "run_id": "run-token", "human_confirmed": true })
-        );
-    }
-}
+mod tests;

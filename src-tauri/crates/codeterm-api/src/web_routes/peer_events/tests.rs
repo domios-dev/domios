@@ -243,7 +243,8 @@ async fn peer_provider_cli_topics_follow_read_host_and_strip_status_bodies() {
         event_type: "provider-cli-completed".into(),
         data: serde_json::json!({
             "provider": "fixture",
-            "operation": "update",
+            "operation": "install",
+            "tab_id": "installer-tab",
             "success": true,
             "summary": "fixture CLI updated to 2.0.0",
             "status": { "searched": vec!["x".repeat(50_000)] },
@@ -304,6 +305,8 @@ async fn peer_provider_cli_topics_follow_read_host_and_strip_status_bodies() {
         frames[2]["data"],
         serde_json::json!({
             "provider": "fixture",
+            "operation": "install",
+            "tab_id": "installer-tab",
             "summary": "fixture CLI updated to 2.0.0",
             "success": true,
         })

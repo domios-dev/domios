@@ -24,7 +24,7 @@ pub struct ProbeTarget {
 
 pub trait CapabilityProbeHost: Send + Sync {
     fn validate(&self, tab: &str) -> Result<ProbeTarget, ProbeFailure>;
-    fn cli_binary(&self, provider: &str) -> Option<String>;
+    fn cli_path(&self, provider: &str) -> Option<PathBuf>;
     fn matching_tabs(&self, provider: &str, project: Option<&Path>) -> Vec<String>;
     fn publish(&self, provider: &str, project: Option<&Path>, snapshot: Option<&ProbeSnapshot>);
 }
@@ -64,13 +64,7 @@ pub fn refresh(host: Arc<dyn CapabilityProbeHost>, tab: &str, force: bool) -> Pr
 }
 fn refresh_request(request: Request, force: bool) -> ProbeSnapshot {
     let host = &request.host;
-    let binary = host.cli_binary(&request.provider).and_then(|binary| {
-        match codeterm_plugin::js_runtime::probe_bin(&binary).resolution {
-            codeterm_plugin::js_runtime::BinResolution::Found(path) => Some(path),
-            _ => None,
-        }
-    });
-    let Some(binary) = binary else {
+    let Some(binary) = host.cli_path(&request.provider) else {
         let result = unavailable(ProbeFailure::BinaryUnavailable);
         publish(&request, &result);
         return result;

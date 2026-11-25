@@ -2,6 +2,7 @@
 
 use serde_json::Value;
 
+use codeterm_service_core::service::role_policy::CronSettlement;
 use codeterm_service_core::service::ServiceState;
 
 use super::{get_string_param, JsonRpcError, PostResponseAction};
@@ -15,6 +16,18 @@ pub(super) fn dispatch_complete(
         .as_ref()
         .and_then(|p| p.get("summary"))
         .and_then(|v| v.as_str());
+    let success = match params.as_ref().and_then(|p| p.get("status")) {
+        None => true,
+        Some(status) if status == "success" => true,
+        Some(status) if status == "failed" => false,
+        _ => {
+            return Err(JsonRpcError {
+                code: -32602,
+                message: "cron.complete status must be success or failed".into(),
+                data: None,
+            })
+        }
+    };
     let caller_tab_id = params
         .as_ref()
         .and_then(|p| p.get("caller_tab_id"))
@@ -47,7 +60,10 @@ pub(super) fn dispatch_complete(
             cron_state,
             cron_wake,
             &run_id,
-            summary,
+            CronSettlement {
+                success,
+                summary: summary.unwrap_or("(no summary provided)").into(),
+            },
             caller_tab_id,
             binding_nonce,
             human_confirmed,

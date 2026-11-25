@@ -103,10 +103,17 @@ fn read(
     provider: &str,
     profile: &str,
 ) -> Result<UsageSnapshot, (UsageFailureKind, String)> {
-    let declaration = declared(svc, provider, profile).ok_or((
+    let adapter = svc.agent_registry.provider_arc(provider).ok_or((
         UsageFailureKind::SourceUnavailable,
-        String::from("Profile declares no plugin-read limits source"),
+        String::from("Provider is unavailable"),
     ))?;
+    let declaration = adapter
+        .agent_runtime()
+        .and_then(|runtime| runtime.launch_profiles?.remove(profile))
+        .ok_or((
+            UsageFailureKind::SourceUnavailable,
+            String::from("Profile declares no plugin-read limits source"),
+        ))?;
     let source = declaration
         .limits_source
         .filter(RuntimeProfileLimitsSource::plugin_read)
@@ -121,14 +128,13 @@ fn read(
         return statusline_probe::read_profile(
             provider,
             profile,
+            adapter.probe_cli_binary(&declaration.binary).resolution,
             &declaration.binary,
             &declaration.env,
         );
     }
-    let raw = svc
-        .agent_registry
-        .with_provider(provider, |p| p.read_profile_limits(profile, &source))
-        .flatten()
+    let raw = adapter
+        .read_profile_limits(profile, &source)
         .ok_or((
             UsageFailureKind::NoParser,
             String::from("Provider has no balance reader"),

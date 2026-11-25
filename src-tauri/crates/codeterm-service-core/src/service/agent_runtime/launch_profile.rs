@@ -151,8 +151,7 @@ fn runtime_binary_failure(
         codeterm_plugin::js_runtime::manifest::RuntimeManifestError::BinaryUnavailable
     ) {
         let platform = crate::agent::provider::current_platform_tag();
-        let install_dirs = adapter.cli_install_dirs(platform);
-        let probe = codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(binary, &install_dirs);
+        let probe = adapter.probe_cli_binary(binary);
         let preflight = crate::service::spawn_cli::ProviderPreflightError::BinaryUnavailable {
             provider_id: adapter.id().to_string(),
             display_name: adapter.display_name().to_string(),

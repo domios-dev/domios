@@ -17,6 +17,7 @@ fn provider_readiness_uses_receipts_and_rechecks_changed_profiles() {
         observe_from_root(
             "fixture",
             capability,
+            &[],
             Ok(root.path().to_path_buf()),
             &parking_lot::Mutex::new(ProfileCache::default()),
         )
@@ -32,6 +33,7 @@ fn provider_readiness_uses_receipts_and_rechecks_changed_profiles() {
             binary: std::env::current_exe().unwrap().to_str().unwrap().into(),
             args: vec![],
         },
+        &[],
         true,
     )
     .unwrap();
@@ -62,6 +64,7 @@ fn provider_readiness_uses_receipts_and_rechecks_changed_profiles() {
     assert!(observe_from_root(
         "fixture",
         &capability,
+        &[],
         Ok(root.path().to_path_buf()),
         &parking_lot::Mutex::new(ProfileCache::default()),
     )
@@ -80,33 +83,35 @@ fn profile_readiness_cache_reuses_observations_until_revision_or_declaration_cha
         Some(true)
     };
     assert_eq!(
-        cached_profile(&cache, "provider", "first", &profile, 1, observe),
+        cached_profile(&cache, "provider", "first", &profile, 1, &[], observe),
         Some(true)
     );
     assert_eq!(
-        cached_profile(&cache, "provider", "first", &profile, 1, || panic!(
+        cached_profile(&cache, "provider", "first", &profile, 1, &[], || panic!(
             "cached status performed I/O"
         )),
         Some(true)
     );
     assert_eq!(reads.get(), 1);
     assert_eq!(
-        cached_profile(&cache, "provider", "second", &profile, 1, observe),
+        cached_profile(&cache, "provider", "second", &profile, 1, &[], observe),
         Some(true)
     );
     assert_eq!(reads.get(), 2);
     assert_eq!(
-        cached_profile(&cache, "provider", "first", &profile, 2, || Some(false)),
+        cached_profile(&cache, "provider", "first", &profile, 2, &[], || Some(
+            false
+        )),
         Some(false)
     );
     let mut changed = profile.clone();
     changed.args.push("changed".into());
     assert_eq!(
-        cached_profile(&cache, "provider", "first", &changed, 2, || None),
+        cached_profile(&cache, "provider", "first", &changed, 2, &[], || None),
         None
     );
     assert_eq!(
-        cached_profile(&cache, "provider", "first", &changed, 2, || panic!(
+        cached_profile(&cache, "provider", "first", &changed, 2, &[], || panic!(
             "unknown status must be cached"
         )),
         None
@@ -127,6 +132,7 @@ fn readiness_invalidation_during_observation_cannot_publish_a_stale_cache_hit() 
             "profile",
             &profile,
             generation.get(),
+            &[],
             || {
                 generation.set(2);
                 Some(false)
@@ -141,6 +147,7 @@ fn readiness_invalidation_during_observation_cannot_publish_a_stale_cache_hit() 
             "profile",
             &profile,
             generation.get(),
+            &[],
             || Some(true)
         ),
         Some(true)
@@ -152,6 +159,7 @@ fn readiness_invalidation_during_observation_cannot_publish_a_stale_cache_hit() 
             "profile",
             &profile,
             generation.get(),
+            &[],
             || panic!("fresh observation must be retained")
         ),
         Some(true)

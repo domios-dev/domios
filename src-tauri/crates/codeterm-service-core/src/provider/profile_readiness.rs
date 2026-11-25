@@ -14,7 +14,11 @@ use std::{
 static REVISIONS: LazyLock<Mutex<BTreeMap<PathBuf, u64>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 pub(super) type ProfileCache = super::catalogue_cache::RevisionCache<
-    (codeterm_plugin::agent_runtime::RuntimeLaunchProfile, u64),
+    (
+        codeterm_plugin::agent_runtime::RuntimeLaunchProfile,
+        u64,
+        Vec<PathBuf>,
+    ),
     Option<bool>,
 >;
 
@@ -46,10 +50,11 @@ fn cached_profile(
     id: &str,
     declaration: &codeterm_plugin::agent_runtime::RuntimeLaunchProfile,
     generation: u64,
+    dirs: &[PathBuf],
     observe: impl FnOnce() -> Option<bool>,
 ) -> Option<bool> {
     let key = format!("{provider}:{id}");
-    let revision = (declaration.clone(), generation);
+    let revision = (declaration.clone(), generation, dirs.to_vec());
     if let Some(installed) = cache.lock().get(&key, &revision) {
         return installed;
     }
@@ -61,11 +66,13 @@ fn cached_profile(
 pub(super) fn observe(
     id: &str,
     capability: &AgentRuntimeCapability,
+    dirs: &[PathBuf],
     cache: &Mutex<ProfileCache>,
 ) -> Option<ProviderCliStatus> {
     observe_from_root(
         id,
         capability,
+        dirs,
         launch_profile_install::profile_root(id),
         cache,
     )
@@ -74,6 +81,7 @@ pub(super) fn observe(
 fn observe_from_root(
     id: &str,
     capability: &AgentRuntimeCapability,
+    dirs: &[PathBuf],
     root: Result<std::path::PathBuf, String>,
     cache: &Mutex<ProfileCache>,
 ) -> Option<ProviderCliStatus> {
@@ -83,8 +91,8 @@ fn observe_from_root(
         profiles
             .iter()
             .map(|(name, profile)| {
-                let installed = cached_profile(cache, id, name, profile, generation, || {
-                    observe_install(&root, name, profile)
+                let installed = cached_profile(cache, id, name, profile, generation, dirs, || {
+                    observe_install(&root, name, profile, dirs)
                 });
                 ProviderLaunchProfileStatus {
                     id: name.clone(),
@@ -99,10 +107,11 @@ fn observe_install(
     root: &Result<std::path::PathBuf, String>,
     id: &str,
     profile: &codeterm_plugin::agent_runtime::RuntimeLaunchProfile,
+    dirs: &[PathBuf],
 ) -> Option<bool> {
     match root
         .as_ref()
-        .map(|root| launch_profile_install::detect(root, id, profile))
+        .map(|root| launch_profile_install::detect(root, id, profile, dirs))
     {
         Ok(InstallState::Installed | InstallState::Detected) => Some(true),
         Ok(InstallState::NotInstalled) => Some(false),

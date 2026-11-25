@@ -13,7 +13,7 @@ fn expands_home_env_and_absolute_install_dirs_and_rejects_traversal() {
         } else {
             "/opt/fixture-tool"
         })),
-        "APPDATA" => Some(OsString::from(r"C:\Users\fixture\AppData\Roaming")),
+        "APPDATA" => Some(home.join("Roaming").into_os_string()),
         "EMPTY_VAR" => Some(OsString::new()),
         _ => None,
     };
@@ -47,7 +47,7 @@ fn expands_home_env_and_absolute_install_dirs_and_rejects_traversal() {
             })
             .join("bin"),
             home.join(".fixture-tool").join("bin"),
-            PathBuf::from(r"C:\Users\fixture\AppData\Roaming").join("npm"),
+            home.join("Roaming").join("npm"),
         ]
     );
 }
@@ -65,8 +65,8 @@ fn npm_global_bin_dirs_cover_env_npmrc_and_windows_appdata() {
     )
     .unwrap();
     let env = |key: &str| match key {
-        "NPM_CONFIG_PREFIX" => Some(OsString::from("/env/prefix")),
-        "APPDATA" => Some(OsString::from(r"D:\Roaming")),
+        "NPM_CONFIG_PREFIX" => Some(root.join("env-prefix").into_os_string()),
+        "APPDATA" => Some(root.join("Roaming").into_os_string()),
         _ => None,
     };
 
@@ -74,7 +74,7 @@ fn npm_global_bin_dirs_cover_env_npmrc_and_windows_appdata() {
     assert_eq!(
         unix_dirs,
         vec![
-            PathBuf::from("/env/prefix").join("bin"),
+            root.join("env-prefix").join("bin"),
             root.join(".custom-npm").join("bin"),
         ]
     );
@@ -83,11 +83,45 @@ fn npm_global_bin_dirs_cover_env_npmrc_and_windows_appdata() {
     assert_eq!(
         win_dirs,
         vec![
-            PathBuf::from("/env/prefix"),
+            root.join("env-prefix"),
             root.join(".custom-npm"),
-            PathBuf::from(r"D:\Roaming").join("npm"),
+            root.join("Roaming").join("npm"),
         ]
     );
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn npm_and_manifest_roots_require_absolute_paths_without_traversal() {
+    let home = tempfile::tempdir().unwrap();
+    let unsafe_root = home.path().join("..").join("elsewhere");
+    for invalid in [Path::new("relative"), unsafe_root.as_path()] {
+        let env = |_: &str| Some(invalid.as_os_str().to_owned());
+        assert!(npm_global_bin_dirs(&env, Some(home.path()), true).is_empty());
+        assert!(expand_install_dir("${NPM_CONFIG_PREFIX}/bin", &env, Some(home.path())).is_none());
+        assert_eq!(
+            parse_npmrc_prefix(&format!("prefix={}", invalid.display()), Some(home.path())),
+            None
+        );
+    }
+}
+
+#[test]
+fn npmrc_prefix_refreshes_when_mtime_changes_without_length_change() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join(".npmrc");
+    for (value, seconds) in [("one", 1_000_000), ("two", 2_000_000)] {
+        std::fs::write(&path, format!("prefix=~/{value}")).unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            .unwrap();
+        assert_eq!(
+            read_npmrc_prefix(&path, Some(home.path())),
+            Some(home.path().join(value))
+        );
+    }
 }
