@@ -450,7 +450,10 @@ fn validate_command(
     Ok(())
 }
 
-fn resolve_binary_in(binary: &str, extra_dirs: &[PathBuf]) -> Result<PathBuf, RuntimeManifestError> {
+fn resolve_binary_in(
+    binary: &str,
+    extra_dirs: &[PathBuf],
+) -> Result<PathBuf, RuntimeManifestError> {
     match super::super::probe_bin_with_extra_dirs(binary, extra_dirs).resolution {
         super::super::BinResolution::Found(path) => Ok(path),
         super::super::BinResolution::Missing => Err(RuntimeManifestError::BinaryUnavailable),

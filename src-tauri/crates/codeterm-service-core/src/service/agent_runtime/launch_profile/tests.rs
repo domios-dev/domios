@@ -185,8 +185,8 @@ fn missing_runtime_binary_reports_provider_not_installed_with_install_hint() {
     })
     .to_string();
     let manifest = PluginManifest::from_json_str(&manifest_json).unwrap();
-    let vm = PluginVm::from_source("missing-runtime-fixture", "module.exports = {};".into())
-        .unwrap();
+    let vm =
+        PluginVm::from_source("missing-runtime-fixture", "module.exports = {};".into()).unwrap();
     let adapter = JsProvider::new(manifest, std::sync::Arc::new(vm));
 
     let failure = runtime_binary_failure(
@@ -200,5 +200,8 @@ fn missing_runtime_binary_reports_provider_not_installed_with_install_hint() {
     assert!(reason.contains("Provider not installed:"), "{reason}");
     assert!(reason.contains("Missing Runtime Fixture"), "{reason}");
     assert!(reason.contains("opaque-install-command"), "{reason}");
-    assert!(reason.contains("domios agent cli install missing-runtime-fixture"), "{reason}");
+    assert!(
+        reason.contains("domios agent cli install missing-runtime-fixture"),
+        "{reason}"
+    );
 }

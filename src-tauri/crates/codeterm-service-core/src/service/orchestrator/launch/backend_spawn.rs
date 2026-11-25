@@ -51,11 +51,10 @@ pub(super) fn spawn_backend_pty(
                     .get_tab(tab_id)
                     .and_then(|tab| tab.session_binding_nonce.clone())
                     .ok_or_else(|| LaunchFailure::PtySpawn("direct launch nonce missing".into()))?;
-                let base_path = codeterm_plugin::js_runtime::merged_search_path_with_extra_dirs(
-                    &install_dirs,
-                )
-                .or_else(|| std::env::var_os("PATH"))
-                .unwrap_or_default();
+                let base_path =
+                    codeterm_plugin::js_runtime::merged_search_path_with_extra_dirs(&install_dirs)
+                        .or_else(|| std::env::var_os("PATH"))
+                        .unwrap_or_default();
                 let env_vars = super::super::launch_env::direct_environment(
                     env_vars,
                     &resolved.spec,

@@ -144,7 +144,11 @@ impl ProviderRegistry {
         }
     }
 
-    pub(super) fn provider_install_dirs(&self, id: &str, platform: &str) -> Vec<std::path::PathBuf> {
+    pub(super) fn provider_install_dirs(
+        &self,
+        id: &str,
+        platform: &str,
+    ) -> Vec<std::path::PathBuf> {
         self.agents
             .provider_arc(id)
             .map(|provider| provider.cli_install_dirs(platform))

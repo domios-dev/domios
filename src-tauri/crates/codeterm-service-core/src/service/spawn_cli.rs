@@ -123,8 +123,8 @@ pub(crate) fn provider_launch_preflight_for_platform(
     _permission_bypassed: bool,
     platform: &str,
 ) -> Result<LaunchClearance, ProviderPreflightError> {
-    let Some((display_name, launch_binary, is_runtime, install_command, install_dirs)) =
-        registry.with_provider(provider_id, |p| {
+    let Some((display_name, launch_binary, is_runtime, install_command, install_dirs)) = registry
+        .with_provider(provider_id, |p| {
             let runtime_binary = p
                 .agent_runtime()
                 .filter(|runtime| runtime.launch_profiles.is_none())

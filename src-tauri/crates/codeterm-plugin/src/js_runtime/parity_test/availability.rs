@@ -254,5 +254,8 @@ fn bundled_providers_with_installers_declare_install_locations() {
             );
         }
     }
-    assert!(checked > 0, "expected at least one bundled installable provider");
+    assert!(
+        checked > 0,
+        "expected at least one bundled installable provider"
+    );
 }

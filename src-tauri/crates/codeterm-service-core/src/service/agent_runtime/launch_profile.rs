@@ -243,8 +243,7 @@ pub(super) fn resolve(
             profile,
         )?);
     }
-    let extra_bin_dirs =
-        adapter.cli_install_dirs(crate::agent::provider::current_platform_tag());
+    let extra_bin_dirs = adapter.cli_install_dirs(crate::agent::provider::current_platform_tag());
     Ok(ResolvedLaunch {
         binary,
         capability: selected.capability,

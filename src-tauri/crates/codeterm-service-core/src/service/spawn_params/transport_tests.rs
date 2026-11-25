@@ -381,10 +381,7 @@ fn single_binary_runtime_preflights_declared_install_dirs_and_recovers_without_r
     fixture
         .service
         .agent_registry
-        .register_provider(Box::new(JsProvider::new(
-            manifest,
-            std::sync::Arc::new(vm),
-        )));
+        .register_provider(Box::new(JsProvider::new(manifest, std::sync::Arc::new(vm))));
 
     let params = SpawnAgentParams {
         agent: Some(provider_id.into()),
