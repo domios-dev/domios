@@ -609,7 +609,7 @@ function ObjectArrayItemInput({
   onChange: (next: unknown) => void;
 }) {
   const dataField = `${parentKey}.${index}.${field.key}`;
-  const label = <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{field.label}</div>;
+  const label = <span className="block text-[11px] font-medium text-[var(--ct-muted-fg)]">{field.label}</span>;
 
   if (field.kind === "number") {
     const numberValue = typeof value === "number" ? value : field.default ?? 0;

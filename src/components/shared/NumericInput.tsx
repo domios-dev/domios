@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent } from "react";
-import { formatNumericInput, parseNumericInput, stepNumericValue } from "./numericInputModel";
+import {
+  formatNumericInput,
+  formatPendingEmission,
+  lastCommittedNumeric,
+  parseNumericInput,
+  reconcileExternalNumericValue,
+  stepNumericValue,
+  type PendingNumericEmission,
+} from "./numericInputModel";
 
 export interface NumericInputProps extends Omit<
   InputHTMLAttributes<HTMLInputElement>,
@@ -28,43 +36,52 @@ export function NumericInput({
   ...rest
 }: NumericInputProps) {
   const [draft, setDraft] = useState(() => formatNumericInput(value));
-  const [focused, setFocused] = useState(false);
+  const focusedRef = useRef(false);
   const lastExternalRef = useRef(value);
   const draftRef = useRef(draft);
+  const pendingRef = useRef<PendingNumericEmission[]>([]);
   draftRef.current = draft;
 
   useEffect(() => {
     if (Object.is(value, lastExternalRef.current)) return;
     lastExternalRef.current = value;
-    if (!focused) {
-      const formatted = formatNumericInput(value);
-      draftRef.current = formatted;
-      setDraft(formatted);
-      return;
+    const reconciled = reconcileExternalNumericValue(pendingRef.current, value, focusedRef.current);
+    pendingRef.current = reconciled.pending;
+    if (reconciled.nextDraft !== null) {
+      draftRef.current = reconciled.nextDraft;
+      setDraft(reconciled.nextDraft);
     }
-    const current = draftRef.current;
-    if (value == null && onEmpty && current.trim() === "") return;
-    const parsed = parseNumericInput(current, { integer, min, max });
-    if (parsed !== null && Object.is(parsed, value)) return;
-    const formatted = formatNumericInput(value);
-    draftRef.current = formatted;
-    setDraft(formatted);
-  }, [value, focused, integer, min, max, onEmpty]);
+  }, [value]);
 
   const parsedDraft = parseNumericInput(draft, { integer, min, max });
   const isInvalid = draft.trim() === "" ? !onEmpty : parsedDraft === null;
+
+  const emitValue = (next: number) => {
+    const committed = lastCommittedNumeric(pendingRef.current, value);
+    if (committed.kind === "value" && Object.is(committed.value, next)) return;
+    pendingRef.current = [...pendingRef.current, { kind: "value", value: next }];
+    onValueChange(next);
+  };
+
+  const emitEmpty = () => {
+    if (!onEmpty) return;
+    const committed = lastCommittedNumeric(pendingRef.current, value);
+    if (committed.kind === "empty") return;
+    pendingRef.current = [...pendingRef.current, { kind: "empty" }];
+    onEmpty();
+  };
 
   const handleRawChange = (nextRaw: string) => {
     if (nextRaw === draftRef.current) return;
     draftRef.current = nextRaw;
     setDraft(nextRaw);
     if (nextRaw.trim() === "") {
-      if (onEmpty && value != null) onEmpty();
+      emitEmpty();
       return;
     }
     const parsed = parseNumericInput(nextRaw, { integer, min, max });
-    if (parsed !== null && !Object.is(parsed, value)) {
-      onValueChange(parsed);
+    if (parsed !== null) {
+      emitValue(parsed);
     }
   };
 
@@ -75,12 +92,14 @@ export function NumericInput({
     if (key !== "ArrowUp" && key !== "ArrowDown") return;
     event.preventDefault();
     const direction = key === "ArrowUp" ? 1 : -1;
-    const base = parseNumericInput(draft, { integer }) ?? value;
+    const committed = lastCommittedNumeric(pendingRef.current, value);
+    const fallback = committed.kind === "value" ? committed.value : undefined;
+    const base = parseNumericInput(draftRef.current, { integer }) ?? fallback;
     const next = stepNumericValue(base, direction, { step, min, max, integer });
     const formatted = formatNumericInput(next);
     draftRef.current = formatted;
     setDraft(formatted);
-    if (!Object.is(next, value)) onValueChange(next);
+    emitValue(next);
   };
 
   return (
@@ -94,12 +113,12 @@ export function NumericInput({
       value={draft}
       aria-invalid={rest["aria-invalid"] ?? (isInvalid || undefined)}
       onFocus={(event) => {
-        setFocused(true);
+        focusedRef.current = true;
         onFocus?.(event);
       }}
       onBlur={(event) => {
-        setFocused(false);
-        const formatted = formatNumericInput(value);
+        focusedRef.current = false;
+        const formatted = formatPendingEmission(lastCommittedNumeric(pendingRef.current, value));
         draftRef.current = formatted;
         setDraft(formatted);
         onBlur?.(event);

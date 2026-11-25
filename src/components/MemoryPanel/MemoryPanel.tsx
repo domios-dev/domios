@@ -105,6 +105,37 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
     if (initialState.inspectView) setInspectView(initialState.inspectView);
   }, [initialState]);
 
+  const configPropRef = useRef(config);
+  configPropRef.current = config;
+  const latestConfigRef = useRef(config);
+  const inFlightConfigWritesRef = useRef(0);
+  useEffect(() => {
+    if (inFlightConfigWritesRef.current === 0) {
+      latestConfigRef.current = config;
+    }
+  }, [config]);
+
+  const handleMemoryConfigUpdate = useCallback(
+    <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => {
+      if (!onConfigUpdate) return;
+      const base = latestConfigRef.current ?? configPropRef.current;
+      if (!base) return;
+      const next = { ...base, [section]: Object.assign({}, base[section], patch) };
+      latestConfigRef.current = next;
+      inFlightConfigWritesRef.current += 1;
+      onConfigUpdate(next)
+        .catch(() => {
+          if (inFlightConfigWritesRef.current === 1) {
+            latestConfigRef.current = configPropRef.current;
+          }
+        })
+        .finally(() => {
+          inFlightConfigWritesRef.current = Math.max(0, inFlightConfigWritesRef.current - 1);
+        });
+    },
+    [onConfigUpdate],
+  );
+
   const [memStats, setMemStats] = useState<MemStats | null>(null);
 
   useEffect(() => {
@@ -284,10 +315,7 @@ function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate
             <MemorySettingsTab
               config={config}
               onOpenAgentsSettings={onOpenAgentsSettings}
-              onUpdate={(section, patch) => {
-                const next = { ...config, [section]: Object.assign({}, config[section], patch) };
-                onConfigUpdate(next).catch(() => {});
-              }}
+              onUpdate={handleMemoryConfigUpdate}
             />
           </div>
         )}

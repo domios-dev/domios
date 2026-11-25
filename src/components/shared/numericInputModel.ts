@@ -8,6 +8,53 @@ export interface NumericStepOptions extends NumericParseOptions {
   step?: number;
 }
 
+export type PendingNumericEmission = { kind: "value"; value: number } | { kind: "empty" };
+
+export function matchesPendingEmission(
+  emission: PendingNumericEmission,
+  external: number | null | undefined,
+): boolean {
+  if (emission.kind === "empty") return external == null;
+  return external != null && Object.is(emission.value, external);
+}
+
+export function lastCommittedNumeric(
+  pending: readonly PendingNumericEmission[],
+  external: number | null | undefined,
+): PendingNumericEmission {
+  if (pending.length > 0) return pending[pending.length - 1];
+  return external == null ? { kind: "empty" } : { kind: "value", value: external };
+}
+
+export function formatPendingEmission(emission: PendingNumericEmission): string {
+  return emission.kind === "empty" ? "" : formatNumericInput(emission.value);
+}
+
+export function reconcileExternalNumericValue(
+  pending: readonly PendingNumericEmission[],
+  external: number | null | undefined,
+  focused: boolean,
+): { pending: PendingNumericEmission[]; nextDraft: string | null } {
+  if (pending.length > 0) {
+    const matchIndex = pending.findIndex((item) => matchesPendingEmission(item, external));
+    if (matchIndex >= 0) {
+      const remaining = pending.slice(matchIndex + 1);
+      if (focused || remaining.length > 0) {
+        return { pending: remaining, nextDraft: null };
+      }
+      return { pending: [], nextDraft: formatNumericInput(external) };
+    }
+    if (focused) {
+      return { pending: [...pending], nextDraft: null };
+    }
+    return { pending: [], nextDraft: formatNumericInput(external) };
+  }
+  if (focused) {
+    return { pending: [], nextDraft: null };
+  }
+  return { pending: [], nextDraft: formatNumericInput(external) };
+}
+
 const INTEGER_PATTERN = /^[+-]?\d+$/;
 const DECIMAL_PATTERN = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
 

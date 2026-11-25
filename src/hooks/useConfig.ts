@@ -166,17 +166,37 @@ export function useConfig(enabled = true) {
   return page?.config ?? local;
 }
 
+interface PendingConfigWrite {
+  config: AppConfig;
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
+}
+
+interface ConfigWriteQueue {
+  generation: number;
+  inFlight: boolean;
+  pending: PendingConfigWrite | null;
+}
+
+function rejectPendingWrites(queue: ConfigWriteQueue | null, error: Error) {
+  if (!queue?.pending) return;
+  const { waiters } = queue.pending;
+  queue.pending = null;
+  for (const waiter of waiters) waiter.reject(error);
+}
+
 export function useConfigLoader(enabled = true) {
   const [generation, setGeneration] = useState(webRequestContext);
   const [snapshot, setSnapshot] = useState(() => ({
     generation, config: defaultConfig(), loading: true, ready: false,
   }));
   const readyGeneration = useRef<number | null>(null);
+  const writeQueueRef = useRef<ConfigWriteQueue | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
     const reset = () => {
       readyGeneration.current = null;
+      rejectPendingWrites(writeQueueRef.current, new Error("Config is not ready for this peer"));
       setSnapshot({ generation: webRequestContext(), config: defaultConfig(), loading: true, ready: false });
     };
     const rebind = () => setGeneration(webRequestContext());
@@ -217,6 +237,7 @@ export function useConfigLoader(enabled = true) {
     return () => {
       cancelled = true;
       readyGeneration.current = null;
+      rejectPendingWrites(writeQueueRef.current, new Error("Config is not ready for this peer"));
       unlisten?.();
     };
   }, [generation, enabled]);
@@ -226,8 +247,53 @@ export function useConfigLoader(enabled = true) {
     if (!snapshot.ready || snapshot.generation !== generation || readyGeneration.current !== generation) {
       throw new Error("Config is not ready for this peer");
     }
-    await invoke("update_config", { config: newConfig });
-    assertWebRequestContext(generation);
+    let queue = writeQueueRef.current;
+    if (!queue || queue.generation !== generation) {
+      queue = { generation, inFlight: false, pending: null };
+      writeQueueRef.current = queue;
+    }
+    if (queue.inFlight) {
+      return await new Promise<void>((resolve, reject) => {
+        if (queue.pending) {
+          queue.pending.config = newConfig;
+          queue.pending.waiters.push({ resolve, reject });
+        } else {
+          queue.pending = { config: newConfig, waiters: [{ resolve, reject }] };
+        }
+      });
+    }
+    queue.inFlight = true;
+    const drainPending = async () => {
+      try {
+        while (queue.pending) {
+          const next = queue.pending;
+          queue.pending = null;
+          try {
+            assertWebRequestContext(generation);
+            if (readyGeneration.current !== generation) {
+              throw new Error("Config is not ready for this peer");
+            }
+            await invoke("update_config", { config: next.config });
+            assertWebRequestContext(generation);
+            for (const waiter of next.waiters) waiter.resolve();
+          } catch (error) {
+            for (const waiter of next.waiters) waiter.reject(error);
+          }
+        }
+      } finally {
+        queue.inFlight = false;
+      }
+    };
+    try {
+      await invoke("update_config", { config: newConfig });
+      assertWebRequestContext(generation);
+    } finally {
+      if (queue.pending) {
+        void drainPending();
+      } else {
+        queue.inFlight = false;
+      }
+    }
   }, [generation, snapshot.ready, snapshot.generation]);
 
   const current = snapshot.generation === generation && generation === webRequestContext();

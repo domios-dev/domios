@@ -134,9 +134,9 @@ export function SettingsRow({
   );
 }
 
-export function Label({ text, children }: { text: string; children: React.ReactNode }) {
+export function Label({ text, htmlFor, children }: { text: string; htmlFor?: string; children: React.ReactNode }) {
   return (
-    <FormRow label={text} data-testid="settings-label">{children}</FormRow>
+    <FormRow label={text} htmlFor={htmlFor} data-testid="settings-label">{children}</FormRow>
   );
 }
 
