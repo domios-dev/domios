@@ -73,6 +73,12 @@ pub enum MeshAction {
     Offline,
     /// Come back online — resume mesh activity. Local-only.
     Online,
+    /// Remove another machine from the account mesh. Signs out an online
+    /// machine first. Refuses to remove the current machine. Local-only.
+    Remove {
+        /// Target machine (installation ID, display name, or disambiguated label)
+        machine: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -163,13 +169,17 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
 
     // Mesh management commands are local-only — cannot be relayed.
     if let super::Commands::Mesh {
-        action: MeshAction::Peer { .. } | MeshAction::Offline | MeshAction::Online,
+        action:
+            MeshAction::Peer { .. }
+            | MeshAction::Offline
+            | MeshAction::Online
+            | MeshAction::Remove { .. },
     } = &cli.command
     {
-        eprintln!(
-            "Error: mesh management commands are local-only and cannot be relayed via --mesh"
+        crate::cmd::print::fail(
+            1,
+            "mesh management commands are local-only and cannot be relayed via --mesh",
         );
-        std::process::exit(1);
     }
 
     let (base, _) = super::read_api_config();

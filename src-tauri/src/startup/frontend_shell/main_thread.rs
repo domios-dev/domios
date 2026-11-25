@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::atomic::AtomicU8;
 
 const QUEUED: u8 = 0;
 const RUNNING: u8 = 1;

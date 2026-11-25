@@ -117,3 +117,39 @@ fn isolated_general_launch_uses_daemon_socket_and_custom_api_without_rebinding_t
     assert_eq!(env["CODETERM_API_TOKEN"], "opaque-tab-credential");
     assert_eq!(env["CODETERM_MACHINE_AGENT_IDENTITY"], "general_agent");
 }
+
+#[test]
+fn resumed_general_agent_launch_pre_trusts_general_directory() {
+    super::super::ensure_directories();
+    let general_cwd = super::super::general_dir();
+    let general_cwd_str = general_cwd.to_string_lossy().to_string();
+
+    let (fixture, main, _) = fixture();
+    let svc = &fixture.service;
+    let provider = "pretrust-resumed-main";
+    let session = "saved-general-session";
+    let log = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    svc.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session(provider, session)
+            .with_pre_trust_log(log.clone()),
+    ));
+    {
+        let mut mux = svc.mux.write();
+        let tab = mux.get_tab_mut(&main).unwrap();
+        tab.agent_type = Some(provider.into());
+        tab.cwd = Some(general_cwd_str.clone());
+    }
+
+    let mut params = AgentLaunchParams::default();
+    assert!(command(
+        svc,
+        &main,
+        provider,
+        &general_cwd_str,
+        &mut params,
+        Some(session),
+    )
+    .is_some());
+    assert_eq!(*log.lock(), vec![(general_cwd_str, None)]);
+    crate::service::launch_session_detection::clear_launch_marker(&main);
+}

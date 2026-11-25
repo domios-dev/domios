@@ -214,7 +214,6 @@ export function SettingsPanel({
       aria-labelledby={SETTINGS_TITLE_ID}
       // Clip, not hidden: a clipping box is no scroll container, so no scrollIntoView inside can shift the layer.
       className="absolute inset-0 flex flex-col overflow-clip bg-[var(--ct-bg)]"
-      data-appearance-surface
       data-testid="settings-panel"
     >
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">

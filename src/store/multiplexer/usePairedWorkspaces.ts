@@ -5,13 +5,13 @@ import { remoteTeamName } from "../../components/Sidebar/remoteOwnership";
 import { cleanMachineName } from "../../lib/machineIdentity";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { invoke } from "../../lib/bridge";
-import type { MeshPeersResponse, MultiplexerState, Tab } from "../../lib/types";
+import type { MeshPeersResponse, MultiplexerState } from "../../lib/types";
 import { setWorkspaceBrowseTarget, useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { pairedGeneralCacheScope, readPairedGeneralCache, writePairedGeneralCache, type CachedPeerGeneral } from "./pairedGeneralCache";
 import type { PairedRoster } from "./useMeshPeerProjection";
 import {
-  pairedAvailability, projectBrowsedWorkspaces, projectPairedGeneral,
-  type BrowsedWorkspace, type GeneralAvailability, type PairedGeneral,
+  pairedAvailability, projectBrowsedWorkspaces, projectPairedGeneral, resolvePeerLastActiveTab,
+  type BrowsedWorkspace, type GeneralAvailability, type PairedGeneral, type PeerLastActiveSelection, type PeerOrdinaryTabSummary,
 } from "./pairedWorkspaceProjection";
 
 type CacheAccount = string | false | null;
@@ -22,7 +22,9 @@ interface GeneralSnapshot {
   sessions?: PairedGeneral["sessions"];
   teamNames?: PairedGeneral["teamNames"];
   workspaces?: BrowsedWorkspace[];
+  lastActiveTab?: PeerLastActiveSelection | null;
   availability: "online" | "unreachable";
+  revision: number;
 }
 
 interface PeerRead {
@@ -37,6 +39,7 @@ interface WorkspaceBrowse {
   target: NonNullable<ReturnType<typeof useWorkspaceBrowseTarget>>;
   availability: GeneralAvailability;
   workspaces: BrowsedWorkspace[];
+  synced?: boolean;
 }
 
 export interface CachedPlanTitles {
@@ -75,6 +78,11 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
   const accountRef = useRef(cacheAccount);
   accountRef.current = cacheAccount;
   const [general, setGeneral] = useState<ReadonlyMap<string, GeneralSnapshot>>(() => new Map());
+  const snapshotRevisionRef = useRef(0);
+  const switchSyncRef = useRef<{
+    target: NonNullable<ReturnType<typeof useWorkspaceBrowseTarget>>;
+    baseRevision: number;
+  } | null>(null);
   const reads = useRef(new Map<string, PeerRead>());
   const planTitlesCache = useRef(new Map<string, CachedPlanTitles>());
   const cacheScope = cacheAccount ? pairedGeneralCacheScope(cacheAccount) : null;
@@ -120,7 +128,9 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
       publicKey: peer.public_key,
       sessions: [],
       workspaces: [],
+      lastActiveTab: null,
       availability: "unreachable",
+      revision: ++snapshotRevisionRef.current,
     }));
   }, []);
 
@@ -161,13 +171,23 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
             return name && name !== team.id ? [[team.id, name] as const] : [];
           }));
           const workspaces = projectBrowsedWorkspaces(peerId, snapshot, ordinaryTabs);
+          const lastActiveTab = resolvePeerLastActiveTab(snapshot, sessions, workspaces, ordinaryTabs);
           const unnamedTeamIds = unnamedTeamIdsForWorkspaces(workspaces);
           const cachedTitles = planTitlesCache.current.get(peerId);
           const validCache = cachedTitles?.publicKey === peer.public_key ? cachedTitles : undefined;
           const initialWorkspaces = validCache && validCache.planTitles.size
             ? workspaces.map(workspace => ({ ...workspace, planTitles: validCache.planTitles }))
             : workspaces;
-          publish(() => ({ account, publicKey: peer.public_key, sessions, teamNames, workspaces: initialWorkspaces, availability: "online" }));
+          publish(() => ({
+            account,
+            publicKey: peer.public_key,
+            sessions,
+            teamNames,
+            workspaces: initialWorkspaces,
+            lastActiveTab,
+            availability: "online",
+            revision: ++snapshotRevisionRef.current,
+          }));
           const needsPlanTitle = needsPeerPlanTitlesFetch(unnamedTeamIds, cachedTitles, peer.public_key);
           if (!needsPlanTitle) return;
           // Return this promise so `reads.current` keeps peer refreshes serialized until `/api/plans` settles.
@@ -183,7 +203,16 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
           });
         }
       })
-      .catch(() => publish(previous => ({ account, publicKey: peer.public_key, sessions: previous?.sessions, teamNames: previous?.teamNames, workspaces: previous?.workspaces, availability: "unreachable" })))
+      .catch(() => publish(previous => ({
+        account,
+        publicKey: peer.public_key,
+        sessions: previous?.sessions,
+        teamNames: previous?.teamNames,
+        workspaces: previous?.workspaces,
+        lastActiveTab: previous?.lastActiveTab,
+        availability: "unreachable",
+        revision: ++snapshotRevisionRef.current,
+      })))
       .finally(() => {
         if (reads.current.get(peerId) !== read) return;
         reads.current.delete(peerId);
@@ -234,15 +263,27 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     refreshPeerInventory(targetId);
   }, [targetId, rosterReady, selectedKey, refreshPeerInventory]);
 
+  if (target && switchSyncRef.current?.target !== target) {
+    switchSyncRef.current = { target, baseRevision: general.get(target.id)?.revision ?? 0 };
+  } else if (!target) {
+    switchSyncRef.current = null;
+  }
+  const switchBaseRevision = target && switchSyncRef.current?.target === target ? switchSyncRef.current.baseRevision : 0;
+
   const browse = useMemo<WorkspaceBrowse | null>(() => {
     if (!target) return null;
     const availability = selected ? pairedAvailability(selected, peers?.installations) : "reconnecting";
     const snapshot = general.get(target.id);
-    if (availability === "reconnecting" && selected && snapshot?.account === cacheAccount && snapshot.publicKey === selected.public_key) {
-      return { target, availability: snapshot.availability, workspaces: snapshot.workspaces ?? [] };
+    const snapshotValid = Boolean(
+      selected && snapshot?.account === cacheAccount && snapshot.publicKey === selected.public_key,
+    );
+    const synced = peers !== null
+      && (availability !== "reconnecting" || (snapshotValid && (snapshot?.revision ?? 0) > switchBaseRevision));
+    if (availability === "reconnecting" && snapshotValid && snapshot) {
+      return { target, availability: snapshot.availability, workspaces: snapshot.workspaces ?? [], synced };
     }
-    return { target, availability, workspaces: [] };
-  }, [target, selected, peers?.installations, general, cacheAccount]);
+    return { target, availability, workspaces: [], synced };
+  }, [target, selected, peers, general, cacheAccount, switchBaseRevision]);
 
   const generals = useMemo<PairedGeneral[]>(() => (peers?.paired ?? []).map(peer => {
     const live = general.get(peer.instance_id);
@@ -253,6 +294,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
       peerId: peer.instance_id,
       name: accountNames.peers.get(peer.instance_id) ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
       teamNames: known?.teamNames,
+      lastActiveTab: known?.lastActiveTab,
       availability: observed === "reconnecting" ? known?.availability ?? observed : observed,
       sessions: known?.sessions ?? (saved?.publicKey === peer.public_key ? saved.sessions : []),
       cached: !known?.sessions && saved !== undefined && saved.publicKey === peer.public_key,
@@ -271,9 +313,9 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
   return { generals, browse, peerWorkspaces, refreshPeerInventory, invalidatePeerInventory, ready };
 }
 
-async function readPeerOrdinaryTabs(peerId: string, signal: AbortSignal): Promise<Tab[]> {
+async function readPeerOrdinaryTabs(peerId: string, signal: AbortSignal): Promise<PeerOrdinaryTabSummary[]> {
   try {
-    const tabs = await daemonTransportForPeer(peerId).json<Tab[]>("GET", "/api/tabs", undefined, { signal });
+    const tabs = await daemonTransportForPeer(peerId).json<PeerOrdinaryTabSummary[]>("GET", "/api/tabs", undefined, { signal });
     return Array.isArray(tabs) ? tabs : [];
   } catch {
     return [];

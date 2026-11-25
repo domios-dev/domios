@@ -46,6 +46,13 @@ pub(super) fn show_unavailable_recorded(
     if reconnect::recover_before_failure(window.app_handle(), code, reason) {
         return;
     }
+    // Preserve the recovery document across repeated disconnection events.
+    let on_recovery_surface = ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel);
+    if !ON_START_FAILURE.swap(false, Ordering::AcqRel) && on_recovery_surface {
+        return;
+    }
+    // Use the starting window when available so the user sees it immediately;
+    // fall back to the main window if starting is already gone.
     let target = window
         .app_handle()
         .get_webview_window("starting")
@@ -69,7 +76,7 @@ pub(super) fn show_start_failure_recorded(window: &WebviewWindow, detail: &str) 
     ON_START_FAILURE.store(true, Ordering::Release);
     match start_failure_url(Some(detail))
         .map_err(|error| error.to_string())
-        .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
+        .and_then(|url| navigate_main_guarded(window, url, GuardedShellDocument::StartFailed))
     {
         Ok(()) => log::debug!("[frontend-shell] start failure surface selected"),
         Err(error) => {

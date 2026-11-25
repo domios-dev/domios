@@ -2034,6 +2034,12 @@ List account installations and their connection state
 
 Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios
 
+#### `domios mesh remove`
+
+Remove another machine from the account mesh. Signs out an online machine first. Refuses to remove the current machine. Local-only
+
+- `<machine>` — Target machine (installation ID, display name, or disambiguated label)
+
 #### `domios mesh status`
 
 Show mesh status (identity, peers)

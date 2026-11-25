@@ -86,7 +86,26 @@ fn mesh_account_presence_is_distinct_from_offline_and_expired() {
     assert_eq!(super::account_machine_status(&row, 10), "Present");
     row["active"] = json!(false);
     assert_eq!(super::account_machine_status(&row, 10), "Removed");
-    let state = json!({"registry":{"rows":[{"display_name":"Laptop","active":true,"presence":"signed_out"}]}});
-    assert!(super::account_mesh_status_lines(&state)
-        .contains(&"  Laptop: Signed out (actions disabled)".to_owned()));
+    let state = json!({"registry":{"rows":[
+        {"display_name":"Laptop","active":true,"presence":"signed_out"},
+        {"display_name":"Old","active":false,"eligibility":"revoked","presence":"present"}
+    ]}});
+    let status_lines = super::account_mesh_status_lines(&state);
+    assert!(status_lines.contains(&"  Laptop: Signed out (actions disabled)".to_owned()));
+    assert!(!status_lines.iter().any(|line| line.contains("Old")));
+}
+
+#[test]
+fn mesh_remove_parses_machine_target_and_blocks_mesh_relay() {
+    use clap::Parser;
+    let parsed = crate::Cli::try_parse_from(["domios", "mesh", "remove", "BLACKSTAR #4"])
+        .expect("mesh remove parses");
+    match &parsed.command {
+        crate::Commands::Mesh {
+            action: crate::MeshAction::Remove { machine },
+        } => assert_eq!(machine, "BLACKSTAR #4"),
+        _ => panic!("expected MeshAction::Remove"),
+    }
+    let (method, _, _) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
+    assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
 }

@@ -200,7 +200,7 @@ export function TabContent({
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
         />
-        <div className="ct-tab-content-body relative flex min-h-0 flex-1 flex-col" data-appearance-surface style={{ background: theme.background }}>
+        <div className="ct-tab-content-body relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
           <div data-testid="session-status-row" className="ct-tab-content-status flex max-h-[40%] shrink-0 flex-col overflow-y-auto">
             <DeferredPresence present={!remoteChat.state && !dockedFailure && !loadRefused && isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}>
               <section aria-label="Session status" className="mx-auto flex w-full max-w-2xl justify-center px-4 py-2">

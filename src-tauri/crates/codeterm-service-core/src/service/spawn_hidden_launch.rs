@@ -69,182 +69,189 @@ pub(crate) fn start(service: Arc<ServiceContext>, launch: HiddenLaunch) {
         permission_bypass,
         cron_run,
     } = launch;
+    let invocation = codeterm_plugin::provider_account::current();
     std::thread::spawn(move || {
-        let cron_attempt = if cron_run {
-            let Some(attempt) = LaunchAttempt::current(&service.mux, &tab_id, &pty_id) else {
-                service.run_watcher.fail_now(
-                    &service,
-                    &pty_id,
-                    "cron launch attempt unavailable before shell readiness".into(),
-                );
-                return;
-            };
-            launch_readiness::arm_cron_run(attempt.clone());
-            Some(attempt)
-        } else {
-            None
-        };
-
-        let reader_service = service.clone();
-        let reader_pty = pty_id.clone();
-        std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("backend reader runtime");
-            runtime.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(
-                    &reader_service,
-                    &reader_pty,
-                    true,
-                ) {
-                    Ok(handle) => {
-                        let _ = handle.await;
-                    }
-                    Err(error) => log::warn!("[spawn.hidden] backend reader: {error}"),
-                }
-            });
-        });
-
-        let readiness = after_shell_ready(
-            cron_run,
-            &service.screen_state,
-            &pty_id,
-            SHELL_READY_DEADLINE,
-            || {
-                let hidden_cwd = service
-                    .mux
-                    .read()
-                    .get_tab(&tab_id)
-                    .and_then(|tab| tab.cwd.clone())
-                    .unwrap_or_default();
-                let mut launch_params = AgentLaunchParams {
-                    context_files: None,
-                    tool_less_instructions_path: None,
-                    agent_name: None,
-                    task: task.clone(),
-                    starter_prompt: Default::default(),
-                    args: (!model_args.is_empty()).then_some(model_args),
-                    skip_permissions: permission_bypass,
-                    host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
-                    session_id: launch_session_id,
-                    structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            let cron_attempt = if cron_run {
+                let Some(attempt) = LaunchAttempt::current(&service.mux, &tab_id, &pty_id) else {
+                    service.run_watcher.fail_now(
                         &service,
-                        &provider,
-                        &tab_id,
-                        &hidden_cwd,
-                    ),
-                    launch_marker: None,
-                    instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+                        &pty_id,
+                        "cron launch attempt unavailable before shell readiness".into(),
+                    );
+                    return;
                 };
-                let launch_cmd = super::launch_session_detection::marked_launch_command_for_tab(
-                    &service,
-                    &provider,
-                    &tab_id,
-                    &hidden_cwd,
-                    &mut launch_params,
-                )
-                .unwrap_or_else(|| provider.clone());
-                crate::service::launch_diagnostics::log_launch(
-                    AgentLaunchOrigin::HiddenSpawn,
-                    &tab_id,
-                    &provider,
-                    &launch_cmd,
-                    task.as_deref(),
-                    role.as_deref(),
-                    role_profile.as_deref(),
-                    "provider_descriptor",
-                );
+                launch_readiness::arm_cron_run(attempt.clone());
+                Some(attempt)
+            } else {
+                None
+            };
 
-                match service.resolve_pty_id(&tab_id) {
-                    Ok(launch_pty_id) => {
-                        if let Some(attempt) = cron_attempt.as_ref() {
-                            if LaunchAttempt::current(&service.mux, &tab_id, &launch_pty_id)
-                                .as_ref()
-                                != Some(attempt)
-                            {
-                                service.run_watcher.fail_now(
-                                    &service,
-                                    &launch_pty_id,
-                                    "cron launch attempt changed before provider launch".into(),
-                                );
-                                return;
-                            }
+            let reader_service = service.clone();
+            let reader_pty = pty_id.clone();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("backend reader runtime");
+                runtime.block_on(async {
+                    match crate::service::pty_lifecycle::start_backend_reader(
+                        &reader_service,
+                        &reader_pty,
+                        true,
+                    ) {
+                        Ok(handle) => {
+                            let _ = handle.await;
                         }
+                        Err(error) => log::warn!("[spawn.hidden] backend reader: {error}"),
+                    }
+                });
+            });
 
-                        if let Err(error) = service.send_shell_spawn(&launch_pty_id, &launch_cmd) {
-                            log::error!("[spawn.hidden] shell spawn failed: {error}");
-                            if cron_run {
-                                service.run_watcher.fail_now(
-                                    &service,
-                                    &launch_pty_id,
-                                    format!("cron provider launch failed: {error}"),
-                                );
-                            }
-                            return;
-                        }
-                        if let Some(attempt) = cron_attempt.as_ref() {
-                            if !launch_readiness::mark_launch_issued(attempt) {
-                                service.run_watcher.fail_now(
-                                    &service,
-                                    &launch_pty_id,
-                                    "cron launch attempt was superseded before provider launch"
-                                        .into(),
-                                );
-                                return;
-                            }
-                        }
-
-                        if let Some(task_text) = pty_input_task.as_deref() {
-                            if let Err(error) = super::spawn::deliver_hidden_pty_task(
+            let readiness = after_shell_ready(
+                cron_run,
+                &service.screen_state,
+                &pty_id,
+                SHELL_READY_DEADLINE,
+                || {
+                    let hidden_cwd = service
+                        .mux
+                        .read()
+                        .get_tab(&tab_id)
+                        .and_then(|tab| tab.cwd.clone())
+                        .unwrap_or_default();
+                    let mut launch_params = AgentLaunchParams {
+                        context_files: None,
+                        tool_less_instructions_path: None,
+                        agent_name: None,
+                        task: task.clone(),
+                        starter_prompt: Default::default(),
+                        args: (!model_args.is_empty()).then_some(model_args),
+                        skip_permissions: permission_bypass,
+                        host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
+                        session_id: launch_session_id,
+                        structured_prompt_server:
+                            crate::service::structured_prompt::ensure_for_spawn(
                                 &service,
-                                &launch_pty_id,
-                                &tab_id,
                                 &provider,
-                                task_text,
-                            ) {
-                                log::error!(
-                                    "[spawn.hidden] task delivery failed for Tab {}: {}",
-                                    tab_id,
-                                    error
-                                );
-                                service.run_watcher.fail_now(
+                                &tab_id,
+                                &hidden_cwd,
+                            ),
+                        launch_marker: None,
+                        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+                    };
+                    let launch_cmd =
+                        super::launch_session_detection::marked_launch_command_for_tab(
+                            &service,
+                            &provider,
+                            &tab_id,
+                            &hidden_cwd,
+                            &mut launch_params,
+                        )
+                        .unwrap_or_else(|| provider.clone());
+                    crate::service::launch_diagnostics::log_launch(
+                        AgentLaunchOrigin::HiddenSpawn,
+                        &tab_id,
+                        &provider,
+                        &launch_cmd,
+                        task.as_deref(),
+                        role.as_deref(),
+                        role_profile.as_deref(),
+                        "provider_descriptor",
+                    );
+
+                    match service.resolve_pty_id(&tab_id) {
+                        Ok(launch_pty_id) => {
+                            if let Some(attempt) = cron_attempt.as_ref() {
+                                if LaunchAttempt::current(&service.mux, &tab_id, &launch_pty_id)
+                                    .as_ref()
+                                    != Some(attempt)
+                                {
+                                    service.run_watcher.fail_now(
+                                        &service,
+                                        &launch_pty_id,
+                                        "cron launch attempt changed before provider launch".into(),
+                                    );
+                                    return;
+                                }
+                            }
+
+                            if let Err(error) =
+                                service.send_shell_spawn(&launch_pty_id, &launch_cmd)
+                            {
+                                log::error!("[spawn.hidden] shell spawn failed: {error}");
+                                if cron_run {
+                                    service.run_watcher.fail_now(
+                                        &service,
+                                        &launch_pty_id,
+                                        format!("cron provider launch failed: {error}"),
+                                    );
+                                }
+                                return;
+                            }
+                            if let Some(attempt) = cron_attempt.as_ref() {
+                                if !launch_readiness::mark_launch_issued(attempt) {
+                                    service.run_watcher.fail_now(
+                                        &service,
+                                        &launch_pty_id,
+                                        "cron launch attempt was superseded before provider launch"
+                                            .into(),
+                                    );
+                                    return;
+                                }
+                            }
+
+                            if let Some(task_text) = pty_input_task.as_deref() {
+                                if let Err(error) = super::spawn::deliver_hidden_pty_task(
                                     &service,
                                     &launch_pty_id,
-                                    format!("task delivery failed: {error}"),
-                                );
+                                    &tab_id,
+                                    &provider,
+                                    task_text,
+                                ) {
+                                    log::error!(
+                                        "[spawn.hidden] task delivery failed for Tab {}: {}",
+                                        tab_id,
+                                        error
+                                    );
+                                    service.run_watcher.fail_now(
+                                        &service,
+                                        &launch_pty_id,
+                                        format!("task delivery failed: {error}"),
+                                    );
+                                } else {
+                                    service.run_watcher.arm(&launch_pty_id);
+                                }
                             } else {
                                 service.run_watcher.arm(&launch_pty_id);
                             }
-                        } else {
-                            service.run_watcher.arm(&launch_pty_id);
+                        }
+                        Err(error) => {
+                            log::error!("[spawn.hidden] no pty for Tab {}: {}", tab_id, error);
+                            if cron_run {
+                                service.run_watcher.fail_now(
+                                    &service,
+                                    &pty_id,
+                                    format!("cron PTY unavailable after shell readiness: {error}"),
+                                );
+                            }
                         }
                     }
-                    Err(error) => {
-                        log::error!("[spawn.hidden] no pty for Tab {}: {}", tab_id, error);
-                        if cron_run {
-                            service.run_watcher.fail_now(
-                                &service,
-                                &pty_id,
-                                format!("cron PTY unavailable after shell readiness: {error}"),
-                            );
-                        }
-                    }
-                }
-                log::debug!(
-                    "[spawn.hidden] agent launched tab={} provider={}",
-                    tab_id,
-                    provider
-                );
-            },
-        );
-        if readiness.is_err() {
-            service.run_watcher.fail_now(
-                &service,
-                &pty_id,
-                "cron shell readiness deadline elapsed before provider launch".into(),
+                    log::debug!(
+                        "[spawn.hidden] agent launched tab={} provider={}",
+                        tab_id,
+                        provider
+                    );
+                },
             );
-        }
+            if readiness.is_err() {
+                service.run_watcher.fail_now(
+                    &service,
+                    &pty_id,
+                    "cron shell readiness deadline elapsed before provider launch".into(),
+                );
+            }
+        });
     });
 }
 

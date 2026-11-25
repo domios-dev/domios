@@ -8865,6 +8865,24 @@
           "subcommands": []
         },
         {
+          "name": "remove",
+          "about": "Remove another machine from the account mesh. Signs out an online machine first. Refuses to remove the current machine. Local-only",
+          "aliases": [],
+          "args": [
+            {
+              "name": "machine",
+              "positional": true,
+              "required": true,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": null,
+              "help": "Target machine (installation ID, display name, or disambiguated label)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "status",
           "about": "Show mesh status (identity, peers)",
           "aliases": [],

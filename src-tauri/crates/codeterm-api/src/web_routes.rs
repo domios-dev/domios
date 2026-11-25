@@ -292,12 +292,13 @@ fn event_frame(
     previous: Option<u64>,
     peer_boot: Option<&str>,
 ) -> Event {
-    if let Some((boot, tab)) = peer_boot.zip(peer_events::chat_send_status_tab(&se.event)) {
-        // Routed send bodies can exceed the shared rail's frame budget.
+    if let Some((boot, (event_type, data))) = peer_boot.zip(peer_events::peer_rail_frame(&se.event))
+    {
+        // Large config, appearance and routed-send payloads can exceed the shared rail's frame budget.
         return Event::default().data(
             serde_json::json!({
                 "prev_seq": previous, "seq": se.seq, "boot": boot,
-                "event_type": "chat-send-status", "data": { "tab_id": tab },
+                "event_type": event_type, "data": data,
             })
             .to_string(),
         );

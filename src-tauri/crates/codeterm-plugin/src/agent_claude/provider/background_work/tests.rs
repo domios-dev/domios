@@ -50,3 +50,57 @@ fn background_boundaries_are_structural() {
     }
     assert!(parse(&serde_json::json!({"type":"user","subtype":"compact_boundary"})).is_empty());
 }
+
+#[test]
+fn task_notification_origin_and_stopped_statuses_end_matching_tasks() {
+    let user_notice = serde_json::json!({
+        "type": "user",
+        "origin": { "kind": "task-notification", "producer": "session-task" },
+        "message": {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>shell-a</task-id>\n<status>completed</status>\n</task-notification>"
+        }
+    });
+    assert_eq!(parse(&user_notice).len(), 1);
+    assert_eq!(parse(&user_notice)[0].id, "shell-a");
+    assert_eq!(parse(&user_notice)[0].state, BackgroundWorkState::Completed);
+
+    let multi_stopped = serde_json::json!({
+        "type": "user",
+        "origin": { "kind": "task-notification" },
+        "message": {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>orphan-1</task-id>\n<task-id>orphan-2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n</task-notification>"
+        }
+    });
+    let stopped = parse(&multi_stopped);
+    assert_eq!(
+        stopped
+            .iter()
+            .map(|o| (o.id.as_str(), o.state))
+            .collect::<Vec<_>>(),
+        [
+            ("orphan-1", BackgroundWorkState::Killed),
+            ("orphan-2", BackgroundWorkState::Killed),
+        ]
+    );
+
+    let human = serde_json::json!({
+        "type": "user",
+        "origin": { "kind": "human" },
+        "message": {
+            "role": "user",
+            "content": "<task-notification><task-id>shell-a</task-id><status>completed</status></task-notification>"
+        }
+    });
+    assert!(parse(&human).is_empty());
+
+    let plain_user = serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": "<task-notification><task-id>shell-a</task-id><status>completed</status></task-notification>"
+        }
+    });
+    assert!(parse(&plain_user).is_empty());
+}

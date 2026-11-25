@@ -118,6 +118,9 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                         .as_secs();
                     if let Some(rows) = val.get("installations").and_then(|rows| rows.as_array()) {
                         for row in rows {
+                            if row["active"] == false {
+                                continue;
+                            }
                             let name = row["name"].as_str().unwrap_or("Unnamed machine");
                             let id = row["installation_id"].as_str().unwrap_or("?");
                             let status = if row["active"] == false {
@@ -305,6 +308,55 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         },
         MeshAction::Offline => set_mesh_enabled(&http, &base, &token, false, json),
         MeshAction::Online => set_mesh_enabled(&http, &base, &token, true, json),
+        MeshAction::Remove { machine } => remove_mesh_machine(&http, &base, &token, &machine, json),
+    }
+}
+
+fn remove_mesh_machine(
+    http: &crate::local_api::LocalApiClient,
+    base: &str,
+    token: &Option<String>,
+    machine: &str,
+    json: bool,
+) {
+    let body = serde_json::json!({ "machine": machine });
+    let resp = http
+        .post(format!("{base}/api/account/mesh/remove"))
+        .header(
+            "Authorization",
+            format!("Bearer {}", token.as_deref().unwrap_or("")),
+        )
+        .json(&body)
+        .send();
+    match resp {
+        Ok(resp) if resp.status().is_success() => {
+            let val: serde_json::Value = match resp.json() {
+                Ok(val) => val,
+                Err(error) => crate::cmd::print::fail(1, format!("Bad JSON: {error}")),
+            };
+            if val.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                crate::cmd::print::fail_http(1, 400, &val.to_string());
+            }
+            let result = val.get("result").cloned().unwrap_or(val);
+            if json {
+                crate::cmd::print::print_json(&result);
+            } else {
+                let id = result["installation_id"].as_str().unwrap_or(machine);
+                let name = result["display_name"].as_str().unwrap_or(id);
+                let signed_out = result["signed_out"].as_bool().unwrap_or(false);
+                if signed_out {
+                    println!("Removed {name} ({id}) from the account mesh (signed out first).");
+                } else {
+                    println!("Removed {name} ({id}) from the account mesh.");
+                }
+            }
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().unwrap_or_default();
+            crate::cmd::print::fail_http(1, status.as_u16(), &body);
+        }
+        Err(error) => crate::cmd::print::fail(1, error.to_string()),
     }
 }
 
@@ -385,6 +437,9 @@ fn account_mesh_status_lines(state: &serde_json::Value) -> Vec<String> {
         .as_secs();
     if let Some(rows) = state["registry"]["rows"].as_array() {
         for row in rows {
+            if row["active"] == false || row["eligibility"] == "revoked" {
+                continue;
+            }
             let name = row["display_name"]
                 .as_str()
                 .or_else(|| row["installation_id"].as_str())
