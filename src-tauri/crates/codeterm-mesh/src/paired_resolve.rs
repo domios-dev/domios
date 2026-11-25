@@ -116,8 +116,8 @@ where
         .collect()
 }
 
-/// Peers answering to `target` by name: exact advertised or registry display
-/// name first, then configured name (minus any trailing ` [dev-suffix]`).
+/// Peers answering to `target` by advertised, registry display, or configured
+/// name (minus any trailing ` [dev-suffix]`).
 fn name_matches<'a, F>(
     peers: &'a HashMap<String, PairedPeer>,
     installations: &'a [AccountInstallation],
@@ -127,20 +127,6 @@ fn name_matches<'a, F>(
 where
     F: Fn(&str) -> Option<&'a str>,
 {
-    let exact: Vec<&PairedPeer> = peers
-        .values()
-        .filter(|p| {
-            let registry = peer_registry_name(
-                peer_installation_id(p, installations, link_installation_id),
-                installations,
-            );
-            p.instance_name.eq_ignore_ascii_case(target)
-                || registry.is_some_and(|name| name.eq_ignore_ascii_case(target))
-        })
-        .collect();
-    if !exact.is_empty() {
-        return exact;
-    }
     peers
         .values()
         .filter(|p| {
@@ -148,23 +134,66 @@ where
                 peer_installation_id(p, installations, link_installation_id),
                 installations,
             );
-            configured_name(&p.instance_name).eq_ignore_ascii_case(target)
-                || registry.is_some_and(|name| configured_name(name).eq_ignore_ascii_case(target))
+            p.instance_name.eq_ignore_ascii_case(target)
+                || configured_name(&p.instance_name).eq_ignore_ascii_case(target)
+                || registry.is_some_and(|name| {
+                    name.eq_ignore_ascii_case(target)
+                        || configured_name(name).eq_ignore_ascii_case(target)
+                })
         })
         .collect()
 }
 
-fn select_candidate<'a>(
+/// True only when every candidate maps to the same installation id, or none has
+/// an installation id (the codeterm#434 stale-duplicate case where one machine
+/// re-minted its instance id). Candidates from different installations (or a
+/// mix of linked and unlinked records) must never be disambiguated by liveness.
+fn candidates_share_machine<'a, F>(
+    matches: &[&'a PairedPeer],
+    installations: &'a [AccountInstallation],
+    link_installation_id: &F,
+) -> bool
+where
+    F: Fn(&str) -> Option<&'a str>,
+{
+    let mut resolved = matches
+        .iter()
+        .map(|peer| peer_installation_id(peer, installations, link_installation_id));
+    let Some(first) = resolved.next() else {
+        return true;
+    };
+    match first {
+        None => resolved.all(|id| id.is_none()),
+        Some(first_id) => {
+            resolved.all(|id| id.is_some_and(|other| other.eq_ignore_ascii_case(first_id)))
+        }
+    }
+}
+
+fn select_candidate<'a, F>(
     target: &str,
     mut matches: Vec<&'a PairedPeer>,
-) -> Result<&'a PairedPeer, ResolvePairedError> {
+    installations: &'a [AccountInstallation],
+    link_installation_id: &F,
+) -> Result<&'a PairedPeer, ResolvePairedError>
+where
+    F: Fn(&str) -> Option<&'a str>,
+{
     if matches.is_empty() {
         return Err(ResolvePairedError::NotFound);
     }
     matches.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
 
-    let online: Vec<&PairedPeer> = matches.iter().copied().filter(|p| p.online).collect();
     let candidates = |peers: &[&PairedPeer]| peers.iter().map(|p| candidate_of(p)).collect();
+    if matches.len() > 1 && !candidates_share_machine(&matches, installations, link_installation_id)
+    {
+        return Err(ResolvePairedError::Ambiguous {
+            name: target.to_string(),
+            candidates: candidates(&matches),
+        });
+    }
+
+    let online: Vec<&PairedPeer> = matches.iter().copied().filter(|p| p.online).collect();
     match online.as_slice() {
         [only] => Ok(*only),
         [] => Err(ResolvePairedError::NoOnlineCandidate {
@@ -181,8 +210,9 @@ fn select_candidate<'a>(
 /// Resolve a paired peer by any identifier the CLI prints: exact `instance_id`,
 /// exact `installation_id`, unique short-id prefix (of either id), or
 /// case-insensitive advertised/registry/configured name. Stale offline
-/// duplicates never hide the live record (codeterm#434), while two online
-/// records under one selector are refused as `Ambiguous`.
+/// duplicates of the same installation never hide the live record
+/// (codeterm#434), while matches spanning different installations or multiple
+/// online records are refused as `Ambiguous`.
 pub fn resolve_paired_peer<'a, F>(
     peers: &'a HashMap<String, PairedPeer>,
     installations: &'a [AccountInstallation],
@@ -206,14 +236,26 @@ where
     match exact_installation.as_slice() {
         [only] => return Ok(*only),
         [] => {}
-        _ => return select_candidate(target, exact_installation),
+        _ => {
+            return select_candidate(
+                target,
+                exact_installation,
+                installations,
+                &link_installation_id,
+            )
+        }
     }
 
     let mut matches = id_prefix_matches(peers, installations, &link_installation_id, target);
-    if matches.is_empty() {
-        matches = name_matches(peers, installations, &link_installation_id, target);
+    for peer in name_matches(peers, installations, &link_installation_id, target) {
+        if !matches
+            .iter()
+            .any(|existing| existing.instance_id == peer.instance_id)
+        {
+            matches.push(peer);
+        }
     }
-    select_candidate(target, matches)
+    select_candidate(target, matches, installations, &link_installation_id)
 }
 
 /// Resolve a paired peer by instance_id (exact key), then unique short-id
@@ -435,5 +477,98 @@ mod tests {
         let live = resolve_paired_peer(&peers, &installations, link_both, installation_id)
             .expect("live record wins over stale offline duplicate for same installation");
         assert_eq!(live.instance_id, newer);
+    }
+
+    #[test]
+    fn refuses_as_ambiguous_when_offline_and_online_candidates_are_different_installations() {
+        let mut peers = HashMap::new();
+        // Machine A was renamed "studio" in the registry while offline.
+        peers.insert("peer-a".into(), peer("peer-a", "old-a", false, 2));
+        // Machine B still advertises "studio" and is online.
+        peers.insert("peer-b".into(), peer("peer-b", "studio", true, 2));
+        let installations = vec![
+            AccountInstallation {
+                installation_id: "abcd1234-inst-a".into(),
+                name: "studio".into(),
+                active: true,
+                signed_out: false,
+                membership_expires_at: None,
+                endpoint_expires_at: None,
+                instance_id: None,
+                online: false,
+            },
+            AccountInstallation {
+                installation_id: "abcd1234-inst-b".into(),
+                name: "workstation".into(),
+                active: true,
+                signed_out: false,
+                membership_expires_at: None,
+                endpoint_expires_at: None,
+                instance_id: None,
+                online: false,
+            },
+        ];
+        let link_of = |id: &str| match id {
+            "peer-a" => Some("abcd1234-inst-a"),
+            "peer-b" => Some("abcd1234-inst-b"),
+            _ => None,
+        };
+
+        // Cross-machine name collision must refuse and list both machines, never route to B.
+        match resolve_paired_peer(&peers, &installations, link_of, "studio")
+            .expect_err("different installations sharing a name must be refused")
+        {
+            ResolvePairedError::Ambiguous { candidates, .. } => {
+                let ids: Vec<&str> = candidates.iter().map(|c| c.instance_id.as_str()).collect();
+                assert_eq!(ids, vec!["peer-a", "peer-b"]);
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+
+        // Cross-machine short installation-id prefix collision with one offline & one online.
+        match resolve_paired_peer(&peers, &installations, link_of, "abcd1234")
+            .expect_err("different installations sharing an id prefix must be refused")
+        {
+            ResolvePairedError::Ambiguous { candidates, .. } => {
+                let ids: Vec<&str> = candidates.iter().map(|c| c.instance_id.as_str()).collect();
+                assert_eq!(ids, vec!["peer-a", "peer-b"]);
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+
+        // Mixed linked + unlinked records must also refuse rather than guessing they are the same machine.
+        let link_only_a = |id: &str| (id == "peer-a").then_some("abcd1234-inst-a");
+        assert!(matches!(
+            resolve_paired_peer(&peers, &installations, link_only_a, "studio"),
+            Err(ResolvePairedError::Ambiguous { .. })
+        ));
+    }
+
+    #[test]
+    fn prefers_online_record_for_same_installation_stale_duplicate() {
+        let mut peers = HashMap::new();
+        peers.insert(
+            "a4db6f3d-dead".into(),
+            peer("a4db6f3d-dead", "studio", false, 2),
+        );
+        peers.insert(
+            "2556b3f9-live".into(),
+            peer("2556b3f9-live", "studio", true, 2),
+        );
+        let installations = vec![AccountInstallation {
+            installation_id: "inst-same".into(),
+            name: "studio".into(),
+            active: true,
+            signed_out: false,
+            membership_expires_at: None,
+            endpoint_expires_at: None,
+            instance_id: None,
+            online: false,
+        }];
+        let link_same =
+            |id: &str| (id == "a4db6f3d-dead" || id == "2556b3f9-live").then_some("inst-same");
+        let resolved = resolve_paired_peer(&peers, &installations, link_same, "studio")
+            .expect("same-installation stale offline duplicate resolves to live record");
+        assert_eq!(resolved.instance_id, "2556b3f9-live");
     }
 }
