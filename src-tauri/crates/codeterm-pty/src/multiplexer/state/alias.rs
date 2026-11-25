@@ -24,6 +24,19 @@ impl MultiplexerState {
         displaced
     }
 
+    /// Detach the tab's terminal and retire its reverse lookup together.
+    pub fn unlink_pty(&mut self, tab_id: &str) {
+        if let Some(id) = self.tabs.get_mut(tab_id).and_then(|tab| tab.pty_id.take()) {
+            if self
+                .pty_to_tab
+                .get(&id)
+                .is_some_and(|owner| owner == tab_id)
+            {
+                self.pty_to_tab.remove(&id);
+            }
+        }
+    }
+
     /// Register a human-readable alias for a tab ID.
     pub fn register_alias(&mut self, alias: &str, tab_id: &str) {
         self.tab_aliases
