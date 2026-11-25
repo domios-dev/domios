@@ -303,25 +303,7 @@ fn inline_images_can_fit_input_but_exceed_the_combined_hook_argument_limit() {
 }
 
 #[test]
-fn remote_task_bound_tabs_disallow_silent_login_pending_and_detect_sign_in_errors() {
-    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    {
-        let tab = mux.get_tab(&tab_id).unwrap();
-        assert!(super::allows_login_pending(tab));
-    }
-    {
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.report_target_mesh_peer = Some("origin-peer".into());
-        assert!(super::allows_login_pending(tab));
-        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
-            plan_id: Some("plan-1".into()),
-            task_id: Some("task-1".into()),
-            attempt_id: Some("attempt-1".into()),
-            spawn_handle: None,
-            bound_at: 1,
-        });
-        assert!(!super::allows_login_pending(tab));
-    }
+fn detects_sign_in_required_launch_errors() {
     assert!(super::is_sign_in_required_launch_error(
         "Runtime tab 961f8af1 degraded: Sign-in required"
     ));

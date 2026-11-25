@@ -19,6 +19,7 @@ use runtime_launch::{runtime_initial_payload, runtime_pending_payload, RuntimeFi
 mod watcher;
 use watcher::*;
 
+use super::agent_runtime::transport::LaunchContext;
 use super::spawn::{SpawnTabSpec, TabCommand, TabHandle};
 use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
@@ -83,6 +84,11 @@ impl ServiceContext {
         emit_state_change: bool,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<TabHandle, String> {
+        let require_signed_in = ready_tx.is_some()
+            && spec
+                .chatbackend_launch
+                .as_ref()
+                .is_some_and(|launch| launch.agent.remote_task_bound);
         let (handle, launch) = match self.stage_chatbackend_spawn(spec, emit_state_change) {
             Ok(staged) => staged,
             Err(error) => {
@@ -93,7 +99,7 @@ impl ServiceContext {
             }
         };
         if !launch.can_defer() {
-            let readiness = launch.run();
+            let readiness = launch.run_with_auth(require_signed_in);
             if let Some(ready_tx) = ready_tx {
                 let _ = ready_tx.send(readiness.clone());
             }
@@ -104,7 +110,7 @@ impl ServiceContext {
         let cron_owned = launch.cron_owned;
         std::thread::spawn(move || {
             let recipient = svc.spawn_failure_recipient(&tab_id);
-            let readiness = launch.run();
+            let readiness = launch.run_with_auth(require_signed_in);
             match ready_tx {
                 // A dispatch owns its rollback and failure event once readiness arrives.
                 Some(ready_tx) => {
@@ -566,14 +572,16 @@ impl ServiceContext {
             return Err("Original cron runtime owner is no longer retained".into());
         }
         let boundary = std::sync::atomic::AtomicBool::new(false);
-        let result = self.chatbackend_launch_with_runtime_fork(
+        let result = self.chatbackend_launch_with_context(
             metadata.agent.provider.clone(),
             tab_id.into(),
             config.clone(),
             config,
-            None,
-            Some(&boundary),
-            owner.as_ref(),
+            LaunchContext {
+                boundary: Some(&boundary),
+                cron_owner: owner.as_ref(),
+                ..Default::default()
+            },
         );
         if let (Err(error), Some(owner)) = (&result, owner) {
             if !boundary.load(std::sync::atomic::Ordering::Acquire) {
@@ -594,28 +602,27 @@ impl ServiceContext {
         config: serde_json::Value,
         history_meta: serde_json::Value,
     ) -> Result<(), String> {
-        self.chatbackend_launch_with_runtime_fork(
+        self.chatbackend_launch_with_context(
             plugin_id,
             tab_id,
             config,
             history_meta,
-            None,
-            None,
-            None,
+            LaunchContext::default(),
         )
     }
 
-    fn chatbackend_launch_with_runtime_fork(
+    fn chatbackend_launch_with_context(
         &self,
         plugin_id: String,
         tab_id: String,
         config: serde_json::Value,
         history_meta: serde_json::Value,
-        runtime_fork: Option<super::spawn::RuntimeForkLaunch>,
-        runtime_boundary: Option<&std::sync::atomic::AtomicBool>,
-        cron_owner: Option<&crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
+        context: LaunchContext<'_>,
     ) -> Result<(), String> {
-        if cron_owner.is_some_and(|owner| !owner.matches(&self.mux.read())) {
+        if context
+            .cron_owner
+            .is_some_and(|owner| !owner.matches(&self.mux.read()))
+        {
             return Err("Original cron runtime generation changed before configuration".into());
         }
         let cloud = self.remote_execution(&plugin_id, &config)?;
@@ -662,30 +669,11 @@ impl ServiceContext {
                 supports_fast,
                 default_service_tier,
             );
-            return match (runtime_fork.as_ref(), runtime_boundary) {
-                (Some(fork), None) => super::agent_runtime::transport::launch_fork(
-                    self,
-                    &plugin_id,
-                    &tab_id,
-                    config,
-                    &fork.source_thread_id,
-                    &fork.turn_id,
-                ),
-                (None, None) => {
-                    super::agent_runtime::transport::launch(self, &plugin_id, &tab_id, config)
-                }
-                (fork, boundary) => super::agent_runtime::transport::launch_with_boundary(
-                    self,
-                    &plugin_id,
-                    &tab_id,
-                    config,
-                    fork.map(|fork| (fork.source_thread_id.as_str(), fork.turn_id.as_str())),
-                    boundary,
-                    cron_owner,
-                ),
-            };
+            return super::agent_runtime::transport::launch_with_context(
+                self, &plugin_id, &tab_id, config, context,
+            );
         }
-        if runtime_fork.is_some() {
+        if context.fork.is_some() {
             return Err("Runtime fork requires an agent runtime capability".into());
         }
         let session_id = self
