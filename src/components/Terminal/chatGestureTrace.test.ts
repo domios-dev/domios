@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { ChatGestureTrace, continueChatGestureTrace, packGesture, unpackGesture } from "./chatGestureTrace";
 
 test("gesture flags round trip", () => {
-  for (let bits = 0; bits < 16; bits++) {
+  for (let bits = 0; bits < 64; bits++) {
     const state = unpackGesture(bits, 7);
     assert.equal(packGesture(state), bits);
     assert.equal(state.stationaryFrames, 7);

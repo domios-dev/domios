@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { chatRowOffsets, mountedChatWindow } from "./chatMountedWindow";
+import { chatRowOffsets, mountedChatWindow, mountedChatWindowCoversViewport } from "./chatMountedWindow";
+import { IndexedChatRowGeometry } from "./chatRowGeometry";
 
 describe("measured chat mounting", () => {
   it("mounts one viewport of overscan and preserves the measured extent", () => {
@@ -35,5 +36,14 @@ describe("measured chat mounting", () => {
     expect(window.start).toBe(1);
     expect(window.top).toBe(100);
     expect(window.bottom).toBe(80);
+  });
+  it("recognises when the current mounted slice still covers the scrolled viewport with margin", () => {
+    const geometry = new IndexedChatRowGeometry();
+    for (let index = 0; index < 300; index++) geometry.append(100);
+    const window = mountedChatWindow({ heights: Array(300).fill(100), scrollTop: 15000, viewportHeight: 500 });
+    expect(mountedChatWindowCoversViewport(window, geometry, 15000, 500)).toBe(true);
+    expect(mountedChatWindowCoversViewport(window, geometry, 14800, 500)).toBe(true);
+    expect(mountedChatWindowCoversViewport(window, geometry, 14400, 500)).toBe(false);
+    expect(mountedChatWindowCoversViewport(window, geometry, 16000, 500)).toBe(false);
   });
 });

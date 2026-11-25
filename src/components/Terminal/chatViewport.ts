@@ -36,12 +36,13 @@ export function chatViewportModeAfterScroll(
   previous: ChatViewportGeometry,
   viewport: ChatViewportGeometry,
   userScrolling = false,
+  allowPin = true,
 ): ChatViewportMode {
   const layoutChanged = chatViewportLayoutChanged(previous, viewport);
   if (layoutChanged && (!userScrolling || !chatUserScrollChanged(previous, viewport))) return currentMode;
   if (currentMode === "pinned" && isChatViewportAtBottom(viewport)) return "pinned";
   if (viewport.scrollTop < previous.scrollTop) return "detached";
-  if (isChatViewportAtBottom(viewport)) return "pinned";
+  if (allowPin && isChatViewportAtBottom(viewport)) return "pinned";
   return currentMode;
 }
 

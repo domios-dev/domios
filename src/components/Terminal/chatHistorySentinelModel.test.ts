@@ -232,4 +232,33 @@ describe("chatHistorySentinelModel", () => {
 
     controller.dispose();
   });
+
+  it("suspends auto-load while Load earlier has keyboard focus and stays disarmed on blur until leaving the top", () => {
+    const root = document.createElement("div");
+    const target = document.createElement("div");
+    const port = createFakeObserverPort();
+    let loads = 0;
+
+    const controller = createHistorySentinelController({
+      root,
+      target,
+      config: { ...baseConfig, focusSuspended: true },
+      onLoad: () => {
+        loads++;
+      },
+      createObserver: port.createObserver,
+    });
+
+    port.latest().deliver(true);
+    expect(loads).toBe(0);
+
+    controller.update({ ...baseConfig, focusSuspended: false });
+    expect(loads).toBe(0);
+
+    port.latest().deliver(false);
+    port.latest().deliver(true);
+    expect(loads).toBe(1);
+
+    controller.dispose();
+  });
 });

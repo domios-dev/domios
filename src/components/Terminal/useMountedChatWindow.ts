@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRe
 import type { ChatContentAnchor } from "./chatAnchorModel";
 import { getPersistedChatScrollState } from "./chatViewport";
 import { initialChatScrollAnchor } from "./chatScrollMemory";
-import { mountedChatWindowFromGeometry, sameMountedChatWindow } from "./chatMountedWindow";
+import { mountedChatWindowCoversViewport, mountedChatWindowFromGeometry, sameMountedChatWindow } from "./chatMountedWindow";
 import { indexChatTranscript, indexedChatAnchor, type ChatTranscriptIndex } from "./chatMountedTranscript";
 import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerFold, chatSpacerHeight, chatSpacerTranslation, chatLayoutViewportTop, shouldAbsorbChatShift,
   unrecordedRowsAbove, type ChatShiftAnchor } from "./chatSpacerDrift";
@@ -50,10 +50,12 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   const [revision, setRevision] = useState(0);
   const driftRef = useRef(0);
   const shiftAnchorRef = useRef<ChatShiftAnchor | null>(null);
+  const preserveTopRef = useRef(false);
   if (keyRef.current !== sessionKey) {
     keyRef.current = sessionKey;
     driftRef.current = 0;
     shiftAnchorRef.current = null;
+    preserveTopRef.current = false;
     heights.current.clear();
     transcriptRef.current = undefined;
     anchorRef.current = initial.anchor;
@@ -167,23 +169,48 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     const current = live.current;
     if (!current.active) return;
     if (captureAnchor) {
-      const measured = mountedRowTops(el);
-      const wrapper = chatShiftAnchorAt(measured.rows, measured.heights, el.scrollTop);
-      const index = wrapper ? current.transcript.byId.get(wrapper.id) : undefined;
-      const identity = index == null ? undefined : current.transcript.identities[index];
-      anchorRef.current = identity && wrapper ? { ...identity, offset: wrapper.top - el.scrollTop } : null;
+      if (preserveTopRef.current && el.scrollTop <= 0) {
+        anchorRef.current = null;
+      } else {
+        preserveTopRef.current = false;
+        const measured = mountedRowTops(el);
+        const wrapper = chatShiftAnchorAt(measured.rows, measured.heights, el.scrollTop);
+        const wrapperPos = wrapper ? measured.rows.indexOf(wrapper) : -1;
+        const wrapperHeight = wrapperPos >= 0 ? measured.heights[wrapperPos] : 0;
+        const visible = wrapper != null && wrapper.top < el.scrollTop + el.clientHeight && wrapper.top + wrapperHeight > el.scrollTop;
+        const index = visible ? current.transcript.byId.get(wrapper.id) : undefined;
+        const identity = index == null ? undefined : current.transcript.identities[index];
+        anchorRef.current = identity && wrapper ? { ...identity, offset: wrapper.top - el.scrollTop } : null;
+      }
     }
     viewport.current = { top, height: el.clientHeight };
     const anchorIndex = anchorRef.current == null ? -1 : indexedChatAnchor(current.transcript, anchorRef.current);
     const anchoredTop = anchorIndex < 0 ? top : current.transcript.geometry.offset(anchorIndex) - anchorRef.current!.offset;
     const targetIndex = targetRef.current == null ? undefined : current.transcript.byId.get(targetRef.current);
+    if (
+      userScrollingRef?.current
+      && targetIndex === undefined
+      && !followTailRef.current
+      && mountedChatWindowCoversViewport(current.range, current.transcript.geometry, anchoredTop, el.clientHeight)
+    ) {
+      return;
+    }
     const next = mountedChatWindowFromGeometry({ geometry: current.transcript.geometry, scrollTop: anchoredTop,
       viewportHeight: el.clientHeight, active: current.active, pinned: followTailRef.current, targetIndex });
     if (!sameMountedChatWindow(current.range, next)) {
       live.current = { ...current, range: next };
       setRevision((previous) => previous + 1);
     }
-  }, [scrollRef, followTailRef, captureShiftAnchor]);
+  }, [scrollRef, followTailRef, captureShiftAnchor, userScrollingRef]);
+
+  const anchorTop = useCallback(() => {
+    preserveTopRef.current = true;
+    anchorRef.current = null;
+    targetRef.current = null;
+    viewport.current = { top: 0, height: viewport.current.height };
+    driftRef.current = 0;
+    shiftAnchorRef.current = null;
+  }, []);
 
   const prepareMessage = useCallback((id: string) => {
     const { transcript: current, range: mounted } = live.current;
@@ -281,6 +308,6 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
 
   useLayoutEffect(absorbShift, [absorbShift, range.top]);
 
-  return { range, topSpacer: chatSpacerHeight(range.top, driftRef.current), topSpacerRef, rowsRef, foldDrift, prepareMessage,
+  return { range, topSpacer: chatSpacerHeight(range.top, driftRef.current), topSpacerRef, rowsRef, foldDrift, prepareMessage, anchorTop,
     syncViewport: readViewport, revision, identities: transcript.identities };
 }
