@@ -29,7 +29,7 @@ fn read_until_line(
     let mut reader = IocpReader::new(port, stdout);
     let deadline = Instant::now() + timeout;
     let mut output = Vec::new();
-    let limit = 64 * 1024;
+    let limit: usize = 64 * 1024;
     loop {
         if !reader.active && reader.start_read(limit.saturating_sub(output.len()))? {
             reader.close();

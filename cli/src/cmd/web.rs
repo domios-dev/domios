@@ -262,10 +262,12 @@ pub(crate) fn resolve_peer_instance_id_from_response(
         online: bool,
     }
 
-    let configured_name = |name: &str| match name.rfind(" [") {
-        Some(at) if name.ends_with(']') => &name[..at],
-        _ => name,
-    };
+    fn configured_name(name: &str) -> &str {
+        match name.rfind(" [") {
+            Some(at) if name.ends_with(']') => &name[..at],
+            _ => name,
+        }
+    }
     let name_matches = |name: &str| {
         name.eq_ignore_ascii_case(target) || configured_name(name).eq_ignore_ascii_case(target)
     };
