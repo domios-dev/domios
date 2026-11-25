@@ -794,19 +794,21 @@ impl KpiLedger {
                                 provider ASC"#,
                 )
                 .map_err(|e| format!("kpi ledger provider/model prepare: {}", e))?;
-            stmt.query_map([], |r| {
-                Ok(ProviderModelUsage {
-                    provider: r.get(0)?,
-                    model: r.get::<_, Option<String>>(1)?,
-                    turns: r.get::<_, i64>(2)?.max(0) as u64,
-                    input_tokens: r.get::<_, i64>(3)?.max(0) as u64,
-                    uncached_input_tokens: r.get::<_, i64>(4)?.max(0) as u64,
-                    output_tokens: r.get::<_, i64>(5)?.max(0) as u64,
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(ProviderModelUsage {
+                        provider: r.get(0)?,
+                        model: r.get::<_, Option<String>>(1)?,
+                        turns: r.get::<_, i64>(2)?.max(0) as u64,
+                        input_tokens: r.get::<_, i64>(3)?.max(0) as u64,
+                        uncached_input_tokens: r.get::<_, i64>(4)?.max(0) as u64,
+                        output_tokens: r.get::<_, i64>(5)?.max(0) as u64,
+                    })
                 })
-            })
-            .map_err(|e| format!("kpi ledger provider/model query: {}", e))?
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>()
+                .map_err(|e| format!("kpi ledger provider/model query: {}", e))?
+                .filter_map(Result::ok)
+                .collect::<Vec<_>>();
+            rows
         };
         let mut cache = self.provider_model_cache.lock();
         cache.reads += 1;

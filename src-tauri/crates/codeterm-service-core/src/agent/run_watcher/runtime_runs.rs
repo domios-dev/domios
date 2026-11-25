@@ -2,6 +2,7 @@ use super::{cron_end, AgentRunKind, RunWatcherRegistry};
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::agent_runtime::engine;
+use crate::service::role_policy::CronSettlement;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::RuntimeContext;
 use std::time::Duration;
@@ -20,7 +21,7 @@ pub(super) struct RuntimeRun {
 }
 
 struct RuntimeCompletion {
-    summary: String,
+    outcome: CronSettlement,
     barrier: super::cron_completion::CompletionBarrier,
 }
 
@@ -707,7 +708,7 @@ impl RunWatcherRegistry {
                     ended_turn: false,
                     completion: matches!(&kind, AgentRunKind::StepRun { .. }).then(|| {
                         RuntimeCompletion {
-                            summary: "agent turn completed".into(),
+                            outcome: CronSettlement::success("agent turn completed"),
                             barrier: super::cron_completion::CompletionBarrier::default(),
                         }
                     }),
@@ -765,11 +766,13 @@ impl RunWatcherRegistry {
         svc: &ServiceContext,
         tab: &str,
         run_id: &str,
-        summary: &str,
+        outcome: &CronSettlement,
     ) -> Option<Result<(), String>> {
-        if self.resume_cron_finalizer(svc, tab, run_id) {
-            return Some(Ok(()));
+        if let Some(status) = self.resume_cron_finalizer(svc, tab, run_id) {
+            return Some(outcome.confirm_recorded(&status));
         }
+        let explicit_finish = svc.run_completion_for_tab(tab)
+            == crate::service::role_policy::RunCompletion::ExplicitFinish;
         let messages = runtime_messages(tab);
         let nonce = svc
             .mux
@@ -784,14 +787,17 @@ impl RunWatcherRegistry {
         if nonce.as_deref() != Some(run.nonce.as_str()) {
             return Some(Err("Runtime cron binding changed".into()));
         }
-        run.completion.get_or_insert_with(|| RuntimeCompletion {
-            summary: summary.into(),
+        if run.ended_turn && run.completion.is_none() && !explicit_finish {
+            return Some(Err("Cron turn already ended".into()));
+        }
+        let completion = run.completion.get_or_insert_with(|| RuntimeCompletion {
+            outcome: outcome.clone(),
             barrier: super::cron_completion::CompletionBarrier {
                 stopped: false,
                 assistant_ids: messages.iter().map(|message| message.id.clone()).collect(),
             },
         });
-        Some(Ok(()))
+        Some(completion.outcome.confirm_outcome(outcome))
     }
 
     pub fn runtime_worker_reported(&self, tab: &str, worker: &str) -> bool {
@@ -832,7 +838,7 @@ impl RunWatcherRegistry {
             return;
         }
         let messages = runtime_messages(&context.tab_id);
-        let summary = {
+        let outcome = {
             let runs = self.runtime_runs.lock();
             let Some(run) = runs
                 .get(&context.tab_id)
@@ -842,22 +848,22 @@ impl RunWatcherRegistry {
             };
             match &run.completion {
                 Some(completion) if !completion.barrier.ready(&messages) => return,
-                Some(completion) => completion.summary.clone(),
+                Some(completion) => completion.outcome.clone(),
                 None if svc.run_completion_for_tab(&context.tab_id)
                     == crate::service::role_policy::RunCompletion::ExplicitFinish =>
                 {
                     return
                 }
-                None => "(agent returned to idle)".into(),
+                None => CronSettlement::success("(agent returned to idle)"),
             }
         };
         let _ = self.finish_runtime(
             svc,
             &context.tab_id,
             &context.binding_nonce,
-            true,
+            outcome.success,
             false,
-            summary,
+            outcome.summary,
         );
     }
 

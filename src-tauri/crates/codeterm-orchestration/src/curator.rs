@@ -8,6 +8,7 @@ use codeterm_service_core::plan::Plan;
 use codeterm_service_core::plan::{
     ControlLoop, CuratorGrant, CuratorRound, CuratorRun, PlanMode, PlanStatus,
 };
+use codeterm_service_core::service::role_policy::CronSettlement;
 use codeterm_service_core::service::{AuthenticatedPlanCaller, ServiceContext};
 use codeterm_types::plan::control_loop::{
     CuratorFailure, CuratorSuspension, CURATOR_ELEVATED_LANES, CURATOR_HIGH_LANES,
@@ -283,7 +284,7 @@ impl CuratorExt for ServiceContext {
                     self,
                     &identity.tab_id,
                     &run,
-                    &round.summary,
+                    &CronSettlement::success(&round.summary),
                 )?;
             }
         }

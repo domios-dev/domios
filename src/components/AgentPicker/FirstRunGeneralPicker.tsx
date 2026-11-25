@@ -1,7 +1,9 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { CodeBlock } from "@codeterm/chat-ui/CodeBlock";
 import { ChartColumn } from "lucide-react";
 import { useMemo } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
+import { installerShellLanguage } from "../../lib/providerCli";
 import { AgentProviderPicker } from "./AgentProviderPicker";
 import { generalAgentProviders } from "./preselectProvider";
 import { usePickerNavigation, type TabRef } from "./pickerNavigation";
@@ -19,7 +21,10 @@ export function FirstRunGeneralPicker({ providers, providersLoading = false, pro
   const navigation = usePickerNavigation();
   const { enabled: analyticsOn } = useAnalyticsConsent();
 
-  const { busy, phase, error, progress, onConfirm, onInstall } = useFirstRunStart(navigation.show);
+  const { busy, phase, error, failedInstallProviderId, progress, onConfirm, onInstall } = useFirstRunStart(navigation.show);
+  const failedProvider = failedInstallProviderId
+    ? eligibleProviders.find((provider) => provider.id === failedInstallProviderId) ?? null
+    : null;
 
   return (
     <div className="h-full w-full bg-[var(--ct-bg)]" data-testid="first-run-general-picker">
@@ -43,7 +48,29 @@ export function FirstRunGeneralPicker({ providers, providersLoading = false, pro
       >
         {providersError && !providersLoading && <InlineErrorNotice error={providersError} operation="loading agent providers" blocking />}
         <FirstRunSetupProgress phase={phase} />
-        {error && <div data-testid="first-run-error"><InlineErrorNotice error={error} operation="setting up the General agent" blocking /></div>}
+        {error && <div data-testid="first-run-error" className="flex w-full max-w-lg flex-col gap-2">
+          <InlineErrorNotice
+            error={error}
+            description={failedInstallProviderId ? {
+              title: `${failedProvider?.display_name ?? "Provider"} could not be installed`,
+              cause: error,
+              actions: ["retry"],
+              raw: error,
+            } : undefined}
+            operation="setting up the General agent"
+            blocking
+          />
+          {failedProvider?.install_command && (
+            <div aria-label="Manual install command" role="region" className="w-full min-w-0 text-left">
+              <p className="mb-1 text-xs text-[var(--ct-muted-fg)]">Install manually, then click Retry or Re-check:</p>
+              <CodeBlock
+                text={failedProvider.install_command}
+                language={installerShellLanguage(failedProvider.install_command)}
+                wrapLines
+              />
+            </div>
+          )}
+        </div>}
       </AgentProviderPicker>
     </div>
   );

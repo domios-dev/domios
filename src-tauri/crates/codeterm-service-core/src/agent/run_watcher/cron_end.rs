@@ -11,6 +11,7 @@ use crate::cron::store::{CronRunStatus, CronStore};
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::cron::CronRunEnd;
 use crate::service::messenger::MessageEnvelope;
+use crate::service::role_policy::CronSettlement;
 use crate::service::ServiceContext;
 
 mod recovery;
@@ -190,7 +191,7 @@ impl ResponseRelease {
 pub(crate) fn finish_after_response(
     svc: &ServiceContext,
     owner: &CronRunAuthority,
-    summary: String,
+    outcome: &CronSettlement,
     raw: &str,
     session: Option<&str>,
     cwd: Option<&str>,
@@ -203,8 +204,8 @@ pub(crate) fn finish_after_response(
             tab_id: owner.tab_id(),
             job_id: owner.job_id(),
             run_id: owner.run_id(),
-            success: true,
-            summary,
+            success: outcome.success,
+            summary: outcome.summary.clone(),
             raw_output: raw,
             session_id: session,
             cwd,
@@ -384,6 +385,7 @@ fn start_gated(
                         policy.settle_cron(&svc, job, &finalizer.owner.tab_id, &key.1, now);
                     let mut request = finalizer.request.lock();
                     match settlement {
+                        Ok(done) if done.success && request.status == CronRunStatus::Failed => {}
                         Ok(done) => {
                             request.status = if done.success {
                                 CronRunStatus::Success
@@ -812,15 +814,20 @@ impl super::RunWatcherRegistry {
         &self,
         svc: &ServiceContext,
         owner: &CronRunAuthority,
-        summary: String,
+        outcome: &CronSettlement,
         raw: &str,
         session: Option<&str>,
         cwd: Option<&str>,
     ) -> Result<Option<ResponseRelease>, String> {
-        finish_after_response(svc, owner, summary, raw, session, cwd)
+        finish_after_response(svc, owner, outcome, raw, session, cwd)
     }
 
-    pub(crate) fn resume_cron_finalizer(&self, svc: &ServiceContext, tab: &str, run: &str) -> bool {
+    pub(crate) fn resume_cron_finalizer(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        run: &str,
+    ) -> Option<CronRunStatus> {
         let nonce = svc
             .mux
             .read()
@@ -836,7 +843,7 @@ impl super::RunWatcherRegistry {
         caller: Option<&str>,
         nonce: Option<&str>,
         human: bool,
-    ) -> bool {
+    ) -> Option<CronRunStatus> {
         let retained = self
             .cron_finalizers
             .lock()
@@ -848,10 +855,7 @@ impl super::RunWatcherRegistry {
                         || caller == Some(owner.owner.tab_id.as_str())
                             && nonce == owner.owner.binding_nonce.as_deref())
             })
-            .cloned();
-        let Some(retained) = retained else {
-            return false;
-        };
+            .cloned()?;
         let request = retained.request.lock().clone();
         let _ = finish(
             svc,
@@ -869,7 +873,7 @@ impl super::RunWatcherRegistry {
                 failed_start_epoch: retained.failed_start_epoch,
             },
         );
-        true
+        Some(request.status)
     }
 
     pub(crate) fn forget_adjudicated_finalizer(&self, owner: &CronRunAuthority) {

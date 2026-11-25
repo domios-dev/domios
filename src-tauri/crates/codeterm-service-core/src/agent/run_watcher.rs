@@ -80,6 +80,13 @@ pub struct RunState {
     pub cron_completion: Mutex<Option<cron_completion::PendingCompletion>>,
 }
 
+impl RunState {
+    fn claim_implicit_success(&self) -> bool {
+        let pending = self.cron_completion.lock();
+        pending.is_none() && !self.completed.swap(true, Ordering::AcqRel)
+    }
+}
+
 pub struct RunWatcherRegistry {
     pub runs: Mutex<HashMap<String, Arc<RunState>>>,
     runtime_runs: Mutex<HashMap<String, runtime_runs::RuntimeRun>>,
@@ -319,9 +326,6 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
-        if state.cron_completion.lock().is_some() {
-            return;
-        }
         let (idle, session_bound) = tab_completion_state(svc, &state.tab_id);
         if !can_complete_on_semantic_idle(
             state.armed.load(Ordering::Acquire),
@@ -329,7 +333,7 @@ impl RunWatcherRegistry {
             state.saw_post_session_progress.load(Ordering::Acquire),
             idle,
             session_bound,
-        ) || state.completed.swap(true, Ordering::AcqRel)
+        ) || !state.claim_implicit_success()
         {
             return;
         }
@@ -399,7 +403,7 @@ impl RunWatcherRegistry {
             .values()
             .find(|s| s.tab_id == tab_id)
             .cloned()?;
-        (!state.completed.swap(true, Ordering::AcqRel)).then_some(state)
+        state.claim_implicit_success().then_some(state)
     }
 
     /// Stop hook fired = the agent finished its turn. For a hidden worker/cron
@@ -424,7 +428,7 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
-        if state.completed.swap(true, Ordering::AcqRel) {
+        if !state.claim_implicit_success() {
             return;
         }
         log::info!("[run-watcher] stop-hook complete: tab={}", tab_id);
@@ -482,7 +486,12 @@ impl RunWatcherRegistry {
             {
                 return;
             }
-            if !state.completed.swap(true, Ordering::AcqRel) {
+            let claimed = if signal.is_error {
+                !state.completed.swap(true, Ordering::AcqRel)
+            } else {
+                state.claim_implicit_success()
+            };
+            if claimed {
                 let summary = signal
                     .result
                     .clone()
@@ -664,10 +673,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                     "run_watcher_busy_without_output",
                 );
             }
-            if !busy {
-                if state.completed.swap(true, Ordering::AcqRel) {
-                    return;
-                }
+            if !busy && state.claim_implicit_success() {
                 log::info!(
                     "[run-watcher] idle complete: tab={} idle={}s",
                     state.tab_id,

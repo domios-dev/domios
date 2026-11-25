@@ -8,7 +8,8 @@ import { SpawnAccountButton } from "./SpawnAccountButton";
 import { accountChoices } from "../shared/accountChoices";
 import type { PairRoleControls } from "../TeamTemplates/TemplateManagers";
 import { useModelPresets } from "../../hooks/useModelPresets";
-import { invoke } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
+import { PROVIDER_AVAILABILITY_CHANGED, type ProviderAvailabilityChange } from "../../lib/providerAvailability";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import {
@@ -27,7 +28,7 @@ import {
 } from "../../lib/newSessionChoice";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
-import { ModeCards } from "./NewSessionPickerParts";
+import { ModeCards, TerminalModePanel } from "./NewSessionPickerParts";
 import { ResumeSessionSection } from "./ResumeSessionSection";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -59,16 +60,19 @@ function spawnAccountSlot(accounts: ReturnType<typeof useSpawnAccounts>, provide
     disabled={busy || accounts.loading} onSelect={accounts.select} />;
 }
 
-function pairChoice(prev: NewSessionChoice): NewSessionChoice {
+function pairChoice(prev: NewSessionChoice, fallback?: { providerId: string; modelId?: string; effortId?: string }): NewSessionChoice {
   if (prev.mode === "pair") return prev;
+  const providerId = prev.mode === "single" ? prev.providerId : fallback?.providerId ?? "";
+  const modelId = prev.mode === "single" ? prev.modelId : fallback?.modelId;
+  const effortId = prev.mode === "single" ? prev.effortId : fallback?.effortId;
   return {
     mode: "pair",
-    orchestratorProviderId: prev.providerId,
-    orchestratorModelId: prev.modelId,
-    orchestratorEffortId: prev.effortId,
-    plannerProviderId: prev.providerId,
-    plannerModelId: prev.modelId,
-    plannerEffortId: prev.effortId,
+    orchestratorProviderId: providerId,
+    orchestratorModelId: modelId,
+    orchestratorEffortId: effortId,
+    plannerProviderId: providerId,
+    plannerModelId: modelId,
+    plannerEffortId: effortId,
   };
 }
 
@@ -88,7 +92,7 @@ export function NewSessionPicker({
   onClose: () => void;
 }) {
   const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
+  const { createTab, spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
   const state = useMuxState();
   const machineInventory = useMachinePlacementInventory();
   const [machineId, setMachineId] = useState(LOCAL_MACHINE_ID);
@@ -193,7 +197,7 @@ export function NewSessionPicker({
   useEffect(() => {
     if (visibleProviders.length === 0) return;
     if (hasRestoredRef.current) {
-      setChoice((current) => choiceForSessionSection(resolvePersistedChoice(visibleProviders, current), section));
+      setChoice((current) => choiceForSessionSection(resolvePersistedChoice(visibleProviders, current), section, visibleProviders));
       return;
     }
     const restored = readPersistedNewSessionChoice(visibleProviders);
@@ -201,8 +205,11 @@ export function NewSessionPicker({
     if (initialLocalId && visibleProviders.some((provider) => provider.id === initialLocalId)) {
       setChoice(initialProviderChoice(visibleProviders.find((candidate) => candidate.id === initialLocalId)!));
     } else {
-      const fitted = choiceForSessionSection(restored, section);
-      setChoice(templatePreviewRequested && allowedNewSessionModes(section).includes("pair") ? pairChoice(fitted) : fitted);
+      const fitted = choiceForSessionSection(restored, section, visibleProviders);
+      const fallback = visibleProviders[0] ? initialProviderChoice(visibleProviders[0]) : undefined;
+      setChoice(templatePreviewRequested && allowedNewSessionModes(section).includes("pair")
+        ? pairChoice(fitted, fallback?.mode === "single" ? fallback : undefined)
+        : fitted);
     }
     hasRestoredRef.current = true;
   }, [initialProviderId, visibleProviders, section, menuProviders, templatePreviewRequested]);
@@ -218,17 +225,26 @@ export function NewSessionPicker({
 
   useEffect(() => {
     let cancelled = false;
-    const probe = () => {
-      void probeProviderInstallMap(visibleProviders).then((map) => {
+    let unlisten: (() => void) | undefined;
+    const probe = (refresh = false) => {
+      void probeProviderInstallMap(visibleProviders, refresh ? { refresh: true } : undefined).then((map) => {
         if (!cancelled) setInstallMap(map);
       });
     };
-    probe();
-    // Re-probe on refocus so "install in a terminal tab → come back" just works.
-    window.addEventListener("focus", probe);
+    probe(false);
+    const onFocus = () => probe(true);
+    window.addEventListener("focus", onFocus);
+    void listen<ProviderAvailabilityChange>(PROVIDER_AVAILABILITY_CHANGED, ({ payload }) => {
+      if (cancelled || !payload?.provider) return;
+      setInstallMap((prev) => ({
+        ...prev,
+        [payload.provider]: payload.availability !== "unavailable",
+      }));
+    }).then((stop) => { if (!cancelled) unlisten = stop; else stop(); }).catch(() => {});
     return () => {
       cancelled = true;
-      window.removeEventListener("focus", probe);
+      unlisten?.();
+      window.removeEventListener("focus", onFocus);
     };
   }, [visibleProviders]);
 
@@ -405,6 +421,15 @@ export function NewSessionPicker({
     }
   }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile, orchestratorAccountId, plannerAccountId, templates, selectTabByTab, onClose, upsertToast]);
 
+  const runTerminalSpawn = useCallback(async () => {
+    if (choice.mode !== "terminal") return;
+    const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
+    await finishSpawn(async () => {
+      const created = await createTab(workspaceId, targetCwd, choice.shellProfile);
+      return created ? { workspaceId, tabId: created.id } : null;
+    });
+  }, [choice, createTab, finishSpawn, selectedWorkspace?.cwd, workspaceCwd, workspaceId]);
+
   const handleStart = useCallback(() => {
     if (busy || dismissing || selectedWorkspace?.cwd_missing) return;
     if (choice.mode === "pair" && templates.usesTemplate) {
@@ -416,26 +441,34 @@ export function NewSessionPicker({
     const start = async () => {
       if (choice.mode === "pair") {
         await runPairSpawn();
+      } else if (choice.mode === "terminal") {
+        await runTerminalSpawn();
       } else {
         await runSingleSpawn();
       }
     };
     void start();
-  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn, templates.usesTemplate]);
+  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn, runTerminalSpawn, templates.usesTemplate]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     if (!allowedNewSessionModes(section).includes(mode)) return;
     setChoice((prev) => {
       if (prev.mode === mode) return prev;
+      if (mode === "terminal") return { mode: "terminal" };
+      const fallback = visibleProviders[0] ? initialProviderChoice(visibleProviders[0]) : undefined;
+      const fallbackSingle = fallback?.mode === "single" ? fallback : undefined;
       if (mode === "single") {
-        return {
-          mode: "single",
-          providerId: prev.mode === "pair" ? prev.orchestratorProviderId : prev.providerId,
-          modelId: prev.mode === "pair" ? prev.orchestratorModelId : prev.modelId,
-          effortId: prev.mode === "pair" ? prev.orchestratorEffortId : prev.effortId,
-        };
+        if (prev.mode === "pair") {
+          return {
+            mode: "single",
+            providerId: prev.orchestratorProviderId,
+            modelId: prev.orchestratorModelId,
+            effortId: prev.orchestratorEffortId,
+          };
+        }
+        return fallbackSingle ?? { mode: "single", providerId: "" };
       }
-      return pairChoice(prev);
+      return pairChoice(prev, fallbackSingle);
     });
   }, [section, visibleProviders]);
 
@@ -446,16 +479,18 @@ export function NewSessionPicker({
     ? templates.placement.machines?.find((machine) => machine.id === templates.remotePeer?.id)
     : undefined;
   const teamMachineAvailable = !templates.remotePeer || selectedTeamMachine?.unavailableReason === null;
-  const canStart = choice.mode === "single"
-    ? machineAvailable && (peerGeneral || (location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady))
-      && (!accountProviderId || (!accounts.loading && Boolean(accounts.snapshot && accounts.selectedAccountId)))
-    : choice.orchestratorProviderId.length > 0
-      && choice.plannerProviderId.length > 0
-      && !disabledProviderIds.has(choice.orchestratorProviderId)
-      && !disabledProviderIds.has(choice.plannerProviderId)
-      && orchestratorProfile.ready && plannerProfile.ready
-      && teamMachineAvailable
-      && templates.blocker === null;
+  const canStart = choice.mode === "terminal"
+    ? true
+    : choice.mode === "single"
+      ? machineAvailable && (peerGeneral || (location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady))
+        && (!accountProviderId || (!accounts.loading && Boolean(accounts.snapshot && accounts.selectedAccountId)))
+      : choice.orchestratorProviderId.length > 0
+        && choice.plannerProviderId.length > 0
+        && !disabledProviderIds.has(choice.orchestratorProviderId)
+        && !disabledProviderIds.has(choice.plannerProviderId)
+        && orchestratorProfile.ready && plannerProfile.ready
+        && teamMachineAvailable
+        && templates.blocker === null;
   const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
   const teamForm = choice.mode === "pair" && !templateStep;
   const chosenTemplate = templates.view.kind === "review" ? templates.view.preview.form.template : templates.chosen?.form.template;
@@ -465,11 +500,13 @@ export function NewSessionPicker({
   const blocker = templates.blocker
     ? blockerView(templates.blocker, (id) => visibleProviders.find((provider) => provider.id === id)?.display_name ?? id)
     : null;
-  const confirmLabel = choice.mode === "pair"
-    ? templates.remotePeer ? `Start Team on ${templates.remotePeer.name}` : "Start team"
-    : remoteMachineId
-      ? section === "general" ? `Start General session on ${selectedMachine?.name ?? "the selected machine"}` : `Start agent on ${selectedMachine?.name ?? "the selected machine"}`
-      : "Start session";
+  const confirmLabel = choice.mode === "terminal"
+    ? "Open terminal"
+    : choice.mode === "pair"
+      ? templates.remotePeer ? `Start Team on ${templates.remotePeer.name}` : "Start team"
+      : remoteMachineId
+        ? section === "general" ? `Start General session on ${selectedMachine?.name ?? "the selected machine"}` : `Start agent on ${selectedMachine?.name ?? "the selected machine"}`
+        : "Start session";
 
   return createPortal(
     <div
@@ -567,6 +604,12 @@ export function NewSessionPicker({
                 />
                 {accountProviderId && accounts.error && <InlineErrorNotice error={accounts.error} operation="choosing an account" />}
                 {singleProfile.details}</>
+              ) : choice.mode === "terminal" ? (
+                <TerminalModePanel
+                  shellProfile={choice.shellProfile}
+                  disabled={busy}
+                  onShellChange={(shellProfile) => setChoice({ mode: "terminal", ...(shellProfile ? { shellProfile } : {}) })}
+                />
               ) : choice.mode === "pair" && (
                 <TeamTemplateSection
                   choice={templates}

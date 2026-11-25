@@ -866,7 +866,6 @@ button {
   background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-surface));
   border: 1px solid color-mix(in srgb, var(--ct-accent) 34%, var(--ct-semantic-edge-base));
   box-shadow: var(--ct-shadow-md);
-  backdrop-filter: blur(12px);
 }
 
 .ct-btn-floating:hover {
@@ -1641,9 +1640,8 @@ button {
   padding: 0;
   border: 1px solid var(--ct-border);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-surface) 85%, transparent);
+  background: color-mix(in srgb, var(--ct-surface) 90%, var(--ct-bg));
   cursor: pointer;
-  backdrop-filter: blur(6px);
   transition:
     background var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
@@ -1934,7 +1932,8 @@ button {
 }
 .picker-mode-cards {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 0.6rem;
 }
 .picker-mode-card {
@@ -4869,7 +4868,6 @@ button.plan-peer-chip:focus-visible {
   padding: 0.3rem 0.75rem;
   border: none;
   background: color-mix(in srgb, var(--ct-bg) 92%, var(--ct-surface));
-  backdrop-filter: blur(6px);
   font: inherit;
   text-align: left;
   cursor: pointer;

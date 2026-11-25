@@ -1,6 +1,5 @@
-#[cfg(any(windows, test))]
-use std::path::Path;
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 #[path = "process.rs"]
@@ -21,14 +20,22 @@ impl UpdateCommandFailure {
     }
 }
 
-pub(super) fn run_update_command(command: &str) -> Result<(), UpdateCommandFailure> {
-    let (executable, args) = update_argv(command)
+pub(super) fn run_update_command(
+    command: &str,
+    extra_dirs: &[PathBuf],
+) -> Result<(), UpdateCommandFailure> {
+    parse_update_command(command)
         .map_err(|error| UpdateCommandFailure::before_spawn(FailureStage::Resolve, error))?;
+    codeterm_plugin::js_runtime::refresh_user_path();
+    let policy = ResolutionPolicy::Production(extra_dirs.to_vec());
+    let (executable, args) = update_argv_with_policy(command, &policy)
+        .map_err(|error| UpdateCommandFailure::before_spawn(FailureStage::Resolve, error))?;
+    let search_path = child_search_path(&executable, &policy);
     run_invocation(Invocation {
         executable,
         args,
         cwd: None,
-        environment: EnvironmentPolicy::Inherited,
+        environment: EnvironmentPolicy::Inherited { search_path },
         execution: std::time::Duration::from_secs(300),
         cleanup: std::time::Duration::from_secs(5),
         #[cfg(test)]
@@ -37,9 +44,11 @@ pub(super) fn run_update_command(command: &str) -> Result<(), UpdateCommandFailu
 }
 
 enum EnvironmentPolicy {
-    Inherited,
+    Inherited {
+        search_path: Option<OsString>,
+    },
     #[cfg(test)]
-    Explicit(Vec<(std::ffi::OsString, std::ffi::OsString)>),
+    Explicit(Vec<(OsString, OsString)>),
 }
 
 struct Invocation {
@@ -75,7 +84,11 @@ impl Invocation {
             command.current_dir(cwd);
         }
         match &self.environment {
-            EnvironmentPolicy::Inherited => {}
+            EnvironmentPolicy::Inherited { search_path } => {
+                if let Some(path) = search_path {
+                    command.env("PATH", path);
+                }
+            }
             #[cfg(test)]
             EnvironmentPolicy::Explicit(values) => {
                 command.env_clear().envs(values.iter().cloned());
@@ -529,7 +542,7 @@ fn captured(capture: Option<&Capture>) -> String {
 }
 
 enum ResolutionPolicy {
-    Production,
+    Production(Vec<PathBuf>),
     #[cfg(test)]
     Confined(codeterm_plugin::js_runtime::BinSearchEnvironment),
 }
@@ -537,7 +550,10 @@ enum ResolutionPolicy {
 impl ResolutionPolicy {
     fn resolve(&self, executable: &str) -> codeterm_plugin::js_runtime::BinResolution {
         match self {
-            Self::Production => codeterm_plugin::js_runtime::probe_bin(executable).resolution,
+            Self::Production(extra_dirs) => {
+                codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(executable, extra_dirs)
+                    .resolution
+            }
             #[cfg(test)]
             Self::Confined(environment) => {
                 codeterm_plugin::js_runtime::probe_bin_with_environment(
@@ -551,14 +567,7 @@ impl ResolutionPolicy {
     }
 }
 
-fn update_argv(command: &str) -> Result<(PathBuf, Vec<std::ffi::OsString>), String> {
-    update_argv_with_policy(command, &ResolutionPolicy::Production)
-}
-
-fn update_argv_with_policy(
-    command: &str,
-    policy: &ResolutionPolicy,
-) -> Result<(PathBuf, Vec<std::ffi::OsString>), String> {
+fn parse_update_command(command: &str) -> Result<(&str, Vec<&str>), String> {
     let mut parts = command.split_whitespace();
     let executable = parts
         .next()
@@ -576,6 +585,40 @@ fn update_argv_with_policy(
     }) {
         return Err("provider update arguments contain unsupported characters".into());
     }
+    Ok((executable, args))
+}
+
+fn child_search_path(executable: &Path, policy: &ResolutionPolicy) -> Option<OsString> {
+    let extra_parent = executable
+        .parent()
+        .filter(|dir| dir.is_absolute() && !dir.as_os_str().is_empty())
+        .map(Path::to_path_buf);
+    match policy {
+        ResolutionPolicy::Production(extra_dirs) => {
+            let mut extra = extra_dirs.clone();
+            if let Some(parent) = extra_parent {
+                extra.push(parent);
+            }
+            codeterm_plugin::js_runtime::merged_search_path_with_extra_dirs(&extra)
+        }
+        #[cfg(test)]
+        ResolutionPolicy::Confined(environment) => {
+            let extra: Vec<_> = extra_parent.into_iter().collect();
+            codeterm_plugin::js_runtime::merged_search_path(environment, &extra)
+        }
+    }
+}
+
+#[cfg(test)]
+fn update_argv(command: &str) -> Result<(PathBuf, Vec<OsString>), String> {
+    update_argv_with_policy(command, &ResolutionPolicy::Production(Vec::new()))
+}
+
+fn update_argv_with_policy(
+    command: &str,
+    policy: &ResolutionPolicy,
+) -> Result<(PathBuf, Vec<OsString>), String> {
+    let (executable, args) = parse_update_command(command)?;
     let resolved = match policy.resolve(executable) {
         codeterm_plugin::js_runtime::BinResolution::Found(path) => path,
         codeterm_plugin::js_runtime::BinResolution::Missing

@@ -14,15 +14,29 @@ export function openNewSessionPicker(detail: OpenNewSessionDetail): void {
   window.dispatchEvent(new CustomEvent<OpenNewSessionDetail>(OPEN_NEW_SESSION_EVENT, { detail }));
 }
 
-export type NewSessionMode = "single" | "pair";
+export type NewSessionMode = "single" | "pair" | "terminal";
 export type NewSessionSection = "general" | "workspace";
 
 export function allowedNewSessionModes(section: NewSessionSection): readonly NewSessionMode[] {
-  return section === "general" ? ["single"] : ["single", "pair"];
+  return section === "general" ? ["single"] : ["single", "pair", "terminal"];
 }
 
-export function choiceForSessionSection(choice: NewSessionChoice, section: NewSessionSection): NewSessionChoice {
+export function choiceForSessionSection(
+  choice: NewSessionChoice,
+  section: NewSessionSection,
+  providers: ProviderDescriptor[] = [],
+): NewSessionChoice {
   if (allowedNewSessionModes(section).includes(choice.mode) || choice.mode === "single") return choice;
+  if (choice.mode === "terminal") {
+    const provider = providers[0];
+    const modelId = resolveProviderModel(provider);
+    return {
+      mode: "single",
+      providerId: provider?.id ?? "",
+      modelId,
+      effortId: resolveEffort(provider, modelId),
+    };
+  }
   return {
     mode: "single",
     providerId: choice.orchestratorProviderId,
@@ -49,7 +63,12 @@ export interface PairSessionChoice {
   plannerEffortId?: string;
 }
 
-export type NewSessionChoice = SingleSessionChoice | PairSessionChoice;
+export interface TerminalSessionChoice {
+  mode: "terminal";
+  shellProfile?: string;
+}
+
+export type NewSessionChoice = SingleSessionChoice | PairSessionChoice | TerminalSessionChoice;
 
 export function reconcilePresetSelection(
   choice: NewSessionChoice,
@@ -133,6 +152,9 @@ export function resolvePersistedChoice(
   providers: ProviderDescriptor[],
   choice: NewSessionChoice,
 ): NewSessionChoice {
+  if (choice.mode === "terminal") {
+    return choice.shellProfile ? { mode: "terminal", shellProfile: choice.shellProfile } : { mode: "terminal" };
+  }
   if (choice.mode === "single") {
     const provider = resolveProvider(providers, choice.providerId);
     const modelId = resolveProviderModel(provider, choice.modelId);
@@ -166,6 +188,9 @@ export function readPersistedNewSessionChoice(
     const raw = window.localStorage.getItem(NEW_SESSION_CHOICE_STORAGE_KEY);
     if (!raw) return defaultNewSessionChoice(providers);
     const parsed = JSON.parse(raw) as NewSessionChoice;
+    if (parsed.mode === "terminal") {
+      return resolvePersistedChoice(providers, parsed);
+    }
     if (parsed.mode === "single" && parsed.providerId) {
       return resolvePersistedChoice(providers, parsed);
     }

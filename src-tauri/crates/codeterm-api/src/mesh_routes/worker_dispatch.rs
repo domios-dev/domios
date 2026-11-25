@@ -7,6 +7,46 @@ use crate::routes::AppState;
 const MAX_LANE_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
 const REMOTE_LAUNCH_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+const DISPATCH_PENDING: &str =
+    "peer_worker_launch_pending: the peer is still settling this dispatch attempt";
+
+#[derive(Default)]
+struct InFlightDispatches(parking_lot::Mutex<std::collections::HashSet<(String, String)>>);
+
+struct PendingDispatch<'a> {
+    attempts: &'a InFlightDispatches,
+    key: (String, String),
+}
+
+impl InFlightDispatches {
+    fn begin(
+        &self,
+        peer: &str,
+        attempt: &str,
+    ) -> Result<PendingDispatch<'_>, (StatusCode, String)> {
+        let key = (peer.to_owned(), attempt.to_owned());
+        if !self.0.lock().insert(key.clone()) {
+            return Err((StatusCode::CONFLICT, DISPATCH_PENDING.into()));
+        }
+        Ok(PendingDispatch {
+            attempts: self,
+            key,
+        })
+    }
+
+    fn contains(&self, peer: &str, attempt: &str) -> bool {
+        self.0
+            .lock()
+            .contains(&(peer.to_owned(), attempt.to_owned()))
+    }
+}
+
+impl Drop for PendingDispatch<'_> {
+    fn drop(&mut self) {
+        self.attempts.0.lock().remove(&self.key);
+    }
+}
+
 fn lane_bundle_size_allowed(size: u64, limit: u64) -> bool {
     size <= limit
 }
@@ -144,13 +184,14 @@ fn await_remote_launch_outcome(
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
     timeout: std::time::Duration,
 ) -> Result<(), String> {
-    match codeterm_service_core::async_runtime::block_on(tokio::time::timeout(timeout, ready_rx)) {
-        Ok(Ok(Ok(()))) => Ok(()),
-        Ok(Ok(Err(error))) => Err(error),
-        Ok(Err(_)) | Err(_) => match observe_failed_launch_state(svc, tab_id) {
-            Some(error) => Err(error),
-            None => Ok(()),
-        },
+    match codeterm_service_core::async_runtime::block_on(async {
+        tokio::time::timeout(timeout, ready_rx).await
+    }) {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(observe_failed_launch_state(svc, tab_id)
+            .unwrap_or_else(|| "worker launch ended without a readiness result".into())),
+        Err(_) => Err(observe_failed_launch_state(svc, tab_id)
+            .unwrap_or_else(|| "worker launch readiness deadline elapsed".into())),
     }
 }
 
@@ -436,7 +477,7 @@ fn dispatch_authenticated_worker(
     origin_peer_id: String,
     request: MeshWorkerDispatchRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (origin_peer_name, origin_peer_id, local_peer_name) = {
+    let (origin_peer_name, local_peer_name) = {
         let mesh = state.mesh.lock();
         let Some(peer) = mesh.paired_peers.get(&origin_peer_id) else {
             return Err((StatusCode::UNAUTHORIZED, "origin peer is not paired".into()));
@@ -447,12 +488,12 @@ fn dispatch_authenticated_worker(
                 "remote worker dispatch requires Full mesh access".into(),
             ));
         }
-        (
-            peer.instance_name.clone(),
-            origin_peer_id,
-            mesh.ident.identity.instance_name.clone(),
-        )
+        (peer.instance_name.clone(), mesh.ident.instance_name.clone())
     };
+    let _pending = state
+        .svc
+        .ext_or_init(InFlightDispatches::default)
+        .begin(&origin_peer_id, &request.attempt_id)?;
     let workspaces = {
         let mux = state.svc.mux.read();
         mux.list_workspaces()
@@ -579,37 +620,54 @@ fn dispatch_authenticated_worker(
     };
     codeterm_service_core::service::team_template_remote::HostingLeases::global()
         .transfer(&lease_holder, &result.tab_id);
-    if let Err(error) = await_remote_launch_outcome(
+    let ready = await_remote_launch_outcome(
         &state.svc,
         &result.tab_id,
         ready_rx,
         REMOTE_LAUNCH_READY_WAIT,
-    ) {
-        codeterm_service_core::service::team_template_remote::release_hosting_lease(&result.tab_id);
-        let _ = state.svc.close_tab_with_reason(
-            &result.tab_id,
-            codeterm_service_core::multiplexer::types::TabCloseReason::SpawnRollback,
-        );
-        let cleanup = lane.cleanup();
-        return Err(classify_spawn_failure(
-            &state.svc,
-            &request.provider,
-            &local_peer_name,
-            &error,
-            cleanup,
-        ));
-    }
-    let worker_tab = state
-        .svc
-        .mux
-        .read()
-        .get_tab(&result.tab_id)
-        .map(|tab| tab.session_binding_nonce.clone());
-    // A Worker tab that closed before the lease moved onto it never sees its own close.
-    if worker_tab.is_none() {
-        codeterm_service_core::service::team_template_remote::release_hosting_lease(&result.tab_id);
-    }
-    let nonce = worker_tab.flatten();
+    )
+    .and_then(|()| {
+        state
+            .svc
+            .mux
+            .read()
+            .get_tab(&result.tab_id)
+            .and_then(|tab| tab.session_binding_nonce.clone())
+            .filter(|nonce| !nonce.is_empty())
+            .ok_or_else(|| "worker tab or session binding disappeared during launch".to_owned())
+    });
+    let nonce = match ready {
+        Ok(nonce) => nonce,
+        Err(error) => {
+            codeterm_service_core::service::team_template_remote::release_hosting_lease(
+                &result.tab_id,
+            );
+            let cleanup = match state.svc.close_tab_with_reason(
+                &result.tab_id,
+                codeterm_service_core::multiplexer::types::TabCloseReason::SpawnRollback,
+            ) {
+                Err(close) if state.svc.mux.read().get_tab(&result.tab_id).is_some() => {
+                    state.svc.emit_boot_stage(
+                        &result.tab_id,
+                        codeterm_types::pty::BootStage::SpawnFailed,
+                        Some(&error),
+                    );
+                    Err(format!(
+                        "lane retained because worker tab {} could not close: {close}",
+                        result.tab_id
+                    ))
+                }
+                _ => lane.cleanup(),
+            };
+            return Err(classify_spawn_failure(
+                &state.svc,
+                &request.provider,
+                &local_peer_name,
+                &error,
+                cleanup,
+            ));
+        }
+    };
     Ok(Json(serde_json::json!({
         "session_binding_nonce": nonce,
         "keepawake": keepawake,
@@ -654,6 +712,13 @@ fn observed_worker_dispatch(
     }
     let worker = {
         let mux = state.svc.mux.read();
+        if state
+            .svc
+            .ext_or_init(InFlightDispatches::default)
+            .contains(peer_id, &request.attempt_id)
+        {
+            return Err((StatusCode::CONFLICT, DISPATCH_PENDING.into()));
+        }
         let found = mux.all_tabs().find_map(|tab| {
             let binding = tab.task_binding.as_ref()?;
             if binding.plan_id.as_deref() != Some(&request.plan_id)
@@ -667,16 +732,27 @@ fn observed_worker_dispatch(
                 tab.id.clone(),
                 tab.provisioned_cwd.clone().or_else(|| tab.cwd.clone())?,
                 tab.session_binding_nonce.clone()?,
+                (tab.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)).then(|| {
+                    tab.boot_failure_reason
+                        .clone()
+                        .unwrap_or_else(|| "worker launch failed".into())
+                }),
             ))
         });
         found
     };
-    let (tab_id, cwd, nonce) = worker.ok_or_else(|| {
+    let (tab_id, cwd, nonce, failure) = worker.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             "remote worker attempt not found".into(),
         )
     })?;
+    if let Some(reason) = failure {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("peer_worker_spawn_failed: {reason}"),
+        ));
+    }
     if !codeterm_service_core::service::worker_lane::repository_matches(
         &cwd,
         &request.repository_identities,

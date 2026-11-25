@@ -40,3 +40,22 @@ test("refresh failure retains the own-session model without publishing a false c
   assert.equal(resource.get("provider", "other"), null);
   assert.equal(changes, 1);
 });
+
+test("direct model updates publish immediately without duplicate notifications or refetches", async () => {
+  let calls = 0;
+  let clock = 1_000;
+  let changes = 0;
+  const resource = createSessionModelResource(async () => { calls++; return "initial-model"; }, () => clock);
+  resource.subscribe(() => changes++);
+  resource.set("provider", "session", "switched-model");
+  assert.equal(resource.get("provider", "session"), "switched-model");
+  assert.equal(changes, 1);
+  resource.set("provider", "session", "switched-model");
+  assert.equal(changes, 1);
+  assert.equal(await resource.load("provider", "session"), "switched-model");
+  assert.equal(calls, 0);
+  clock = 31_000;
+  assert.equal(await resource.load("provider", "session"), "initial-model");
+  assert.equal(calls, 1);
+  assert.equal(changes, 2);
+});

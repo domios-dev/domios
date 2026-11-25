@@ -18,6 +18,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
   const busy = phase === "installing" || phase === "starting";
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failedInstallProviderId, setFailedInstallProviderId] = useState<string | null>(null);
   const attempt = useRef<PendingStart | null>(null);
   useEffect(() => () => { attempt.current?.controller.abort(); attempt.current?.stop?.(); clearTimeout(attempt.current?.deadline); attempt.current = null; }, []);
 
@@ -25,14 +26,17 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
     if (attempt.current) return;
     const current: PendingStart = { controller: new AbortController() };
     attempt.current = current;
+    let installingNow = install;
     transition(install ? "install" : "start");
     setError(null);
+    setFailedInstallProviderId(null);
     setProgress(install ? "Installing harness…" : "Starting General agent…");
     let target: TabRef | null = null;
     const stages = new Map<string, TabBootStageEvent>();
     const fail = (reason: string) => {
       if (attempt.current !== current) return;
       setError(reason);
+      setFailedInstallProviderId(installingNow ? providerId : null);
       transition("failure");
       setProgress(null);
       current.stop?.();
@@ -60,6 +64,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
       if (install) {
         await installAndWait(providerId, current.controller.signal);
         if (attempt.current !== current) return;
+        installingNow = false;
         transition("installed");
         setProgress("Starting General agent…");
       }
@@ -78,5 +83,5 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
       fail(failure instanceof Error ? failure.message : typeof failure === "string" ? failure : "Failed to start General agent");
     }
   };
-  return { busy, phase, error, progress, onConfirm, onInstall: (providerId: string) => { void onConfirm(providerId, true); } };
+  return { busy, phase, error, failedInstallProviderId, progress, onConfirm, onInstall: (providerId: string) => { void onConfirm(providerId, true); } };
 }

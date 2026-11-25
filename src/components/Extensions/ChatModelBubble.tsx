@@ -4,6 +4,7 @@ import { Check, ChevronUp } from "lucide-react";
 import type { ModelInfo } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { getChatModelBubbleApi } from "./chatModelBubbleApi";
+import { setCachedShellModel } from "../../lib/shellSessionModel";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export function ChatModelBubble({
@@ -31,7 +32,9 @@ export function ChatModelBubble({
     api.sessionInfo(pluginId, sessionId)
       .then((info) => {
         if (!alive) return;
-        setCurrentModel(info?.model ?? null);
+        const resolved = info?.model ?? null;
+        setCurrentModel(resolved);
+        setCachedShellModel(pluginId, sessionId, resolved);
       })
       .catch(() => {});
     return () => {
@@ -49,7 +52,9 @@ export function ChatModelBubble({
       setBusy(true);
       try {
         const info = await getChatModelBubbleApi().switchModel(pluginId, sessionId, model.id);
-        setCurrentModel(info?.model ?? model.id);
+        const resolved = info?.model ?? model.id;
+        setCurrentModel(resolved);
+        setCachedShellModel(pluginId, sessionId, resolved);
       } catch {
         // Leave the displayed model unchanged on failure — honest over guessing.
       } finally {

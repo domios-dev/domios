@@ -675,14 +675,15 @@ test("mesh off/on transitions peers offline on 503 and reconnects inventory, cha
   const viewerId = "mesh:toggle-peer/main";
   try {
     await harness.act(async () => harness.actions.setActiveTab("ws-renewal", viewerId));
-    assert(harness.inventory.generals[0]?.availability === "online", "peer starts online");
+    const peerAvailability = () => harness.inventory.generals[0]?.availability;
+    assert(peerAvailability() === "online", "peer starts online");
 
     // Mesh turned OFF: /api/mesh/peers returns 503 Mesh networking is disabled.
     meshEnabled = false;
     peerOnline = false;
     setRemoteChatFailure(viewerId, { status: 503, path: "/api/mesh/relay-to", raw: "Mesh networking is disabled", at: 1 });
     await harness.act(async () => harness.emit("mesh-state-changed"));
-    assert(harness.inventory.generals[0]?.availability === "offline", "mesh off projects peer offline instead of stale online");
+    assert(peerAvailability() === "offline", "mesh off projects peer offline instead of stale online");
     assert(readRemoteChatStatus(viewerId, peer.instance_id).peer?.presence === "offline", "remoteChatStatus observes offline");
 
     // Mesh turned ON and peer switches in machine picker: peer reconnects, failure clears, channels recover.
@@ -690,7 +691,7 @@ test("mesh off/on transitions peers offline on 503 and reconnects inventory, cha
     peerOnline = true;
     await harness.act(async () => setWorkspaceBrowseTarget({ id: peer.instance_id, name: "Air" }));
     await harness.act(async () => harness.emit("mesh-state-changed"));
-    assert(harness.inventory.generals[0]?.availability === "online", "mesh on reconnects peer inventory");
+    assert(peerAvailability() === "online", "mesh on reconnects peer inventory");
     assert(harness.inventory.browse?.availability === "online", "switched machine browse recovers online");
     assert(harness.inventory.browse?.workspaces[0]?.workspace.name === "AirProject", "switched machine workspaces populate");
     assert(readRemoteChatStatus(viewerId, peer.instance_id).failure === undefined, "offline->online clears stale chat failure");

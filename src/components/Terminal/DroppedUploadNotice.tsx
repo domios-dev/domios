@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import { formatAttachmentMarker, attachmentKindForUpload } from "@codeterm/chat-core";
 import { canRetryUpload, classifyUploadFailure, type AttachmentUpload } from "./attachmentUploadModel";
-import { addChatSend, setDroppedUploads, failChatSendRequest, updateChatSendContent } from "./chatSendStore";
+import { addChatSend, setChatSendDraft, setDroppedUploads, failChatSendRequest, updateChatSendContent } from "./chatSendStore";
 import { sendTrackedChatMessage } from "./chatSendStatus";
 import { validatedStore } from "./composerUploadModel";
 import { storeBlob } from "./voice/audio";
 import { uid } from "../../lib/uid";
-import { composeAttachmentDraft } from "./meshAttachmentHandoff";
+import { EMPTY_CAPSULES } from "./composerCapsules";
+import { attachmentHostTarget, composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 
 const captures = new Map<string, AttachmentUpload[]>();
@@ -37,11 +38,20 @@ export function DroppedUploadNotice({ tabId, id, names }: { tabId: string; id: s
         remaining.push(failed); continue;
       }
       const sendId = uid();
-      const content = formatAttachmentMarker(path, attachmentKindForUpload({ name: upload.name, mime: upload.blob.type }));
+      const isRemoteTarget = attachmentHostTarget(tabId, composerAttachmentHandoff.relayPeerId()).kind !== "local";
+      const content = isRemoteTarget
+        ? upload.name
+        : formatAttachmentMarker(path, attachmentKindForUpload({ name: upload.name, mime: upload.blob.type }));
       addChatSend(tabId, { id: sendId, correlationId: sendId, content, sentAtMs: Date.now() });
+      if (isRemoteTarget) {
+        setChatSendDraft(tabId, sendId, {
+          text: "", attachments: [path], recordedVoiceAttachments: [], capsules: EMPTY_CAPSULES, reply: null,
+        });
+      }
       try {
         const prepared = await composeAttachmentDraft(tabId, "", [path], [], composerAttachmentHandoff);
         updateChatSendContent(tabId, sendId, prepared.composed);
+        setChatSendDraft(tabId, sendId, undefined);
         await sendTrackedChatMessage(tabId, sendId, prepared.composed).catch(() => {});
       } catch (error) { failChatSendRequest(tabId, sendId, error); }
     }

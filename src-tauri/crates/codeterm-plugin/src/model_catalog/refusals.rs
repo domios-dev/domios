@@ -1,5 +1,5 @@
 use super::{
-    credential_fingerprints, fingerprint_bin, models_dir, AgentProvider, BinaryFingerprint,
+    credential_fingerprints, fingerprint_bin_in, models_dir, AgentProvider, BinaryFingerprint,
     ModelInfo,
 };
 use parking_lot::Mutex;
@@ -15,6 +15,8 @@ struct Scope {
     account: String,
     credentials: Vec<BinaryFingerprint>,
     cli_binary: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    cli_install_dirs: Vec<PathBuf>,
     binary: BinaryFingerprint,
     cli_version: String,
 }
@@ -24,7 +26,8 @@ impl Scope {
         self.account == account
             && !self.credentials.is_empty()
             && !super::credentials_moved(&self.credentials)
-            && fingerprint_bin(&self.cli_binary).as_ref() == Some(&self.binary)
+            && fingerprint_bin_in(&self.cli_binary, &self.cli_install_dirs).as_ref()
+                == Some(&self.binary)
     }
 }
 
@@ -74,7 +77,8 @@ pub fn remember(
     let Some(cli_binary) = provider.cli_binary() else {
         return Ok(());
     };
-    let Some(binary) = fingerprint_bin(cli_binary) else {
+    let install_dirs = provider.cli_install_dirs(crate::provider::current_platform_tag());
+    let Some(binary) = fingerprint_bin_in(cli_binary, &install_dirs) else {
         return Ok(());
     };
     let credentials = credential_fingerprints(provider);
@@ -91,6 +95,7 @@ pub fn remember(
         account: account.clone(),
         credentials,
         cli_binary: cli_binary.into(),
+        cli_install_dirs: install_dirs,
         binary,
         cli_version: cli_version.into(),
     };

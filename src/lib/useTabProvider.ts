@@ -1,5 +1,4 @@
 import { useEffect, useReducer, useSyncExternalStore } from "react";
-import { listen } from "./bridge";
 import { subscribeAgentDescriptors } from "./agentDescriptorCache";
 import { subscribePluginProviderMeta } from "./pluginProviderMeta";
 import { resolveTabProvider, type ResolvedTabProvider } from "./tabProvider";
@@ -24,10 +23,10 @@ export function useTabProvider(tab: Tab | null | undefined): ResolvedTabProvider
   return resolveTabProvider(tab);
 }
 
-/** Live model of a chatBackend shell session (fetched via
- *  `chatbackend_session_info`, cached per session, refreshed on
- *  `mux-state-changed`). Null for non-shell tabs. Memo-safe: no fetch on
- *  render, and only the owning tab re-renders when its model resolves. */
+/** Live model of a chatBackend shell session (fetched once per session via
+ *  `chatbackend_session_info` and updated directly when model switches occur).
+ *  Null for non-shell tabs. Memo-safe: no fetch on render, and only the owning
+ *  tab re-renders when its model resolves. */
 export function useShellSessionModel(tab: Tab | null | undefined): string | null {
   const backing = tab?.backing;
   const descriptor = useAgentDescriptor(backing?.kind === "chat_backend" ? backing.plugin_id : null);
@@ -43,20 +42,7 @@ export function useShellSessionModel(tab: Tab | null | undefined): string | null
 
   useEffect(() => {
     if (!pluginId || !sessionId) return;
-    let alive = true;
-    const refresh = () => {
-      void fetchShellSessionModel(pluginId, sessionId);
-    };
-    refresh();
-    let unlisten: (() => void) | undefined;
-    void listen("mux-state-changed", refresh).then((un) => {
-      if (alive) unlisten = un;
-      else un();
-    });
-    return () => {
-      alive = false;
-      unlisten?.();
-    };
+    void fetchShellSessionModel(pluginId, sessionId);
   }, [pluginId, sessionId]);
 
   return model;

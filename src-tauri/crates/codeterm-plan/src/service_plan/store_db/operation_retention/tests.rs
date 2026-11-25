@@ -10,6 +10,7 @@ fn database() -> PlanDatabase {
         connection: parking_lot::Mutex::new(connection),
         readers: None,
         pending_changes: Default::default(),
+        board_state_cache: Default::default(),
     }
 }
 

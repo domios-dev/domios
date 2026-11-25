@@ -141,10 +141,14 @@ pub fn revision() -> u64 {
 }
 
 pub fn observe(binary: &str) -> VersionObservation {
+    observe_in(binary, &[])
+}
+
+pub fn observe_in(binary: &str, extra_dirs: &[PathBuf]) -> VersionObservation {
     if binary.trim().is_empty() {
         return VersionObservation::unknown(ProbeStatus::Missing);
     }
-    let path = match crate::js_runtime::probe_bin(binary).resolution {
+    let path = match crate::js_runtime::probe_bin_with_extra_dirs(binary, extra_dirs).resolution {
         crate::js_runtime::BinResolution::Found(path) => path,
         crate::js_runtime::BinResolution::Missing => {
             return VersionObservation::unknown(ProbeStatus::Missing)

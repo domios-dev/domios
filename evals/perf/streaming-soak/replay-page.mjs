@@ -231,20 +231,20 @@ export function ownedBrowserSelection(document,workspace,tab,action) {
   const unique = (nodes,label) => { if (nodes.length !== 1) throw Error(`Owned ${label} missing or ambiguous`); return nodes[0]; };
   const matching = (selector,key,id) => [...document.querySelectorAll(selector)].filter(node => node.dataset[key] === id && visible(node));
   if (['workspace','workspace-reveal','workspace-ready'].includes(action)) {
-    const details = matching('[data-testid="workspace-detail"]','workspaceId',workspace);
-    if (details.length === 1) return true;
-    if (details.length > 1) throw Error('Owned workspace detail ambiguous');
-    const rows = [...matching('[data-testid="workspace-card"]','workspaceId',workspace),...matching('[data-testid="workspace-item"]','workspaceId',workspace)];
-    const buttons = rows.flatMap(row => [...row.querySelectorAll('button[aria-label]')].filter(button => /^(Select|Open) workspace /.test(button.getAttribute('aria-label')) && visible(button)));
-    if (buttons.length > 1) throw Error('Owned workspace control ambiguous');
-    if (action === 'workspace-ready') return buttons.length === 1;
-    if (action === 'workspace-reveal') {
-      if (buttons.length === 1) return true;
-      const overflow = unique([...document.querySelectorAll('[data-testid="workspace-card-more"]')].filter(visible),'workspace overflow control');
+    const localKey = JSON.stringify([null, workspace]);
+    const cards = matching('[data-testid="workspace-card"]','workspaceId',localKey);
+    if (action === 'workspace-reveal' && cards.length === 0) {
+      const localGrid = '[data-testid="workspace-card-grid"]:has([data-workspace-id^="[null,"])';
+      const overflow = unique([...document.querySelectorAll(localGrid+' [data-testid="workspace-card-more"]')].filter(visible),'workspace overflow control');
       if (overflow.getAttribute('aria-expanded') !== 'false') throw Error('Owned workspace missing after expansion');
       overflow.click(); return true;
     }
-    unique(buttons,'workspace control').click(); return true;
+    if (action === 'workspace-ready' && cards.length === 0) return false;
+    const card = unique(cards,'workspace card');
+    const button = unique([...card.querySelectorAll('button[aria-label]')].filter(node =>
+      node.getAttribute('aria-label').startsWith('Select workspace ') && visible(node)), 'workspace control');
+    if (action === 'workspace' && card.dataset.selected !== 'true') button.click();
+    return true;
   }
   const detail = unique(matching('[data-testid="workspace-detail"]','workspaceId',workspace),'workspace detail');
   const rows = [...detail.querySelectorAll('[data-testid="tab-item"]')].filter(node => node.dataset.tabId === tab && visible(node));

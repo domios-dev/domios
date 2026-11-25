@@ -215,7 +215,7 @@ function TabSessionChatBody({
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
-  const floatingBottomInset = useChatLayoutInsets(chatRootRef);
+  const floatingBottomInset = useChatLayoutInsets(chatRootRef, isVisible);
   const chatFollowTailRef = useRef(true);
 
   const { selectTabByTab, upsertToast, dismissToast, answerNotification } = useMultiplexer();
@@ -925,7 +925,7 @@ function TabSessionChatBody({
       {...(readOnly ? {} : webDropHandlers)}
     >
       {webDragOver && <ChatAttachmentDropOverlay />}
-      <ChatWallpaperBackdrop />
+      <ChatWallpaperBackdrop active={isActive} />
       <div className="relative flex-1 min-h-0">
       {signInState && signIn === "center" && (
         <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto p-4" data-testid="chat-sign-in">

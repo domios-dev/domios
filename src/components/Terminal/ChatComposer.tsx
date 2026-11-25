@@ -54,7 +54,7 @@ import {
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
-import { composeAttachmentDraft } from "./meshAttachmentHandoff";
+import { attachmentHostTarget, composeAttachmentDraft, remoteOptimisticContent } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
@@ -336,7 +336,7 @@ function ChatComposerImpl({
     };
   }, [isActive, replacement, liveLocked]);
   const shellRef = useRef<HTMLDivElement>(null);
-  const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor);
+  const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate, !replacement, expandedEditor, isActive);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const pendingDraftsRef = useRef(new Set<string>());
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
@@ -560,8 +560,13 @@ function ChatComposerImpl({
     const replyPreview = quoted
       ? (keepReplyInline || !quoted.path ? inlineReplyText(quoted) : replyMarker(quoted))
       : "";
-    const optimisticId = addOptimistic(recordedVoiceAttachments.length > 0
-      ? voicePendingContent : portable || allAttachments.join(" ") || replyPreview);
+    const isRemoteTarget = attachmentHostTarget(tabId, composerAttachmentHandoff.relayPeerId()).kind !== "local";
+    const initialOptimistic = recordedVoiceAttachments.length > 0
+      ? voicePendingContent
+      : isRemoteTarget
+        ? remoteOptimisticContent(text, registry, allAttachments, quoted, keepReplyInline)
+        : portable || allAttachments.join(" ") || replyPreview;
+    const optimisticId = addOptimistic(initialOptimistic);
     const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments,
       ...(recordedVoiceAttachments.length ? { voiceTranscribing: true } : {}),
       capsules: registry, reply: quoted, ...(keepReplyInline ? { inlineReply: true } : {}) };

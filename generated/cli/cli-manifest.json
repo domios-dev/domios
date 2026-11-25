@@ -3776,6 +3776,19 @@
               "aliases": []
             },
             {
+              "name": "status",
+              "positional": false,
+              "required": false,
+              "value_name": "STATUS",
+              "possible_values": [
+                "success",
+                "failed"
+              ],
+              "default": null,
+              "help": "Completion status (defaults to success)",
+              "aliases": []
+            },
+            {
               "name": "summary",
               "positional": false,
               "required": false,
@@ -8739,33 +8752,15 @@
         },
         {
           "name": "identity",
-          "about": "Manage the kind icon and colour of an installation",
+          "about": "Manage the kind icon of an installation",
           "aliases": [],
           "args": [],
           "subcommands": [
             {
               "name": "set",
-              "about": "Set the machine's kind and colour. Requires owner authority",
+              "about": "Set the machine's kind icon. Requires owner authority",
               "aliases": [],
               "args": [
-                {
-                  "name": "color",
-                  "positional": false,
-                  "required": true,
-                  "value_name": "COLOR",
-                  "possible_values": [
-                    "blue",
-                    "teal",
-                    "green",
-                    "yellow",
-                    "pink",
-                    "violet",
-                    "graphite"
-                  ],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
                 {
                   "name": "kind",
                   "positional": false,

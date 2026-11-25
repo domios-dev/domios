@@ -17,8 +17,8 @@ fn event(kind: KpiEventKind, plan_id: Option<&str>, tab_id: &str, bytes: u64) ->
         task_id: Some("task_1".into()),
         tab_id: tab_id.into(),
         role: Some("worker".into()),
-        provider: "claude".into(),
-        model: Some("claude-opus-4-8".into()),
+        provider: "prov-a".into(),
+        model: Some("model-default".into()),
         timestamp: 1_700_000_000,
         kind,
         bytes,
@@ -481,7 +481,7 @@ fn output_tokens_for_tab_and_provider_model_rollup_cache_stay_exact() {
     );
 
     let first = KpiEventInput {
-        model: Some("claude-opus-4-8".into()),
+        model: Some("model-a".into()),
         tokens: Some(TokenCounts {
             input: 1_000,
             uncached_input: 400,
@@ -539,8 +539,8 @@ fn output_tokens_for_tab_and_provider_model_rollup_cache_stay_exact() {
     assert_eq!(
         agg[0],
         ProviderModelUsage {
-            provider: "claude".into(),
-            model: Some("claude-opus-4-8".into()),
+            provider: "prov-a".into(),
+            model: Some("model-a".into()),
             turns: 1,
             input_tokens: 1_500,
             uncached_input_tokens: 550,
@@ -550,7 +550,7 @@ fn output_tokens_for_tab_and_provider_model_rollup_cache_stay_exact() {
     assert_eq!(
         agg[1],
         ProviderModelUsage {
-            provider: "claude".into(),
+            provider: "prov-a".into(),
             model: None,
             turns: 1,
             input_tokens: 300,
@@ -561,7 +561,7 @@ fn output_tokens_for_tab_and_provider_model_rollup_cache_stay_exact() {
     assert_eq!(
         agg[2],
         ProviderModelUsage {
-            provider: "claude".into(),
+            provider: "prov-a".into(),
             model: Some(String::new()),
             turns: 1,
             input_tokens: 200,

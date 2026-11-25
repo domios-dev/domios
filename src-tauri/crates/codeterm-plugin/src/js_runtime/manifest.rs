@@ -166,6 +166,8 @@ pub struct PluginManifest {
     // Per-platform installer (macos/linux/windows)
     #[serde(default)]
     pub installer: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub cli_install_dirs: std::collections::HashMap<String, Vec<String>>,
     #[serde(default)]
     pub cli_login: Option<crate::provider::CliLoginCapability>,
 
@@ -243,6 +245,20 @@ pub struct PluginManifest {
     /// Validated `iconColor`: a hex color or a `var(--ct-*)` theme token.
     #[serde(skip)]
     pub icon_color: Option<String>,
+}
+
+impl PluginManifest {
+    pub fn cli_install_dirs(&self, platform: &str) -> Vec<PathBuf> {
+        let Some(templates) = self.cli_install_dirs.get(platform) else {
+            return Vec::new();
+        };
+        let home = super::bin_resolve::current_home_dir();
+        super::bin_resolve::expand_install_dirs(
+            templates,
+            &|key| std::env::var_os(key),
+            home.as_deref(),
+        )
+    }
 }
 
 fn default_entry() -> String {

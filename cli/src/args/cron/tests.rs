@@ -78,3 +78,26 @@ fn cron_edit_target_patch_distinguishes_set_clear_and_unchanged() {
     ])
     .is_err());
 }
+
+#[test]
+fn cron_complete_accepts_only_success_and_failed_statuses() {
+    let args = ["domios", "cron", "complete", "--run-id", "run"];
+    for value in [None, Some("success"), Some("failed"), Some("running")] {
+        let mut command = args.to_vec();
+        if let Some(status) = value {
+            command.extend(["--status", status]);
+        }
+        let parsed = crate::args::cli::Cli::try_parse_from(command);
+        if value == Some("running") {
+            assert!(parsed.is_err());
+        } else {
+            let crate::Commands::Cron {
+                action: super::CronAction::Complete { status, .. },
+            } = parsed.unwrap().command
+            else {
+                panic!("expected cron complete");
+            };
+            assert_eq!(status.as_deref(), value);
+        }
+    }
+}

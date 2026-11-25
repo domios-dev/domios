@@ -125,7 +125,7 @@ pub(super) fn runtime_terminal_refusal_retains_original_owner_and_explicit_compl
             &scene.cron,
             &scene.wake,
             &run,
-            Some("must not replace original"),
+            CronSettlement::success("must not replace original"),
             Some(&tab),
             Some(&nonce),
             false
