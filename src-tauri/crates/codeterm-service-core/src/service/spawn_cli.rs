@@ -200,3 +200,83 @@ pub fn create_cleared_agent_tab(
     crate::startup::boot_timing::bind_request(&tab_id);
     Ok(tab_id)
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderAuthPreflightOutcome {
+    Verified,
+    SkippedNoProbe,
+    Inconclusive(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderSignInRequired {
+    pub provider_id: String,
+    pub display_name: String,
+}
+
+pub(crate) fn classify_auth_probe_result(
+    provider_id: &str,
+    display_name: &str,
+    result: Result<
+        Option<crate::agent::provider::AuthStatus>,
+        crate::service::provider_signals_probe::ProbeFailure,
+    >,
+) -> Result<ProviderAuthPreflightOutcome, ProviderSignInRequired> {
+    match result {
+        Ok(Some(auth)) if !auth.logged_in => Err(ProviderSignInRequired {
+            provider_id: provider_id.to_string(),
+            display_name: display_name.to_string(),
+        }),
+        Ok(Some(_)) => Ok(ProviderAuthPreflightOutcome::Verified),
+        Ok(None) => Ok(ProviderAuthPreflightOutcome::Inconclusive(
+            "auth status probe returned unreadable status".into(),
+        )),
+        Err(crate::service::provider_signals_probe::ProbeFailure::TimedOut) => Ok(
+            ProviderAuthPreflightOutcome::Inconclusive("auth status probe timed out".into()),
+        ),
+        Err(crate::service::provider_signals_probe::ProbeFailure::Unavailable) => {
+            Ok(ProviderAuthPreflightOutcome::Inconclusive(
+                "auth status probe binary unavailable".into(),
+            ))
+        }
+    }
+}
+
+pub fn provider_auth_preflight(
+    svc: &crate::service::ServiceContext,
+    provider_id: &str,
+    workspace_id: Option<&str>,
+) -> Result<ProviderAuthPreflightOutcome, ProviderSignInRequired> {
+    let Some((display_name, binary, probe)) = svc
+        .agent_registry
+        .with_provider(provider_id, |provider| {
+            Some((
+                provider.display_name().to_string(),
+                provider.binary_name().to_string(),
+                provider.auth_status_probe()?,
+            ))
+        })
+        .flatten()
+    else {
+        return Ok(ProviderAuthPreflightOutcome::SkippedNoProbe);
+    };
+    let account =
+        crate::service::provider_accounts::starting_account(svc, provider_id, workspace_id, None)
+            .ok()
+            .flatten();
+    let invocation =
+        crate::service::provider_accounts::invocation(svc, provider_id, account.as_deref())
+            .ok()
+            .flatten();
+    let probe_result = codeterm_plugin::provider_account::with_context(invocation, || {
+        crate::service::provider_signals_probe::capture_result(&binary, &probe).map(|record| {
+            svc.agent_registry
+                .with_provider(provider_id, |provider| provider.parse_auth_status(&record))
+                .flatten()
+        })
+    });
+    classify_auth_probe_result(provider_id, &display_name, probe_result)
+}
+
+#[cfg(test)]
+mod tests;

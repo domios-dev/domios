@@ -9,6 +9,11 @@ pub(super) fn dispatch_error_state(error: &str) -> (RemoteDispatchState, &'stati
         (RemoteDispatchState::PeerMissingRepo, "peer_missing_repo")
     } else if error.contains("peer_missing_base") {
         (RemoteDispatchState::PeerMissingBase, "peer_missing_base")
+    } else if error.contains("peer_provider_auth_required") {
+        (
+            RemoteDispatchState::PeerRefused,
+            "peer_provider_auth_required",
+        )
     } else if error.starts_with("HTTP error:") {
         (RemoteDispatchState::PeerRefused, "peer_refused")
     } else {
@@ -81,6 +86,15 @@ mod tests {
         assert_eq!(
             dispatch_error_state("HTTP error: peer_worker_spawn_failed"),
             (RemoteDispatchState::PeerRefused, "peer_refused")
+        );
+        assert_eq!(
+            dispatch_error_state(
+                "HTTP error: 409 Conflict: peer_provider_auth_required: Codex ('codex') is not signed in on peer 'ROG'"
+            ),
+            (
+                RemoteDispatchState::PeerRefused,
+                "peer_provider_auth_required"
+            )
         );
         assert_eq!(
             dispatch_error_state("HTTP error: peer_missing_base"),
