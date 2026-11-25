@@ -199,6 +199,7 @@ pub fn complete_first_run_core(
     };
 
     super::state::clear_session_id();
+    super::state::clear_bootstrap_dispatched();
     super::state::require_fresh_session()?;
 
     let (close_result, history_batch) = {

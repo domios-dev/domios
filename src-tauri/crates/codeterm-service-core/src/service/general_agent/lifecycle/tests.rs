@@ -401,6 +401,84 @@ fn general_agent_bootstrap_only_before_first_run_completes() {
 }
 
 #[test]
+fn general_agent_bootstrap_skips_when_owner_identity_in_mem_or_bootstrap_already_dispatched() {
+    // Owner identity in memory (non-bundled) suppresses bootstrap even without identity.md.
+    let mem = crate::mem::MemManager::open_in_memory().expect("mem store");
+    mem.seed_bundled_if_needed().expect("seed bundled mem");
+    let dir = tempfile::tempdir().expect("temporary directory");
+    let bootstrap_path = dir.path().join("bootstrap.md");
+    std::fs::write(&bootstrap_path, "BOOTSTRAP_SENTINEL").expect("bootstrap file");
+    assert!(super::compose_startup_message(&mem, &bootstrap_path).is_some());
+
+    mem.save_replace(crate::mem::store::NewMemItem {
+        kind: crate::mem::store::MemKind::Preference,
+        scope: crate::mem::store::MemScope::Global,
+        title: "identity".into(),
+        summary: None,
+        area: None,
+        tags: vec!["identity".into()],
+        body: "Owner is Alex, systems engineer.".into(),
+        source: Some("user".into()),
+        importance: 5.0,
+        source_path: None,
+        pinned: false,
+    })
+    .expect("save owner identity");
+    assert!(
+        super::compose_startup_message(&mem, &bootstrap_path).is_none(),
+        "saved owner identity in memory must suppress bootstrap even without identity.md"
+    );
+
+    // Dispatched bootstrap marker suppresses repeated onboarding even when identity is still bundled.
+    let fresh_mem = crate::mem::MemManager::open_in_memory().expect("fresh mem");
+    fresh_mem
+        .seed_bundled_if_needed()
+        .expect("seed bundled mem");
+    let dir2 = tempfile::tempdir().expect("temporary directory 2");
+    let bootstrap2 = dir2.path().join("bootstrap.md");
+    std::fs::write(&bootstrap2, "BOOTSTRAP_SENTINEL").expect("bootstrap file");
+    assert!(super::compose_startup_message(&fresh_mem, &bootstrap2).is_some());
+    super::state::mark_bootstrap_dispatched_in(dir2.path());
+    assert!(
+        super::compose_startup_message(&fresh_mem, &bootstrap2).is_none(),
+        "once bootstrap has been dispatched, later launches must not re-run onboarding"
+    );
+}
+
+#[test]
+fn general_provider_switch_disallows_bootstrap_while_first_run_allows_it() {
+    // True first run: no prior provider and no prior session.
+    assert!(super::should_allow_bootstrap_on_launch(
+        None,
+        "provider-a",
+        false
+    ));
+    // Retry of failed first boot before any session bound: same provider, no session.
+    assert!(super::should_allow_bootstrap_on_launch(
+        Some("provider-a"),
+        "provider-a",
+        false
+    ));
+    // Provider switch on an onboarded machine: never repeat onboarding.
+    assert!(!super::should_allow_bootstrap_on_launch(
+        Some("provider-a"),
+        "provider-b",
+        false
+    ));
+    assert!(!super::should_allow_bootstrap_on_launch(
+        Some("provider-a"),
+        "provider-b",
+        true
+    ));
+    // Already had a recorded session on Main: never repeat onboarding.
+    assert!(!super::should_allow_bootstrap_on_launch(
+        None,
+        "provider-b",
+        true
+    ));
+}
+
+#[test]
 fn general_agent_launch_uses_system_prompt_channel_when_available() {
     use crate::agent::provider::{AgentLaunchParams, StarterPrompt, SystemPromptDelivery};
 

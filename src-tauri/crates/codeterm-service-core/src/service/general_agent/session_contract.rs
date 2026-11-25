@@ -30,6 +30,7 @@ pub(super) struct TabLaunch<'a> {
     pub provider: &'a str,
     pub permission_bypass: bool,
     pub ownership: LaunchOwnership,
+    pub allow_bootstrap: bool,
     pub selection: FreshLaunchSelection,
 }
 

@@ -129,18 +129,16 @@ export function useAgentProviders(peerId?: string): {
         hasLoaded.current = true;
         setItems(next);
         setError(null);
-        if (!peerId) {
-          for (const provider of next.filter(provider => provider.availability_checking)) {
-            void probeProvider(provider.id).then(status => {
-              if (!active.current || generation.current !== current) return;
-              setItems(items => items.map(item => item.id === provider.id ? {
-                ...item,
-                availability_checking: false,
-                availability: status?.availability ?? "unknown",
-                cli_status: status ?? undefined,
-              } : item));
-            });
-          }
+        for (const provider of next.filter(provider => provider.availability_checking)) {
+          void probeProvider(provider.id, peerId).then(status => {
+            if (!active.current || generation.current !== current) return;
+            setItems(items => items.map(item => item.id === provider.id ? {
+              ...item,
+              availability_checking: false,
+              availability: status?.availability ?? "unknown",
+              cli_status: status ?? undefined,
+            } : item));
+          });
         }
       }).catch((reason: unknown) => {
         if (!active.current || generation.current !== current) return;
@@ -152,7 +150,8 @@ export function useAgentProviders(peerId?: string): {
     });
   }, [peerId]);
   const refetch = useCallback(() => {
-    if (!peerId) invalidateAgentProviders();
+    if (peerId) clearProviderProbes(peerId);
+    else invalidateAgentProviders();
     load();
   }, [load, peerId]);
   useEffect(() => {

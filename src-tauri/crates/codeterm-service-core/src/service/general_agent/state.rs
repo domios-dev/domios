@@ -11,6 +11,8 @@ use super::general_dir;
 pub(super) struct GeneralAgentSessionState {
     pub(super) provider: String,
     pub(super) session_id: String,
+    #[serde(default)]
+    pub(super) by_provider: std::collections::BTreeMap<String, String>,
 }
 
 struct SessionCandidate {
@@ -50,21 +52,28 @@ fn load_session_record_from(
     path: &Path,
 ) -> Option<GeneralAgentSessionState> {
     let text = std::fs::read_to_string(path).ok()?;
-    let state: GeneralAgentSessionState = serde_json::from_str(&text).ok()?;
-    if state.provider != provider_name
-        || state.session_id.is_empty()
-        || excluded.contains(&state.session_id)
-    {
+    let mut state: GeneralAgentSessionState = serde_json::from_str(&text).ok()?;
+    let session_id = if state.provider == provider_name {
+        state.session_id.clone()
+    } else {
+        state.by_provider.get(provider_name)?.clone()
+    };
+    if session_id.is_empty() || excluded.contains(&session_id) {
         return None;
     }
     let valid = registry
         .with_provider(provider_name, |p| {
             can_resume_saved_session(p.agent_runtime().is_some(), || {
-                p.session_exists(cwd, &state.session_id)
+                p.session_exists(cwd, &session_id)
             })
         })
         .unwrap_or(false);
-    valid.then_some(state)
+    if !valid {
+        return None;
+    }
+    state.provider = provider_name.to_string();
+    state.session_id = session_id;
+    Some(state)
 }
 
 fn can_resume_saved_session(runtime: bool, session_exists: impl FnOnce() -> Option<bool>) -> bool {
@@ -72,11 +81,29 @@ fn can_resume_saved_session(runtime: bool, session_exists: impl FnOnce() -> Opti
 }
 
 pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
+    persist_session_id_to(&session_state_path(), provider_name, session_id);
+}
+
+fn persist_session_id_to(path: &Path, provider_name: &str, session_id: &str) {
+    let mut by_provider = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<GeneralAgentSessionState>(&text).ok())
+        .map(|mut existing| {
+            if !existing.provider.is_empty() && !existing.session_id.is_empty() {
+                existing
+                    .by_provider
+                    .entry(existing.provider)
+                    .or_insert(existing.session_id);
+            }
+            existing.by_provider
+        })
+        .unwrap_or_default();
+    by_provider.insert(provider_name.to_string(), session_id.to_string());
     let state = GeneralAgentSessionState {
         provider: provider_name.to_string(),
         session_id: session_id.to_string(),
+        by_provider,
     };
-    let path = session_state_path();
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             log::warn!(
@@ -99,13 +126,74 @@ pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
         );
         return;
     }
-    if let Err(e) = std::fs::rename(&tmp, &path) {
+    if let Err(e) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
         log::warn!(
             "[general-agent] failed to commit session state {}: {}",
             path.display(),
             e
         );
+    }
+}
+
+pub(super) fn has_recorded_session() -> bool {
+    has_recorded_session_in(&general_dir())
+}
+
+pub(super) fn has_recorded_session_in(dir: &Path) -> bool {
+    let path = dir.join("state").join("general-agent-session.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<GeneralAgentSessionState>(&text).ok())
+        .is_some_and(|state| {
+            !state.session_id.is_empty() || state.by_provider.values().any(|id| !id.is_empty())
+        })
+}
+
+fn bootstrap_dispatched_path_in(dir: &Path) -> PathBuf {
+    dir.join("state").join("bootstrap-dispatched")
+}
+
+pub(super) fn bootstrap_dispatched_in(dir: &Path) -> bool {
+    bootstrap_dispatched_path_in(dir).is_file()
+}
+
+pub(super) fn mark_bootstrap_dispatched() {
+    mark_bootstrap_dispatched_in(&general_dir());
+}
+
+pub(super) fn mark_bootstrap_dispatched_in(dir: &Path) {
+    let path = bootstrap_dispatched_path_in(dir);
+    if let Some(parent) = path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            log::warn!(
+                "[general-agent] failed to create bootstrap state dir {}: {error}",
+                parent.display()
+            );
+            return;
+        }
+    }
+    if let Err(error) = std::fs::write(&path, b"dispatched") {
+        log::warn!(
+            "[general-agent] failed to persist bootstrap marker {}: {error}",
+            path.display()
+        );
+    }
+}
+
+pub(super) fn clear_bootstrap_dispatched() {
+    clear_bootstrap_dispatched_in(&general_dir());
+}
+
+pub(super) fn clear_bootstrap_dispatched_in(dir: &Path) {
+    let path = bootstrap_dispatched_path_in(dir);
+    if let Err(error) = std::fs::remove_file(&path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            log::warn!(
+                "[general-agent] failed to remove bootstrap marker {}: {error}",
+                path.display()
+            );
+        }
     }
 }
 

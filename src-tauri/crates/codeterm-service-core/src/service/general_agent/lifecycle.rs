@@ -123,11 +123,28 @@ fn general_agent_first_run_complete(
     mem: &crate::mem::MemManager,
     general_dir: &std::path::Path,
 ) -> bool {
+    if state::bootstrap_dispatched_in(general_dir) {
+        return true;
+    }
+    if instructions::owner_identity_from_mem(mem).is_some()
+        || instructions::owner_nickname_from_mem(mem).is_some()
+    {
+        return true;
+    }
     if mem.get("preference_identity").is_err() {
         return false;
     }
     std::fs::read_to_string(general_dir.join("identity.md"))
         .is_ok_and(|identity| !identity.trim().is_empty())
+}
+
+fn should_allow_bootstrap_on_launch(
+    previous_provider: Option<&str>,
+    wanted_provider: &str,
+    had_prior_session: bool,
+) -> bool {
+    let provider_switched = previous_provider.is_some_and(|prev| prev != wanted_provider);
+    !provider_switched && !had_prior_session
 }
 
 fn compose_startup_message(
@@ -233,7 +250,7 @@ pub fn start_general_agent(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
 ) {
-    start_general_agent_inner(svc, mux, pty, screen_state, config, false);
+    start_general_agent_inner(svc, mux, pty, screen_state, config, false, true);
 }
 
 pub fn start_general_agent_prepared(
@@ -243,7 +260,7 @@ pub fn start_general_agent_prepared(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
 ) {
-    start_general_agent_inner(svc, mux, pty, screen_state, config, true);
+    start_general_agent_inner(svc, mux, pty, screen_state, config, true, true);
 }
 
 fn start_general_agent_inner(
@@ -253,6 +270,7 @@ fn start_general_agent_inner(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
     instructions_prepared: bool,
+    allow_bootstrap_requested: bool,
 ) {
     let Some(_launch_guard) = launch_lock::LaunchGuard::acquire() else {
         log::info!("[general-agent] Start skipped; another launch owns the agent");
@@ -273,6 +291,26 @@ fn start_general_agent_inner(
             }
         };
 
+    let (previous_provider, tab_had_session) = {
+        let m = mux.read();
+        m.resolve_tab_id(GENERAL_ALIAS)
+            .and_then(|id| m.get_tab(&id))
+            .map(|tab| (tab.agent_type.clone(), tab.agent_session_id.is_some()))
+            .unwrap_or((None, false))
+    };
+    let allow_bootstrap = allow_bootstrap_requested
+        && should_allow_bootstrap_on_launch(
+            previous_provider.as_deref(),
+            provider_name,
+            tab_had_session || state::has_recorded_session(),
+        );
+    if previous_provider
+        .as_deref()
+        .is_some_and(|prev| prev != provider_name)
+    {
+        state::mark_bootstrap_dispatched();
+    }
+
     log::info!("[general-agent] Starting (provider={})", provider_name);
     if !instructions_prepared {
         instructions::generate_instructions(
@@ -292,6 +330,7 @@ fn start_general_agent_inner(
             provider_name,
             permission_bypass,
             resume_sessions_enabled,
+            allow_bootstrap,
         );
         return;
     }
@@ -485,6 +524,7 @@ fn start_general_agent_inner(
             provider: provider_name,
             permission_bypass,
             ownership: super::session_contract::LaunchOwnership::Main,
+            allow_bootstrap,
             selection: super::session_contract::default_selection(
                 &svc.configuration().general_agent,
             ),
@@ -636,6 +676,7 @@ pub(super) fn start_fresh_general_session(
             provider,
             permission_bypass,
             ownership: super::session_contract::LaunchOwnership::FreshSession,
+            allow_bootstrap: false,
             selection,
         },
     );
@@ -692,23 +733,37 @@ fn restart_general_agent_inner(
     if !super::restart_guard::permit(svc, mux, force) {
         return;
     }
-    let runtime_tab = {
+    let wanted_provider = config.lock().general_agent.agent_provider.clone();
+    let (runtime_tab, previous_provider, tab_had_session) = {
         let m = mux.read();
-        m.resolve_tab_id(GENERAL_ALIAS)
+        let tab_id = m.resolve_tab_id(GENERAL_ALIAS);
+        let (prev, had_session) = tab_id
+            .as_deref()
+            .and_then(|id| m.get_tab(id))
+            .map(|tab| (tab.agent_type.clone(), tab.agent_session_id.is_some()))
+            .unwrap_or((None, false));
+        (tab_id, prev, had_session)
     };
+    let allow_bootstrap = should_allow_bootstrap_on_launch(
+        previous_provider.as_deref(),
+        &wanted_provider,
+        tab_had_session || state::has_recorded_session(),
+    );
+    if !allow_bootstrap {
+        state::mark_bootstrap_dispatched();
+    }
     if let Some(tab_id) = runtime_tab.filter(|tab| {
         svc.tab_chat_backing(tab).is_some()
             || crate::service::agent_runtime::requested_for_tab(svc, tab)
     }) {
-        let provider = config.lock().general_agent.agent_provider.clone();
-        if crate::service::agent_runtime::engine::requested(svc, &provider) {
+        if crate::service::agent_runtime::engine::requested(svc, &wanted_provider) {
             if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab_id)
             {
                 fail_general_agent_start(svc, mux, &tab_id, &reason);
                 return;
             }
         }
-        start_general_agent(svc, mux, pty, screen_state, config);
+        start_general_agent_inner(svc, mux, pty, screen_state, config, false, allow_bootstrap);
         return;
     }
     let mut stale_pty_id = None;
@@ -756,7 +811,7 @@ fn restart_general_agent_inner(
         });
     }
 
-    start_general_agent(svc, mux, pty, screen_state, config);
+    start_general_agent_inner(svc, mux, pty, screen_state, config, false, allow_bootstrap);
 }
 
 pub fn restart_general_agent_tab(
@@ -904,7 +959,6 @@ fn clear_stale_general_binding(
     if !same_provider {
         svc.set_tab_agent_type(tab_id, None);
         svc.set_agent_session_id(tab_id, None);
-        state::clear_session_id();
     }
     mux.write().unlink_pty(tab_id);
 }

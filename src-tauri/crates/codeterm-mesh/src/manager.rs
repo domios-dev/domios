@@ -27,6 +27,7 @@ pub struct MeshManager {
     machine_identity_writer: Arc<parking_lot::Mutex<()>>,
     pub paired_peers: HashMap<String, PairedPeer>,
     pub account_installations: Vec<types::AccountInstallation>,
+    pub registry_names: Vec<types::RegistryMachineName>,
     pub(crate) announce_slots: Arc<tokio::sync::Semaphore>,
     pub(crate) address_refresh: crate::broadcast::refresh::RefreshState,
     pub(crate) address_announcements: Arc<crate::broadcast::coalesce::AddressAnnouncements>,
@@ -128,6 +129,7 @@ impl MeshManager {
             machine_identity_writer: Default::default(),
             paired_peers: HashMap::new(),
             account_installations: Vec::new(),
+            registry_names: Vec::new(),
             announce_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             address_refresh: Default::default(),
             address_announcements: Default::default(),
@@ -336,9 +338,10 @@ impl MeshManager {
         &self,
         target: &str,
     ) -> Result<&PairedPeer, crate::paired_resolve::ResolvePairedError> {
-        crate::paired_resolve::resolve_paired_peer(
+        crate::paired_resolve::resolve_paired_peer_with_registry_names(
             &self.paired_peers,
             &self.account_installations,
+            &self.registry_names,
             |instance_id| {
                 self.links
                     .get(instance_id)

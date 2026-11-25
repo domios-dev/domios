@@ -6,6 +6,8 @@ import { createRoot } from "react-dom/client";
 import { __setInvokeForTest, __setListenForTest } from "../lib/bridge";
 import { signalEventStreamReady } from "../lib/eventStreamReady";
 import { invalidateAgentProviders, useAgentProviders } from "./useAgentProviders";
+import { clearProviderProbes, probeProvider } from "../lib/providerAvailabilityProbe";
+import type { ProviderCliStatus } from "../lib/providerCli";
 
 test("stream readiness does not refetch; provider changes do and failures retain good data", async () => {
   invalidateAgentProviders();
@@ -87,5 +89,67 @@ test("initial failure waits for a server change and fetch waits for listener att
     await act(async () => root.unmount());
     __setInvokeForTest(null);
     __setListenForTest(null);
+  }
+});
+
+test("remote peer providers probe CLI status for that peer and settle cards out of checking", async () => {
+  clearProviderProbes();
+  const probeCalls: Array<Record<string, unknown> | undefined> = [];
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
+    if (command === "list_agent_providers") {
+      assert.equal(args?.peerId, "r161");
+      assert.equal(args?.metadataOnly, true);
+      return [
+        { id: "provider-a", display_name: "Provider A", availability: "unknown", availability_checking: true },
+        { id: "provider-b", display_name: "Provider B", availability: "unknown", availability_checking: true },
+      ] as T;
+    }
+    if (command === "provider_cli_status") {
+      probeCalls.push(args);
+      if (args?.providerId === "provider-a") return { availability: "available" } as ProviderCliStatus as T;
+      throw new Error("relay probe failed");
+    }
+    throw new Error(`unexpected command: ${command}`);
+  });
+  function RemoteConsumer() {
+    const { providers } = useAgentProviders("r161");
+    return <output>{providers.map((p) => `${p.id}:${p.availability_checking ? "checking" : p.availability}`).join(",")}</output>;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<RemoteConsumer />));
+    assert.deepEqual(probeCalls, [
+      { providerId: "provider-a", peerId: "r161" },
+      { providerId: "provider-b", peerId: "r161" },
+    ]);
+    assert.equal(host.textContent, "provider-a:available,provider-b:unknown");
+  } finally {
+    await act(async () => root.unmount());
+    __setInvokeForTest(null);
+    clearProviderProbes();
+  }
+});
+
+test("probeProvider settles a hanging probe within its bound and allows retry afterwards", async () => {
+  clearProviderProbes();
+  let attempt = 0;
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
+    assert.equal(command, "provider_cli_status");
+    assert.equal(args?.providerId, "stalled");
+    assert.equal(args?.peerId, "peer-a");
+    attempt++;
+    if (attempt === 1) return new Promise<T>(() => {});
+    return { availability: "available" } as ProviderCliStatus as T;
+  });
+  try {
+    const timedOut = await probeProvider("stalled", "peer-a", 15);
+    assert.equal(timedOut, null);
+    const recovered = await probeProvider("stalled", "peer-a", 100);
+    assert.equal(recovered?.availability, "available");
+    assert.equal(attempt, 2);
+  } finally {
+    __setInvokeForTest(null);
+    clearProviderProbes();
   }
 });

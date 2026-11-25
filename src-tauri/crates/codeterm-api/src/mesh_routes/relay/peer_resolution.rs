@@ -38,11 +38,16 @@ fn registry_peer_unreachable_error(target: &str) -> (StatusCode, String) {
 fn registry_contains_target(mesh: &codeterm_service_core::mesh::MeshManager, target: &str) -> bool {
     let is_short_id =
         target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    let labels =
+        codeterm_service_core::mesh::paired_resolve::registry_machine_labels(&mesh.registry_names);
     mesh.account_installations.iter().any(|row| {
         row.active
             && (row.installation_id.eq_ignore_ascii_case(target)
                 || row.instance_id.as_deref() == Some(target)
                 || row.name.eq_ignore_ascii_case(target)
+                || labels
+                    .get(&row.installation_id)
+                    .is_some_and(|label| label.eq_ignore_ascii_case(target))
                 || codeterm_service_core::mesh::paired_resolve::configured_name(&row.name)
                     .eq_ignore_ascii_case(target)
                 || (is_short_id
