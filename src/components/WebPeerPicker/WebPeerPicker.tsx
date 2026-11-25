@@ -17,6 +17,7 @@ import { useMachineViewerTheme, useWallpaperAsset } from "../../lib/useMachineAp
 import { useMachineChromeAppearance } from "../../lib/useMachineChromeAppearance";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
 import { localJson } from "../../lib/webApi";
+import { isMeshDisabledError } from "../../lib/remoteChatState";
 import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { MuxStateStoreContext, usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { setSidebarMachineFilter, useSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
@@ -92,7 +93,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));
       setIdentities({ local_machine_identity: res.local_machine_identity, machine_identities: res.machine_identities });
-    } catch {
+    } catch (error) {
+      if (isMeshDisabledError(error)) {
+        setPeers(current => current.some(peer => peer.online)
+          ? current.map(peer => (peer.online ? { ...peer, online: false } : peer))
+          : current);
+      }
       // Peer list is a convenience — keep the last known list on errors.
       if (hasLocalInstanceName()) return;
       try {

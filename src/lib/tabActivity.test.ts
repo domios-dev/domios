@@ -181,3 +181,25 @@ const clearedRuntimeBg: Tab = {
 assert.equal(tabActivity(clearedRuntimeBg, "Idle").backgroundTasks, 0);
 assert.equal(aggregateTabStatuses(["rt-bg"], { "rt-bg": "Idle" }, { "rt-bg": clearedRuntimeBg }), "Idle");
 assert.equal(countWorkingTabs([clearedRuntimeBg], { "rt-bg": "Idle" }), 0);
+
+const groupedRuntimeBg: Tab = {
+  ...runtimeBgBase,
+  agent_runtime_state: {
+    state: "loaded",
+    epoch: 3,
+    backgroundProcesses: {
+      rootThreadId: "root-session",
+      bindingNonce: "nonce-1",
+      epoch: 3,
+      processes: [
+        { threadId: "root-session", processId: "p-main", itemId: "i-main", command: "bash scripts/build.sh check", cwd: "/repo", osPid: 41208, parentOsPid: 41200 },
+        { threadId: "root-session", processId: "p-sub", itemId: "i-sub", command: "bash scripts/build.sh check", cwd: "/repo", osPid: 41231, parentOsPid: 41208 },
+        { threadId: "root-session", processId: "p-tee", itemId: "i-tee", command: "tee -a /tmp/build.log", cwd: "/repo", osPid: 41209, parentOsPid: 41200 },
+        { threadId: "root-session", processId: "p-sc", itemId: "i-sc", command: "sccache", cwd: "/repo", osPid: 40977, parentOsPid: 41231 },
+      ],
+    },
+  },
+};
+const groupedActivity = tabActivity(groupedRuntimeBg, "Idle");
+assert.equal(groupedActivity.backgroundProcesses, 1, "grouped process tree counts as one top-level command");
+assert.equal(groupedActivity.backgroundTasks, 1, "grouped process tree never inflates backgroundTasks");

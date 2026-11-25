@@ -146,3 +146,51 @@ fn runtime_usage_contract_archives_only_declared_runtime_responses_once() {
         assert_eq!(ledger.list_all().unwrap(), rows);
     }
 }
+
+#[test]
+fn non_mux_runtime_events_do_not_request_runtime_signal_emit() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture_with("module.exports = {};");
+    let session = engine::for_tab(&tab).unwrap();
+    let context = session.context.lock().clone();
+    let thread = context.thread_id.clone().unwrap();
+    let runtime_requests = || {
+        fixture
+            .service
+            .ext::<Arc<crate::service::MuxEmitStats>>()
+            .causes
+            .snapshot()[&MuxEmitCause::RuntimeSignal]
+            .requests
+    };
+    let before = runtime_requests();
+    crate::async_runtime::block_on(publish_events(
+        &fixture.service,
+        &session,
+        context.epoch,
+        vec![AgentRuntimeEvent::Usage {
+            thread_id: thread.clone(),
+            usage: TokenUsage {
+                response_id: Some("r1".into()),
+                input_tokens: 10,
+                output_tokens: 5,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+                used_tokens: None,
+                window_tokens: None,
+                cost_micros: None,
+            },
+        }],
+        123_000,
+    ))
+    .unwrap();
+    assert_eq!(runtime_requests(), before);
+
+    crate::async_runtime::block_on(publish_events(
+        &fixture.service,
+        &session,
+        context.epoch,
+        vec![turn(&thread, RuntimeTurnState::Working)],
+        123_500,
+    ))
+    .unwrap();
+    assert_eq!(runtime_requests(), before + 1);
+}

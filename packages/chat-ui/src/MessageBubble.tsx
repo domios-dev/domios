@@ -28,6 +28,7 @@ import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportC
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { NeighborOriginHeader } from "./codeterm/NeighborOriginHeader";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
+import { TaskStridesBlock } from "./TaskStridesBlock";
 import { ChatNoticeCard } from "./ChatNoticeCard";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import { BoundedNoticeText } from "./BoundedNoticeText";
@@ -263,9 +264,30 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           bodyClassName={`${userText} ${TEXT_WRAP_CLASS}`}
           status={prompt ? undefined : noticeStatus}
         >
-          {reminder
-            ? <CompactMessageContent text={reminder.text} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
-            : <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />}
+          {reminder && reminder.sections.some((section) => section.taskStrides)
+            ? reminder.sections.map((section, index) => section.taskStrides
+              ? (
+                <TaskStridesBlock
+                  key={index}
+                  block={section.taskStrides}
+                  renderBody={(body) => (
+                    <RichMarkdown text={body} fontScale={fontScale} planLinks={{ onOpenPlan, resolvePlanRef }} />
+                  )}
+                />
+              )
+              : (
+                <CompactMessageContent
+                  key={index}
+                  text={section.body}
+                  fontScale={fontScale}
+                  onOpenPlan={onOpenPlan}
+                  resolvePlanRef={resolvePlanRef}
+                  collapseAfter={Number.POSITIVE_INFINITY}
+                />
+              ))
+            : reminder
+              ? <CompactMessageContent text={reminder.text} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+              : <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />}
         </ChatNoticeCard>
       );
     }

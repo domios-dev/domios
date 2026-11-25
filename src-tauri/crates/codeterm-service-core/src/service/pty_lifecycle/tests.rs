@@ -407,6 +407,106 @@ fn abrupt_pty_death_closes_browser_while_retaining_the_agent_tab() {
 }
 
 #[test]
+fn browser_removal_on_pty_death_and_kill_persists_durably_without_closing_other_browsers() {
+    use crate::multiplexer::types::{SurfaceBacking, TabBacking};
+    use codeterm_plugin::surfaces::{SurfaceDecl, SurfaceRegistryHandle, SurfaceRenderer};
+
+    let (fixture, owner, generation) = role_pty_fixture(AgentRole::Worker);
+    let registry = fixture.service.ext::<SurfaceRegistryHandle>();
+    registry.register(
+        "fixture",
+        std::sync::Arc::new(vec![SurfaceDecl {
+            id: "page".into(),
+            title: "Browser".into(),
+            renderer: SurfaceRenderer::Stream,
+            runtime: Some(codeterm_surface::surface::BROWSER_RUNTIME.into()),
+            agent_bound: true,
+            restore: Default::default(),
+            chrome: None,
+            icon: None,
+            agent_verbs: Vec::new(),
+            state_invalidation: false,
+        }]),
+    );
+    let make_browser = |id: &str| {
+        TabBacking::Surface(SurfaceBacking {
+            plugin_id: "fixture".into(),
+            surface_id: "page".into(),
+            instance_id: id.into(),
+            owner_label: true,
+            resume_url: None,
+            resume_profile: None,
+        })
+    };
+
+    let (owned_browser, sibling_owner, sibling_browser, standalone_browser) = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+        mux.get_tab_mut(&owner).unwrap().agent_type = Some("fixture-agent".into());
+        let owned_browser = mux.create_tab(&workspace).unwrap();
+        {
+            let tab = mux.get_tab_mut(&owned_browser).unwrap();
+            tab.parent_tab_id = Some(owner.clone());
+            tab.backing = make_browser("owned");
+        }
+        let sibling_owner = mux.create_tab(&workspace).unwrap();
+        let sibling_browser = mux.create_tab(&workspace).unwrap();
+        {
+            let tab = mux.get_tab_mut(&sibling_browser).unwrap();
+            tab.parent_tab_id = Some(sibling_owner.clone());
+            tab.backing = make_browser("sibling");
+        }
+        let standalone_browser = mux.create_tab(&workspace).unwrap();
+        mux.get_tab_mut(&standalone_browser).unwrap().backing = make_browser("standalone");
+        (
+            owned_browser,
+            sibling_owner,
+            sibling_browser,
+            standalone_browser,
+        )
+    };
+
+    let root = fixture.temp.path().join("browser-persist-storage");
+    crate::storage::test_support::seed_empty_root(&root);
+    let storage =
+        crate::storage::Storage::open(root, crate::storage::StorageConfig::default()).unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    adapter
+        .import_snapshot(
+            &fixture.service.mux.read().to_session_snapshot(),
+            Vec::new(),
+        )
+        .expect("seed desk snapshot");
+    crate::service::session_persist::install_storage_desk_adapter(&fixture.service, adapter)
+        .unwrap();
+
+    assert_eq!(
+        super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None),
+        super::PtyDeathOutcome::PreservedForRecovery,
+    );
+    crate::service::session_persist::write_session_snapshot(&fixture.service, &fixture.service.mux)
+        .expect("flush queued durable browser close");
+    let reader = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    let persisted = reader.snapshot().expect("read persisted snapshot");
+    let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(&persisted);
+    assert!(
+        restored.get_tab(&owned_browser).is_none(),
+        "closed owned browser must not resurrect from storage"
+    );
+    assert!(restored.get_tab(&sibling_browser).is_some());
+    assert!(restored.get_tab(&standalone_browser).is_some());
+
+    // Explicit stop via close_owned_browser_tabs also removes and persists durably.
+    assert!(fixture.service.close_owned_browser_tabs(&sibling_owner));
+    crate::service::session_persist::write_session_snapshot(&fixture.service, &fixture.service.mux)
+        .expect("flush queued sibling browser close");
+    let persisted = reader.snapshot().expect("read persisted snapshot");
+    let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(&persisted);
+    assert!(restored.get_tab(&sibling_browser).is_none());
+    assert!(restored.get_tab(&standalone_browser).is_some());
+}
+
+#[test]
 fn in_session_agent_death_without_shutdown_still_prunes_role_tabs() {
     for role in [AgentRole::Worker, AgentRole::Manager] {
         let (fixture, tab, generation) = role_pty_fixture(role);

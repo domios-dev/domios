@@ -1,6 +1,14 @@
 export type BackgroundProcessAuthority = Pick<import("../../gen/BackgroundProcessSnapshot").BackgroundProcessSnapshot, "rootThreadId" | "bindingNonce" | "epoch">;
 
-export type BackgroundProcessEntry = import("../../gen/BackgroundProcessEntry").BackgroundProcessEntry;
+export type BackgroundProcessChild = {
+  command: string;
+  osPid?: number;
+};
+
+export type BackgroundProcessEntry = import("../../gen/BackgroundProcessEntry").BackgroundProcessEntry & {
+  parentOsPid?: number;
+  children?: BackgroundProcessChild[];
+};
 
 export type BackgroundProcessSnapshot = import("../../gen/BackgroundProcessSnapshot").BackgroundProcessSnapshot;
 

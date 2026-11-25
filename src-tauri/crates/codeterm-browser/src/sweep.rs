@@ -137,7 +137,9 @@ fn owned_profile(row: &ProcessRow, root: &Path, case_insensitive: bool) -> Optio
     if profiles.next().is_some() {
         return None;
     }
-    let value = arg.strip_prefix(USER_DATA_DIR)?;
+    let value = arg
+        .strip_prefix(USER_DATA_DIR)?
+        .trim_end_matches(['/', '\\']);
     let normalized = normalize(value, case_insensitive);
     let root_norm = normalized_dir(root, case_insensitive);
     let below_root = normalized
@@ -495,6 +497,20 @@ mod tests {
             r#"powershell.exe -Command "echo --codeterm-owned-browser --user-data-dir=C:\Users\Fixture User\.domios\browsers\profiles\work""#,
         )];
         assert!(find_orphans(&rows, root, 42, &HashSet::new(), true).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn browser_sweep_matches_windows_owned_profile_with_trailing_separator() {
+        let root = Path::new(r"C:\Users\Fixture\.domios\browsers");
+        let rows = vec![row(
+            91,
+            1,
+            r#""C:\Program Files\Google\Chrome\Application\chrome.exe" --codeterm-owned-browser --user-data-dir=C:\Users\Fixture\.domios\browsers\profiles\work\ about:blank"#,
+        )];
+        let orphans = find_orphans(&rows, root, 42, &HashSet::new(), true);
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].profile_dir, root.join("profiles").join("work"));
     }
 
     #[test]

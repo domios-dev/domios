@@ -70,6 +70,17 @@ export function setRemoteChatFailure(tabId: string, failure?: RemoteChatFailure)
   publish();
 }
 
+export function clearPeerRemoteChatFailures(peerId: string) {
+  let deleted = false;
+  for (const tabId of [...failures.keys()]) {
+    if (parseCompositeTabId(tabId)?.peerId === peerId) {
+      failures.delete(tabId);
+      deleted = true;
+    }
+  }
+  if (deleted) publish();
+}
+
 export function readRemoteChatStatus(tabId: string, peerId?: string | null) {
   const peer = remoteChatPeer(peerId);
   const failure = peerId ? failures.get(tabId) : undefined;

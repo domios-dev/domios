@@ -1,8 +1,11 @@
+import { countTaskStrideLines, taskStridesLabel, type TaskStridesBlockData } from "./taskStrides";
+
 export interface SystemReminderSection {
   /** Marker name without the `codeterm-` prefix; empty for text outside any marker. */
   kind: string;
   title: string;
   body: string;
+  taskStrides?: TaskStridesBlockData;
 }
 
 export interface ReadableSystemReminder {
@@ -18,6 +21,11 @@ const ATTRIBUTE = /([a-z_]+)="([^"]*)"/g;
 
 const MARKER_TITLES = new Map<string, (attrs: Record<string, string>) => string>([
   ["worker-charter", (attrs) => attrs.task ? `Worker charter · ${attrs.task}` : "Worker charter"],
+  ["task-strides", (attrs) => {
+    const count = Number(attrs.count);
+    if (Number.isInteger(count) && count > 0) return taskStridesLabel(count);
+    return attrs.task ? `Task strides · ${attrs.task}` : "Task strides";
+  }],
   ["orchestrator-heartbeat", (attrs) => attrs.plan ? `Plan heartbeat · ${attrs.plan}` : "Plan heartbeat"],
   ["state-reconciliation", (attrs) => attrs.plan ? `State reconciliation · ${attrs.plan}` : "State reconciliation"],
   ["role-identity", (attrs) => attrs.plan ? `Role · ${attrs.plan}` : "Role"],
@@ -47,8 +55,23 @@ export function readableSystemReminder(text: string): ReadableSystemReminder | n
   for (const match of text.matchAll(MARKER_BLOCK)) {
     sections.push(...plainSection(text.slice(cursor, match.index)));
     const kind = match[1];
+    const attrs = attributes(match[2]);
     const body = match[3].replace(STRAY_MARKER, "").trim();
-    sections.push({ kind, title: markerTitle(kind, attributes(match[2])), body });
+    const taskStrides = kind === "task-strides"
+      ? (() => {
+        const declaredCount = Number(attrs.count);
+        const count = Number.isInteger(declaredCount) && declaredCount > 0
+          ? declaredCount
+          : Math.max(1, countTaskStrideLines(body));
+        return { ...(attrs.task ? { taskId: attrs.task } : {}), count, body };
+      })()
+      : undefined;
+    sections.push({
+      kind,
+      title: markerTitle(kind, attrs),
+      body,
+      ...(taskStrides ? { taskStrides } : {}),
+    });
     cursor = match.index + match[0].length;
   }
   sections.push(...plainSection(text.slice(cursor)));

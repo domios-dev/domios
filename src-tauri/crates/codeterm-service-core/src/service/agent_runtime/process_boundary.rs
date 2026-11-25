@@ -24,6 +24,8 @@ mod selective;
 
 pub(in crate::service::agent_runtime) type NativeMember = native::Member;
 
+#[cfg(test)]
+pub(in crate::service::agent_runtime) use os_background::SelectedBackgroundChild;
 pub(in crate::service::agent_runtime) use os_background::{
     format_os_process_id, parse_os_process_id, wait_for_any_exit, ExitWaitCancel, HostMcpFilter,
     OsBackgroundSnapshot, SelectedBackgroundProcess,

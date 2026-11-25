@@ -445,9 +445,15 @@ fn run_worker(
                         Ok(Some(projection)) => {
                             let mut desk = projection.snapshot.clone();
                             desk.timestamp = 0;
-                            if !projection.has_omissions()
-                                && !retry_after_error
-                                && committed_desk.as_ref() == Some(&(latest.intent, desk))
+                            let omitted = projection.omitted_tabs();
+                            if !retry_after_error
+                                && committed_desk.as_ref().is_some_and(
+                                    |(intent, saved_desk, saved_omitted)| {
+                                        *intent == latest.intent
+                                            && saved_desk == &desk
+                                            && saved_omitted == omitted
+                                    },
+                                )
                             {
                                 Ok(SaveOutcome::Saved)
                             } else {
@@ -469,15 +475,12 @@ fn run_worker(
                         last_outcome = SaveOutcome::Saved;
                         last_error = None;
                         retry_after_error = false;
-                        committed_desk = projected
-                            .ok()
-                            .flatten()
-                            .filter(|projection| !projection.has_omissions())
-                            .map(|projection| {
-                                let mut desk = projection.snapshot;
-                                desk.timestamp = 0;
-                                (latest.intent, desk)
-                            });
+                        committed_desk = projected.ok().flatten().map(|projection| {
+                            let omitted = projection.omitted_tabs().clone();
+                            let mut desk = projection.snapshot;
+                            desk.timestamp = 0;
+                            (latest.intent, desk, omitted)
+                        });
                     }
                     Ok(outcome @ SaveOutcome::RefusedReduction(_)) => {
                         last_outcome = outcome.clone();
@@ -504,7 +507,7 @@ fn run_worker(
                 Ok(state) => {
                     let mut desk = state.snapshot;
                     desk.timestamp = 0;
-                    committed_desk = Some((SaveIntent::PreserveDesk, desk));
+                    committed_desk = Some((SaveIntent::PreserveDesk, desk, HashSet::new()));
                     if let Some(context) = context.as_ref() {
                         context.ui.emit_native(
                             "desk-revision-committed",

@@ -5,7 +5,6 @@ import type { WallpaperFill } from "../../gen/WallpaperFill";
 import type { WallpaperFillPreset } from "../../gen/WallpaperFillPreset";
 import type { WallpaperPalette } from "../../gen/WallpaperPalette";
 import { chatBackgroundToCSS, chatPatternTile, DOT_OPACITY } from "./chatBackgroundCss";
-import type { MachineColor } from "./machineIdentity";
 import { isLightColor } from "./themeCss";
 import type { ThemeConfig } from "./types";
 
@@ -95,11 +94,10 @@ export function wallpaperRenderStyle(
   setting: ChatWallpaper | undefined,
   light: boolean,
   assetUrl?: string,
-  identity?: MachineColor,
   intensityMultiplier = 1,
 ): Record<string, string> {
   if (setting?.asset && (!assetUrl || !assetUrl.startsWith("blob:"))) {
-    return wallpaperRenderStyle(theme, undefined, light, undefined, identity);
+    return wallpaperRenderStyle(theme, undefined, light);
   }
   const wallpaper = effectiveWallpaper(theme, setting);
   const { background, palette, fill } = wallpaper;

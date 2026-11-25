@@ -166,25 +166,56 @@ fn history_facts(
     Ok((bounces, held, lane_history))
 }
 
+const CONTROL_WINDOW_7D_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
 pub(super) fn control_counts(
     connection: &Connection,
     plan_id: &str,
     now_ms: u64,
 ) -> Result<crate::plan::CuratorCounts, PlanError> {
+    control_counts_with_expiry(connection, plan_id, now_ms).map(|(counts, _)| counts)
+}
+
+/// Returns the 7-day curator counts plus the exact timestamp when the oldest
+/// included `curator_round` stride leaves the window, allowing revision-keyed
+/// board-state caches to reuse counts without drifting past a window boundary.
+pub(super) fn control_counts_with_expiry(
+    connection: &Connection,
+    plan_id: &str,
+    now_ms: u64,
+) -> Result<(crate::plan::CuratorCounts, Option<u64>), PlanError> {
     record_query();
-    connection.query_row(
-        "SELECT coalesce(sum(json_extract(r,'$.outcome') NOT IN ('quiet','nudged','fallback')),0),
-                coalesce(sum(json_extract(r,'$.outcome')='quiet'),0),
-                coalesce(sum(json_extract(r,'$.outcome')='nudged'),0),
-                coalesce(sum(json_extract(r,'$.learnings')),0),
-                coalesce(sum(json_extract(r,'$.save_id') IS NOT NULL),0),
-                coalesce(sum(json_extract(r,'$.outcome')='fallback'),0)
-         FROM (SELECT json_extract(row_json,'$.text') AS r FROM plan_strides
-            WHERE plan_id=?1 AND coalesce(json_extract(row_json,'$.ts'),0)>=?2
-                AND json_extract(row_json,'$.kind')='curator_round')
-         WHERE json_valid(r)",
-        params![plan_id,now_ms.saturating_sub(7*24*60*60*1000)], |row| Ok(crate::plan::CuratorCounts {
-            rounds:row.get(0)?,quiet:row.get(1)?,nudged:row.get(2)?,learnings:row.get(3)?,saves:row.get(4)?,fallbacks:row.get(5)?,
-        })
-    ).map_err(db_error)
+    connection
+        .query_row(
+            "SELECT coalesce(sum(json_extract(r,'$.outcome') NOT IN ('quiet','nudged','fallback')),0),
+                    coalesce(sum(json_extract(r,'$.outcome')='quiet'),0),
+                    coalesce(sum(json_extract(r,'$.outcome')='nudged'),0),
+                    coalesce(sum(json_extract(r,'$.learnings')),0),
+                    coalesce(sum(json_extract(r,'$.save_id') IS NOT NULL),0),
+                    coalesce(sum(json_extract(r,'$.outcome')='fallback'),0),
+                    min(ts)
+             FROM (SELECT coalesce(json_extract(row_json,'$.ts'),0) AS ts,
+                          json_extract(row_json,'$.text') AS r
+                   FROM plan_strides
+                   WHERE plan_id=?1 AND coalesce(json_extract(row_json,'$.ts'),0)>=?2
+                     AND json_extract(row_json,'$.kind')='curator_round')
+             WHERE json_valid(r)",
+            params![plan_id, now_ms.saturating_sub(CONTROL_WINDOW_7D_MS)],
+            |row| {
+                let counts = crate::plan::CuratorCounts {
+                    rounds: row.get(0)?,
+                    quiet: row.get(1)?,
+                    nudged: row.get(2)?,
+                    learnings: row.get(3)?,
+                    saves: row.get(4)?,
+                    fallbacks: row.get(5)?,
+                };
+                let earliest_ts: Option<u64> = row.get(6)?;
+                Ok((
+                    counts,
+                    earliest_ts.map(|ts| ts.saturating_add(CONTROL_WINDOW_7D_MS)),
+                ))
+            },
+        )
+        .map_err(db_error)
 }

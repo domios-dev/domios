@@ -64,9 +64,13 @@ it("names local and remote Team cards with the machine shown after the title", a
     const remote = host.querySelector('section[aria-label="Remote research, Desk"]')!;
     expect(local.querySelector(".sidebar-team-machine-pill")).toBeNull();
     const title = remote.querySelector('[data-testid="team-name"]')!;
-    const machine = remote.querySelector('[title="Desk"]')!;
+    const machine = remote.querySelector<HTMLElement>('[title="Desk"]')!;
     expect(machine.textContent).toBe("Desk");
     expect(title.nextElementSibling).toBe(machine);
+    expect(machine.style.getPropertyValue("--ct-plan-tone")).toBe("");
+    const glyph = machine.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+    expect(glyph.style.color).toBe("var(--ct-accent)");
+    expect(remote.innerHTML).not.toMatch(/ct-machine-/);
   } finally {
     await act(async () => root.unmount());
     host.remove();

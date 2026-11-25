@@ -1,12 +1,27 @@
 use crate::agent_runtime::RuntimeBackgroundProcess;
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundProcessChild {
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub os_pid: Option<u32>,
+}
+
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct BackgroundProcessEntry {
     pub thread_id: String,
     #[serde(flatten)]
     pub process: RuntimeBackgroundProcess,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub parent_os_pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub children: Option<Vec<BackgroundProcessChild>>,
 }
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]

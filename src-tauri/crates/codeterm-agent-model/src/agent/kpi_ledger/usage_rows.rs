@@ -107,7 +107,11 @@ impl KpiLedger {
         upsert_cursor(&tx, source_path, cursor)?;
         tx.commit()
             .map_err(|e| format!("kpi ledger usage commit: {}", e))?;
-        self.committed();
+        if events.iter().any(|e| e.kind == KpiEventKind::TokenUsage) {
+            self.committed_token_usage();
+        } else {
+            self.committed();
+        }
         Ok(())
     }
 
@@ -201,7 +205,7 @@ impl KpiLedger {
         upsert_cursor(&tx, source_path, cursor)?;
         tx.commit()
             .map_err(|e| format!("kpi ledger rebuild commit: {}", e))?;
-        self.committed();
+        self.committed_token_usage();
         Ok(outcome)
     }
 
@@ -235,7 +239,7 @@ impl KpiLedger {
         }
         tx.commit()
             .map_err(|e| format!("kpi ledger duplicate commit: {}", e))?;
-        self.committed();
+        self.committed_token_usage();
         Ok(removed)
     }
 }

@@ -131,17 +131,110 @@ test("projects readable command names without long arguments",()=>{
   assert.equal(backgroundCommandName('pwsh -NoProfile -File "C:\\work area\\cleanup-merged.ps1" -Lane example'),"cleanup-merged.ps1");
   assert.equal(backgroundCommandName('bash -lc "node /work/build.mjs --flag value"'),"build.mjs");
   assert.equal(backgroundCommandName(`node ${"x".repeat(40)}.mjs`).length,24);
+  assert.equal(backgroundCommandName("bash scripts/build.sh check 2>&1 | tee -a /tmp/build-check.log"),"build.sh check");
+  assert.equal(backgroundCommandName('bash -lc "./build.sh fmt && bash scripts/check-file-sizes.sh --fail"'),"build.sh fmt");
+  assert.equal(backgroundCommandName("pnpm dev"),"pnpm dev");
+  assert.equal(backgroundCommandName("cargo fmt"),"cargo fmt");
+  assert.equal(backgroundCommandName("npx vitest run"),"vitest run");
 });
 
 test("deduplicates process identity while preserving distinct jobs and exact tool ownership",()=>{
   const message:NormalizedChatMessage={id:process.itemId,type:"tool_call",content:"",timestamp:new Date(now-20_000).toISOString()};
-  const items=composerBackgroundWorkItems([message],[process,process,{...process,processId:"another"}],now);
+  const items=composerBackgroundWorkItems([message],[process,process,{...process,processId:"another",itemId:"other-item"}],now);
   assert.equal(items.length,2);
   assert.equal(items[0].status,"running");
   assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"root"},items),true);
   assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"foreign"},items),false);
   assert.equal(backgroundOwnsTool({id:"foreground"},items),false);
   assert.equal(backgroundOwnsTool(undefined,items),false);
+});
+
+test("groups a process tree with subshells, tee, and sccache into one top-level card", () => {
+  // 1. Backend-grouped OS entry carrying live children
+  const osGrouped = [{
+    threadId: "root",
+    processId: "os:41208:50",
+    itemId: "os-bg:41208:50",
+    command: "bash scripts/build.sh check 2>&1 | tee -a /tmp/build-check.log",
+    cwd: "/repo",
+    osPid: 41208,
+    parentOsPid: 41200,
+    children: [
+      { command: "bash scripts/build.sh check", osPid: 41231 },
+      { command: "tee -a /tmp/build-check.log", osPid: 41209 },
+      { command: "sccache", osPid: 40977 },
+    ],
+  }];
+  const osItems = composerBackgroundWorkItems([], osGrouped, now);
+  assert.equal(osItems.length, 1);
+  assert.equal(composerBackgroundWorkBubble(osItems)?.count, 1);
+  assert.equal(osItems[0].name, "build.sh check");
+  assert.equal(osItems[0].helperCount, 3);
+  assert.deepEqual(
+    osItems[0].processes?.map(proc => [proc.role, proc.osPid, proc.command]),
+    [
+      ["main", 41208, "bash scripts/build.sh check 2>&1 | tee -a /tmp/build-check.log"],
+      ["helper", 41231, "bash scripts/build.sh check"],
+      ["helper", 41209, "tee -a /tmp/build-check.log"],
+      ["helper", 40977, "sccache"],
+    ],
+  );
+
+  // 2. Flat process tree linked by parentOsPid + shared pipeline parent
+  const flatTree = [
+    { threadId: "root", processId: "p-tee", itemId: "i-tee", command: "tee -a /tmp/build-check.log", cwd: "/repo", osPid: 41209, parentOsPid: 41200 },
+    { threadId: "root", processId: "p-main", itemId: "i-main", command: "bash scripts/build.sh check", cwd: "/repo", osPid: 41208, parentOsPid: 41200 },
+    { threadId: "root", processId: "p-sub", itemId: "i-sub", command: "bash scripts/build.sh check", cwd: "/repo", osPid: 41231, parentOsPid: 41208 },
+    { threadId: "root", processId: "p-sc", itemId: "i-sc", command: "sccache", cwd: "/repo", osPid: 40977, parentOsPid: 41231 },
+  ];
+  const treeItems = composerBackgroundWorkItems([], flatTree, now);
+  assert.equal(treeItems.length, 1);
+  assert.equal(composerBackgroundWorkBubble(treeItems)?.count, 1);
+  assert.equal(treeItems[0].name, "build.sh check");
+  assert.equal(treeItems[0].processId, "p-main");
+  assert.equal(treeItems[0].helperCount, 3);
+  assert.equal(backgroundOwnsTool({ id: "i-sub", sourceSessionId: "root" }, treeItems), true);
+  // Collapsed member processIds must not be re-added from the provider roster.
+  const merged = withProviderBackgroundWork(treeItems, roster({ "p-tee": "tee", "p-sc": "sccache" }, { "p-tee": "shell", "p-sc": "shell" }), "root");
+  assert.equal(merged.length, 1);
+
+  // 3. Multiple provider processes sharing one launching tool call itemId
+  const sameItem = [
+    { threadId: "root", processId: "codex-1", itemId: "exec-1", command: "bash scripts/build.sh check", cwd: "/repo", osPid: null },
+    { threadId: "root", processId: "codex-2", itemId: "exec-1", command: "tee -a /tmp/build-check.log", cwd: "/repo", osPid: null },
+  ];
+  const itemGrouped = composerBackgroundWorkItems([], sameItem, now);
+  assert.equal(itemGrouped.length, 1);
+  assert.equal(itemGrouped[0].name, "build.sh check");
+  assert.equal(itemGrouped[0].helperCount, 1);
+});
+
+test("never groups unrelated commands by name guesses alone and keeps standalone helpers visible", () => {
+  // Two independent user commands spawned directly under the same parent PID stay distinct.
+  const twoCommands = [
+    { threadId: "root", processId: "p1", itemId: "i1", command: "cargo fmt", cwd: "/repo", osPid: 200, parentOsPid: 100 },
+    { threadId: "root", processId: "p2", itemId: "i2", command: "pnpm dev", cwd: "/repo", osPid: 300, parentOsPid: 100 },
+  ];
+  const twoItems = composerBackgroundWorkItems([], twoCommands, now);
+  assert.equal(twoItems.length, 2);
+  assert.equal(composerBackgroundWorkBubble(twoItems)?.count, 2);
+  assert.deepEqual(twoItems.map(item => item.name), ["cargo fmt", "pnpm dev"]);
+
+  // Unrelated tee/sccache without shared tree or itemId are NOT merged by name alone.
+  const unrelated = [
+    { threadId: "root", processId: "p1", itemId: "i1", command: "bash scripts/build.sh check", cwd: "/repo", osPid: 200 },
+    { threadId: "root", processId: "p2", itemId: "i2", command: "sccache", cwd: "/other", osPid: 300 },
+  ];
+  assert.equal(composerBackgroundWorkItems([], unrelated, now).length, 2);
+
+  // Standalone surviving helper (root exited) stays visible.
+  const surviving = [
+    { threadId: "root", processId: "os:40977:52", itemId: "os-bg:40977:52", command: "sccache", cwd: "/repo", osPid: 40977 },
+  ];
+  const survivingItems = composerBackgroundWorkItems([], surviving, now);
+  assert.equal(survivingItems.length, 1);
+  assert.equal(survivingItems[0].name, "sccache");
+  assert.equal(survivingItems[0].helperCount, 0);
 });
 
 test("only live work makes a bubble; unknown work rides along beside it and ended work is never shown", () => {

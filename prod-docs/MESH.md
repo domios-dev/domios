@@ -12,14 +12,14 @@ Each side verifies current signed membership and possession of both the installa
 
 `domios mesh status` returns identity, transport, publication, refusal and account machine summaries to authenticated local agents. Account mutations and credential-bearing account details remain local-owner only.
 
-A machine's kind icon and colour are suggested when it joins. Change them from **My machines** or the machine card menu. Peers learn the choice from the installation's signed Mesh announcement and keep its colour when it goes offline. To change a local or paired machine from a terminal, use:
+A machine's kind icon is suggested when it joins. Change it from **My machines** or the machine card menu. Peers learn the choice from the installation's signed Mesh announcement. To change a local or paired machine from a terminal, use:
 
 ```text
-domios mesh identity set --kind laptop --color teal
-domios mesh identity set --kind server --color graphite --peer ubunta
+domios mesh identity set --kind laptop
+domios mesh identity set --kind server --peer ubunta
 ```
 
-An agent's command sends an approval choice to the target machine's owner. The icon and colour change when the owner chooses **Apply**.
+An agent's command sends an approval choice to the target machine's owner. The icon changes when the owner chooses **Apply**.
 
 ## Web access and endpoints
 
@@ -171,4 +171,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 81 -->
+<!-- revision: 82 -->

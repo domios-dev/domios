@@ -165,12 +165,14 @@ pub(super) fn emit_snapshot(service: &ServiceContext, causes: u64) {
             false
         }
     };
-    if let Err(error) = super::session_persist::submit_session_snapshot_with_intent(
-        service,
-        &service.mux,
-        crate::session::store::SaveIntent::PreserveDesk,
-    ) {
-        log::warn!("[session-persist] coalesced desk submission failed: {error}");
+    if !unchanged {
+        if let Err(error) = super::session_persist::submit_session_snapshot_with_intent(
+            service,
+            &service.mux,
+            crate::session::store::SaveIntent::PreserveDesk,
+        ) {
+            log::warn!("[session-persist] coalesced desk submission failed: {error}");
+        }
     }
     if !unchanged && !stats.frozen.load(Ordering::Acquire) {
         stats.fires.fetch_add(1, Ordering::Relaxed);

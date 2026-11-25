@@ -109,3 +109,28 @@ fn mesh_remove_parses_machine_target_and_blocks_mesh_relay() {
     let (method, _, _) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
     assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
 }
+
+#[test]
+fn mesh_identity_set_accepts_kind_only_and_rejects_color() {
+    use clap::Parser;
+    let parsed =
+        crate::Cli::try_parse_from(["domios", "mesh", "identity", "set", "--kind", "laptop"])
+            .expect("mesh identity set --kind parses");
+    let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/mesh/identity");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(body.as_deref().unwrap()).unwrap(),
+        serde_json::json!({ "kind": "laptop", "color": "graphite" })
+    );
+
+    crate::Cli::try_parse_from([
+        "domios", "mesh", "identity", "set", "--kind", "server", "--peer", "ubunta",
+    ])
+    .expect("mesh identity set --peer parses");
+
+    assert!(crate::Cli::try_parse_from([
+        "domios", "mesh", "identity", "set", "--kind", "laptop", "--color", "teal",
+    ])
+    .is_err());
+}

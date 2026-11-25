@@ -94,8 +94,11 @@ impl ServiceContext {
         mux: &mut MultiplexerState,
         owner: &str,
     ) -> bool {
+        let owner = mux
+            .resolve_tab_id(owner)
+            .unwrap_or_else(|| owner.to_string());
         let mut removed = false;
-        for id in mux.get_children_ids(owner) {
+        for id in mux.get_children_ids(&owner) {
             if mux
                 .get_tab(&id)
                 .is_some_and(|tab| self.is_browser_surface(tab))
@@ -105,6 +108,19 @@ impl ServiceContext {
                     Err(error) => log::debug!("[browser] owner exit close {id}: {error}"),
                 }
             }
+        }
+        removed
+    }
+
+    pub(crate) fn close_owned_browser_tabs(&self, owner: &str) -> bool {
+        let removed = {
+            let mut mux = self.mux.write();
+            self.remove_owned_browser_tabs(&mut mux, owner)
+        };
+        if removed {
+            self.dispose_closed_surface_runtimes();
+            super::session_persist::persist_session_after_close(self);
+            self.emit_state_changed(super::MuxEmitCause::Surface);
         }
         removed
     }

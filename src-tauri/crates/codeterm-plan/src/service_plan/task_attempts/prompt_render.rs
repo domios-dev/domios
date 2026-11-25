@@ -73,7 +73,11 @@ pub(in crate::service_plan) fn build_prompt_read<'a>(
         out.push_str(&format!("/{model}"));
     }
     out.push('\n');
-    if let Some(strides) = super::super::stride_context::render_worker_strides(task.milestones) {
+    if let Some(strides) = super::super::stride_context::render_worker_strides(
+        task.milestones,
+        Some(plan_id),
+        Some(task.id),
+    ) {
         out.push('\n');
         out.push_str(&strides);
     }
@@ -179,7 +183,11 @@ pub(in crate::service_plan) fn build_compete_prompt(
         out.push_str(hint.trim());
         out.push('\n');
     }
-    if let Some(strides) = super::super::stride_context::render_worker_strides(&task.milestones) {
+    if let Some(strides) = super::super::stride_context::render_worker_strides(
+        &task.milestones,
+        Some(plan_id),
+        Some(&task.id),
+    ) {
         out.push('\n');
         out.push_str(&strides);
     }

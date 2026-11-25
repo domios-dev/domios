@@ -46,15 +46,18 @@ export function useComposerBackgroundWork(tabId: string, subagentsVisible: boole
   const dismissStopWarning = useCallback(() => setWarning(undefined), []);
   const stop = useCallback(async (item: ComposerBackgroundWorkItem) => {
     if (item.kind !== "terminal" || !authority || !item.processId) return;
-    const result = await invoke<BackgroundStopResult>("agent_runtime_stop_background_process", {
-      tabId,
-      request: { ...authority, threadId: item.threadId, processId: item.processId },
-    });
-    if (result.status === "degraded") {
-      const message = result.reason === "attributionUnavailable"
-        ? `Could not identify the OS processes for ${item.name}.`
-        : `Could not confirm that the OS processes for ${item.name} exited.`;
-      setWarning({ tabId, authority, message });
+    const processIds = item.memberProcessIds?.length ? item.memberProcessIds : [item.processId];
+    for (const processId of processIds) {
+      const result = await invoke<BackgroundStopResult>("agent_runtime_stop_background_process", {
+        tabId,
+        request: { ...authority, threadId: item.threadId, processId },
+      });
+      if (result.status === "degraded") {
+        const message = result.reason === "attributionUnavailable"
+          ? `Could not identify the OS processes for ${item.name}.`
+          : `Could not confirm that the OS processes for ${item.name} exited.`;
+        setWarning({ tabId, authority, message });
+      }
     }
   }, [authority, tabId]);
 

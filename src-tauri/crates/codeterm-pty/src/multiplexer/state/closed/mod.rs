@@ -193,6 +193,9 @@ impl MultiplexerState {
         if tab.hidden && !policy_worker {
             return None;
         }
+        if reason == TabCloseReason::AgentRunEnded && tab.closes_with_owner() {
+            return None;
+        }
         // One conversion, so a new Tab field can't silently desync the close path.
         let mut record = ClosedTab::from(tab);
         if let Some(ws) = self
@@ -550,9 +553,12 @@ impl MultiplexerState {
         self.limit_gate
             .admit(codeterm_entitlements::LimitKey::AgentTabs, self.tabs.len())
             .map_err(|error| error.to_string())?;
+        let live_surface_owner =
+            restore_plan::restored_parent_tab_id(record, None, &[], &self.tabs);
         let tab_id = self.create_tab(workspace_id)?;
         if let Some(tab) = self.tabs.get_mut(&tab_id) {
             tab.backing = record.backing.clone();
+            tab.parent_tab_id = live_surface_owner;
             tab.cwd = record.cwd.clone();
             tab.title = record.title.clone();
             tab.title_level = TitleLevel::User;
@@ -639,6 +645,7 @@ impl MultiplexerState {
             .closed_store
             .peek_in_workspace(workspace_id, idx)
             .ok_or("No recently closed Tab")?;
+        restore_plan::check_reopenable_surface(&record, &self.tabs)?;
         let closed = self.closed_store.transcript_owner_at_row(row_id)?;
         let mut transaction = self.begin_team_close_transaction();
         let res = transaction
@@ -691,6 +698,7 @@ impl MultiplexerState {
             .closed_store
             .peek_by_tab_id(tab_id)
             .ok_or_else(|| format!("No orphaned entry for tab_id: {}", tab_id))?;
+        restore_plan::check_reopenable_surface(&record, &self.tabs)?;
         let closed = self.closed_store.transcript_owner_at_row(row_id)?;
         let mut transaction = self.begin_team_close_transaction();
         let staged = transaction.state_mut();
@@ -731,7 +739,8 @@ impl MultiplexerState {
             .closed_store
             .peek_group(group_id)
             .ok_or_else(|| format!("No closed group: {}", group_id))?;
-        let plan = GroupRestorePlan::new(&tabs)?;
+        let reopenable = restore_plan::filter_reopenable_group_tabs(&tabs, &self.tabs);
+        let plan = GroupRestorePlan::new(&reopenable)?;
         let mut transaction = self.begin_team_close_transaction();
         let staged = transaction.state_mut();
 
@@ -759,11 +768,7 @@ impl MultiplexerState {
             .iter()
             .map(|record| materialize(staged, &workspace_id, record))
             .collect::<Result<_, _>>()?;
-        for (index, parent_index) in plan.parent_indices.iter().enumerate() {
-            if let Some(tab) = staged.tabs.get_mut(&restored_ids[index]) {
-                tab.parent_tab_id = parent_index.map(|parent| restored_ids[parent].clone());
-            }
-        }
+        restore_plan::apply_restored_parents(&plan, &restored_ids, &mut staged.tabs);
         let tab_id = restored_ids[plan.active_index].clone();
         let lineage: Vec<_> = plan
             .tabs

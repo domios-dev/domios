@@ -4,7 +4,7 @@ use crate::{
     ports::daemon_question::{DaemonQuestionHandler, DaemonQuestions},
     service::test_fixture::ServiceFixture,
 };
-use mesh::machine_identity::{MachineColor, MachineKind};
+use mesh::machine_identity::MachineKind;
 use std::sync::Arc;
 
 struct OtherQuestions;
@@ -26,7 +26,6 @@ fn requested_machine_identity_requires_the_owner_and_cannot_overwrite_a_new_choi
     let original = mesh.lock().machine_identity();
     let choice = MachineIdentity {
         kind: MachineKind::Laptop,
-        color: MachineColor::Teal,
     };
     let request = service.request_machine_identity(choice).unwrap();
     let id = request["notification_id"].as_str().unwrap();
@@ -41,13 +40,11 @@ fn requested_machine_identity_requires_the_owner_and_cannot_overwrite_a_new_choi
 
     let old_request = service
         .request_machine_identity(MachineIdentity {
-            color: MachineColor::Pink,
-            ..choice
+            kind: MachineKind::Server,
         })
         .unwrap();
     let newer = MachineIdentity {
-        color: MachineColor::Blue,
-        ..choice
+        kind: MachineKind::Desktop,
     };
     service.update_machine_identity(newer, None).unwrap();
     assert!(service

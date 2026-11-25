@@ -1,6 +1,6 @@
 import { CircleDashed, Cloud, Command, Cpu, Laptop, Monitor, Server, TabletSmartphone } from "lucide-react";
 import type { CSSProperties } from "react";
-import { machineColor, machineKind, type MachineIdentity, type MachineKind } from "../../lib/machineIdentity";
+import { machineKind, type MachineIdentity, type MachineKind } from "../../lib/machineIdentity";
 
 const ICONS = {
   laptop: Laptop,
@@ -13,16 +13,15 @@ const ICONS = {
   other: CircleDashed,
 } satisfies Record<MachineKind, typeof Laptop>;
 
-export function MachineGlyph({ kind, color, tone, size = "mark-12", label, muted = false }: {
+export function MachineGlyph({ kind, tone, size = "mark-12", label, muted = false }: {
   kind?: string | null;
-  color?: string | null;
   tone?: string;
   size?: "mark-12" | "mark-15" | "tile" | "rail";
   label?: string;
   muted?: boolean;
 }) {
   const Icon = ICONS[machineKind(kind)];
-  const ink = tone ?? (muted ? "var(--ct-muted-fg)" : `var(--ct-machine-${machineColor(color)})`);
+  const ink = tone ?? (muted ? "var(--ct-muted-fg)" : "var(--ct-accent)");
   const tile = size === "tile" || size === "rail";
 
   return (
