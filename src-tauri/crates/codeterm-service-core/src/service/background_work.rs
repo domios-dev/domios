@@ -103,6 +103,7 @@ pub(crate) fn apply_observed(
         };
         let mut next =
             observe_background_records(&before, fork_source.is_some(), session, records, live);
+        let visible_changed = !next.visible_eq(&before);
         let changed = next != before;
         let committed = {
             let mut mux = svc.mux.write();
@@ -113,14 +114,16 @@ pub(crate) fn apply_observed(
                 && tab.fork_source_session_id == fork_source
                 && tab.provider_signals.background == before
             {
-                std::mem::swap(&mut tab.provider_signals.background, &mut next);
+                if changed {
+                    std::mem::swap(&mut tab.provider_signals.background, &mut next);
+                }
                 true
             } else {
                 false
             }
         };
         if committed {
-            if changed {
+            if visible_changed {
                 svc.emit_state_changed(MuxEmitCause::BackgroundWork);
                 super::provider_update::background_work_changed(svc, tab_id);
             }
@@ -150,6 +153,36 @@ fn observe_background_records(
             continue;
         }
         for block in &record.blocks {
+            if block.kind == "tool_use" && block.data["tool_kind"] == "command" {
+                if let (Some(call_id), Some(command)) = (
+                    block.data.get("id").and_then(serde_json::Value::as_str),
+                    block
+                        .data
+                        .get("input")
+                        .and_then(|input| input.get("command"))
+                        .and_then(serde_json::Value::as_str)
+                        .or_else(|| {
+                            block
+                                .data
+                                .get("tool_detail")
+                                .and_then(serde_json::Value::as_str)
+                        })
+                        .filter(|text| !text.trim().is_empty()),
+                ) {
+                    roster.observe(
+                        &BackgroundWorkObservation {
+                            id: call_id.into(),
+                            state: BackgroundWorkState::ToolCall,
+                            kind: Some(
+                                codeterm_types::agent::background_work::BackgroundWorkKind::Shell,
+                            ),
+                            label: Some(command.trim().chars().take(256).collect()),
+                            ..Default::default()
+                        },
+                        "",
+                    );
+                }
+            }
             if let Some(id) = block
                 .data
                 .get("tool_background_task_id")
@@ -160,10 +193,16 @@ fn observe_background_records(
                     .get("tool_summary")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("");
+                let tool_use_id = block
+                    .data
+                    .get("tool_use_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
                 roster.observe(
                     &BackgroundWorkObservation {
                         id: id.into(),
                         state: BackgroundWorkState::Unknown,
+                        tool_use_id,
                         ..Default::default()
                     },
                     label,

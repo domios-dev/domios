@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use ts_rs::TS;
 
 const LIMIT: usize = 256;
@@ -10,6 +10,12 @@ pub struct BackgroundWorkObservation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub kind: Option<BackgroundWorkKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tool_use_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub output_path: Option<String>,
@@ -27,6 +33,7 @@ pub enum BackgroundWorkState {
     #[default]
     Unknown,
     SessionBoundary,
+    ToolCall,
     Completed,
     Killed,
     Failed,
@@ -50,8 +57,63 @@ pub struct BackgroundRoster {
     #[serde(skip)]
     #[ts(skip)]
     output_paths: BTreeMap<String, String>,
+    #[serde(skip)]
+    #[ts(skip)]
+    tool_labels: BTreeMap<String, String>,
+    #[serde(skip)]
+    #[ts(skip)]
+    tool_label_order: VecDeque<String>,
 }
 impl BackgroundRoster {
+    pub fn visible_eq(&self, other: &Self) -> bool {
+        self.running == other.running
+            && self.unknown == other.unknown
+            && self.ended == other.ended
+            && self.kinds == other.kinds
+            && self.overflow == other.overflow
+            && self.history_incomplete == other.history_incomplete
+            && self.history_initialized == other.history_initialized
+            && self.output_paths == other.output_paths
+    }
+
+    fn record_tool_label(&mut self, id: &str, label: &str) {
+        let trimmed = label.trim();
+        if id.is_empty() || id.len() > 256 || trimmed.is_empty() {
+            return;
+        }
+        let value: String = trimmed.chars().take(256).collect();
+        if !self.tool_labels.contains_key(id) {
+            if self.tool_labels.len() >= LIMIT {
+                if let Some(oldest) = self.tool_label_order.pop_front() {
+                    self.tool_labels.remove(&oldest);
+                }
+            }
+            self.tool_label_order.push_back(id.to_owned());
+        }
+        self.tool_labels.insert(id.to_owned(), value);
+    }
+
+    fn resolve_label(&self, observation: &BackgroundWorkObservation, fallback: &str) -> String {
+        let candidate = observation
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .or_else(|| {
+                observation
+                    .tool_use_id
+                    .as_deref()
+                    .and_then(|id| self.tool_labels.get(id))
+                    .map(String::as_str)
+            })
+            .or_else(|| {
+                let trimmed = fallback.trim();
+                (!trimmed.is_empty()).then_some(trimmed)
+            })
+            .unwrap_or("");
+        candidate.chars().take(256).collect()
+    }
+
     fn prune_details(&mut self, id: &str) {
         if !self.running.contains_key(id)
             && !self.unknown.contains_key(id)
@@ -87,10 +149,16 @@ impl BackgroundRoster {
             self.invalidate();
             return;
         }
+        if observation.state == BackgroundWorkState::ToolCall {
+            let tool_label = observation.label.as_deref().unwrap_or(label);
+            self.record_tool_label(&observation.id, tool_label);
+            return;
+        }
         if observation.id.is_empty() || observation.id.len() > 256 {
             self.overflow = true;
             return;
         }
+        let resolved_label = self.resolve_label(observation, label);
         match observation.state {
             BackgroundWorkState::Running => {
                 if self.completed.contains(&observation.id)
@@ -107,8 +175,8 @@ impl BackgroundRoster {
                     .running
                     .entry(observation.id.clone())
                     .or_insert(previous_label);
-                if !label.is_empty() {
-                    *value = label.chars().take(256).collect();
+                if !resolved_label.is_empty() {
+                    *value = resolved_label;
                 }
             }
             BackgroundWorkState::Unknown => {
@@ -120,9 +188,10 @@ impl BackgroundRoster {
                             self.prune_details(&removed);
                         }
                     }
-                    self.unknown
-                        .entry(observation.id.clone())
-                        .or_insert_with(|| label.chars().take(256).collect());
+                    let entry = self.unknown.entry(observation.id.clone()).or_default();
+                    if !resolved_label.is_empty() {
+                        *entry = resolved_label;
+                    }
                 }
             }
             _ => {
@@ -130,7 +199,8 @@ impl BackgroundRoster {
                     .running
                     .remove(&observation.id)
                     .or_else(|| self.unknown.remove(&observation.id))
-                    .unwrap_or_else(|| label.chars().take(256).collect());
+                    .filter(|existing| !existing.is_empty())
+                    .unwrap_or(resolved_label);
                 if self.ended.len() >= LIMIT && !self.ended.contains_key(&observation.id) {
                     if let Some((removed, _)) = self.ended.pop_first() {
                         self.prune_details(&removed);

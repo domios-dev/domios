@@ -25,7 +25,7 @@ import { goalVisible } from "./goalModel";
 import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
 import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
 import { useBackgroundProcessChipVisibility } from "./useBackgroundProcessChipVisibility";
-import { composerBackgroundWorkBubble, isRunningWork, SUBAGENT_NAME } from "./composerBackgroundWorkModel";
+import { BACKGROUND_PROCESS_NAME, composerBackgroundWorkBubble, isRunningWork, SUBAGENT_NAME } from "./composerBackgroundWorkModel";
 import { backgroundProcessLabel } from "../../lib/tabActivity";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ComposerQueueTray } from "./ComposerQueueTray";
@@ -183,7 +183,9 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     ? liveItems.length === 1 ? SUBAGENT_NAME : `${liveItems.length} sub-agents`
     : undefined;
   const processLabel = onlyProcesses
-    ? liveItems.length === 1 ? `Background process · ${liveItems[0].name}` : backgroundProcessLabel(liveItems.length)
+    ? liveItems.length === 1
+      ? (liveItems[0].name === BACKGROUND_PROCESS_NAME ? BACKGROUND_PROCESS_NAME : `Background process · ${liveItems[0].name}`)
+      : backgroundProcessLabel(liveItems.length)
     : undefined;
   const backgroundLabel = processLabel ?? (onlySubagents ? subagentLabel : undefined);
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);

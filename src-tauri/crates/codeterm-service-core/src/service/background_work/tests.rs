@@ -45,6 +45,7 @@ fn background_record_compute_keeps_fork_and_session_filters_and_completion_dedup
             state,
             kind: Some(BackgroundWorkKind::Shell),
             output_path: (state == BackgroundWorkState::Running).then(|| "opaque-log".into()),
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -165,5 +166,76 @@ fn background_historical_boundary_cannot_invalidate_newer_live_work() {
     assert_eq!(
         observe_background_records(&current, false, "own", &[old_boundary], false),
         current
+    );
+}
+
+#[test]
+fn own_session_tool_call_labels_background_shell_while_foreign_session_cannot() {
+    use crate::agent::chat_types::RichMessage;
+    use codeterm_types::agent::background_work::{BackgroundRoster, BackgroundWorkKind};
+    let foreign_call = RichMessage {
+        provider_session_id: Some("foreign".into()),
+        background_work: vec![BackgroundWorkObservation {
+            id: "opaque-call".into(),
+            state: BackgroundWorkState::ToolCall,
+            kind: Some(BackgroundWorkKind::Shell),
+            label: Some("foreign-cmd".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let own_launch = RichMessage {
+        provider_session_id: Some("own".into()),
+        background_work: vec![BackgroundWorkObservation {
+            id: "opaque-bg".into(),
+            state: BackgroundWorkState::Running,
+            kind: Some(BackgroundWorkKind::Shell),
+            tool_use_id: Some("opaque-call".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let without_own_call = observe_background_records(
+        &BackgroundRoster::default(),
+        false,
+        "own",
+        &[foreign_call, own_launch.clone()],
+        true,
+    );
+    assert_eq!(
+        without_own_call
+            .running
+            .get("opaque-bg")
+            .map(String::as_str),
+        Some("")
+    );
+
+    let own_call = RichMessage {
+        provider_session_id: Some("own".into()),
+        background_work: vec![BackgroundWorkObservation {
+            id: "opaque-call".into(),
+            state: BackgroundWorkState::ToolCall,
+            kind: Some(BackgroundWorkKind::Shell),
+            label: Some("opaque-cmd 900".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let after_call = observe_background_records(
+        &BackgroundRoster::default(),
+        false,
+        "own",
+        &[own_call],
+        true,
+    );
+    assert!(after_call.visible_eq(&BackgroundRoster::default()));
+    let labeled = observe_background_records(&after_call, false, "own", &[own_launch], true);
+    assert_eq!(
+        labeled.running.get("opaque-bg").map(String::as_str),
+        Some("opaque-cmd 900")
+    );
+    assert_eq!(
+        labeled.kinds.get("opaque-bg"),
+        Some(&BackgroundWorkKind::Shell)
     );
 }

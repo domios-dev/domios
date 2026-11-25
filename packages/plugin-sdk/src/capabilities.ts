@@ -110,6 +110,15 @@ export type ParsedUsage =
   | {kind: "cumulative"; timestamp: number; total: CumulativeUsage; last: UsageTokens | null};
 export type UsageAccounting = "transcript" | "runtime_turn" | "unreported";
 
+export type BackgroundWorkObservation = Omit<
+  import("./gen/BackgroundWorkObservation").BackgroundWorkObservation,
+  "state"
+> & {
+  state: import("./gen/BackgroundWorkState").BackgroundWorkState | "tool_call";
+  label?: string;
+  tool_use_id?: string;
+};
+
 export interface AgentProvider {
   usageAccounting?(): UsageAccounting;
   usageSqlQuery?(scoped: boolean): string | null;
@@ -117,7 +126,7 @@ export interface AgentProvider {
   sessionResume?(): SessionResumeCapability;
   authStatusProbe?(): import("./gen/AuthStatusProbe").AuthStatusProbe | null;
   tracksBackgroundWork?(): boolean;
-  parseBackgroundWork?(record: unknown): import("./gen/BackgroundWorkObservation").BackgroundWorkObservation[];
+  parseBackgroundWork?(record: unknown): BackgroundWorkObservation[];
   reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
   modelCatalogueSeed?(): ModelInfo[];
   parseAuthStatus?(record: unknown): ProviderAuthStatus | null;

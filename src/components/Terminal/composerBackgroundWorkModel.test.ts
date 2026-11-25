@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, withProviderBackgroundWork } from "./composerBackgroundWorkModel";
+import { BACKGROUND_PROCESS_NAME, BACKGROUND_TASK_NAME, backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, withProviderBackgroundWork } from "./composerBackgroundWorkModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const roster = (running: Record<string, string>, kinds: Record<string, "shell" | "subagent"> = {}, unknown: Record<string, string> = {}) => ({
@@ -299,4 +299,104 @@ test("provider background shell transitions from running to hidden on completion
     "own-session",
   );
   assert.equal(composerBackgroundWorkBubble(allDone), null);
+});
+
+test("provider background shells map parallel stream commands, roster commands, and never expose raw task ids", () => {
+  // 1. Parallel commands in one shared flow (folded into a stream by reduceToolEvents) both keep their exact commands.
+  const parallelMessages: NormalizedChatMessage[] = [
+    {
+      id: "call-a", type: "tool_call", content: "", sourceSessionId: "own-session",
+      toolKind: "command", toolFlowId: "flow-1", toolDescription: "Run first opaque task",
+      toolInput: { command: "sleep 900" }, toolId: "tool-a", toolCallSourceId: "asst-a",
+    },
+    {
+      id: "call-b", type: "tool_call", content: "", sourceSessionId: "own-session",
+      toolKind: "command", toolFlowId: "flow-1", toolDescription: "Run second opaque task",
+      toolInput: { command: "node -e 'setInterval(() => {}, 60000)'" }, toolId: "tool-b", toolCallSourceId: "asst-b",
+    },
+    {
+      id: "res-a", type: "tool_result", content: "", sourceSessionId: "own-session",
+      toolId: "tool-a", toolCallSourceId: "asst-a", toolPairing: "exact", toolBackgroundTaskId: "opaque-id-1",
+    },
+    {
+      id: "res-b", type: "tool_result", content: "", sourceSessionId: "own-session",
+      toolId: "tool-b", toolCallSourceId: "asst-b", toolPairing: "exact", toolBackgroundTaskId: "opaque-id-2",
+    },
+  ];
+  const fromStream = withProviderBackgroundWork(
+    [],
+    roster({ "opaque-id-1": "", "opaque-id-2": "" }, { "opaque-id-1": "shell", "opaque-id-2": "shell" }),
+    "own-session",
+    parallelMessages,
+  );
+  assert.deepEqual(
+    fromStream.map(item => [item.rawId, item.name, item.command]),
+    [
+      ["opaque-id-1", "sleep 900", "sleep 900"],
+      ["opaque-id-2", "node", "node -e 'setInterval(() => {}, 60000)'"],
+    ],
+  );
+
+  // 2. Unique own-session toolId still maps when sourceToolAssistantUUID points to a sibling row; foreign session never maps.
+  const siblingSourceMessages: NormalizedChatMessage[] = [
+    {
+      id: "call-c", type: "tool_call", content: "", sourceSessionId: "own-session",
+      toolKind: "command", toolInput: { command: "opaque-runner --watch" }, toolId: "tool-c", toolCallSourceId: "asst-tool",
+    },
+    {
+      id: "res-c", type: "tool_result", content: "", sourceSessionId: "own-session",
+      toolId: "tool-c", toolCallSourceId: "asst-sibling", toolPairing: "exact", toolBackgroundTaskId: "opaque-id-3",
+    },
+  ];
+  const [mappedSibling] = withProviderBackgroundWork(
+    [],
+    roster({ "opaque-id-3": "" }, { "opaque-id-3": "shell" }),
+    "own-session",
+    siblingSourceMessages,
+  );
+  assert.equal(mappedSibling.name, "opaque-runner");
+  assert.equal(mappedSibling.command, "opaque-runner --watch");
+
+  const [foreignUnmapped] = withProviderBackgroundWork(
+    [],
+    roster({ "opaque-id-3": "" }, { "opaque-id-3": "shell" }),
+    "foreign-session",
+    siblingSourceMessages,
+  );
+  assert.equal(foreignUnmapped.name, BACKGROUND_PROCESS_NAME);
+  assert.equal(foreignUnmapped.command, undefined);
+  assert.equal(foreignUnmapped.rawId, "opaque-id-3");
+
+  // 3. Roster command labels from the provider capability populate card name & full command even with no transcript rows.
+  const fromRoster = withProviderBackgroundWork(
+    [],
+    roster(
+      { "opaque-id-a": "sleep 900", "opaque-id-b": "node -e 'setInterval(() => {}, 60000)'" },
+      { "opaque-id-a": "shell", "opaque-id-b": "shell" },
+    ),
+    "own-session",
+    [],
+  );
+  assert.deepEqual(
+    fromRoster.map(item => [item.name, item.command, item.prompt]),
+    [
+      ["sleep 900", "sleep 900", undefined],
+      ["node", "node -e 'setInterval(() => {}, 60000)'", undefined],
+    ],
+  );
+
+  // 4. Unknown or unlabelled provider tasks use neutral labels and never render raw task ids.
+  const unlabelled = withProviderBackgroundWork(
+    [],
+    roster({ "raw-shell-99": "", "raw-unknown-88": "" }, { "raw-shell-99": "shell" }),
+    "own-session",
+    [],
+  );
+  assert.deepEqual(
+    unlabelled.map(item => [item.kind, item.name, item.rawId, item.command]),
+    [
+      ["shell", BACKGROUND_PROCESS_NAME, "raw-shell-99", undefined],
+      ["unknown", BACKGROUND_TASK_NAME, "raw-unknown-88", undefined],
+    ],
+  );
 });
