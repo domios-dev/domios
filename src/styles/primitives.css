@@ -84,8 +84,13 @@
   background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
   backdrop-filter: blur(6px);
 }
+/* Definite container and cell widths keep icon-only tracks at N*cell+chrome in WebKit,
+   which ignores calc() flex-basis when sizing an auto-width inline-flex container. */
 .ct-liquid-segmented--icon-only {
   --seg-inset: 1px;
+  --seg-cell: calc(var(--seg-height, 24px) - 2px - var(--seg-inset) * 2);
+  width: calc(var(--seg-count) * var(--seg-cell) + 2px + var(--seg-inset) * 2);
+  flex-shrink: 0;
 }
 .ct-liquid-segmented__thumb {
   position: absolute;
@@ -123,7 +128,9 @@
   transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 .ct-liquid-segmented--icon-only .ct-liquid-segmented__option {
-  flex: 1 0 calc(var(--seg-height, 24px) - 2px - var(--seg-inset) * 2);
+  width: var(--seg-cell);
+  min-width: var(--seg-cell);
+  flex: 1 0 var(--seg-cell);
   padding: 0;
 }
 .ct-liquid-segmented__option[aria-selected="true"] {
