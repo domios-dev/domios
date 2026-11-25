@@ -90,8 +90,9 @@ async fn run_inner(
     let binary = provider
         .cli_binary()
         .ok_or("Provider has no sign-in binary")?;
+    let install_dirs = provider.cli_install_dirs(crate::agent::provider::current_platform_tag());
     let codeterm_plugin::js_runtime::BinResolution::Found(binary) =
-        codeterm_plugin::js_runtime::probe_bin(binary).resolution
+        codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(binary, &install_dirs).resolution
     else {
         return Err("Sign-in executable is unavailable".into());
     };

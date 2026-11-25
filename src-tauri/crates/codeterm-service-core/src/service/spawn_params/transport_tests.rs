@@ -336,3 +336,92 @@ fn runtime_routing_refuses_a_spec_without_original_parameters() {
         crate::service::spawn::TabCommand::Agent(_)
     ));
 }
+
+#[test]
+fn single_binary_runtime_preflights_declared_install_dirs_and_recovers_without_restart() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let install_dir = std::env::temp_dir().join(format!(
+        "domios_runtime_install_dir_{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&install_dir).unwrap();
+    let binary = format!("domios_rt_cli_{}", uuid::Uuid::new_v4().simple());
+    #[cfg(windows)]
+    let binary_path = install_dir.join(format!("{binary}.cmd"));
+    #[cfg(not(windows))]
+    let binary_path = install_dir.join(&binary);
+    let platform = crate::agent::provider::current_platform_tag();
+    let provider_id = "runtime-install-dir-fixture";
+    let manifest_json = serde_json::json!({
+        "id": provider_id,
+        "version": "1.0.0",
+        "displayName": "Runtime Install Dir Fixture",
+        "binaryName": binary,
+        "cliBinary": binary,
+        "installer": { platform: "opaque-runtime-installer" },
+        "cliInstallDirs": { platform: [install_dir.to_string_lossy().to_string()] },
+        "capabilities": {
+            "agentProvider": true,
+            "chatBackend": { "spawnable": true, "sessionConfig": true, "agentTasks": false },
+            "agentRuntime": {
+                "runtime": "stdio-jsonrpc",
+                "command": { "binary": binary, "args": [] },
+                "requestMethods": { "initialize": ["initialize"] },
+                "notificationMethods": []
+            }
+        },
+        "permissions": { "subprocess": { "allow": [binary] } }
+    })
+    .to_string();
+    let manifest = PluginManifest::from_json_str(&manifest_json).unwrap();
+    let vm = PluginVm::from_source(provider_id, "module.exports = {};".into()).unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            std::sync::Arc::new(vm),
+        )));
+
+    let params = SpawnAgentParams {
+        agent: Some(provider_id.into()),
+        ..Default::default()
+    };
+    let refused = fixture
+        .service
+        .classify_spawn_target_for_params(provider_id, &params)
+        .expect_err("missing runtime CLI must refuse before tab creation")
+        .to_string();
+    assert!(refused.contains("Provider not installed:"), "{refused}");
+    assert!(refused.contains("opaque-runtime-installer"), "{refused}");
+    assert!(
+        refused.contains(&install_dir.display().to_string()),
+        "searched dirs must include declared cliInstallDirs: {refused}"
+    );
+    let before_values =
+        crate::provider::values::list_agent_provider_values(&fixture.service.provider_registry);
+    assert_eq!(before_values[0]["availability"], "unavailable");
+
+    std::fs::write(&binary_path, b"#!/bin/sh\necho 1.0.0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = std::fs::metadata(&binary_path).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&binary_path, perm).unwrap();
+    }
+
+    let after_values =
+        crate::provider::values::list_agent_provider_values(&fixture.service.provider_registry);
+    assert_eq!(after_values[0]["availability"], "available");
+    assert_eq!(
+        fixture
+            .service
+            .classify_spawn_target_for_params(provider_id, &params),
+        Ok(true)
+    );
+    let _ = std::fs::remove_dir_all(&install_dir);
+}

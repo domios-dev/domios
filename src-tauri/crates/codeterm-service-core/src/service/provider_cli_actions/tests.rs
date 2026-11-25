@@ -148,3 +148,23 @@ fn explicit_update_timeout_binds_only_to_a_live_agent_owner() {
     );
     fixture.service.close_tab(&agent_shell.tab_id).unwrap();
 }
+
+#[test]
+fn failure_tail_captures_actionable_lines_and_strips_prompt_and_env_prefix() {
+    let screen = "\n$env:Path = 'C:\\Windows\\System32;' + $env:Path; npm install -g fixture-agent-pkg\nnpm ERR! code ENOTFOUND\nnpm ERR! network request to https://registry.npmjs.org/fixture-agent-pkg failed\nPS C:\\Users\\fixture>\n";
+    let tail = extract_failure_tail(screen).expect("tail");
+    assert!(tail.contains("npm ERR! code ENOTFOUND"), "{tail}");
+    assert!(tail.contains("registry.npmjs.org"), "{tail}");
+    assert!(!tail.contains("$env:Path"), "{tail}");
+    assert!(!tail.contains("PS C:\\Users\\fixture>"), "{tail}");
+
+    let summary = completion_summary_with_output(
+        "fixture",
+        CliOperation::Install,
+        Some(ExecCompletion::CommandFinished { exit_code: Some(1) }),
+        None,
+        Some(&tail),
+    );
+    assert!(summary.contains("exit code 1"), "{summary}");
+    assert!(summary.contains("npm ERR! code ENOTFOUND"), "{summary}");
+}

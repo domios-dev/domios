@@ -474,6 +474,9 @@
   "src/lib/useTabProvider.test.tsx",
   "src/hooks/useDocumentPerfState.test.tsx",
   "src/lib/providerCliTarget.test.ts",
+  "src/lib/providerInstallStatus.test.ts",
+  "src/lib/providerNotInstalled.test.ts",
   "src/lib/providerUpdate.test.ts",
+  "src/components/Terminal/ProviderNotInstalledNotice.test.tsx",
   "src/hooks/useProviderCliStatus.test.tsx"
 ]

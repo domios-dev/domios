@@ -83,9 +83,10 @@ macro_rules! agent_provider_runtime_defaults {
             if !authority.authorizes_provider(self.id()) {
                 return Err(crate::js_runtime::manifest::RuntimeManifestError::ConsentRequired);
             }
+            let install_dirs = self.cli_install_dirs(super::current_platform_tag());
             self.agent_runtime()
                 .ok_or(crate::js_runtime::manifest::RuntimeManifestError::CapabilityRequired)?
-                .resolve_profile_executable(profile)
+                .resolve_profile_executable_in(profile, &install_dirs)
         }
     };
 }

@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => {
     state: { workspaces: [workspace], active_workspace_id: workspace.id, focused_tab_id: "manager",
       tabs: { manager: { id: "manager", role: "Manager", agent_type: "opencode", session_binding_nonce: "manager-nonce" } } },
     actions: {
+      createTab: vi.fn(async () => ({ tab_id: "shell-tab-1" })),
       spawnAgentTab: vi.fn(async () => null),
       createOrchestrationPair: vi.fn(async (_input: unknown) => ({ orchestrator_tab_id: "lead-tab" })),
       selectTabByTab: vi.fn(async () => undefined),
@@ -93,6 +94,8 @@ beforeEach(() => {
   fixture.actions.upsertToast.mockClear();
   fixture.actions.setWorkspaceCwd.mockReset();
   fixture.actions.setWorkspaceCwd.mockResolvedValue({ warnings: [] });
+  fixture.actions.createTab.mockReset();
+  fixture.actions.createTab.mockResolvedValue({ tab_id: "shell-tab-1" });
   fixture.actions.spawnAgentTab.mockReset();
   fixture.actions.spawnAgentTab.mockResolvedValue(null);
   fixture.actions.createOrchestrationPair.mockReset();
@@ -699,4 +702,28 @@ it("waits for an account choice from the hook before enabling a capable single-p
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(true);
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+});
+
+it("offers a plain Terminal mode in workspace sessions and opens a bare shell tab", async () => {
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "shell_profiles") return [{ id: "pwsh", name: "PowerShell 7" }];
+    return undefined;
+  });
+  await renderPicker({ section: "workspace" });
+  const terminalMode = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-mode-terminal"]');
+  expect(terminalMode).not.toBeNull();
+  await act(async () => terminalMode!.click());
+  expect(dialog().querySelector('[data-testid="picker-terminal-panel"]')).not.toBeNull();
+  const confirm = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
+  expect(confirm.textContent).toBe("Open terminal");
+  expect(confirm.disabled).toBe(false);
+  await act(async () => confirm.click());
+  expect(fixture.actions.createTab).toHaveBeenCalledExactlyOnceWith(workspace.id, workspace.cwd, undefined);
+  expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+  expect(fixture.actions.selectTabByTab).toHaveBeenCalledWith(workspace.id, "shell-tab-1");
+});
+
+it("hides the plain Terminal mode in General sessions", async () => {
+  await renderPicker({ section: "general" });
+  expect(dialog().querySelector('[data-testid="picker-mode-terminal"]')).toBeNull();
 });

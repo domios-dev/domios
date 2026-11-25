@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use super::catalogue_cache::RevisionCache;
-use crate::agent::provider::{observe_launch_binary, ProviderDescriptor, ProviderTransport};
+use crate::agent::provider::{
+    observe_launch_binary, observe_launch_binary_in, ProviderDescriptor, ProviderTransport,
+};
 use crate::agent::registry::{AgentRegistry, ProviderStartupStatus};
 use crate::chatbackend::ChatBackendRegistryHandle;
 
@@ -76,7 +78,9 @@ impl ProviderRegistry {
                         .as_ref()
                         .map(|runtime| runtime.command.binary.as_str())
                         .unwrap_or_else(|| provider.binary_name());
-                    observe_launch_binary(Some(binary)).availability
+                    let install_dirs =
+                        provider.cli_install_dirs(crate::agent::provider::current_platform_tag());
+                    observe_launch_binary_in(Some(binary), &install_dirs).availability
                 };
                 descriptor
             })
@@ -140,6 +144,41 @@ impl ProviderRegistry {
         }
     }
 
+    pub(super) fn provider_install_dirs(&self, id: &str, platform: &str) -> Vec<std::path::PathBuf> {
+        self.agents
+            .provider_arc(id)
+            .map(|provider| provider.cli_install_dirs(platform))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn refresh_cli_status(
+        &self,
+        id: &str,
+        platform: &str,
+    ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+        self.recheck_profiles(id);
+        let key = format!(
+            "{}:{platform}",
+            codeterm_plugin::provider_account::cache_key(id)
+        );
+        self.cli_status_cache.lock().remove(&key);
+        self.catalogue_values_cache.lock().clear();
+        if self.profile_status(id).is_some() {
+            return self.cli_status(id, platform);
+        }
+        codeterm_plugin::js_runtime::refresh_user_path();
+        if let Some(provider) = self.agents.provider_arc(id) {
+            if let Some(cli) = provider.cli_binary() {
+                codeterm_plugin::js_runtime::forget_resolved_bin(cli);
+            }
+            if let Some(runtime) = provider.agent_runtime() {
+                codeterm_plugin::js_runtime::forget_resolved_bin(&runtime.command.binary);
+            }
+            codeterm_plugin::js_runtime::forget_resolved_bin(provider.binary_name());
+        }
+        self.cli_status(id, platform)
+    }
+
     pub(crate) fn cli_status(
         &self,
         id: &str,
@@ -154,11 +193,16 @@ impl ProviderRegistry {
             "{}:{platform}",
             codeterm_plugin::provider_account::cache_key(id)
         );
+        let install_dirs = self
+            .agents
+            .provider_arc(id)
+            .map(|provider| provider.cli_install_dirs(platform))
+            .unwrap_or_default();
         let cached = self.cli_status_cache.lock().get(&key, &revision);
         if let Some(status) = cached.filter(|status| {
             super::catalogue_cache::misses_still_hold(
                 super::catalogue_cache::unresolved_cli(status),
-                super::catalogue_cache::binary_found,
+                |binary| super::catalogue_cache::binary_found_in(binary, &install_dirs),
             )
         }) {
             log::debug!(
@@ -231,12 +275,14 @@ impl ProviderRegistry {
                     })
                     .unwrap_or_else(|| provider.binary_name().to_owned());
                 let installer = provider.install_command(platform);
+                let install_dirs = provider.cli_install_dirs(platform);
                 let updater = provider.update_command(platform);
                 let compatibility = provider.cli_compatibility();
                 let metadata_us = metadata_started.elapsed().as_micros();
                 let observe_started = std::time::Instant::now();
-                let mut status = codeterm_plugin::provider_cli::observe_cli_with_compatibility(
+                let mut status = codeterm_plugin::provider_cli::observe_cli_with_compatibility_in(
                     binary,
+                    &install_dirs,
                     installer,
                     updater,
                     compatibility.as_ref(),

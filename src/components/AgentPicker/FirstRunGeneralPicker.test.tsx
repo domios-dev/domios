@@ -395,6 +395,8 @@ for (const success of [true, false]) {
       } else {
         expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
         expect(host.textContent).toContain("opaque installer failure");
+        expect(host.querySelector('[aria-label="Manual install command"]')?.textContent).toContain("opaque");
+        expect(confirm().textContent).toBe("Retry");
         expect(confirm().disabled).toBe(false);
       }
     } finally {

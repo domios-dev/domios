@@ -1047,6 +1047,10 @@ impl AgentProvider for JsProvider {
         self.manifest.installer.get(platform).cloned()
     }
 
+    fn cli_install_dirs(&self, platform: &str) -> Vec<PathBuf> {
+        self.manifest.cli_install_dirs(platform)
+    }
+
     fn badge(&self) -> Option<&str> {
         self.manifest.badge.as_deref()
     }

@@ -394,12 +394,17 @@ impl PluginVm {
         self.cli_binary
             .as_deref()
             .filter(|binary| self.sandbox.can_exec(binary))
-            .and_then(
-                |binary| match crate::js_runtime::probe_bin(binary).resolution {
+            .and_then(|binary| {
+                match crate::js_runtime::probe_bin_with_extra_dirs(
+                    binary,
+                    self.sandbox.extra_bin_dirs(),
+                )
+                .resolution
+                {
                     crate::js_runtime::BinResolution::Found(path) => Some(path),
                     _ => None,
-                },
-            )
+                }
+            })
             .and_then(|path| self.binary_digest.digest(&path))
     }
 
