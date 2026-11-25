@@ -345,6 +345,63 @@ test("two-field text array renders sleek inline pair editor with empty state, he
   await act(async () => root.unmount());
 });
 
+test("schema number fields render locale-independent dot-decimal text inputs", async () => {
+  const numberSchema: SettingField[] = [
+    { kind: "number", key: "threshold", label: "Threshold", min: 0.05, max: 0.5, default: 0.15 },
+  ];
+  let values: ProviderConfig = { threshold: 0.15 };
+  const patches: Partial<ProviderConfig>[] = [];
+  const onChange = (_providerId: string, patch: Partial<ProviderConfig>) => {
+    patches.push(patch);
+    values = { ...values, ...patch };
+  };
+
+  const { host, root } = await render(
+    <SchemaRenderer
+      schema={numberSchema}
+      providerId="test-provider"
+      config={config}
+      values={values}
+      onChange={onChange}
+    />,
+  );
+  const rerender = async () => {
+    await act(async () => {
+      root.render(
+        <SchemaRenderer
+          schema={numberSchema}
+          providerId="test-provider"
+          config={config}
+          values={values}
+          onChange={onChange}
+        />,
+      );
+    });
+  };
+
+  const input = host.querySelector('[data-testid="settings-schema-number"][data-settings-field="threshold"]');
+  assert(input instanceof HTMLInputElement, "schema number input should render");
+  assert(input.type === "text", `schema number input must use type='text', got '${input.type}'`);
+  assert(input.inputMode === "decimal", `schema number input must use decimal inputMode, got '${input.inputMode}'`);
+  assert(input.value === "0.15", `schema number input must show '0.15', got '${input.value}'`);
+
+  await act(async () => {
+    setNativeValue(input, "0,25");
+    dispatchFormChange(input);
+  });
+  assert(patches.length === 0 && values.threshold === 0.15, "locale comma input must not mutate schema config");
+
+  await act(async () => {
+    setNativeValue(input, "0.35");
+    dispatchFormChange(input);
+  });
+  await rerender();
+  assert(patches.length === 1 && values.threshold === 0.35, "dot-decimal value should persist as 0.35");
+  assert(input.value === "0.35", `schema number input should round-trip as '0.35', got '${input.value}'`);
+
+  await act(async () => root.unmount());
+});
+
 async function main() {
   const started = performance.now();
   let failed = 0;

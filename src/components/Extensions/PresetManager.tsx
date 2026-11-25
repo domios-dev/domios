@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { Plus, Trash2 } from "lucide-react";
 import { agentDescriptorsRefreshing, subscribeAgentDescriptors } from "../../lib/agentDescriptorCache";
 import type { ModelInfo } from "../../lib/types";
+import { NumericInput } from "../shared/NumericInput";
 import { GroupLabel } from "./shared";
 import { getPresetManagerApi, type Preset, type PresetState } from "./presetManagerApi";
 
@@ -17,9 +18,9 @@ function newId(): string {
   return `preset-${Math.floor(performance.now())}-${Math.floor(performance.now() * 1000) % 1000}`;
 }
 
-function readTemperature(preset: Preset | undefined): string {
+function readTemperature(preset: Preset | undefined): number | undefined {
   const t = preset?.params?.temperature;
-  return typeof t === "number" ? String(t) : "";
+  return typeof t === "number" ? t : undefined;
 }
 
 export function PresetManager({
@@ -103,12 +104,11 @@ export function PresetManager({
   }, [commit, pluginId, selected, sessionId, state]);
 
   const setTemperature = useCallback(
-    (raw: string) => {
+    (next: number | undefined) => {
       if (!selected) return;
-      const trimmed = raw.trim();
       const params = { ...(selected.params ?? {}) };
-      if (trimmed === "" || Number.isNaN(Number(trimmed))) delete params.temperature;
-      else params.temperature = Number(trimmed);
+      if (next === undefined) delete params.temperature;
+      else params.temperature = next;
       patchSelected({ params });
     },
     [patchSelected, selected],
@@ -235,15 +235,16 @@ export function PresetManager({
                   </select>
                 </Field>
                 <Field label="Temperature">
-                  <input
+                  <NumericInput
+                    key={selected.id}
                     data-testid="preset-temperature"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="2"
+                    step={0.1}
+                    min={0}
+                    max={2}
                     value={readTemperature(selected)}
                     placeholder="—"
-                    onInput={(e) => setTemperature(e.currentTarget.value)}
+                    onValueChange={(n) => setTemperature(n)}
+                    onEmpty={() => setTemperature(undefined)}
                     style={inputStyle}
                   />
                 </Field>

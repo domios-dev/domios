@@ -21,6 +21,7 @@ import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
+import { NumericInput } from "../shared/NumericInput";
 
 export function AgentsOverview({
   config,
@@ -206,15 +207,12 @@ function NumberRow({
   return (
     <label className="flex items-center justify-between gap-3" data-testid="settings-number-row">
       <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
-      <input
-        type="number"
+      <NumericInput
         data-testid="settings-number-input"
         value={value}
         min={min}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (Number.isFinite(n)) onChange(Math.max(min, Math.round(n)));
-        }}
+        integer
+        onValueChange={onChange}
         className="w-20 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] text-right focus:border-[var(--ct-accent)] focus:outline-none"
       />
     </label>

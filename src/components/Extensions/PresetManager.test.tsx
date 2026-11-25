@@ -259,6 +259,40 @@ test("editing the name saves the updated preset", async () => {
   await act(async () => root.unmount());
 });
 
+test("temperature input uses locale-independent dot-decimal format and round-trips", async () => {
+  const { api, saves } = fakeApi(SEED);
+  __setPresetManagerApiForTest(api);
+  const { host, root } = await render(<PresetManager pluginId="lmstudio" models={MODELS} />);
+  await flush();
+
+  await act(async () => {
+    presetRows(host)[0].click();
+  });
+  const tempInput = byTestId(host, "preset-temperature") as HTMLInputElement;
+  assert(tempInput, "temperature input should render");
+  assert(tempInput.type === "text" && tempInput.inputMode === "decimal", "temperature input should be decimal text input");
+  assert(tempInput.value === "0.2", `initial temperature should display '0.2', got '${tempInput.value}'`);
+
+  await setInputValue(tempInput, "0,7");
+  await flush();
+  assert(saves.length === 0, "locale comma temperature must not persist");
+
+  await setInputValue(tempInput, "0.7");
+  await flush();
+  assert(saves.length >= 1, "dot-decimal temperature should persist");
+  const updated = saves[saves.length - 1].presets.find((p: Preset) => p.id === "p1");
+  assert(updated?.params?.temperature === 0.7, `temperature should persist as 0.7, got ${updated?.params?.temperature}`);
+  assert(tempInput.value === "0.7", `temperature should display '0.7', got '${tempInput.value}'`);
+
+  await setInputValue(tempInput, "");
+  await flush();
+  const cleared = saves[saves.length - 1].presets.find((p: Preset) => p.id === "p1");
+  assert(cleared?.params?.temperature === undefined, "clearing temperature should remove params.temperature");
+
+  __setPresetManagerApiForTest(null);
+  await act(async () => root.unmount());
+});
+
 test("binding a model to a preset persists preset.model", async () => {
   const { api, saves } = fakeApi(SEED);
   __setPresetManagerApiForTest(api);

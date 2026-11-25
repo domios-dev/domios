@@ -18,6 +18,7 @@ import { Button } from "../shared/Button";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
 import { LiquidToggle } from "../shared/LiquidToggle";
+import { NumericInput } from "../shared/NumericInput";
 import { mapQueryResultToVariantId, SchemaActionBar, segmentActionRuns } from "./SchemaActions";
 
 import type {
@@ -203,15 +204,14 @@ function FieldRenderer({
       return (
         <div data-testid="settings-schema-field" data-settings-field={field.key}>
           <FormRow label={field.label} htmlFor={fieldId} hint={field.description}>
-            <input
+            <NumericInput
               id={fieldId}
-              type="number"
               data-testid="settings-schema-number"
               data-settings-field={field.key}
               value={value}
               min={field.min}
               max={field.max}
-              onChange={(e) => onChange(providerId, { [field.key]: Number(e.target.value) })}
+              onValueChange={(n) => onChange(providerId, { [field.key]: n })}
               className="ct-input ct-input--compact w-full"
             />
           </FormRow>
@@ -519,15 +519,14 @@ function CompactPairInput({
   if (field.kind === "number") {
     const numberValue = typeof value === "number" ? value : field.default ?? 0;
     return (
-      <input
-        type="number"
+      <NumericInput
         aria-label={ariaLabel}
         data-testid="settings-schema-array-number"
         data-settings-field={dataField}
         value={numberValue}
         min={field.min}
         max={field.max}
-        onInput={(e) => onChange(Number(e.currentTarget.value))}
+        onValueChange={onChange}
         className="ct-input ct-input--compact w-full"
       />
     );
@@ -591,14 +590,13 @@ function ObjectArrayItemInput({
     return (
       <label className="block space-y-1">
         {label}
-        <input
-          type="number"
+        <NumericInput
           data-testid="settings-schema-array-number"
           data-settings-field={dataField}
           value={numberValue}
           min={field.min}
           max={field.max}
-          onInput={(e) => onChange(Number(e.currentTarget.value))}
+          onValueChange={onChange}
           className="ct-input ct-input--compact w-full"
         />
       </label>
