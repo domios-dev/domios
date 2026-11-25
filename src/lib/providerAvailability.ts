@@ -30,12 +30,20 @@ export interface ProviderAvailabilityChange {
   tab_id?: string | null;
 }
 
-export function applyAvailabilityChange<T extends Pick<ProviderDescriptor, "id" | "availability">>(
+export function applyAvailabilityChange<
+  T extends Pick<ProviderDescriptor, "id" | "availability" | "availability_checking">,
+>(
   providers: T[],
   change: ProviderAvailabilityChange,
 ): T[] {
-  if (!providers.some((p) => p.id === change.provider && p.availability !== change.availability)) return providers;
-  return providers.map((p) => (p.id === change.provider ? { ...p, availability: change.availability } : p));
+  if (!providers.some((p) => p.id === change.provider && (p.availability !== change.availability || p.availability_checking))) {
+    return providers;
+  }
+  return providers.map((p) => (
+    p.id === change.provider
+      ? { ...p, availability: change.availability, availability_checking: false }
+      : p
+  ));
 }
 
 export function providerAvailabilityLabel(

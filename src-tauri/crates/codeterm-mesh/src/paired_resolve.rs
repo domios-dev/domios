@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use super::types::{AccountInstallation, PairedPeer};
+use super::types::{AccountInstallation, PairedPeer, RegistryMachineName};
 
 /// One candidate considered when a target matched more than one paired record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +48,91 @@ pub fn configured_name(advertised: &str) -> &str {
         Some(at) if advertised.ends_with(']') => &advertised[..at],
         _ => advertised,
     }
+}
+
+fn is_uuid_like(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    for (index, &byte) in bytes.iter().enumerate() {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            if byte != b'-' {
+                return false;
+            }
+        } else if !byte.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
+}
+
+fn strip_bracketed_tags(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut rest = name;
+    while let Some(open) = rest.find('[') {
+        let after_open = &rest[open + 1..];
+        let Some(close) = after_open.find(']') else {
+            break;
+        };
+        out.push_str(rest[..open].trim_end());
+        rest = &after_open[close + 1..];
+    }
+    out.push_str(rest);
+    out.trim().to_string()
+}
+
+/// Mirror `src/lib/machineIdentity.ts::cleanMachineName` so UI labels and CLI
+/// resolution agree byte-for-byte.
+pub fn clean_machine_name(name: Option<&str>, peer_id: Option<&str>) -> Option<String> {
+    let clean = strip_bracketed_tags(name?);
+    if clean.is_empty() || peer_id == Some(clean.as_str()) || is_uuid_like(&clean) {
+        None
+    } else {
+        Some(clean)
+    }
+}
+
+/// Mirror `src/lib/registryMachineNames.ts::registryMachineNames`: unique
+/// cleaned active names keep their base name, while duplicate active names get
+/// `NAME #1`, `NAME #2`, … ordered by `(admitted_at, installation_id)`.
+pub fn registry_machine_labels(rows: &[RegistryMachineName]) -> HashMap<String, String> {
+    let mut unique: HashMap<&str, &RegistryMachineName> = HashMap::new();
+    for row in rows {
+        unique.insert(row.installation_id.as_str(), row);
+    }
+    let mut labels = HashMap::new();
+    let mut groups: HashMap<String, Vec<&RegistryMachineName>> = HashMap::new();
+    for row in unique.into_values() {
+        let Some(name) = clean_machine_name(
+            row.display_name.as_deref(),
+            Some(row.installation_id.as_str()),
+        ) else {
+            continue;
+        };
+        if !row.active {
+            continue;
+        }
+        labels.insert(row.installation_id.clone(), name.clone());
+        groups.entry(name).or_default().push(row);
+    }
+    for (name, mut members) in groups {
+        if members.len() < 2 {
+            continue;
+        }
+        members.sort_by(|a, b| {
+            a.admitted_at
+                .cmp(&b.admitted_at)
+                .then_with(|| a.installation_id.cmp(&b.installation_id))
+        });
+        for (index, row) in members.into_iter().enumerate() {
+            labels.insert(
+                row.installation_id.clone(),
+                format!("{name} #{}", index + 1),
+            );
+        }
+    }
+    labels
 }
 
 fn candidate_of(peer: &PairedPeer) -> PairedNameCandidate {
@@ -116,12 +201,14 @@ where
         .collect()
 }
 
-/// Peers answering to `target` by exact advertised or registry display name,
-/// falling back to configured name (minus any trailing ` [dev-suffix]`) only
-/// when no exact-name match exists.
+/// Peers answering to `target` by exact advertised name, registry display name,
+/// or UI disambiguated registry label (e.g. `BLACKSTAR #1`), falling back to
+/// configured name (minus any trailing ` [dev-suffix]`) only when no exact match
+/// exists.
 fn name_matches<'a, F>(
     peers: &'a HashMap<String, PairedPeer>,
     installations: &'a [AccountInstallation],
+    labels: &HashMap<String, String>,
     link_installation_id: &F,
     target: &str,
 ) -> Vec<&'a PairedPeer>
@@ -131,12 +218,12 @@ where
     let mut exact = Vec::new();
     let mut configured = Vec::new();
     for p in peers.values() {
-        let registry = peer_registry_name(
-            peer_installation_id(p, installations, link_installation_id),
-            installations,
-        );
+        let installation_id = peer_installation_id(p, installations, link_installation_id);
+        let registry = peer_registry_name(installation_id, installations);
+        let ui_label = installation_id.and_then(|id| labels.get(id).map(String::as_str));
         if p.instance_name.eq_ignore_ascii_case(target)
             || registry.is_some_and(|name| name.eq_ignore_ascii_case(target))
+            || ui_label.is_some_and(|label| label.eq_ignore_ascii_case(target))
         {
             exact.push(p);
         } else if configured_name(&p.instance_name).eq_ignore_ascii_case(target)
@@ -215,15 +302,28 @@ where
     }
 }
 
-/// Resolve a paired peer by any identifier the CLI prints: exact `instance_id`,
-/// exact `installation_id`, unique short-id prefix (of either id), or
-/// case-insensitive advertised/registry/configured name. Stale offline
-/// duplicates of the same installation never hide the live record
-/// (codeterm#434), while matches spanning different installations or multiple
-/// online records are refused as `Ambiguous`.
+/// Resolve a paired peer by any identifier the CLI or UI prints: exact
+/// `instance_id`, exact `installation_id`, unique short-id prefix (of either
+/// id), or case-insensitive advertised/registry/UI-disambiguated/configured
+/// name. Stale offline duplicates of the same installation never hide the live
+/// record (codeterm#434), while matches spanning different installations or
+/// multiple online records are refused as `Ambiguous`.
 pub fn resolve_paired_peer<'a, F>(
     peers: &'a HashMap<String, PairedPeer>,
     installations: &'a [AccountInstallation],
+    link_installation_id: F,
+    target: &str,
+) -> Result<&'a PairedPeer, ResolvePairedError>
+where
+    F: Fn(&str) -> Option<&'a str>,
+{
+    resolve_paired_peer_with_registry_names(peers, installations, &[], link_installation_id, target)
+}
+
+pub fn resolve_paired_peer_with_registry_names<'a, F>(
+    peers: &'a HashMap<String, PairedPeer>,
+    installations: &'a [AccountInstallation],
+    registry_names: &[RegistryMachineName],
     link_installation_id: F,
     target: &str,
 ) -> Result<&'a PairedPeer, ResolvePairedError>
@@ -254,8 +354,9 @@ where
         }
     }
 
+    let labels = registry_machine_labels(registry_names);
     let mut matches = id_prefix_matches(peers, installations, &link_installation_id, target);
-    for peer in name_matches(peers, installations, &link_installation_id, target) {
+    for peer in name_matches(peers, installations, &labels, &link_installation_id, target) {
         if !matches
             .iter()
             .any(|existing| existing.instance_id == peer.instance_id)
@@ -646,6 +747,121 @@ mod tests {
         };
         assert!(matches!(
             resolve_paired_peer(&peers, &installations, link_devs, "studio"),
+            Err(ResolvePairedError::Ambiguous { .. })
+        ));
+    }
+
+    #[test]
+    fn resolves_ui_disambiguated_registry_labels_unambiguously() {
+        let mut peers = HashMap::new();
+        peers.insert(
+            "66c926f1-r161".into(),
+            peer("66c926f1-r161", "BLACKSTAR [dev-acceptance-r161]", true, 2),
+        );
+        peers.insert(
+            "99999999-third".into(),
+            peer("99999999-third", "BLACKSTAR [dev-other]", true, 2),
+        );
+        let installations = vec![
+            AccountInstallation {
+                installation_id: "7a835b57-r161".into(),
+                name: "BLACKSTAR [dev-acceptance-r161]".into(),
+                active: true,
+                signed_out: false,
+                membership_expires_at: None,
+                endpoint_expires_at: None,
+                instance_id: Some("66c926f1-r161".into()),
+                online: true,
+            },
+            AccountInstallation {
+                installation_id: "88888888-third".into(),
+                name: "BLACKSTAR [dev-other]".into(),
+                active: true,
+                signed_out: false,
+                membership_expires_at: None,
+                endpoint_expires_at: None,
+                instance_id: Some("99999999-third".into()),
+                online: true,
+            },
+        ];
+        // Registry includes the local machine (`local-w1221`, admitted second)
+        // plus an inactive historical row, matching UI `registryMachineNames`.
+        let registry_names = vec![
+            RegistryMachineName {
+                installation_id: "88888888-third".into(),
+                admitted_at: 30,
+                display_name: Some("BLACKSTAR [dev-other]".into()),
+                active: true,
+            },
+            RegistryMachineName {
+                installation_id: "local-w1221".into(),
+                admitted_at: 20,
+                display_name: Some("BLACKSTAR [dev-w1221]".into()),
+                active: true,
+            },
+            RegistryMachineName {
+                installation_id: "7a835b57-r161".into(),
+                admitted_at: 10,
+                display_name: Some("BLACKSTAR [dev-acceptance-r161]".into()),
+                active: true,
+            },
+            RegistryMachineName {
+                installation_id: "removed-0".into(),
+                admitted_at: 1,
+                display_name: Some("BLACKSTAR".into()),
+                active: false,
+            },
+        ];
+        let link_of = |id: &str| match id {
+            "66c926f1-r161" => Some("7a835b57-r161"),
+            "99999999-third" => Some("88888888-third"),
+            _ => None,
+        };
+
+        for target in ["BLACKSTAR #1", "blackstar #1"] {
+            let resolved = resolve_paired_peer_with_registry_names(
+                &peers,
+                &installations,
+                &registry_names,
+                link_of,
+                target,
+            )
+            .unwrap_or_else(|error| panic!("{target} must resolve, got {error:?}"));
+            assert_eq!(resolved.instance_id, "66c926f1-r161");
+        }
+
+        // #2 is the local machine, so it must not route to either peer.
+        assert!(matches!(
+            resolve_paired_peer_with_registry_names(
+                &peers,
+                &installations,
+                &registry_names,
+                link_of,
+                "BLACKSTAR #2",
+            ),
+            Err(ResolvePairedError::NotFound)
+        ));
+
+        // #3 is the third active machine.
+        let third = resolve_paired_peer_with_registry_names(
+            &peers,
+            &installations,
+            &registry_names,
+            link_of,
+            "BLACKSTAR #3",
+        )
+        .expect("BLACKSTAR #3 resolves");
+        assert_eq!(third.instance_id, "99999999-third");
+
+        // Bare base name remains ambiguous when two online peers share it.
+        assert!(matches!(
+            resolve_paired_peer_with_registry_names(
+                &peers,
+                &installations,
+                &registry_names,
+                link_of,
+                "BLACKSTAR",
+            ),
             Err(ResolvePairedError::Ambiguous { .. })
         ));
     }

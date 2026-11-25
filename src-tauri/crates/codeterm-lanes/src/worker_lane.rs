@@ -167,7 +167,10 @@ pub fn legacy_repository_identity(cwd: &str) -> Result<String, String> {
     identities.sort();
     identities.dedup();
     if identities.is_empty() {
-        return Err("checkout has no configured repository remote identity".into());
+        return Err(
+            "checkout has no configured repository remote identity: configure an ssh, https, or git remote URL"
+                .into(),
+        );
     }
     use sha2::{Digest, Sha256};
     Ok(format!(
@@ -179,6 +182,7 @@ pub fn legacy_repository_identity(cwd: &str) -> Result<String, String> {
 pub fn repository_identities(cwd: &str) -> Result<Vec<String>, String> {
     let remotes = git_value(cwd, ["remote"])?;
     let mut identities = Vec::new();
+    let mut saw_remote_url = false;
     for remote in remotes
         .lines()
         .map(str::trim)
@@ -187,12 +191,23 @@ pub fn repository_identities(cwd: &str) -> Result<Vec<String>, String> {
         let Ok(urls) = git_value(cwd, ["remote", "get-url", "--all", remote]) else {
             continue;
         };
-        identities.extend(urls.lines().filter_map(sanitized_remote_identity));
+        for url in urls.lines().map(str::trim).filter(|url| !url.is_empty()) {
+            saw_remote_url = true;
+            if let Some(identity) = sanitized_remote_identity(url) {
+                identities.push(identity);
+            }
+        }
     }
     identities.sort();
     identities.dedup();
     if identities.is_empty() {
-        return Err("checkout has no configured repository remote identity".into());
+        return Err(if saw_remote_url {
+            "checkout remote URL is not a supported repository remote identity: remote identity must be an ssh, https, or git URL"
+                .into()
+        } else {
+            "checkout has no configured repository remote identity: configure an ssh, https, or git remote URL"
+                .into()
+        });
     }
     Ok(identities)
 }

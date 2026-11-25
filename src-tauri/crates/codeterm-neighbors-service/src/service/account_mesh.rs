@@ -206,6 +206,7 @@ impl MeshTransport for TransportBridge {
                     .as_ref()
                     .map(|snapshot| snapshot.grant.clone());
                 let own = self.installation_id.as_str();
+                manager.registry_names = current_registry_names(state);
                 manager.account_installations = state.registry.as_ref().map(|registry| registry.rows.iter()
                     .filter(|row| row.installation_id != own)
                     .map(|row| codeterm_mesh::types::AccountInstallation {
@@ -227,13 +228,7 @@ impl MeshTransport for TransportBridge {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct RegistryMachineName {
-    installation_id: String,
-    admitted_at: u64,
-    display_name: Option<String>,
-    active: bool,
-}
+pub use codeterm_mesh::types::RegistryMachineName;
 
 fn current_registry_names(state: &LifecycleState) -> Vec<RegistryMachineName> {
     state

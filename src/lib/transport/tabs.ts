@@ -36,9 +36,13 @@ export interface PtyCursors { offsets: Map<string, number>; truncations: Map<str
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
 export async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
     if (!peer.trim()) throw new Error("An exact peer installation id is required");
-    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } }>("POST", "/api/mesh/relay-to", {
-        target_instance_id: peer, method, path, body,
-    });
+    const isRead = method.toUpperCase() === "GET" || method.toUpperCase() === "HEAD";
+    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } }>(
+        "POST",
+        "/api/mesh/relay-to",
+        { target_instance_id: peer, method, path, body },
+        isRead ? { timeoutMs: REST_READ_TIMEOUT_MS } : undefined,
+    );
     if (!response.ok) throw new Error(response.error ?? `${peer} did not answer ${method} ${path}`);
     if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
     return response.data;

@@ -211,3 +211,60 @@ fn mesh_peer_resolution_accepts_installation_id_and_prefix_distinct_from_instanc
         assert_eq!(resolved.1, instance_id, "{target}");
     }
 }
+
+#[test]
+fn mesh_peer_resolution_accepts_ui_disambiguated_machine_label() {
+    let instance_id = "66c926f1-aaaa-bbbb-cccc-000000000001";
+    let installation_id = "7a835b57-1111-2222-3333-000000000001";
+    let offline_id = "88888888-1111-2222-3333-000000000002";
+    let mut mesh = mesh_with(Vec::new());
+    mesh.insert_account_peer_with_installation_for_test(
+        installation_id.into(),
+        peer(instance_id, "BLACKSTAR [dev-acceptance-r161]", true),
+    );
+    mesh.account_installations[0].name = "BLACKSTAR [dev-acceptance-r161]".into();
+    mesh.account_installations
+        .push(codeterm_service_core::mesh::types::AccountInstallation {
+            installation_id: offline_id.into(),
+            name: "BLACKSTAR [dev-offline]".into(),
+            active: true,
+            signed_out: false,
+            membership_expires_at: None,
+            endpoint_expires_at: None,
+            instance_id: None,
+            online: false,
+        });
+    mesh.registry_names = vec![
+        codeterm_service_core::mesh::types::RegistryMachineName {
+            installation_id: installation_id.into(),
+            admitted_at: 10,
+            display_name: Some("BLACKSTAR [dev-acceptance-r161]".into()),
+            active: true,
+        },
+        codeterm_service_core::mesh::types::RegistryMachineName {
+            installation_id: offline_id.into(),
+            admitted_at: 20,
+            display_name: Some("BLACKSTAR [dev-offline]".into()),
+            active: true,
+        },
+        codeterm_service_core::mesh::types::RegistryMachineName {
+            installation_id: "local-w1221".into(),
+            admitted_at: 30,
+            display_name: Some("BLACKSTAR [dev-w1221]".into()),
+            active: true,
+        },
+    ];
+
+    let resolved = match resolve_relay_peer(&mesh, "BLACKSTAR #1") {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("BLACKSTAR #1 must resolve via relay, got {error:?}"),
+    };
+    assert_eq!(resolved.1, instance_id);
+
+    let (status, body) = match resolve_relay_peer(&mesh, "BLACKSTAR #2") {
+        Ok(_) => panic!("unlinked registry peer must not resolve"),
+        Err(error) => error,
+    };
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("peer_unreachable"), "{body}");
+}

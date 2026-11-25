@@ -14,6 +14,30 @@ fn saved_runtime_thread_is_validated_by_resume_without_filesystem_discovery() {
 }
 
 #[test]
+fn provider_switch_preserves_each_providers_recorded_session_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state").join("general-agent-session.json");
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session("provider-a", "session-a-1"),
+    ));
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session("provider-b", "session-b-1"),
+    ));
+
+    persist_session_id_to(&path, "provider-a", "session-a-1");
+    persist_session_id_to(&path, "provider-b", "session-b-1");
+
+    assert!(has_recorded_session_in(dir.path()));
+    let first = load_session_record_from(&registry, "provider-a", "cwd", &[], &path)
+        .expect("previous provider session must survive switching providers");
+    assert_eq!(first.session_id, "session-a-1");
+    let second = load_session_record_from(&registry, "provider-b", "cwd", &[], &path)
+        .expect("current provider session must load");
+    assert_eq!(second.session_id, "session-b-1");
+}
+
+#[test]
 fn first_seen_is_durable_and_never_moves() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(first_seen_at(dir.path(), 100).unwrap(), 100);

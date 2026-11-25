@@ -57,18 +57,60 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
     })
 }
 
+fn non_bundled_mem_body(mem: &crate::mem::MemManager, id: &str) -> Option<String> {
+    let item = mem.get(id).ok()??;
+    if item
+        .source
+        .as_deref()
+        .is_some_and(|source| source.starts_with("bundled:"))
+    {
+        return None;
+    }
+    let body = item.body.trim();
+    (!body.is_empty()).then(|| body.to_string())
+}
+
+pub(super) fn owner_identity_from_mem(mem: &crate::mem::MemManager) -> Option<String> {
+    non_bundled_mem_body(mem, "preference_identity")
+}
+
+pub(super) fn owner_nickname_from_mem(mem: &crate::mem::MemManager) -> Option<String> {
+    non_bundled_mem_body(mem, "preference_nickname")
+}
+
+#[cfg(test)]
 fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_section: &str) -> String {
-    compose_system_prompt(&render_role_contract_at(
+    render_agent_md_with_mem_at(dir, provider_name, wake_up_section, None)
+}
+
+fn render_agent_md_with_mem_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    wake_up_section: &str,
+    mem: Option<&crate::mem::MemManager>,
+) -> String {
+    compose_system_prompt(&render_role_contract_with_mem_at(
         dir,
         provider_name,
         wake_up_section,
+        mem,
     ))
 }
 
+#[cfg(test)]
 fn render_role_contract_at(
     dir: &std::path::Path,
     provider_name: &str,
     wake_up_section: &str,
+) -> String {
+    render_role_contract_with_mem_at(dir, provider_name, wake_up_section, None)
+}
+
+fn render_role_contract_with_mem_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    wake_up_section: &str,
+    mem: Option<&crate::mem::MemManager>,
 ) -> String {
     let version = codeterm_build_info::version();
     let platform = if cfg!(target_os = "windows") {
@@ -85,10 +127,14 @@ fn render_role_contract_at(
     let identity = std::fs::read_to_string(dir.join("identity.md")).unwrap_or_default();
     let soul = std::fs::read_to_string(dir.join("soul.md")).unwrap_or_default();
 
-    let identity_section = if identity.trim().is_empty() {
-        "No identity configured yet. Ask the user who they are during bootstrap.".to_string()
-    } else {
+    let identity_section = if !identity.trim().is_empty() {
         identity.trim().to_string()
+    } else if let Some(from_mem) = mem.and_then(owner_identity_from_mem) {
+        from_mem
+    } else if let Some(nickname) = mem.and_then(owner_nickname_from_mem) {
+        nickname
+    } else {
+        "No identity configured yet. Ask the user who they are during bootstrap.".to_string()
     };
 
     let soul_section = if soul.trim().is_empty() {
@@ -146,11 +192,12 @@ pub fn render_system_prompt(
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) -> String {
-    compose_general_prompt_at(
+    compose_general_prompt_with_mem_at(
         &general_dir(),
         provider_name,
         &render_wake_up_section(mem),
         runtime_capability_hints(&general_dir(), capability_hints).as_deref(),
+        mem.map(|m| m.as_ref()),
     )
 }
 
@@ -174,13 +221,27 @@ fn runtime_capability_hints(dir: &std::path::Path, enabled: bool) -> Option<Stri
     )
 }
 
+#[cfg(test)]
 fn compose_general_prompt_at(
     dir: &std::path::Path,
     provider_name: &str,
     wake_up: &str,
     fragment: Option<&str>,
 ) -> String {
-    append_capability_hints(render_agent_md_at(dir, provider_name, wake_up), fragment)
+    compose_general_prompt_with_mem_at(dir, provider_name, wake_up, fragment, None)
+}
+
+fn compose_general_prompt_with_mem_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    wake_up: &str,
+    fragment: Option<&str>,
+    mem: Option<&crate::mem::MemManager>,
+) -> String {
+    append_capability_hints(
+        render_agent_md_with_mem_at(dir, provider_name, wake_up, mem),
+        fragment,
+    )
 }
 
 fn append_capability_hints(mut prompt: String, fragment: Option<&str>) -> String {
@@ -359,11 +420,12 @@ fn generate_instructions_at(
     capability_hints: bool,
 ) {
     let wake_up_section = render_wake_up_section(mem);
-    let agent_content = compose_general_prompt_at(
+    let agent_content = compose_general_prompt_with_mem_at(
         dir,
         provider_name,
         &wake_up_section,
         runtime_capability_hints(dir, capability_hints).as_deref(),
+        mem.map(|m| m.as_ref()),
     );
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {

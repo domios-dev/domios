@@ -20,6 +20,7 @@ pub(super) fn start(
         provider: provider_name,
         permission_bypass,
         ownership,
+        allow_bootstrap,
         selection,
     } = target;
     let session_id = ownership.select_session(session_id);
@@ -278,6 +279,7 @@ pub(super) fn start(
     let use_resume = session_id.is_some();
     let mut startup_message = None;
     let mut first_turn_planned = false;
+    let mut bootstrap_included = false;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match super::super::launch_files::command(
@@ -345,10 +347,10 @@ pub(super) fn start(
             .agent_registry
             .with_provider(provider_name, |provider| provider.system_prompt_delivery())
             .unwrap_or(crate::agent::provider::SystemPromptDelivery::External);
-        let bootstrap_message = ownership
-            .bootstrap()
+        let bootstrap_message = (ownership.bootstrap() && allow_bootstrap)
             .then(|| compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md")))
             .flatten();
+        bootstrap_included = bootstrap_message.is_some();
         let launch_instructions =
             compose_launch_instructions(system_prompt, bootstrap_message, &system_prompt_delivery);
         first_turn_planned = launch_instructions.starter_prompt
@@ -442,6 +444,9 @@ pub(super) fn start(
         log::error!("[general-agent] Failed to write launch command: {}", e);
         fail_general_agent_start(svc, mux, &tab_id, &e.to_string());
         return;
+    }
+    if bootstrap_included {
+        state::mark_bootstrap_dispatched();
     }
     if let Some(authority) = launch_authority {
         svc.note_user_launch_dispatched(&authority);

@@ -10,6 +10,7 @@ pub(super) fn start_main(
     provider: &str,
     permission_bypass: bool,
     resume_enabled: bool,
+    allow_bootstrap: bool,
 ) {
     let target = {
         let m = mux.read();
@@ -105,6 +106,7 @@ pub(super) fn start_main(
             provider,
             permission_bypass,
             ownership: LaunchOwnership::Main,
+            allow_bootstrap,
             selection: super::super::session_contract::default_selection(
                 &svc.configuration().general_agent,
             ),
@@ -136,6 +138,7 @@ fn launch(
         provider,
         permission_bypass,
         ownership,
+        allow_bootstrap,
         mut selection,
     } = target;
     let session_id = ownership.select_session(session_id);
@@ -183,7 +186,7 @@ fn launch(
         provider,
         Some(&svc.mem),
     );
-    let bootstrap = (ownership.bootstrap() && !resuming)
+    let bootstrap = (ownership.bootstrap() && allow_bootstrap && !resuming)
         .then(|| compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md")))
         .flatten();
     svc.set_agent_session_id(&tab_id, session_id.clone());
@@ -271,6 +274,9 @@ fn launch(
         )
     }) {
         return Ok(());
+    }
+    if bootstrap.is_some() {
+        state::mark_bootstrap_dispatched();
     }
     let bound_session = mux
         .read()
