@@ -13,9 +13,25 @@ export interface RemoteChatFailure {
   at: number;
 }
 
+export function isRemoteMessageAttachmentRefusal(
+  failure?: Pick<RemoteChatFailure, "status" | "code" | "path" | "fromPeer"> | null,
+): boolean {
+  if (!failure) return false;
+  if (failure.code === "source_attachment_path") return true;
+  return !failure.fromPeer && failure.path === "/api/mesh/relay-to" && failure.status === 422;
+}
+
+export function remoteMessageAttachmentError(failure: RemoteChatFailure): string {
+  if (failure.code === "source_attachment_path") {
+    return "Attachment could not be transferred to the remote machine; the message was not sent.";
+  }
+  const detail = failure.raw.replace(/^\/api\/[^\s]+\s+→\s+HTTP\s+\d{3}:\s*/, "").trim();
+  return detail || "Attachment could not be sent to the remote machine.";
+}
+
 export function remoteChatState(presence?: RemoteChatPresence, failure?: RemoteChatFailure): RemoteChatState | null {
   if (presence && presence !== "online") return presence;
-  if (!failure) return null;
+  if (!failure || isRemoteMessageAttachmentRefusal(failure)) return null;
   const { status, code, raw, fromPeer } = failure;
   if (status === 404 && code === "peer_not_paired") return "not-paired";
   if (status === 403) return "refused";
@@ -56,7 +72,7 @@ export function remoteChatFailure(error: unknown, at = Date.now()): RemoteChatFa
   })();
   const code = (relay ? error.code : undefined) ?? fields?.error?.code ?? fields?.code ?? body.match(/^(\w+):/)?.[1];
   const originRefusal = path === "/api/mesh/relay-to"
-    && ((status === 404 && code === "peer_not_paired") || status === 403 || status === 426);
+    && ((status === 404 && code === "peer_not_paired") || status === 403 || status === 422 || status === 426);
   return { status, path, code, raw, fromPeer: relay,
     neverWritten: relay
       ? error.bytesWritten === false || (error.bytesWritten == null && (code === "peer_relay_not_authorized" || code === "peer_relay_protocol_mismatch"))

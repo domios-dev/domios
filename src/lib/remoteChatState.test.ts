@@ -1,5 +1,12 @@
 import { describe, expect, finish, it } from "../test/standaloneTest";
-import { PeerTabRelayError, remoteChatFailure, remoteChatState, remoteMachineName } from "./remoteChatState";
+import {
+  isRemoteMessageAttachmentRefusal,
+  PeerTabRelayError,
+  remoteChatFailure,
+  remoteChatState,
+  remoteMachineName,
+  remoteMessageAttachmentError,
+} from "./remoteChatState";
 
 const relay = (status: number, code?: string, bytesWritten?: boolean) =>
   remoteChatFailure(new PeerTabRelayError(status, "/api/mesh/relay-to", "opaque", code, bytesWritten), 1);
@@ -34,7 +41,21 @@ describe("remote chat state", () => {
     expect(relay(403, "peer_relay_not_authorized", true).neverWritten).toBe(false);
     expect(relay(403, "peer_relay_not_authorized", false).neverWritten).toBe(true);
     expect(remoteChatFailure(new Error("/api/mesh/relay-to → HTTP 404: peer_not_paired: opaque")).neverWritten).toBe(true);
+    expect(remoteChatFailure(new Error("/api/mesh/relay-to → HTTP 422: source_attachment_path: opaque")).neverWritten).toBe(true);
     expect(remoteChatFailure(new Error("/api/mesh/relay-to → HTTP 502: opaque")).neverWritten).toBe(false);
+  });
+  it("keeps origin 422 attachment refusals out of whole-chat unavailable state", () => {
+    const sourcePath = remoteChatFailure(new Error("/api/mesh/relay-to → HTTP 422: source_attachment_path: opaque"));
+    const originArtifact = remoteChatFailure(new Error("/api/mesh/relay-to → HTTP 422: Artifact refused: private_path"));
+    const peer422 = relay(422, "invalid_payload");
+    expect(isRemoteMessageAttachmentRefusal(sourcePath)).toBe(true);
+    expect(isRemoteMessageAttachmentRefusal(originArtifact)).toBe(true);
+    expect(isRemoteMessageAttachmentRefusal(peer422)).toBe(false);
+    expect(remoteChatState("online", sourcePath)).toBe(null);
+    expect(remoteChatState("online", originArtifact)).toBe(null);
+    expect(remoteChatState("online", peer422)).toBe("generic");
+    expect(remoteMessageAttachmentError(sourcePath)).not.toContain("/api/mesh/relay-to");
+    expect(remoteMessageAttachmentError(originArtifact)).toBe("Artifact refused: private_path");
   });
   it("names the machine from the peer, tab or fallback", () => {
     const id = "cea6e137-dead-dead-dead-aabbccddeeff";

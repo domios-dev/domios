@@ -6,6 +6,7 @@ import {
   assertNoSourceAttachmentPaths,
   attachmentHostTarget,
   composeAttachmentDraft,
+  remoteOptimisticContent,
   resolveAttachmentParts,
   type AttachmentHandoffDeps,
   type MeshAttachmentTransferRequest,
@@ -209,4 +210,42 @@ test("host transcription notes and missing remote transcripts refuse delivery", 
     await assert.rejects(resolveAttachmentParts(remote, [plans[0]], remoteFailure.deps),
       reference ? /engine offline/ : /no voice transcript/);
   }
+});
+
+test("inline attachment markers in remote text transfer viewer-local files once and preserve peer-only paths", async () => {
+  const localKinds: string[][] = [];
+  const { transfers, deps } = harness({
+    localPathKinds: async (paths) => {
+      localKinds.push(paths);
+      return paths.map((path) => (path === sourceImage ? "file" : path === targetImage ? "missing" : "folder"));
+    },
+  });
+  const pasted = `see ${formatAttachmentMarker(sourceImage, "image", "image1")} and again ${formatAttachmentMarker(sourceImage, "image", "image1")} plus ${formatAttachmentMarker(targetImage, "image")}`;
+  const sent = await composeAttachmentDraft(remoteTab, pasted, [], [], deps);
+  assert.deepEqual(localKinds, [[sourceImage, targetImage]]);
+  assert.equal(transfers.length, 1, "duplicate viewer-local paths transfer once");
+  assert.equal(transfers[0].path, sourceImage);
+  assert.ok(!sent.composed.includes(sourceImage), "no viewer-local path leaks");
+  assert.equal(
+    sent.composed,
+    `see ${formatAttachmentMarker(targetImage, "image", "image1")} and again ${formatAttachmentMarker(targetImage, "image", "image1")} plus ${formatAttachmentMarker(targetImage, "image")}`,
+  );
+
+  await assert.rejects(
+    composeAttachmentDraft(remoteTab, `dir ${formatAttachmentMarker("C:\\work\\repo", "folder", "repo")}`, [], [], deps),
+    AttachmentTransferError,
+    "viewer-local folder inline markers refuse delivery",
+  );
+});
+
+test("remote optimistic preview omits viewer-local paths before transfer completes", () => {
+  const { registry, text: imageToken } = capsulesForPaths(EMPTY_CAPSULES, [{ path: sourceImage }]);
+  const preview = remoteOptimisticContent(
+    `look ${imageToken} and ${formatAttachmentMarker(sourceImage, "image")}`,
+    registry,
+    [sourceVoice],
+    null,
+  );
+  assert.ok(!preview.includes("source-user"), "optimistic preview leaks no viewer-local path");
+  assert.ok(preview.includes("look") && preview.includes("image"));
 });

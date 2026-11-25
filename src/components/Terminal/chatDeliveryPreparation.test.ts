@@ -1,7 +1,7 @@
 import "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { markVoice } from "@codeterm/chat-core";
+import { formatAttachmentMarker, markVoice } from "@codeterm/chat-core";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { clearRelayTarget, setRelayTarget } from "../../lib/webApi";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -88,4 +88,27 @@ test("asynchronous requested task expansion completes before prepared content re
   assert.equal(readChatSends(tab)[0].content,"Requested task window");
   assert.equal(readChatSends(tab)[0].draft,undefined);
   assert.equal(readChatSends(tab).length,1);
+});
+
+test("draft-less remote send with an inline attachment marker transfers before delivery", async () => {
+  const tab = "mesh:blackstar/orch-inline";
+  const localImg = "C:\\Users\\viewer\\.domios\\uploads\\shot.png";
+  const remoteImg = "C:\\Users\\User\\.domios\\uploads\\remote-shot.png";
+  addChatSend(tab, { id: "inline-1", correlationId: "inline-1", content: `look ${formatAttachmentMarker(localImg, "image", "image1")}`, sentAtMs: 30 });
+  const original = readChatSends(tab)[0];
+  const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+  __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
+    calls.push({ command, args });
+    assert.equal(command, "mesh_transfer_attachment");
+    return { path: remoteImg, kind: "file", size: 42, reference: null } as T;
+  });
+  try {
+    const composed = await prepareChatDelivery(tab, original, expansion);
+    assert.equal(calls.length, 1);
+    assert.ok(!composed.includes(localImg), "viewer-local path is removed");
+    assert.ok(composed.includes(remoteImg), "target-local path replaces it");
+    assert.equal(readChatSends(tab)[0].content, composed);
+  } finally {
+    __setInvokeForTest(null);
+  }
 });
