@@ -198,17 +198,13 @@ pub async fn mem_update(
         .filter(|s| !s.is_empty())
         .map(sanitize_actor)
         .unwrap_or_else(|| changed_by_from_headers(&headers));
-    let updated = codeterm_service_core::mem::store::with_write_worker(
-        super::worker_id_from_headers(&headers),
-        || {
-            codeterm_service_core::mem::store::with_authored_change(
-                author.clone(),
-                &changed_by,
-                || state.svc.mem.update(&id, patch),
-            )
-        },
-    )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let update_id = id.clone();
+    let updated = crate::mem_routes::with_worker_write(&state, &headers, move |svc| {
+        codeterm_service_core::mem::store::with_authored_change(author, &changed_by, || {
+            svc.mem.update(&update_id, patch)
+        })
+    })
+    .await?;
     if !updated {
         if state
             .svc

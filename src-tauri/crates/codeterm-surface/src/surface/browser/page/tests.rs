@@ -88,8 +88,19 @@ fn browser_page_target_info_counts_only_our_page() {
         None
     );
     assert_eq!(
-        page_update("Page.javascriptDialogOpening", &json!({}), "t"),
-        Some(PageUpdate::Dialog(true))
+        page_update(
+            "Page.javascriptDialogOpening",
+            &json!({ "type": "alert", "message": "Stop", "url": "https://a.dev" }),
+            "t"
+        ),
+        Some(PageUpdate::DialogOpened(ActiveDialog {
+            kind: super::super::dialog::DialogKind::Alert,
+            message: "Stop".into(),
+        }))
+    );
+    assert_eq!(
+        page_update("Page.javascriptDialogClosed", &json!({}), "t"),
+        Some(PageUpdate::DialogClosed)
     );
     assert_eq!(page_update("Page.loadEventFired", &json!({}), "t"), None);
 }
@@ -102,8 +113,14 @@ fn browser_page_navigation_drops_refs_and_dialogs_flag_needs_human() {
     shared
         .finish_snapshot(&capture, Snapshot::default())
         .unwrap();
-    shared.apply("s", PageUpdate::Dialog(true));
+    let alert = ActiveDialog::from_cdp_params(&json!({
+        "type": "alert",
+        "message": "Confirm action",
+        "url": "https://a.dev",
+    }));
+    shared.apply("s", PageUpdate::DialogOpened(alert.clone()));
     assert_eq!(shared.state().needs_human, "dialog");
+    assert_eq!(shared.active_dialog(), Some(alert));
     assert!(shared.snapshot().is_some());
     shared.apply(
         "s",
@@ -112,8 +129,9 @@ fn browser_page_navigation_drops_refs_and_dialogs_flag_needs_human() {
         },
     );
     assert!(shared.snapshot().is_none());
-    shared.apply("s", PageUpdate::Dialog(false));
+    shared.apply("s", PageUpdate::DialogClosed);
     assert_eq!(shared.state().needs_human, NEEDS_NONE);
+    assert_eq!(shared.active_dialog(), None);
     assert_eq!(shared.state().url, "https://a.dev");
     shared.apply(
         "stale-session",
@@ -122,6 +140,85 @@ fn browser_page_navigation_drops_refs_and_dialogs_flag_needs_human() {
         },
     );
     assert_eq!(shared.state().url, "https://a.dev");
+}
+
+#[test]
+fn stale_dialog_snapshot_cannot_overwrite_newer_dialog() {
+    let shared = PageShared::new("Orla");
+    shared.session.lock().bound_session = Some("s".into());
+
+    // Interleaving 1: a dialog close produces a lower-seq None snapshot while a newer prompt opens
+    // and publishes first.
+    shared.apply(
+        "s",
+        PageUpdate::DialogOpened(ActiveDialog::from_cdp_params(&json!({
+            "type": "beforeunload",
+            "message": "Draft",
+        }))),
+    );
+    let stale_close = {
+        let mut session = shared.session.lock();
+        session.dialog.on_dialog_closed();
+        next_dialog_snapshot(&mut session)
+    };
+    assert_eq!(stale_close.dialog, None);
+
+    let prompt = ActiveDialog::from_cdp_params(&json!({
+        "type": "prompt",
+        "message": "Enter PIN",
+    }));
+    shared.apply("s", PageUpdate::DialogOpened(prompt.clone()));
+    assert_eq!(shared.state().needs_human, "dialog");
+    assert_eq!(
+        shared.subscribe_dialogs().borrow().dialog,
+        Some(prompt.clone())
+    );
+
+    // Delayed publication of the stale None snapshot must not overwrite the newer prompt.
+    shared.publish_dialog_snapshot(stale_close);
+    assert_eq!(shared.state().needs_human, "dialog");
+    assert_eq!(shared.subscribe_dialogs().borrow().dialog, Some(prompt));
+
+    // Interleaving 2: an older unbind/reset snapshot cannot overwrite a newly opened alert.
+    let stale_reset = {
+        let mut session = shared.session.lock();
+        session.dialog.on_dialog_closed();
+        next_dialog_snapshot(&mut session)
+    };
+    let alert = ActiveDialog::from_cdp_params(&json!({
+        "type": "alert",
+        "message": "Stop",
+    }));
+    shared.apply("s", PageUpdate::DialogOpened(alert.clone()));
+    shared.publish_dialog_snapshot(stale_reset);
+    assert_eq!(shared.state().needs_human, "dialog");
+    assert_eq!(shared.subscribe_dialogs().borrow().dialog, Some(alert));
+}
+
+#[test]
+fn browser_page_seeds_initial_profile_from_resume_only_for_named_profiles() {
+    assert_eq!(
+        PageShared::new_with_profile("Orla", Some("Andrey"))
+            .state()
+            .profile,
+        "Andrey"
+    );
+    assert_eq!(
+        PageShared::new_with_profile("Orla", Some("clean"))
+            .state()
+            .profile,
+        "clean"
+    );
+    assert_eq!(
+        PageShared::new_with_profile("Orla", Some("../bad"))
+            .state()
+            .profile,
+        "clean"
+    );
+    assert_eq!(
+        PageShared::new_with_profile("Orla", None).state().profile,
+        "clean"
+    );
 }
 
 #[test]

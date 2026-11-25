@@ -1,11 +1,13 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { expect, test } from "vitest";
-import type { MessageSegment } from "@codeterm/chat-core";
-import { projectTranscriptParts } from "@codeterm/chat-core";
+import { expect, test, vi } from "vitest";
+import type { MessageSegment, NormalizedChatMessage } from "@codeterm/chat-core";
+import { formatAttachmentMarker, projectTranscriptParts } from "@codeterm/chat-core";
 import { deliveryProjectionSends, type DeliverySend } from "../../../src/components/Terminal/chatDeliveryModel";
 import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrichment";
 import { MessageBubble } from "./MessageBubble";
+import { LocalArtifactScope } from "./LocalArtifactScope";
+import { configureLocalArtifactLoader, type LocalPreviewFile } from "./localArtifactLoader";
 import fixtureData from "../../../tests/fixtures/message-envelope.json";
 
 for (const kind of ["tab"] as const) {
@@ -73,6 +75,54 @@ test("merged user and routed turn renders a user bubble and a named routed card"
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+test("restored user caption starts at the top of its bubble after a restart notice", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const attrs = { from: "system", context: "turn-resume" };
+  const notice = "Continue the interrupted work.";
+  const firstText = "\n".repeat(8) + "Check the shadows ";
+  const path = String.raw`C:\Temp\codeterm-chat\0123456789abcdef0123456789abcdef-image.png`;
+  const lastText = " and adjust them.";
+  const segments: MessageSegment[] = [
+    { type: "frame", kind: "system", from: "system", attrs, body: notice, tip: null },
+    { type: "text", text: firstText },
+    { type: "attachment", kind: "image", path, label: "image1", body: null, status: null },
+    { type: "text", text: lastText },
+  ];
+  const content = `<domios from="system" context="turn-resume">${notice}</domios>${firstText}${formatAttachmentMarker(path, "image", "image1")}${lastText}`;
+  const restored: NormalizedChatMessage = JSON.parse(JSON.stringify({ id: "restored", type: "user", content, segments }));
+  const rows = enrichTimelineItems([{ kind: "message", message: restored }], new WeakMap());
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<LocalPreviewFile>((_, onReject) => { reject = onReject; });
+  const readImage = vi.fn(() => promise);
+  configureLocalArtifactLoader(readImage);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<LocalArtifactScope tabId="restored-tab">
+      {rows.map((row) => <MessageBubble key={row.msg.id} message={row.msg} origin={row.origin} />)}
+    </LocalArtifactScope>));
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    const bubble = host.querySelector('[role="group"][aria-label="User message"]')!;
+    const chip = bubble.querySelector<HTMLButtonElement>('button[aria-label="Open image image.png"]')!;
+    expect(chip).not.toBeNull();
+    expect(readImage).toHaveBeenCalledWith(path, "image", "restored-tab");
+    expect(bubble.textContent).toBe("Check the shadows image.png and adjust them.");
+    await act(async () => chip.focus());
+    const preview = document.querySelector('[role="region"][aria-label="Preview image.png"]');
+    expect(preview).not.toBeNull();
+    expect(bubble.contains(preview)).toBe(false);
+    await act(async () => reject(new Error("Image unavailable")));
+    expect(document.querySelector('[role="region"][aria-label="Preview image.png"]')).toBeNull();
+    expect(bubble.contains(chip)).toBe(true);
+    expect(bubble.textContent).toBe("Check the shadows image.png and adjust them.");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    configureLocalArtifactLoader(null);
   }
 });
 

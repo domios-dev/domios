@@ -75,19 +75,22 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             every,
             until,
             count,
-            require_agent: _,
+            require_agent,
             to_shell: _,
             system_context,
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
+                if *require_agent {
+                    return unsupported("--require-agent requires an immediate mesh text send");
+                }
                 delayed_create_to_api(
                     text, tab, from_file, from_pad, *use_stdin, delay, at, every, until, count,
                     &mut stdin,
                 )
             } else {
                 send_text_to_api(
-                    text, tab, from_file, from_pad, *use_stdin, actions, system_context, &mut stdin,
+                    text, tab, from_file, from_pad, *use_stdin, actions, system_context, *require_agent, &mut stdin,
                 )
             }
         }

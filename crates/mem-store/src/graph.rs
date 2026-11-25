@@ -47,7 +47,7 @@ pub struct ReviveBrokenReport {
     pub dry_run: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct IntroduceTopicOptions {
     pub topic_id: String,
     pub entity_type: String,
@@ -61,6 +61,8 @@ pub struct IntroduceTopicOptions {
 #[derive(Debug, Clone, Serialize)]
 pub struct IntroduceTopicReport {
     pub topic_created: bool,
+    #[serde(skip)]
+    pub created_relations: Vec<(String, String, String)>,
     pub edges_created: u64,
     pub edges_invalidated: u64,
 }
@@ -162,6 +164,8 @@ pub fn revive_broken(
 ) -> MemStoreResult<ReviveBrokenReport> {
     let mut sql = String::from(
         "valid_to IS NOT NULL \
+         AND COALESCE(reason, '') NOT GLOB 'collapse_synonym_edges:*' \
+         AND COALESCE(reason, '') NOT GLOB 'prune_dream_hub_edges:*' \
          AND from_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
          AND to_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items)",
     );
@@ -269,6 +273,7 @@ pub fn introduce_topic(
 
     let mut edges_invalidated: u64 = 0;
     let mut edges_created: u64 = 0;
+    let mut created_relations = Vec::new();
 
     let scope: String = tx
         .query_row(
@@ -292,6 +297,13 @@ pub fn introduce_topic(
             rusqlite::params![source, opts.rel_source, opts.topic_id, scope, now, reason],
         )? as u64;
         edges_created += created_src;
+        if created_src > 0 {
+            created_relations.push((
+                source.clone(),
+                opts.topic_id.clone(),
+                opts.rel_source.clone(),
+            ));
+        }
     }
 
     let topic_anchor_exists: i64 = tx.query_row(
@@ -306,11 +318,19 @@ pub fn introduce_topic(
             rusqlite::params![opts.topic_id, opts.rel_anchor, opts.anchor, scope, now, reason],
         )? as u64;
         edges_created += created_anchor;
+        if created_anchor > 0 {
+            created_relations.push((
+                opts.topic_id.clone(),
+                opts.anchor.clone(),
+                opts.rel_anchor.clone(),
+            ));
+        }
     }
 
     tx.commit()?;
     Ok(IntroduceTopicReport {
         topic_created,
+        created_relations,
         edges_created,
         edges_invalidated,
     })

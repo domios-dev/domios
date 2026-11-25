@@ -390,7 +390,15 @@ impl MemStore for SqliteMemStore {
     fn graph_create_entity(&self, _ctx: &WriteContext, e: &Entity) -> Result<(), String> {
         graph::insert_entity(&self.conn.lock(), e)
     }
-    fn graph_relate(&self, _ctx: &WriteContext, r: &Relation) -> Result<(), String> {
+    fn graph_introduce_topic(
+        &self,
+        _ctx: &WriteContext,
+        options: codeterm_mem_store::graph::IntroduceTopicOptions,
+    ) -> Result<codeterm_mem_store::graph::IntroduceTopicReport, String> {
+        codeterm_mem_store::graph::introduce_topic(&self.conn.lock(), options)
+            .map_err(|error| error.to_string())
+    }
+    fn graph_relate(&self, _ctx: &WriteContext, r: &Relation) -> Result<bool, String> {
         graph::upsert_relation(&self.conn.lock(), r)
     }
     fn graph_insert_relation(&self, _ctx: &WriteContext, r: &Relation) -> Result<(), String> {

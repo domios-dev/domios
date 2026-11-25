@@ -74,3 +74,120 @@ async fn actor_and_selected_tab_headers_cannot_forge_save_author() {
         codeterm_mem::store::MemAuthor::neighbor("remote-friend".into(), "friendship".into())
     );
 }
+
+#[tokio::test]
+async fn nonlocal_memory_actors_can_mutate_without_local_run_attribution() {
+    use crate::auth::AuthenticatedOrigin;
+    use codeterm_service_core::mesh::crown::{
+        generate_peer_keypair, sign_request_with_agent, AuthenticatedAgent,
+    };
+    for origin in [
+        AuthenticatedOrigin::Agent,
+        AuthenticatedOrigin::Mesh,
+        AuthenticatedOrigin::Service,
+    ] {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+        let state = crate::test_support::app_state(&fixture);
+        state.config.lock().api.token = Some("owner-secret".into());
+        let (private, public) = generate_peer_keypair();
+        {
+            let mut mesh = state.mesh.lock();
+            mesh.ident.identity.instance_id = "remote-source".into();
+            mesh.ident.identity.private_key = Some(private.clone());
+            mesh.ident.identity.public_key = Some(public);
+        }
+        let agent = AuthenticatedAgent {
+            instance_id: "remote-source".into(),
+            tab_id: "remote-tab".into(),
+            can_spawn: false,
+        };
+        let token = sign_request_with_agent(
+            &private,
+            "remote-source",
+            origin,
+            (origin == AuthenticatedOrigin::Agent).then_some(&agent),
+        )
+        .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers.insert("x-codeterm-tab-id", "selected-local-tab".parse().unwrap());
+        state.svc.workers.register(codeterm_mem::workers::make_info(
+            "gw_unrelated".into(),
+            "selected-local-tab".into(),
+            "dreaming:rem".into(),
+            "test".into(),
+            "blue".into(),
+        ));
+        let new_item = |title: &str| codeterm_mem::NewMemItem {
+            kind: codeterm_mem::MemKind::Note,
+            scope: codeterm_mem::MemScope::Global,
+            title: title.into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "remote mutation proof".into(),
+            source: None,
+            importance: 2.0,
+            source_path: None,
+            pinned: false,
+        };
+        let keeper = state.svc.mem.save(new_item("keeper")).unwrap();
+        let lesser = state.svc.mem.save(new_item("lesser")).unwrap();
+        let archived = state.svc.mem.save(new_item("archived")).unwrap();
+        graph::mem_graph_relate(
+            State(state.clone()),
+            headers.clone(),
+            Json(
+                serde_json::from_value(
+                    serde_json::json!({"from":keeper,"rel":"about","to":lesser}),
+                )
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+        items::mem_update(
+            State(state.clone()),
+            headers.clone(),
+            axum::extract::Path(keeper.clone()),
+            Json(serde_json::from_value(serde_json::json!({"importance":4.0})).unwrap()),
+        )
+        .await
+        .unwrap();
+        items::mem_archive(
+            State(state.clone()),
+            headers.clone(),
+            axum::extract::Path(archived.clone()),
+            Json(serde_json::from_value(serde_json::json!({"reason":"regression proof"})).unwrap()),
+        )
+        .await
+        .unwrap();
+        mem_merge::mem_merge(
+            State(state.clone()),
+            headers.clone(),
+            Json(
+                serde_json::from_value(serde_json::json!({"keeper":keeper,"lesser":lesser}))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(state.svc.mem.get(&keeper).unwrap().unwrap().importance, 4.0);
+        assert_eq!(
+            state.svc.mem.get(&archived).unwrap().unwrap().kind,
+            "archived"
+        );
+        assert_eq!(
+            state.svc.mem.get(&lesser).unwrap().unwrap().kind,
+            "archived"
+        );
+        assert!(state
+            .svc
+            .workers
+            .get("gw_unrelated")
+            .unwrap()
+            .touched_nodes
+            .is_empty());
+    }
+}

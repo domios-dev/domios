@@ -16,15 +16,6 @@
   transition: transform var(--ct-duration-smooth) var(--ct-ease-out-expo), opacity var(--ct-duration-normal) ease;
 }
 
-.active-tab-pill::before {
-  position: absolute;
-  inset: 9px auto 9px 0;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--ct-accent);
-  content: "";
-}
-
 .sidebar-tab-activation:focus-visible {
   outline: none;
 }

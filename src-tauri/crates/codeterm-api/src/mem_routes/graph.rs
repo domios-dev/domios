@@ -27,11 +27,8 @@ pub async fn mem_graph_relate(
         properties: serde_json::json!({}),
         reason: b.reason,
     };
-    codeterm_service_core::mem::store::with_write_worker(
-        super::worker_id_from_headers(&headers),
-        || state.svc.mem.graph_relate(&r),
-    )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    crate::mem_routes::with_worker_write(&state, &headers, move |svc| svc.mem.graph_relate(&r))
+        .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -78,11 +75,10 @@ pub async fn mem_graph_create(
         scope: b.scope.unwrap_or_else(|| "global".to_string()),
         properties: b.properties,
     };
-    codeterm_service_core::mem::store::with_write_worker(
-        super::worker_id_from_headers(&headers),
-        || state.svc.mem.graph_create_entity(&e),
-    )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    crate::mem_routes::with_worker_write(&state, &headers, move |svc| {
+        svc.mem.graph_create_entity(&e)
+    })
+    .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -153,15 +149,16 @@ pub async fn mem_graph_path(
 
 pub async fn mem_graph_alias(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(b): Json<GraphAliasBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     validate_canonical(&b.canonical).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    state
-        .svc
-        .mem
-        .graph_alias(&b.alias, &b.canonical)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let alias = b.alias.clone();
+    let canonical = b.canonical.clone();
+    super::with_worker_write(&state, &headers, move |svc| {
+        svc.mem.graph_alias(&alias, &canonical)
+    })
+    .await?;
     Ok(Json(
         serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical }),
     ))

@@ -56,10 +56,13 @@ impl Connection {
         self.actions.fetch_add(1, Ordering::SeqCst);
         match self.effect {
             Effect::Control => {}
-            Effect::SameDocument => self.emit(
-                "Page.navigatedWithinDocument",
-                json!({"frameId":"main","url":"https://page/#changed"}),
-            ),
+            Effect::SameDocument => {
+                self.emit("Page.frameStartedLoading", json!({"frameId":"main"}));
+                self.emit(
+                    "Page.navigatedWithinDocument",
+                    json!({"frameId":"main","url":"https://page/#changed","navigationType":"historyApi"}),
+                );
+            }
             Effect::Navigation => {
                 self.emit("Page.frameRequestedNavigation", json!({"frameId":"main"}))
             }

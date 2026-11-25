@@ -341,6 +341,7 @@ pub(super) fn dispatch(
                 "mem.worker.kill",
                 "mem.graph.create",
                 "mem.graph.relate",
+                "mem.graph.introduce_topic",
                 "mem.graph.related",
                 "mem.graph.invalidate",
                 "mem.graph.timeline",

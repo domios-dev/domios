@@ -83,6 +83,22 @@ pub fn is_dreaming_intent(intent: &str) -> bool {
     intent.starts_with(DREAMING_INTENT_PREFIX)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeAction {
+    Linked,
+    Merged,
+    Archived,
+    Reweighted,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+pub struct CreatedEdge {
+    pub from: String,
+    pub to: String,
+    pub relation: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct GraphWorkerInfo {
     pub worker_id: String,
@@ -93,6 +109,12 @@ pub struct GraphWorkerInfo {
     pub status: WorkerStatus,
     pub progress_text: Option<String>,
     pub touched_nodes: HashSet<String>,
+    #[serde(default)]
+    pub node_actions: HashMap<String, NodeAction>,
+    #[serde(default)]
+    pub created_edges: Vec<CreatedEdge>,
+    #[serde(default)]
+    pub stage: Option<String>,
     pub color: String,
     pub report: Option<String>,
     pub done_at: Option<u64>,
@@ -176,6 +198,14 @@ pub fn new_worker_id() -> String {
         bytes[0], bytes[1], bytes[2], bytes[3]
     )
 }
+
+pub const DREAM_STAGES: [&str; 5] = [
+    "read_memories",
+    "prune_backlinks",
+    "bridge_islands",
+    "check_duplicates",
+    "write_diary",
+];
 
 impl GraphWorkerRegistry {
     pub fn load(persist_path: PathBuf) -> Arc<Self> {
@@ -354,11 +384,48 @@ impl GraphWorkerRegistry {
             let w = map
                 .get_mut(worker_id)
                 .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            if is_dreaming_intent(&w.intent) && DREAM_STAGES.contains(&text.as_str()) {
+                w.stage = Some(text.clone());
+            }
             w.progress_text = Some(text);
             w.last_observed_at = Some(now_ms());
         }
         self.persist();
         Ok(())
+    }
+
+    pub fn record_mutation(
+        &self,
+        worker_id: &str,
+        nodes: &[(String, NodeAction)],
+        edges: &[CreatedEdge],
+    ) {
+        let changed = {
+            let mut map = self.inner.write();
+            let Some(worker) = map.get_mut(worker_id) else {
+                return;
+            };
+            for (id, action) in nodes {
+                worker.touched_nodes.insert(id.clone());
+                worker.node_actions.insert(id.clone(), action.clone());
+            }
+            for edge in edges {
+                for id in [&edge.from, &edge.to] {
+                    worker.touched_nodes.insert(id.clone());
+                    worker
+                        .node_actions
+                        .entry(id.clone())
+                        .or_insert(NodeAction::Linked);
+                }
+                if !worker.created_edges.contains(edge) {
+                    worker.created_edges.push(edge.clone());
+                }
+            }
+            !nodes.is_empty() || !edges.is_empty()
+        };
+        if changed {
+            self.persist();
+        }
     }
 
     pub fn touch(&self, worker_id: &str, mem_id: &str) {
@@ -511,6 +578,21 @@ impl GraphWorkerRegistry {
         Ok(true)
     }
 
+    pub fn bind_diary(&self, worker_id: &str, diary_id: &str) {
+        {
+            let mut map = self.inner.write();
+            let Some(worker) = map.get_mut(worker_id).filter(|worker| {
+                is_dreaming_intent(&worker.intent)
+                    && !worker.status.is_terminal()
+                    && worker.diary_id.is_none()
+            }) else {
+                return;
+            };
+            worker.diary_id = Some(diary_id.into());
+        }
+        self.persist();
+    }
+
     /// The live run that owns this diary, by identity. Never derived from the
     /// diary's own body text.
     pub fn live_owner_of_diary(&self, diary_id: &str) -> Option<String> {
@@ -618,6 +700,9 @@ pub fn make_info(
         status: WorkerStatus::Starting,
         progress_text: None,
         touched_nodes: HashSet::new(),
+        node_actions: HashMap::new(),
+        created_edges: Vec::new(),
+        stage: None,
         color,
         report: None,
         done_at: None,

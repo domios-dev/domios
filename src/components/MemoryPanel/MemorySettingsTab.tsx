@@ -1,18 +1,25 @@
+import { cronToSchedule, type ScheduleFreq } from "./dreamSchedule";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatUntil } from "../../lib/timeLabels";
-import { Cog, Moon, RefreshCw } from "lucide-react";
+import { Cog, Moon, Play, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
 import { DecisionRerankCard } from "./DecisionRerankCard";
 import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
+import { Button } from "../shared/Button";
+import { UI_INPUT } from "../shared/design";
 
-type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
-
-function pad2(n: number): string {
-  return n.toString().padStart(2, "0");
-}
+const inputClass = `${UI_INPUT.fullCompact} min-w-0 !h-8 !rounded-lg !text-xs`;
+const maintenanceAction = "!h-[30px] !min-h-0 shrink-0 gap-1.5 whitespace-nowrap !rounded-lg !border-[var(--ct-accent)]/35 !bg-[var(--ct-accent)]/14 !text-[12.5px] !font-semibold !text-[var(--ct-accent)]";
+const settingsDescriptionLayout = [
+  "max-sm:[&_.ct-settings-card__head]:!grid max-sm:[&_.ct-settings-card__head]:grid-cols-[28px_minmax(0,1fr)_auto]",
+  "max-sm:[&_.ct-settings-card__heading]:!contents",
+  "max-sm:[&_.ct-settings-card__title]:col-start-2 max-sm:[&_.ct-settings-card__title]:row-start-1 max-sm:[&_.ct-settings-card__title]:self-center",
+  "max-sm:[&_.ct-settings-card__aside]:col-start-3 max-sm:[&_.ct-settings-card__aside]:row-start-1",
+  "max-sm:[&_.ct-settings-card__desc]:col-span-full max-sm:[&_.ct-settings-card__desc]:row-start-2",
+].join(" ");
 
 function scheduleToCron(freq: ScheduleFreq, time: string): string | null {
   if (freq === "off") return null;
@@ -26,20 +33,6 @@ function scheduleToCron(freq: ScheduleFreq, time: string): string | null {
     case "every-3": return `${m} ${h} */3 * *`;
     case "weekly": return `${m} ${h} * * 0`;
   }
-}
-
-function cronToSchedule(schedule: string): { freq: ScheduleFreq; time: string; custom: boolean } {
-  const s = schedule.trim();
-  let m: RegExpMatchArray | null;
-  m = s.match(/^(\d+) (\d+) \* \* \*$/);
-  if (m) return { freq: "daily", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  m = s.match(/^(\d+) (\d+) \*\/2 \* \*$/);
-  if (m) return { freq: "every-2", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  m = s.match(/^(\d+) (\d+) \*\/3 \* \*$/);
-  if (m) return { freq: "every-3", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  m = s.match(/^(\d+) (\d+) \* \* 0$/);
-  if (m) return { freq: "weekly", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
-  return { freq: "daily", time: "06:00", custom: true };
 }
 
 function freqLabel(freq: ScheduleFreq): string {
@@ -64,7 +57,6 @@ interface MemorySettingsTabProps {
 
 export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: MemorySettingsTabProps) {
   const { providers, loading: modelCatalogLoading } = useAgentProviders();
-  const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
   const defaultProvider = config.general_agent?.agent_provider || providers[0]?.id || "";
   const defaultMem = {
@@ -239,27 +231,32 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
   };
 
   const dreamRunButton = (
-    <button
+    <Button
+      variant="outline"
+      size="sm"
       onClick={triggerDream}
       data-testid="memory-settings-run-dream"
-      className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80"
+      className={maintenanceAction}
     >
-      Run Now
-    </button>
+      <Play size={13} aria-hidden="true" /> Run now
+    </Button>
   );
 
   const syncRunButton = (
-    <button
+    <Button
+      variant="outline"
+      size="sm"
       onClick={triggerSync}
       disabled={syncing}
       data-testid="memory-settings-sync-now"
-      className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80 disabled:opacity-50"
+      className={maintenanceAction}
     >
-      {syncing ? "Syncing..." : "Sync Now"}
-    </button>
+      <RefreshCw size={13} aria-hidden="true" /> {syncing ? "Syncing..." : "Sync now"}
+    </Button>
   );
 
   return (
+    <div className={settingsDescriptionLayout}>
     <SettingsPage title="Memory">
       <SettingsCard
         icon={<Cog size={16} />}
@@ -318,14 +315,14 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
             />
           </Label>
         </div>
-        <p className="text-[10px] text-[var(--ct-muted)]">
+        <p className="text-xs text-[var(--ct-muted-fg)]">
           Dedup: cosine distance below this triggers dedup. Lower = stricter (default 0.15).
         </p>
       </SettingsCard>
 
       <SettingsCard
         icon={<Moon size={16} />}
-        title="Dreaming (Nightly Optimizer)"
+        title={<>Dreaming <span className="font-normal text-[var(--ct-muted-fg)]">· nightly optimizer</span></>}
         headerRight={dreamRunButton}
         description="LLM consolidates, dedups, promotes learnings, prunes stale relations. Runs nightly by default."
       >
@@ -355,7 +352,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
           </Label>
         </div>
         {dreamCron && (
-          <p className="text-[10px] text-[var(--ct-muted)]">
+          <p className="text-xs text-[var(--ct-muted-fg)]">
             {currentFreq === "off"
               ? "Disabled — no automatic runs."
               : dreamCron.enabled && dreamCron.next_run
@@ -384,7 +381,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
 
       <SettingsCard
         icon={<RefreshCw size={16} />}
-        title="File Sync (Librarian)"
+        title={<>File sync <span className="font-normal text-[var(--ct-muted-fg)]">· librarian</span></>}
         headerRight={syncRunButton}
         description={
           <>
@@ -422,5 +419,6 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
 
       <DecisionRerankCard onOpenAgentsSettings={onOpenAgentsSettings} />
     </SettingsPage>
+    </div>
   );
 }
