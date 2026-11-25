@@ -2,7 +2,7 @@ use super::*;
 use std::{
     ffi::OsStr,
     fs::File,
-    io::{self, PipeReader},
+    io,
     os::windows::{
         ffi::OsStrExt,
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
@@ -10,13 +10,33 @@ use std::{
     },
     process::{Command, ExitStatus},
     ptr::{null, null_mut},
-    time::Duration,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
 };
+use windows_sys::Win32::{
+    Storage::FileSystem::{
+        CreateFileW, ReadFile, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_FIRST_PIPE_INSTANCE,
+        FILE_FLAG_OVERLAPPED, OPEN_EXISTING, PIPE_ACCESS_INBOUND,
+    },
+    System::{
+        Pipes::{
+            CreateNamedPipeW, PeekNamedPipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
+            PIPE_TYPE_BYTE, PIPE_WAIT,
+        },
+        IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED},
+    },
+};
+
+const READ_CHUNK_BYTES: usize = 4096;
+const JOB_DRAIN_SLICE_MS: u32 = 25;
+const TERMINATE_WAIT_MS: u32 = 5_000;
+
+static PIPE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub struct ProbeChild {
     process: OwnedHandle,
     job: Option<Job>,
-    pub stdout: Option<PipeReader>,
+    stdout: Option<OwnedHandle>,
 }
 
 struct Attributes(Vec<usize>);
@@ -71,6 +91,233 @@ impl Drop for Attributes {
     }
 }
 
+struct OverlappedReader {
+    pipe: Option<OwnedHandle>,
+    event: OwnedHandle,
+    active: bool,
+    overlapped: Box<OVERLAPPED>,
+    buffer: Vec<u8>,
+}
+
+enum PipePeek {
+    Available(u32),
+    Broken,
+    Error,
+}
+
+impl OverlappedReader {
+    fn new(pipe: OwnedHandle) -> io::Result<Self> {
+        let event = unsafe { CreateEventW(null(), 1, 0, null()) };
+        if event.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let event = unsafe { OwnedHandle::from_raw_handle(event) };
+        Ok(Self {
+            pipe: Some(pipe),
+            event,
+            active: false,
+            overlapped: Box::new(OVERLAPPED::default()),
+            buffer: vec![0u8; READ_CHUNK_BYTES],
+        })
+    }
+
+    fn event_handle(&self) -> HANDLE {
+        self.event.as_raw_handle()
+    }
+
+    fn start_or_drain(&mut self, output: &mut Vec<u8>, limit: usize) -> io::Result<bool> {
+        while !self.active && output.len() < limit {
+            let Some(pipe) = self.pipe.as_ref() else {
+                return Ok(true);
+            };
+            let want = (limit - output.len()).min(self.buffer.len()) as u32;
+            *self.overlapped = OVERLAPPED {
+                hEvent: self.event.as_raw_handle(),
+                ..OVERLAPPED::default()
+            };
+            let ok = unsafe {
+                ReadFile(
+                    pipe.as_raw_handle(),
+                    self.buffer.as_mut_ptr(),
+                    want,
+                    null_mut(),
+                    &mut *self.overlapped,
+                )
+            };
+            if ok != 0 {
+                let mut transferred = 0u32;
+                if unsafe {
+                    GetOverlappedResult(
+                        pipe.as_raw_handle(),
+                        &*self.overlapped,
+                        &mut transferred,
+                        0,
+                    )
+                } == 0
+                {
+                    let err = unsafe { GetLastError() };
+                    if err == ERROR_BROKEN_PIPE {
+                        return Ok(true);
+                    }
+                    return Err(io::Error::from_raw_os_error(err as i32));
+                }
+                if transferred == 0 {
+                    return Ok(true);
+                }
+                output.extend_from_slice(&self.buffer[..transferred as usize]);
+            } else {
+                let err = unsafe { GetLastError() };
+                if err == ERROR_IO_PENDING {
+                    self.active = true;
+                    return Ok(false);
+                }
+                if err == ERROR_BROKEN_PIPE {
+                    return Ok(true);
+                }
+                return Err(io::Error::from_raw_os_error(err as i32));
+            }
+        }
+        Ok(output.len() >= limit)
+    }
+
+    fn harvest_if_ready(&mut self, output: &mut Vec<u8>) -> io::Result<Option<bool>> {
+        if !self.active {
+            return Ok(None);
+        }
+        if unsafe { WaitForSingleObject(self.event.as_raw_handle(), 0) } != WAIT_OBJECT_0 {
+            return Ok(None);
+        }
+        self.harvest_completed(output).map(Some)
+    }
+
+    fn harvest_completed(&mut self, output: &mut Vec<u8>) -> io::Result<bool> {
+        let Some(pipe) = self.pipe.as_ref() else {
+            self.active = false;
+            return Ok(true);
+        };
+        let mut transferred = 0u32;
+        let ok = unsafe {
+            GetOverlappedResult(pipe.as_raw_handle(), &*self.overlapped, &mut transferred, 0)
+        };
+        self.active = false;
+        if ok != 0 {
+            if transferred == 0 {
+                return Ok(true);
+            }
+            output.extend_from_slice(&self.buffer[..transferred as usize]);
+            Ok(false)
+        } else {
+            let err = unsafe { GetLastError() };
+            if err == ERROR_BROKEN_PIPE || err == ERROR_OPERATION_ABORTED {
+                Ok(true)
+            } else {
+                Err(io::Error::from_raw_os_error(err as i32))
+            }
+        }
+    }
+
+    fn peek(&self) -> PipePeek {
+        let Some(pipe) = self.pipe.as_ref() else {
+            return PipePeek::Broken;
+        };
+        let mut available = 0u32;
+        if unsafe {
+            PeekNamedPipe(
+                pipe.as_raw_handle(),
+                null_mut(),
+                0,
+                null_mut(),
+                &mut available,
+                null_mut(),
+            )
+        } != 0
+        {
+            PipePeek::Available(available)
+        } else if unsafe { GetLastError() } == ERROR_BROKEN_PIPE {
+            PipePeek::Broken
+        } else {
+            PipePeek::Error
+        }
+    }
+
+    fn cancel_into(&mut self, output: Option<&mut Vec<u8>>) -> bool {
+        if !self.active {
+            return false;
+        }
+        let mut harvested = false;
+        if let Some(pipe) = self.pipe.as_ref() {
+            unsafe {
+                CancelIoEx(pipe.as_raw_handle(), &*self.overlapped);
+                let mut transferred = 0u32;
+                if GetOverlappedResult(pipe.as_raw_handle(), &*self.overlapped, &mut transferred, 1)
+                    != 0
+                    && transferred > 0
+                {
+                    if let Some(output) = output {
+                        output.extend_from_slice(&self.buffer[..transferred as usize]);
+                        harvested = true;
+                    }
+                }
+            }
+        }
+        self.active = false;
+        harvested
+    }
+
+    fn close(&mut self) {
+        self.cancel_into(None);
+        drop(self.pipe.take());
+    }
+}
+
+impl Drop for OverlappedReader {
+    fn drop(&mut self) {
+        self.cancel_into(None);
+    }
+}
+
+fn create_overlapped_pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
+    let sequence = PIPE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let name = format!(
+        r"\\.\pipe\codeterm-probe-child-{}-{sequence}",
+        std::process::id()
+    );
+    let mut wide_name = wide(OsStr::new(&name))?;
+    wide_name.push(0);
+    let reader = unsafe {
+        CreateNamedPipeW(
+            wide_name.as_ptr(),
+            PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+            1,
+            65_536,
+            65_536,
+            0,
+            null(),
+        )
+    };
+    if reader == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let reader = unsafe { OwnedHandle::from_raw_handle(reader) };
+    let writer = unsafe {
+        CreateFileW(
+            wide_name.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            null(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            null_mut(),
+        )
+    };
+    if writer == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let writer = unsafe { OwnedHandle::from_raw_handle(writer) };
+    Ok((reader, writer))
+}
+
 fn wide(value: &OsStr) -> io::Result<Vec<u16>> {
     let units: Vec<_> = value.encode_wide().collect();
     if units.contains(&0) {
@@ -108,6 +355,13 @@ fn argument(value: &OsStr, output: &mut Vec<u16>) -> io::Result<()> {
 
 impl ProbeChild {
     pub fn spawn(command: &mut Command) -> io::Result<Self> {
+        Self::spawn_inner(command, false).map(|(child, _)| child)
+    }
+
+    fn spawn_inner(
+        command: &mut Command,
+        retain_writer_copy: bool,
+    ) -> io::Result<(Self, Option<OwnedHandle>)> {
         if command.get_program().is_empty() || command.get_envs().next().is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -160,7 +414,12 @@ impl ProbeChild {
             })
             .transpose()?;
         let job = Job::new().map_err(io::Error::other)?;
-        let (stdout, writer) = io::pipe()?;
+        let (stdout, writer) = create_overlapped_pipe()?;
+        let leaked_writer = if retain_writer_copy {
+            Some(writer.try_clone()?)
+        } else {
+            None
+        };
         let input = File::open(r"\\.\NUL")?;
         let error = File::options().write(true).open(r"\\.\NUL")?;
         let mut handles = [
@@ -168,14 +427,6 @@ impl ProbeChild {
             writer.as_raw_handle(),
             error.as_raw_handle(),
         ];
-        for handle in handles {
-            if unsafe {
-                SetHandleInformation(handle.cast(), HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT)
-            } == 0
-            {
-                return Err(io::Error::last_os_error());
-            }
-        }
         let mut jobs = [job.0 as HANDLE];
         let mut attributes = Attributes::new(&mut handles, &mut jobs)?;
         let mut startup = STARTUPINFOEXW::default();
@@ -186,8 +437,17 @@ impl ProbeChild {
         startup.StartupInfo.hStdError = handles[2];
         startup.lpAttributeList = attributes.0.as_mut_ptr().cast();
         let mut information = PROCESS_INFORMATION::default();
+        // Only the listed child ends are inheritable, and only across CreateProcessW.
+        for handle in handles {
+            if unsafe {
+                SetHandleInformation(handle.cast(), HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT)
+            } == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
         // Job assignment is atomic with creation, including owner death before this call returns.
-        if unsafe {
+        let created = unsafe {
             CreateProcessW(
                 program.as_ptr(),
                 line.as_mut_ptr(),
@@ -200,9 +460,13 @@ impl ProbeChild {
                 &startup.StartupInfo,
                 &mut information,
             )
-        } == 0
-        {
-            return Err(io::Error::last_os_error());
+        };
+        let create_error = (created == 0).then(io::Error::last_os_error);
+        drop(input);
+        drop(writer);
+        drop(error);
+        if let Some(error) = create_error {
+            return Err(error);
         }
         let process = unsafe { OwnedHandle::from_raw_handle(information.hProcess) };
         let thread = unsafe { OwnedHandle::from_raw_handle(information.hThread) };
@@ -214,22 +478,208 @@ impl ProbeChild {
         if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
             return Err(io::Error::last_os_error());
         }
-        Ok(child)
+        Ok((child, leaked_writer))
     }
 
-    pub fn wait_timeout(&mut self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
-        let millis = timeout.as_millis().min((u32::MAX - 1) as u128) as u32;
-        match unsafe { WaitForSingleObject(self.process.as_raw_handle(), millis) } {
-            WAIT_OBJECT_0 => {
-                let mut code = 0;
-                if unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut code) } == 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                Ok(Some(ExitStatus::from_raw(code)))
+    pub fn collect_output(
+        &mut self,
+        deadline: Instant,
+        max_bytes: usize,
+    ) -> io::Result<Option<(ExitStatus, Vec<u8>)>> {
+        let Some(stdout) = self.stdout.take() else {
+            self.terminate();
+            return Err(io::Error::other("Probe stdout is unavailable"));
+        };
+        let mut reader = match OverlappedReader::new(stdout) {
+            Ok(reader) => reader,
+            Err(error) => {
+                self.terminate();
+                return Err(error);
             }
+        };
+        let limit = max_bytes.saturating_add(1);
+        let mut output = Vec::new();
+        let mut pipe_done = false;
+        let mut exit_status: Option<ExitStatus> = None;
+
+        loop {
+            if !pipe_done {
+                if let Some(done) = match reader.harvest_if_ready(&mut output) {
+                    Ok(done) => done,
+                    Err(error) => {
+                        reader.close();
+                        self.terminate();
+                        return Err(error);
+                    }
+                } {
+                    pipe_done = done;
+                }
+            }
+            if !pipe_done {
+                match reader.start_or_drain(&mut output, limit) {
+                    Ok(true) => pipe_done = true,
+                    Ok(false) => {}
+                    Err(error) => {
+                        reader.close();
+                        self.terminate();
+                        return Err(error);
+                    }
+                }
+            }
+            if pipe_done {
+                reader.close();
+            }
+            if exit_status.is_none() {
+                match self.try_wait() {
+                    Ok(Some(status)) => exit_status = Some(status),
+                    Ok(None) => {}
+                    Err(error) => {
+                        reader.close();
+                        self.terminate();
+                        return Err(error);
+                    }
+                }
+            }
+            if let Some(status) = exit_status {
+                if pipe_done {
+                    return Ok(Some((status, output)));
+                }
+                // Once every process in the probe's Job has exited, no probe process can write
+                // more bytes even if an unrelated concurrent spawn inherited the write handle.
+                if self.job_is_empty() {
+                    match reader.peek() {
+                        PipePeek::Broken => {
+                            reader.close();
+                            return Ok(Some((status, output)));
+                        }
+                        PipePeek::Available(0) => {
+                            if reader.cancel_into(Some(&mut output)) {
+                                continue;
+                            }
+                            reader.close();
+                            return Ok(Some((status, output)));
+                        }
+                        PipePeek::Available(_) | PipePeek::Error => {}
+                    }
+                }
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                reader.close();
+                self.terminate();
+                return Ok(None);
+            }
+            let wait_ms = deadline
+                .saturating_duration_since(now)
+                .as_millis()
+                .min(u128::from(u32::MAX - 1)) as u32;
+            if exit_status.is_none() {
+                if reader.active {
+                    let handles = [reader.event_handle(), self.process.as_raw_handle()];
+                    match unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, wait_ms) } {
+                        WAIT_OBJECT_0 => match reader.harvest_completed(&mut output) {
+                            Ok(true) => {
+                                pipe_done = true;
+                                reader.close();
+                            }
+                            Ok(false) => {}
+                            Err(error) => {
+                                reader.close();
+                                self.terminate();
+                                return Err(error);
+                            }
+                        },
+                        val if val == WAIT_OBJECT_0 + 1 => match self.exit_status() {
+                            Ok(status) => exit_status = Some(status),
+                            Err(error) => {
+                                reader.close();
+                                self.terminate();
+                                return Err(error);
+                            }
+                        },
+                        WAIT_TIMEOUT => {
+                            reader.close();
+                            self.terminate();
+                            return Ok(None);
+                        }
+                        _ => {
+                            let error = io::Error::last_os_error();
+                            reader.close();
+                            self.terminate();
+                            return Err(error);
+                        }
+                    }
+                } else {
+                    match unsafe { WaitForSingleObject(self.process.as_raw_handle(), wait_ms) } {
+                        WAIT_OBJECT_0 => match self.exit_status() {
+                            Ok(status) => exit_status = Some(status),
+                            Err(error) => {
+                                reader.close();
+                                self.terminate();
+                                return Err(error);
+                            }
+                        },
+                        WAIT_TIMEOUT => {
+                            reader.close();
+                            self.terminate();
+                            return Ok(None);
+                        }
+                        _ => {
+                            let error = io::Error::last_os_error();
+                            reader.close();
+                            self.terminate();
+                            return Err(error);
+                        }
+                    }
+                }
+            } else if reader.active {
+                let slice_ms = wait_ms.min(JOB_DRAIN_SLICE_MS);
+                match unsafe { WaitForSingleObject(reader.event_handle(), slice_ms) } {
+                    WAIT_OBJECT_0 => match reader.harvest_completed(&mut output) {
+                        Ok(true) => {
+                            pipe_done = true;
+                            reader.close();
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            reader.close();
+                            self.terminate();
+                            return Err(error);
+                        }
+                    },
+                    WAIT_TIMEOUT => {}
+                    _ => {
+                        let error = io::Error::last_os_error();
+                        reader.close();
+                        self.terminate();
+                        return Err(error);
+                    }
+                }
+            }
+        }
+    }
+
+    fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
+        match unsafe { WaitForSingleObject(self.process.as_raw_handle(), 0) } {
+            WAIT_OBJECT_0 => self.exit_status().map(Some),
             WAIT_TIMEOUT => Ok(None),
             _ => Err(io::Error::last_os_error()),
         }
+    }
+
+    fn exit_status(&self) -> io::Result<ExitStatus> {
+        let mut code = 0;
+        if unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut code) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(ExitStatus::from_raw(code))
+    }
+
+    fn job_is_empty(&self) -> bool {
+        self.job
+            .as_ref()
+            .and_then(|job| job.active_processes().ok())
+            .is_some_and(|active| active == 0)
     }
 
     pub fn terminate(&mut self) {
@@ -238,14 +688,14 @@ impl ProbeChild {
                 unsafe { TerminateProcess(self.process.as_raw_handle(), 1) };
             }
         }
-        unsafe { WaitForSingleObject(self.process.as_raw_handle(), INFINITE) };
+        unsafe { WaitForSingleObject(self.process.as_raw_handle(), TERMINATE_WAIT_MS) };
     }
 }
 
 impl Drop for ProbeChild {
     fn drop(&mut self) {
         drop(self.job.take());
-        unsafe { WaitForSingleObject(self.process.as_raw_handle(), INFINITE) };
+        unsafe { WaitForSingleObject(self.process.as_raw_handle(), TERMINATE_WAIT_MS) };
     }
 }
 
