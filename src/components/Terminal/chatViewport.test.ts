@@ -78,4 +78,6 @@ assert(getPersistedChatScrollState(key) === null, "clearing removes persisted st
 console.log("chat viewport geometry checks passed");
 
 assert(chatViewportModeAfterScroll("detached", { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }, { scrollHeight: 8400, scrollTop: 8000, clientHeight: 400 }) === "pinned", "returning to the bottom reattaches");
+assert(chatViewportModeAfterScroll("detached", { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }, { scrollHeight: 8400, scrollTop: 8000, clientHeight: 400 }, true, false) === "detached", "reaching the bottom mid-gesture with pinning deferred never pins before settle");
+assert(chatViewportModeAfterScroll("detached", { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }, { scrollHeight: 8400, scrollTop: 8000, clientHeight: 400 }, true, true) === "pinned", "settling at the bottom with pinning allowed reattaches");
 assert(chatViewportModeAfterScroll("pinned", { scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }, { scrollHeight: 1000, scrollTop: 599.999, clientHeight: 400 }) === "pinned", "bottom rounding cannot detach the live tail");

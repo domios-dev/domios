@@ -79,3 +79,20 @@ export function sameMountedChatWindow(left: MountedChatWindow, right: MountedCha
   return left.start === right.start && left.end === right.end && left.top === right.top
     && left.bottom === right.bottom && left.total === right.total;
 }
+
+export function mountedChatWindowCoversViewport(
+  current: MountedChatWindow,
+  geometry: ChatRowGeometry,
+  scrollTop: number,
+  viewportHeight: number,
+): boolean {
+  const count = geometry.count;
+  const total = geometry.offset(count);
+  if (count === 0 || current.total !== total || current.end <= current.start) return false;
+  const height = Math.max(1, viewportHeight);
+  const top = Math.max(0, Math.min(scrollTop, Math.max(0, total - height)));
+  const margin = Math.floor(height * 0.25);
+  const coversTop = current.start === 0 || current.top <= Math.max(0, top - margin);
+  const coversBottom = current.end >= count || total - current.bottom >= Math.min(total, top + height + margin);
+  return coversTop && coversBottom;
+}

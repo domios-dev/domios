@@ -45,11 +45,15 @@ async function frame() {
 }
 const followTail = { current: true };
 const userScrolling = { current: false };
-function Fixture({ active, revision }: { active: boolean; revision: number }) {
+let newerCount = 0;
+let newerReveals = 0;
+function Fixture({ active, revision, firstId = "first" }: { active: boolean; revision: number; firstId?: string }) {
   hook = useChatScroll({ sessionKey: "gesture-wiring", active, loading: false, messageCount: 3,
-    contentVersion: revision, prependVersion: "first", followTailRef: followTail, userScrollingRef: userScrolling,
+    contentVersion: revision, prependVersion: firstId, followTailRef: followTail, userScrollingRef: userScrolling,
+    newerCount,
+    onNewerEdge: () => { newerReveals++; return true; },
     foldLayoutDrift: () => { foldLayout(); const value = drift; drift = 0; return value; } });
-  return <><div ref={hook.scrollRef} onScroll={hook.handleScroll} />
+  return <><div ref={hook.scrollRef} tabIndex={-1} onScroll={hook.handleScroll} />
     <ScrollToLatestButton testId="latest" gestureOwned={hook.gestureOwned} userScrollingRef={userScrolling} onClick={hook.scrollToBottom} />
   </>;
 }
@@ -69,6 +73,12 @@ async function main() {
   Object.defineProperties(scroll, {
     scrollHeight: { configurable: true, get: () => height },
     clientHeight: { configurable: true, get: () => 400 },
+    clientWidth: { configurable: true, get: () => 792 },
+    offsetWidth: { configurable: true, get: () => 800 },
+    offsetHeight: { configurable: true, get: () => 400 },
+    clientLeft: { configurable: true, get: () => 0 },
+    clientTop: { configurable: true, get: () => 0 },
+    getBoundingClientRect: { configurable: true, value: () => ({ left: 0, right: 800, top: 0, bottom: 400, width: 800, height: 400, x: 0, y: 0, toJSON: () => ({}) }) },
     scrollTop: { configurable: true, get: () => nativeTop, set: (value: number) => {
       writes++;
       writeBefore = nativeTop;
@@ -210,7 +220,65 @@ async function main() {
     assert.equal(writeBefore, lastOwnedTop, "fold starts at the last owned position before native anchoring resumes");
     await frame();
     assert.equal(writes, 1);
-    console.log("8 chat gesture wiring checks passed");
+
+    // Re-enable scrollend and prove scrollbar drag, keyboard scroll, and manual top-load prepends.
+    Object.defineProperty(scroll, "onscrollend", { configurable: true, value: null });
+    await act(async () => root.render(<Fixture active={false} revision={11} />));
+    await act(async () => root.render(<Fixture active revision={12} />));
+    await act(async () => hook.scrollToBottom());
+    assert.equal(followTail.current, true);
+    writes = 0;
+
+    // 1. Scrollbar thumb drag: owns immediately, never writes or pins mid-drag (even touching bottom), settles on scrollend.
+    await act(async () => scroll.dispatchEvent(new window.PointerEvent("pointerdown", {
+      bubbles: true, button: 0, pointerType: "mouse", clientX: 796, clientY: 380,
+    })));
+    assert.equal(hook.gestureOwned, true, "scrollbar pointerdown owns the gesture immediately");
+    nativeTop = 0;
+    await act(async () => { fire("scroll"); repair(); root.render(<Fixture active revision={13} />); });
+    assert.equal(followTail.current, false, "dragging up detaches");
+    assert.equal(writes, 0, "no app scroll writes during scrollbar drag");
+    nativeTop = height - 400;
+    await act(async () => { fire("scroll"); repair(); });
+    assert.equal(followTail.current, false, "touching the bottom mid-drag never pins or resets the window");
+    assert.equal(writes, 0, "still zero app writes while dragging");
+    nativeTop = 100;
+    await act(async () => { fire("scroll"); });
+    await act(async () => fire("scrollend"));
+    assert.equal(hook.gestureOwned, false, "Chromium scrollbar release scrollend settles ownership");
+    assert.equal(followTail.current, false, "settled mid-history drag stays detached");
+
+    // 2. Keyboard scroll (PageUp): owns until scrollend and blocks app writes.
+    writes = 0;
+    await act(async () => scroll.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, code: "PageUp" })));
+    assert.equal(hook.gestureOwned, true, "PageUp with room to scroll owns the gesture");
+    nativeTop = 0;
+    height += 200;
+    await act(async () => { fire("scroll"); repair(); root.render(<Fixture active revision={14} />); });
+    assert.equal(writes, 0, "keyboard scroll blocks app writes until scrollend");
+    await act(async () => fire("scrollend"));
+    assert.equal(hook.gestureOwned, false, "keyboard scroll settles on scrollend");
+
+    // 3. Manual Load earlier ("top" prepend): keeps scrollTop at 0 and suppresses newer-row bounce past the 300-row cap.
+    nativeTop = height - 400;
+    newerCount = 0;
+    newerReveals = 0;
+    await act(async () => hook.prepareForHistoryPrepend("top"));
+    newerCount = 100;
+    height += 1200;
+    await act(async () => root.render(<Fixture active revision={15} firstId="older-1" />));
+    assert.equal(nativeTop, 0, "manual Load earlier keeps the focused top control in view");
+    assert.equal(newerReveals, 0, "sliding the window older never bounces back via revealNewer");
+    assert.equal(followTail.current, false);
+
+    // Repeating past the reading cap continues sliding older without bouncing.
+    await act(async () => hook.prepareForHistoryPrepend("top"));
+    newerCount = 200;
+    await act(async () => root.render(<Fixture active revision={16} firstId="older-2" />));
+    assert.equal(nativeTop, 0);
+    assert.equal(newerReveals, 0);
+
+    console.log("11 chat gesture wiring checks passed");
   } finally {
     await act(async () => root.unmount());
     host.remove();

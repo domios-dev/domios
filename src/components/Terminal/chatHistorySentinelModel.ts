@@ -10,6 +10,7 @@ export interface ChatHistorySentinelConfig {
   hasMore: boolean;
   loading: boolean;
   paused: boolean;
+  focusSuspended?: boolean;
   stalled: boolean;
 }
 
@@ -44,7 +45,7 @@ export function createChatHistorySentinelState(): ChatHistorySentinelState {
 }
 
 export function canTriggerHistorySentinel(config: ChatHistorySentinelConfig): boolean {
-  return config.active && config.hasMore && !config.loading && !config.paused && !config.stalled;
+  return config.active && config.hasMore && !config.loading && !config.paused && !config.focusSuspended && !config.stalled;
 }
 
 export function reduceChatHistorySentinel(
@@ -65,7 +66,7 @@ export function reduceChatHistorySentinel(
     if (!event.isIntersecting) {
       return { state: { intersecting: false, armed: true }, shouldLoad: false };
     }
-    if (config.loading) {
+    if (config.loading || config.focusSuspended) {
       return { state: { intersecting: true, armed: false }, shouldLoad: false };
     }
     if (state.armed && canTriggerHistorySentinel(config)) {
@@ -73,7 +74,7 @@ export function reduceChatHistorySentinel(
     }
     return { state: { intersecting: true, armed: state.armed }, shouldLoad: false };
   }
-  if (config.loading && state.intersecting) {
+  if ((config.loading || config.focusSuspended) && state.intersecting) {
     return { state: { intersecting: true, armed: false }, shouldLoad: false };
   }
   if (state.intersecting && state.armed && canTriggerHistorySentinel(config)) {

@@ -453,10 +453,15 @@ function TabSessionChatBody({
     prepareMessage: (id) => mountedWindow.prepareMessage(id) || prepareMessage(id),
   });
 
-  const handleLoadOlder = useLatestCallback(() => {
-    prepareForHistoryPrepend();
+  const handleLoadOlder = useLatestCallback((source: "sentinel" | "manual" = "sentinel") => {
+    if (source === "manual") {
+      mountedWindow.anchorTop();
+      prepareForHistoryPrepend("top");
+    } else {
+      prepareForHistoryPrepend("anchor");
+    }
     void loadOlder();
-  }, [prepareForHistoryPrepend, loadOlder]);
+  }, [mountedWindow.anchorTop, prepareForHistoryPrepend, loadOlder]);
 
   const followSentMessage = useLatestCallback(() => {
     showLatest();

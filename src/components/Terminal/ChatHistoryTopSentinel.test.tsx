@@ -209,4 +209,31 @@ describe("ChatHistoryTopSentinel", () => {
     await act(async () => port.latest().deliver(true));
     expect(loads()).toBe(0);
   });
+
+  it("suspends sentinel auto-load while Load earlier is focused and distinguishes manual from sentinel loads", async () => {
+    const sources: Array<string | undefined> = [];
+    const { host, port } = await mount({
+      onLoadOlder: (source) => {
+        sources.push(source);
+      },
+    });
+    const button = host.querySelector<HTMLButtonElement>('[data-testid="chat-load-older"]')!;
+    await act(async () => {
+      button.focus();
+      port.latest().deliver(true);
+    });
+    expect(sources).toEqual([]);
+
+    await act(async () => button.click());
+    expect(sources).toEqual(["manual"]);
+
+    await act(async () => button.blur());
+    expect(sources).toEqual(["manual"]);
+
+    await act(async () => {
+      port.latest().deliver(false);
+      port.latest().deliver(true);
+    });
+    expect(sources).toEqual(["manual", "sentinel"]);
+  });
 });

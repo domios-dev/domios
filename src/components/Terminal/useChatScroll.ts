@@ -38,6 +38,7 @@ const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
 interface PendingPrependSnapshot extends ChatPrependSnapshot {
   version: unknown;
   anchor: ChatContentAnchor | null;
+  preserveTop: boolean;
 }
 
 function capturePrependAnchor(el: HTMLDivElement): Pick<PendingPrependSnapshot, "anchor"> {
@@ -74,7 +75,7 @@ export interface UseChatScrollResult {
   gestureOwned: boolean;
   scrollToBottom: () => void;
   followSend: () => void;
-  prepareForHistoryPrepend: () => void;
+  prepareForHistoryPrepend: (mode?: "anchor" | "top") => void;
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
   handleContentLayout: () => void;
   /** Scrolls to the row whose `data-source-message-id` equals this id exactly; false when no such row is rendered. */
@@ -120,6 +121,7 @@ export function useChatScroll({
   onModeChangeRef.current = onModeChange;
   const newerRef = useRef({ count: newerCount, reveal: onNewerEdge, tabId: journalTabId });
   newerRef.current = { count: newerCount, reveal: onNewerEdge, tabId: journalTabId };
+  const suppressNewerRevealRef = useRef(false);
   const detachCauseRef = useRef<ChatViewportCause>("restore");
   const [showScrollDown, setShowScrollDown] = useState(false);
   const gestureEndRef = useRef<() => void>(() => {});
@@ -227,6 +229,7 @@ export function useChatScroll({
   }, [userScrollingRef]);
 
   const holdContentAnchor = useCallback((el: HTMLDivElement) => {
+    if (userScrollingRef.current) return;
     const anchor = contentAnchorRef.current;
     const unhandledUserScroll = shouldCaptureChatAnchor(lastViewportRef.current, el, userScrollingRef.current);
     if (!anchor || unhandledUserScroll) {
@@ -252,16 +255,19 @@ export function useChatScroll({
     if (active && modeRef.current === "pinned") pinToBottom();
   }, [active, loading, pinToBottom]);
 
-  const prepareForHistoryPrepend = useCallback(() => {
+  const prepareForHistoryPrepend = useCallback((mode: "anchor" | "top" = "anchor") => {
     const el = scrollRef.current;
-    if (!el || modeRef.current !== "detached") return;
+    if (!el) return;
+    if (mode === "top" && modeRef.current !== "detached") setMode("detached", el, "scroll");
+    if (modeRef.current !== "detached") return;
     prependSnapshotRef.current = {
       scrollHeight: el.scrollHeight,
       scrollTop: el.scrollTop,
       version: prependVersionRef.current,
+      preserveTop: mode === "top",
       ...capturePrependAnchor(el),
     };
-  }, []);
+  }, [setMode]);
 
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget;
@@ -276,7 +282,13 @@ export function useChatScroll({
       && el.scrollTop === hookScrollTop;
     const mode = fromHookWrite
       ? modeRef.current
-      : chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, userScrolling);
+      : chatViewportModeAfterScroll(
+        modeRef.current,
+        lastViewportRef.current,
+        el,
+        userScrolling,
+        !userScrolling && newerRef.current.count === 0,
+      );
     const layoutChanged = chatViewportLayoutChanged(lastViewportRef.current, el);
     chatScrollDiagnostic(sessionKeyRef.current, "scroll", { fromHookWrite, userScrolling, layoutChanged, previous: lastViewportRef.current,
       modeBefore: modeRef.current, modeAfter: mode, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
@@ -284,7 +296,7 @@ export function useChatScroll({
     if (mode === "pinned" && !isChatViewportAtBottom(el)) writeScrollTop(el, el.scrollHeight);
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (fromHookWrite || (layoutChanged && !userScrolling)) persist(el);
-    else setMode(mode, el, "scroll");
+    else if (!userScrolling || mode !== modeRef.current) setMode(mode, el, "scroll");
     updateScrollDown(el);
   }, [active, loading, holdContentAnchor, persist, recordGestureScroll, setMode, updateScrollDown, userScrollingRef, writeScrollTop]);
 
@@ -378,6 +390,13 @@ export function useChatScroll({
       && modeRef.current === "detached"
     ) {
       prependSnapshotRef.current = null;
+      if (newerRef.current.count > 0) suppressNewerRevealRef.current = true;
+      if (prependSnapshot.preserveTop) {
+        writeScrollTop(el, 0);
+        contentAnchorRef.current = captureChatContentAnchor(el);
+        persist(el);
+        return;
+      }
       const anchor = contentAnchorRef.current;
       const anchoredTop = anchor ? chatScrollTopForAnchor(el, anchor) : null;
       writeScrollTop(
@@ -425,10 +444,18 @@ export function useChatScroll({
       const scrollBy = foldLayoutDrift?.() ?? 0;
       if (scrollBy !== 0) writeScrollTop(el, el.scrollTop + scrollBy);
       el.style.overflowAnchor = chatOverflowAnchorFor(modeRef.current, false);
-      const afterScroll = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
+      const afterScroll = chatViewportModeAfterScroll(
+        modeRef.current,
+        lastViewportRef.current,
+        el,
+        true,
+        newerRef.current.count === 0,
+      );
       // Released after a hold with the bottom moved away underneath: stay put and offer the jump instead of snapping.
       const mode = afterScroll === "pinned" && heldView() && !isChatViewportAtBottom(el) ? "detached" : afterScroll;
-      if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el, mode === afterScroll ? "scroll" : "hold");
+      if (mode !== modeRef.current || mode === "detached" || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) {
+        setMode(mode, el, mode === afterScroll ? "scroll" : "hold");
+      }
       if (mode === "detached") updateScrollDown(el);
     }
     repairViewport();
@@ -437,6 +464,10 @@ export function useChatScroll({
 
   // Rows held back below the window change no geometry, so their arrival is checked here.
   useLayoutEffect(() => {
+    if (suppressNewerRevealRef.current) {
+      suppressNewerRevealRef.current = false;
+      return;
+    }
     const el = scrollRef.current;
     if (el && active && newerCount > 0 && el.clientHeight > 0) updateScrollDown(el);
   }, [active, newerCount, updateScrollDown]);

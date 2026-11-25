@@ -12,6 +12,8 @@ import {
   type HistorySentinelObserverFactory,
 } from "./chatHistorySentinelModel";
 
+export type ChatHistoryLoadSource = "sentinel" | "manual";
+
 export interface ChatHistoryTopSentinelProps {
   scrollRef: RefObject<HTMLDivElement | null>;
   active: boolean;
@@ -22,7 +24,7 @@ export interface ChatHistoryTopSentinelProps {
   stalled: boolean;
   olderMessageLabel: string;
   sessionKey: string;
-  onLoadOlder: () => void;
+  onLoadOlder: (source?: ChatHistoryLoadSource) => void;
   createObserver?: HistorySentinelObserverFactory;
 }
 
@@ -66,10 +68,10 @@ function useChatHistorySentinel({
     };
   }, [createObserver, latestOnLoad, mounted, scrollRef, sentinelRef, sessionKey]);
 
-  const { active, hasMore, loading, paused, stalled } = config;
+  const { active, hasMore, loading, paused, focusSuspended, stalled } = config;
   useEffect(() => {
-    controllerRef.current?.update({ active, hasMore, loading, paused, stalled });
-  }, [active, hasMore, loading, paused, stalled]);
+    controllerRef.current?.update({ active, hasMore, loading, paused, focusSuspended, stalled });
+  }, [active, hasMore, loading, paused, focusSuspended, stalled]);
 
   return controllerRef;
 }
@@ -92,19 +94,24 @@ export function ChatHistoryTopSentinel({
   const buttonFocusedRef = useRef(false);
   const showHistoryRail = railsVisible && hasMore;
   const previousShowHistoryRailRef = useRef(showHistoryRail);
+  const sentinelConfig: ChatHistorySentinelConfig = {
+    active: active && railsVisible,
+    hasMore,
+    loading,
+    paused,
+    focusSuspended: buttonFocused,
+    stalled,
+  };
+  const sentinelConfigRef = useRef(sentinelConfig);
+  sentinelConfigRef.current = sentinelConfig;
+  const handleAutoLoad = useLatestCallback(() => onLoadOlder("sentinel"), [onLoadOlder]);
   const controllerRef = useChatHistorySentinel({
     scrollRef,
     sentinelRef,
     mounted: showHistoryRail,
     sessionKey,
-    config: {
-      active: active && railsVisible,
-      hasMore,
-      loading,
-      paused,
-      stalled,
-    },
-    onLoad: onLoadOlder,
+    config: sentinelConfig,
+    onLoad: handleAutoLoad,
     createObserver,
   });
 
@@ -147,15 +154,17 @@ export function ChatHistoryTopSentinel({
               onFocus={() => {
                 buttonFocusedRef.current = true;
                 setButtonFocused(true);
+                controllerRef.current?.update({ ...sentinelConfigRef.current, focusSuspended: true });
               }}
               onBlur={() => {
                 buttonFocusedRef.current = false;
                 setButtonFocused(false);
+                controllerRef.current?.update({ ...sentinelConfigRef.current, focusSuspended: false });
               }}
               onClick={() => {
                 if (loading) return;
                 controllerRef.current?.notifyManualLoad();
-                onLoadOlder();
+                onLoadOlder("manual");
               }}
             >
               {focusedLoading && (
