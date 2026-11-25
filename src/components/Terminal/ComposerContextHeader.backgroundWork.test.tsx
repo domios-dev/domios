@@ -457,3 +457,42 @@ it("renders one grouped card with helper badge, flat process list, stopping stat
     __setInvokeForTest(null);
   }
 });
+
+it("labels provider shell cards from roster commands and uses a neutral label instead of raw task ids", async () => {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  setAgentDescriptors([{ id: "fixture-provider", display_name: "Fixture Provider" }] as ProviderDescriptor[]);
+  const view = harness([], vi.fn(), {
+    running: { "opaque-raw-1": "sleep 900", "opaque-raw-2": "node -e 'setInterval(() => {}, 60000)'" },
+    kinds: { "opaque-raw-1": "shell", "opaque-raw-2": "shell" },
+  });
+  try {
+    await act(async () => view.render());
+    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="2 background processes"]')!;
+    expect(chip).not.toBeNull();
+    await act(async () => chip.click());
+    const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]')!;
+    const titles = Array.from(panel.querySelectorAll(".ct-ctx-bubble__title")).map(node => node.textContent);
+    expect(titles).toEqual(["sleep 900", "node"]);
+    expect(panel.textContent).not.toContain("opaque-raw-1");
+    expect(panel.textContent).not.toContain("opaque-raw-2");
+    await act(async () => panel.querySelector<HTMLButtonElement>('button[aria-label="Details for node"]')!.click());
+    expect(panel.querySelector("code")?.textContent).toBe("node -e 'setInterval(() => {}, 60000)'");
+
+    // When no command is known, show a neutral label (never the raw task id).
+    await act(async () => view.setProviderRoster({
+      running: { "opaque-raw-unlabelled": "" },
+      unknown: {},
+      ended: {},
+      kinds: { "opaque-raw-unlabelled": "shell" },
+      overflow: false,
+      history_incomplete: false,
+      history_initialized: true,
+    }));
+    const neutralChip = view.host.querySelector<HTMLButtonElement>('button[aria-label="Background process"]');
+    expect(neutralChip).not.toBeNull();
+    expect(view.host.textContent).not.toContain("opaque-raw-unlabelled");
+    expect(panel.querySelector(".ct-ctx-bubble__title")?.textContent).toBe("Background process");
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});

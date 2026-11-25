@@ -11,24 +11,49 @@ fn state(value: &str) -> Option<BackgroundWorkState> {
         _ => return None,
     })
 }
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 256
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+fn bounded_label(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim();
+    (!trimmed.is_empty()).then(|| trimmed.chars().take(256).collect())
+}
+
+fn single_tool_result_use_id(content: &Value) -> Option<String> {
+    let results: Vec<&Value> = content
+        .as_array()?
+        .iter()
+        .filter(|block| block["type"] == "tool_result")
+        .collect();
+    if results.len() != 1 || results[0]["is_error"] == true {
+        return None;
+    }
+    let id = results[0]["tool_use_id"].as_str()?;
+    valid_id(id).then(|| id.to_owned())
+}
+
 fn add(
     events: &mut Vec<BackgroundWorkObservation>,
     id: Option<&str>,
     status: Option<&str>,
     kind: Option<BackgroundWorkKind>,
+    label: Option<String>,
+    tool_use_id: Option<String>,
     output_path: Option<String>,
 ) {
     if let (Some(id), Some(state)) = (id, status.and_then(state)) {
-        if !id.is_empty()
-            && id.len() <= 256
-            && id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-        {
+        if valid_id(id) {
             events.push(BackgroundWorkObservation {
                 id: id.into(),
                 state,
                 kind,
+                label,
+                tool_use_id,
                 output_path,
             });
         }
@@ -104,13 +129,55 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
         }];
     }
     let mut events = Vec::new();
+    let content = &row["message"]["content"];
+    if row["type"] == "assistant" {
+        if let Some(blocks) = content.as_array() {
+            for block in blocks {
+                if block["type"] != "tool_use" {
+                    continue;
+                }
+                let Some(call_id) = block["id"].as_str().filter(|id| valid_id(id)) else {
+                    continue;
+                };
+                let name = block["name"].as_str().unwrap_or("").trim();
+                let lower = name.to_ascii_lowercase();
+                let input = &block["input"];
+                if matches!(lower.as_str(), "bash" | "shell" | "exec") {
+                    if let Some(command) = bounded_label(input["command"].as_str()) {
+                        events.push(BackgroundWorkObservation {
+                            id: call_id.into(),
+                            state: BackgroundWorkState::ToolCall,
+                            kind: Some(BackgroundWorkKind::Shell),
+                            label: Some(command),
+                            tool_use_id: None,
+                            output_path: None,
+                        });
+                    }
+                } else if matches!(name, "Agent" | "Task") && input["prompt"].is_string() {
+                    if let Some(description) = bounded_label(input["description"].as_str()) {
+                        events.push(BackgroundWorkObservation {
+                            id: call_id.into(),
+                            state: BackgroundWorkState::ToolCall,
+                            kind: Some(BackgroundWorkKind::Subagent),
+                            label: Some(description),
+                            tool_use_id: None,
+                            output_path: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
     let result = &row["toolUseResult"];
+    let result_tool_use_id = single_tool_result_use_id(content);
     if let Some(id) = result["backgroundTaskId"].as_str() {
         add(
             &mut events,
             Some(id),
             Some("running"),
             Some(BackgroundWorkKind::Shell),
+            bounded_label(result["command"].as_str()),
+            result_tool_use_id.clone(),
             shell_output_path(row, id),
         );
     }
@@ -119,9 +186,10 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
         result["agentId"].as_str(),
         result["status"].as_str(),
         Some(BackgroundWorkKind::Subagent),
+        bounded_label(result["description"].as_str()),
+        result_tool_use_id,
         None,
     );
-    let content = &row["message"]["content"];
     if row["type"] == "user"
         && result["task_type"] == "local_bash"
         && result["command"].is_string()
@@ -134,6 +202,8 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
             result["task_id"].as_str(),
             Some("killed"),
             Some(BackgroundWorkKind::Shell),
+            bounded_label(result["command"].as_str()),
+            None,
             None,
         );
     }
@@ -159,7 +229,15 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
                 };
                 for part in body.split("<task-id>").skip(1) {
                     if let Some((id, _)) = part.split_once("</task-id>") {
-                        add(&mut events, Some(id.trim()), Some(status), None, None);
+                        add(
+                            &mut events,
+                            Some(id.trim()),
+                            Some(status),
+                            None,
+                            None,
+                            None,
+                            None,
+                        );
                     }
                 }
             }

@@ -57,3 +57,69 @@ fn invalidated_history_does_not_revive_after_replay() {
     assert!(!roster.unknown.contains_key("task"));
     assert_eq!(roster.ended.get("task").map(String::as_str), Some("Task"));
 }
+
+#[test]
+fn tool_call_observations_label_matching_tasks_without_overflow_or_visible_churn() {
+    let mut roster = BackgroundRoster::default();
+    let baseline = roster.clone();
+    roster.observe(
+        &BackgroundWorkObservation {
+            id: "opaque-call-1".into(),
+            state: BackgroundWorkState::ToolCall,
+            kind: Some(BackgroundWorkKind::Shell),
+            label: Some("opaque-cmd --run".into()),
+            ..Default::default()
+        },
+        "",
+    );
+    assert!(roster.visible_eq(&baseline));
+    assert!(roster.is_empty());
+
+    roster.observe(
+        &BackgroundWorkObservation {
+            id: "opaque-task-1".into(),
+            state: BackgroundWorkState::Running,
+            kind: Some(BackgroundWorkKind::Shell),
+            tool_use_id: Some("opaque-call-1".into()),
+            ..Default::default()
+        },
+        "",
+    );
+    assert!(!roster.visible_eq(&baseline));
+    assert_eq!(
+        roster.running.get("opaque-task-1").map(String::as_str),
+        Some("opaque-cmd --run")
+    );
+
+    // Direct observation label takes precedence when supplied.
+    roster.observe(
+        &BackgroundWorkObservation {
+            id: "opaque-task-2".into(),
+            state: BackgroundWorkState::Running,
+            kind: Some(BackgroundWorkKind::Shell),
+            label: Some("direct-cmd".into()),
+            ..Default::default()
+        },
+        "",
+    );
+    assert_eq!(
+        roster.running.get("opaque-task-2").map(String::as_str),
+        Some("direct-cmd")
+    );
+
+    // Many foreground tool calls stay bounded and never trigger background overflow.
+    for index in 0..=LIMIT + 10 {
+        roster.observe(
+            &BackgroundWorkObservation {
+                id: format!("fg-call-{index}"),
+                state: BackgroundWorkState::ToolCall,
+                kind: Some(BackgroundWorkKind::Shell),
+                label: Some(format!("fg-cmd-{index}")),
+                ..Default::default()
+            },
+            "",
+        );
+    }
+    assert!(!roster.overflow);
+    assert_eq!(roster.running.len(), 2);
+}

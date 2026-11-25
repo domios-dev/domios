@@ -87,6 +87,8 @@ fn parity_claude_background_work_and_fork_capabilities() {
         json!({"type":"attachment","attachment":{"type":"queued_command","origin":{"kind":"task-notification"},"prompt":"<task-notification><task-id>agent</task-id><status>stopped</status></task-notification>"}}),
         json!({"type":"attachment","attachment":{"type":"queued_command","origin":{"kind":"human"},"prompt":"<task-notification><task-id>agent</task-id><status>completed</status></task-notification>"}}),
         json!({"toolUseResult":{"agentId":"agent","status":"opaque"}}),
+        json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"opaque-call","name":"Bash","input":{"command":"opaque-cmd 900","run_in_background":true}},{"type":"tool_use","id":"opaque-agent-call","name":"Agent","input":{"prompt":"do work","description":"Inspect opaque"}}]}}),
+        json!({"type":"user","sessionId":"opaque-own","toolUseResult":{"backgroundTaskId":"opaque-shell"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"opaque-call","content":"ok","is_error":false}]}}),
     ] {
         assert_eq!(
             native.parse_background_work(&record),
@@ -114,7 +116,14 @@ fn parity_claude_background_work_and_fork_capabilities() {
             .keys()
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        ["live"]
+        ["live", "opaque-named"]
+    );
+    assert_eq!(
+        native_roster
+            .running
+            .get("opaque-named")
+            .map(String::as_str),
+        Some("opaque-cmd 900")
     );
     assert!(native_roster.unknown.contains_key("dropped"));
     assert!(native_roster.ended.contains_key("finished"));

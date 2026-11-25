@@ -1,5 +1,5 @@
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import { reduceToolEvents, toolCommand } from "@codeterm/chat-core";
+import type { NormalizedChatMessage, ToolEvent } from "@codeterm/chat-core";
+import { materializeToolEvent, reduceToolEvents, toolCommand } from "@codeterm/chat-core";
 import type { BackgroundProcessEntry } from "../../lib/backgroundProcesses";
 import { groupBackgroundProcesses, type BackgroundProcessMember } from "../../lib/backgroundProcessGroups";
 import type { ChildTranscriptAuthority } from "../../lib/childTranscript";
@@ -35,6 +35,8 @@ export interface ComposerBackgroundWorkItem {
 }
 
 export const SUBAGENT_NAME = "Sub-agent";
+export const BACKGROUND_PROCESS_NAME = "Background process";
+export const BACKGROUND_TASK_NAME = "Background task";
 
 export interface ComposerBackgroundWorkBubble {
   count: number;
@@ -325,6 +327,12 @@ function numberUnnamedSubagents(items: ComposerBackgroundWorkItem[]): ComposerBa
   return items.map((item) => item.kind === "agent" && item.name === SUBAGENT_NAME ? { ...item, ordinal: ++ordinal } : item);
 }
 
+function unwrapToolEvents(event: ToolEvent): ToolEvent[] {
+  if (event.stream?.members.length) return event.stream.members.flatMap(unwrapToolEvents);
+  if (event.commandBatch?.length) return event.commandBatch.flatMap(unwrapToolEvents);
+  return [event];
+}
+
 function providerBackgroundCommands(messages: readonly NormalizedChatMessage[], rootThreadId: string, ids: ReadonlySet<string>): Map<string, string> {
   const results = messages.filter(message => message.sourceSessionId === rootThreadId
     && message.toolBackgroundTaskId && ids.has(message.toolBackgroundTaskId));
@@ -335,8 +343,32 @@ function providerBackgroundCommands(messages: readonly NormalizedChatMessage[], 
   const relevant = messages.filter(message => message.sourceSessionId === rootThreadId && (outcomes.has(message)
     || message.type === "tool_call" && message.toolKind === "command"
       && (message.toolCallSourceId && sourceIds.has(message.toolCallSourceId) || message.toolId && toolIds.has(message.toolId))));
-  return new Map(reduceToolEvents(relevant).flatMap(item => item.kind === "tool" && item.event.kind === "command" && item.event.backgroundTaskId
-    ? [[item.event.backgroundTaskId, toolCommand(item.event).command] as const] : []));
+  const commands = new Map<string, string>();
+  for (const item of reduceToolEvents(relevant)) {
+    if (item.kind !== "tool") continue;
+    for (const event of unwrapToolEvents(item.event)) {
+      if (event.kind !== "command" || !event.backgroundTaskId) continue;
+      const command = toolCommand(event).command.trim();
+      if (command) commands.set(event.backgroundTaskId, command);
+    }
+  }
+  const callsByToolId = new Map<string, NormalizedChatMessage[]>();
+  for (const message of relevant) {
+    if (message.type !== "tool_call" || message.toolKind !== "command" || !message.toolId) continue;
+    const list = callsByToolId.get(message.toolId);
+    if (list) list.push(message);
+    else callsByToolId.set(message.toolId, [message]);
+  }
+  for (const result of results) {
+    const taskId = result.toolBackgroundTaskId;
+    if (!taskId || commands.has(taskId) || !result.toolId) continue;
+    const matches = callsByToolId.get(result.toolId);
+    if (matches?.length !== 1) continue;
+    const event = materializeToolEvent(matches[0]);
+    const command = event ? toolCommand(event).command.trim() : "";
+    if (command) commands.set(taskId, command);
+  }
+  return commands;
 }
 
 export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], roster: ProviderBackgroundRoster | undefined, rootThreadId?: string, messages: readonly NormalizedChatMessage[] = []): ComposerBackgroundWorkItem[] {
@@ -353,11 +385,17 @@ export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], 
     ...Object.entries(unknown).map(([id, label]) => ({id, label: label.trim(), status: "unknown"})),
   ].filter(({id}) => !known.has(id)).map(({id, label, status}): ComposerBackgroundWorkItem => {
     const kind = kinds[id] === "shell" ? "shell" : kinds[id] === "subagent" ? "agent" : "unknown";
-    const command = commands.get(id);
+    const command = kind === "shell" ? (commands.get(id) || (label || undefined)) : undefined;
+    const name = kind === "shell"
+      ? (command ? backgroundCommandName(command) : BACKGROUND_PROCESS_NAME)
+      : kind === "agent"
+        ? (label || SUBAGENT_NAME)
+        : (label || BACKGROUND_TASK_NAME);
     return {
       id: `provider:${rootThreadId}:${id}`, kind, rawId: id,
-      name: command ? backgroundCommandName(command) : label || (kind === "agent" ? SUBAGENT_NAME : id),
-      command, threadId: id, elapsed: "", status, prompt: label || undefined,
+      name,
+      command, threadId: id, elapsed: "", status,
+      prompt: kind === "shell" ? undefined : (label || undefined),
     };
   })]);
 }
