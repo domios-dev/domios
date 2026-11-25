@@ -54,7 +54,7 @@ If your harness has a file edit or write tool, change files with it, one edit pe
 
 ### Rendering in the chat
 
-Chat supports GFM. Use a `mermaid` fence or `<ds-html>…</ds-html>` (Tailwind v4, CSS, JS). Reference tabs inline with `<domios type="tab" id="TAB_ID" />` (add `peer="PEER"` for remote mesh tabs). Show files with `<ds-page src="ABS_PATH" />`, `<ds-image src="ABS_PATH" />` or `<ds-document src="ABS_PATH" />`, or `ct.file.pick()`. Combine visuals in `NAME.canvas.json` with `<ds-canvas src="ABS_PATH.canvas.json" />`. Open Guide with `<ds-guide section="SECTION_ID" />`. Block tags stay complete and standalone outside code, quotes, lists and excerpts. HTML fences stay code; network and filesystem stay blocked. Inline HTML supports light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, handlers and `position:`/`url()` styles are stripped.
+Chat supports GFM. Use a `mermaid` fence or `<ds-html>…</ds-html>` (Tailwind v4, CSS, JS). Reference tabs inline with `<domios type="tab" id="TAB_ID" />` (for remote tabs add `peer="INSTALLATION_ID"` from `domios mesh peers`). Show files with `<ds-page src="ABS_PATH" />`, `<ds-image src="ABS_PATH" />` or `<ds-document src="ABS_PATH" />`, or `ct.file.pick()`. Combine visuals in `NAME.canvas.json` with `<ds-canvas src="ABS_PATH.canvas.json" />`. Open Guide with `<ds-guide section="SECTION_ID" />`. Block tags stay complete and standalone outside code, quotes, lists and excerpts. HTML fences stay code; network and filesystem stay blocked. Inline HTML supports light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, handlers and `position:`/`url()` styles are stripped.
 
 ### Secrets
 
@@ -66,4 +66,4 @@ Where a credential lives depends on whose it is. Domios's own credentials, anyth
 
 Telegram setup and config options are in the `domios` skill; `domios config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->

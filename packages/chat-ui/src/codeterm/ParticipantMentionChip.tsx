@@ -17,6 +17,7 @@ export interface ParticipantMentionProps {
 export function ParticipantMentionChip({ label, fullRef, state = "resolved", disabled, onOpen, participant }: ParticipantMentionProps) {
   const pointer = useRef({ type: "", tooltip: false });
   if (state === "missing") return <span className="ct-mention-missing" data-ref-kind="tab" data-ref-state="missing">Unknown tab</span>;
+  if (state === "ambiguous") return <span className="ct-mention-missing" data-ref-kind="tab" data-ref-state={state}>{label}</span>;
   const loading = state === "loading";
   const closed = state === "closed";
   const title = loading ? "Tab" : label;
