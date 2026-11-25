@@ -316,14 +316,14 @@ async function main(): Promise<void> {
     await withDeadline(peerCatalogRequested, 10_000, "peer switch did not refresh catalog");
   });
   await settleUntil(() => !host.querySelector('[data-testid="provider-capability-state"]'), "resolved descriptor retained missing state");
-  const switchBeforeRefresh = host.querySelector('[role="radiogroup"][aria-label="View"]');
+  const switchBeforeRefresh = host.querySelector('[role="tablist"][aria-label="View"]');
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");
-  const chatControl = switchBeforeRefresh.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Chat"]');
-  const terminalControl = switchBeforeRefresh.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Terminal"]');
-  assert(chatControl && terminalControl, "View must name both radio choices");
+  const chatControl = switchBeforeRefresh.querySelector<HTMLButtonElement>('[role="tab"][aria-label="Chat"]');
+  const terminalControl = switchBeforeRefresh.querySelector<HTMLButtonElement>('[role="tab"][aria-label="Terminal"]');
+  assert(chatControl && terminalControl, "View must name both tab choices");
   assert(chatControl.title === "Chat" && terminalControl.title === "Terminal", "View choices must have tooltips");
   assert(
-    chatControl.getAttribute("aria-checked") === "true" && chatControl.tabIndex === 0 && terminalControl.tabIndex === -1,
+    chatControl.getAttribute("aria-selected") === "true" && chatControl.tabIndex === 0 && terminalControl.tabIndex === -1,
     "chat-capable Tab did not start in Chat",
   );
   assert(server.starts.length === 1, `default Chat started ${server.starts.length} snapshots`);
@@ -355,7 +355,7 @@ async function main(): Promise<void> {
   const agentState = host.querySelector('[data-testid="agent-state"]');
   assert(agentState?.textContent?.includes("model-live"), "model identity was not preserved");
   assert(
-    chatControl.getAttribute("aria-checked") === "true",
+    chatControl.getAttribute("aria-selected") === "true",
     "same-authority refresh did not retain Chat mode",
   );
 
@@ -365,7 +365,7 @@ async function main(): Promise<void> {
     chatControl.dispatchEvent(arrow("ArrowRight") as unknown as Event);
   });
   await flush();
-  assert(terminalControl.getAttribute("aria-checked") === "true" && document.activeElement === terminalControl,
+  assert(terminalControl.getAttribute("aria-selected") === "true" && document.activeElement === terminalControl,
     "ArrowRight did not select and focus Terminal");
   const frame = host.querySelector<HTMLElement>('[data-testid="terminal-frame"]');
   assert(frame?.getAttribute("data-terminal-visible") === "true", "remote terminal frame stayed inactive");
@@ -373,13 +373,13 @@ async function main(): Promise<void> {
   assert(frame.style.visibility === "hidden", "remote terminal frame revealed before its own output arrived");
   assert(host.querySelector('[data-testid="chat-message"]') === rows[0], "Terminal removed the chat transcript node");
   await act(async () => { terminalControl.dispatchEvent(arrow("ArrowRight") as unknown as Event); });
-  assert(chatControl.getAttribute("aria-checked") === "true" && document.activeElement === chatControl,
+  assert(chatControl.getAttribute("aria-selected") === "true" && document.activeElement === chatControl,
     "ArrowRight did not wrap selection and focus to Chat");
   await act(async () => terminalControl.click());
-  assert(terminalControl.getAttribute("aria-checked") === "true", "Terminal click did not select Terminal");
+  assert(terminalControl.getAttribute("aria-selected") === "true", "Terminal click did not select Terminal");
   await act(async () => chatControl.click());
   await flush();
-  assert(chatControl.getAttribute("aria-checked") === "true", "Chat click did not select Chat");
+  assert(chatControl.getAttribute("aria-selected") === "true", "Chat click did not select Chat");
   assert(host.querySelector('[data-testid="chat-message"]') === rows[0], "Chat toggle replaced its transcript");
   assert(!host.querySelector('[data-testid="chat-setup-state"]'), "Chat toggle flashed the loader");
   assert(server.starts.length === 1, "Chat toggle requested a new snapshot");
