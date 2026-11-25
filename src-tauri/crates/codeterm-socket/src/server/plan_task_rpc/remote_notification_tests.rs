@@ -77,6 +77,7 @@ fn remote_fixture() -> RemoteFixture {
             &attempt_id,
             &peer_id,
             &worker_tab_id,
+            None,
             "lane/remote-worker",
             "D:/peer/lane",
             "base-sha",
