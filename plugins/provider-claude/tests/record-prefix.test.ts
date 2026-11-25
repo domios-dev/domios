@@ -54,17 +54,23 @@ for (const file of fixtureFiles) {
   assert.equal(delta.new_offset, input.meta.newOffset);
   assert.deepEqual(plain(plugin.parseSessionMessageRecords(input.records,input.meta)), plain(plugin.parseSessionMessages(text)), file);
 }
-assert.equal(digest.digest("hex"), "f9255f18c7541fda93ce5dbd1b60c63bd7d62cc984d22b11147cb90505a32586");
+assert.equal(digest.digest("hex"), "90ba602987e8311ca91772f5caa44d7cdb520527f86953d8891e8a82ec2bd534");
 const cli332Input = recordInput(
   fs.readFileSync(path.join(root, "tests/fixtures/cli-2-1-332-session.jsonl"), "utf8"),
 );
 const cli332 = plugin.parseSessionRecords(cli332Input.records, cli332Input.meta) as {
-  messages: Array<{ uuid?: string | null; background_work?: Array<{ state?: string; label?: string }> }>;
+  messages: Array<{
+    uuid?: string | null;
+    background_work?: unknown[];
+    background_tool_calls?: Array<{ id?: string; label?: string; kind?: string }>;
+  }>;
 };
 assert.equal(cli332.messages.length, 9);
+const cli332Bash = cli332.messages.find(message => message.uuid === "a-0002");
+assert.deepEqual(plain(cli332Bash?.background_work), []);
 assert.deepEqual(
-  plain(cli332.messages.find(message => message.uuid === "a-0002")?.background_work),
-  [{ id: "toolu_opaque_332", state: "tool_call", kind: "shell", label: "opaque-command --check" }],
+  plain(cli332Bash?.background_tool_calls),
+  [{ id: "toolu_opaque_332", label: "opaque-command --check", kind: "shell" }],
 );
 for (const method of ["parseSessionDelta", "parseSessionMessages"]) {
   parses = 0;

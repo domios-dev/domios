@@ -40,9 +40,11 @@ fn registry_contains_target(mesh: &codeterm_service_core::mesh::MeshManager, tar
         target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
     mesh.account_installations.iter().any(|row| {
         row.active
-            && (row.installation_id == target
+            && (row.installation_id.eq_ignore_ascii_case(target)
                 || row.instance_id.as_deref() == Some(target)
                 || row.name.eq_ignore_ascii_case(target)
+                || codeterm_service_core::mesh::paired_resolve::configured_name(&row.name)
+                    .eq_ignore_ascii_case(target)
                 || (is_short_id
                     && row
                         .installation_id
@@ -142,11 +144,7 @@ pub(super) fn resolve_relay_peer_route(
     mesh: &codeterm_service_core::mesh::MeshManager,
     target: &str,
 ) -> Result<ResolvedRelayRoute, (StatusCode, String)> {
-    let peer = codeterm_service_core::mesh::paired_resolve::resolve_paired_by_name(
-        &mesh.paired_peers,
-        target,
-    )
-    .map_err(|error| match error {
+    let peer = mesh.resolve_peer(target).map_err(|error| match error {
         codeterm_service_core::mesh::paired_resolve::ResolvePairedError::NotFound => {
             if registry_contains_target(mesh, target) {
                 registry_peer_unreachable_error(target)

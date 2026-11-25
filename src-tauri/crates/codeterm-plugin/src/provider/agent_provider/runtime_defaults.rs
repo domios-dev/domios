@@ -21,6 +21,12 @@ macro_rules! agent_provider_runtime_defaults {
         ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
             Vec::new()
         }
+        fn parse_background_tool_calls(
+            &self,
+            _record: &serde_json::Value,
+        ) -> Vec<codeterm_types::agent::background_work::BackgroundToolCall> {
+            Vec::new()
+        }
 
         fn parse_auth_status(&self, _record: &serde_json::Value) -> Option<AuthStatus> {
             None

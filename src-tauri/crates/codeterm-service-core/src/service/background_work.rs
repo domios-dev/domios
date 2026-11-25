@@ -1,9 +1,162 @@
 use super::ServiceContext;
 use crate::service::MuxEmitCause;
 use codeterm_types::agent::background_work::{BackgroundWorkObservation, BackgroundWorkState};
+use parking_lot::Mutex;
+use std::collections::{HashMap, VecDeque};
+use std::sync::OnceLock;
 
 mod actions;
 pub use actions::{ask_stop, read_output, BackgroundWorkTarget};
+
+const TOOL_LABEL_LIMIT: usize = 256;
+
+struct BindingToolLabels {
+    identity: (String, String),
+    labels: HashMap<String, String>,
+    order: VecDeque<String>,
+}
+
+impl BindingToolLabels {
+    fn new(session: &str, nonce: &str) -> Self {
+        Self {
+            identity: (session.to_owned(), nonce.to_owned()),
+            labels: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn insert(&mut self, id: &str, label: &str) {
+        let trimmed = label.trim();
+        if id.is_empty() || id.len() > 256 || trimmed.is_empty() {
+            return;
+        }
+        let value: String = trimmed.chars().take(256).collect();
+        if !self.labels.contains_key(id) {
+            if self.labels.len() >= TOOL_LABEL_LIMIT {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.labels.remove(&oldest);
+                }
+            }
+            self.order.push_back(id.to_owned());
+        }
+        self.labels.insert(id.to_owned(), value);
+    }
+
+    fn get(&self, id: &str) -> Option<&str> {
+        self.labels.get(id).map(String::as_str)
+    }
+}
+
+fn tool_label_store() -> &'static Mutex<HashMap<String, BindingToolLabels>> {
+    static STORE: OnceLock<Mutex<HashMap<String, BindingToolLabels>>> = OnceLock::new();
+    STORE.get_or_init(Mutex::default)
+}
+
+pub(crate) fn clear_tab_labels(tab_id: &str) {
+    tool_label_store().lock().remove(tab_id);
+}
+
+fn record_and_resolve_tool_labels(
+    tab_id: &str,
+    session: &str,
+    nonce: &str,
+    forked: bool,
+    records: &[crate::agent::chat_types::RichMessage],
+) -> (bool, HashMap<String, String>) {
+    let mut new_calls: Vec<(&str, &str)> = Vec::new();
+    let mut needed_ids: Vec<&str> = Vec::new();
+    let mut has_roster_events = false;
+
+    for record in records {
+        if !record_matches_session(record, forked, session) {
+            continue;
+        }
+        for call in &record.background_tool_calls {
+            if !call.id.is_empty() && !call.label.trim().is_empty() {
+                new_calls.push((&call.id, &call.label));
+            }
+        }
+        for block in &record.blocks {
+            if block.kind == "tool_use" && block.data["tool_kind"] == "command" {
+                if let (Some(call_id), Some(command)) = (
+                    block.data.get("id").and_then(serde_json::Value::as_str),
+                    block
+                        .data
+                        .get("input")
+                        .and_then(|input| input.get("command"))
+                        .and_then(serde_json::Value::as_str)
+                        .or_else(|| {
+                            block
+                                .data
+                                .get("tool_detail")
+                                .and_then(serde_json::Value::as_str)
+                        })
+                        .filter(|text| !text.trim().is_empty()),
+                ) {
+                    new_calls.push((call_id, command));
+                }
+            }
+            if block.data.get("tool_background_task_id").is_some() {
+                has_roster_events = true;
+                if let Some(call_id) = block
+                    .data
+                    .get("tool_use_id")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    needed_ids.push(call_id);
+                }
+            }
+        }
+        if !record.background_work.is_empty() {
+            has_roster_events = true;
+            for observation in &record.background_work {
+                if let Some(call_id) = observation.tool_use_id.as_deref() {
+                    needed_ids.push(call_id);
+                }
+            }
+        }
+    }
+
+    if new_calls.is_empty() && needed_ids.is_empty() {
+        return (has_roster_events, HashMap::new());
+    }
+
+    let mut store = tool_label_store().lock();
+    let entry = store
+        .entry(tab_id.to_owned())
+        .or_insert_with(|| BindingToolLabels::new(session, nonce));
+    if entry.identity.0 != session || entry.identity.1 != nonce {
+        *entry = BindingToolLabels::new(session, nonce);
+    }
+    for (id, label) in new_calls {
+        entry.insert(id, label);
+    }
+    let mut resolved = HashMap::new();
+    for id in needed_ids {
+        if let Some(label) = entry.get(id) {
+            resolved.insert(id.to_owned(), label.to_owned());
+        }
+    }
+    (has_roster_events, resolved)
+}
+
+fn record_matches_session(
+    record: &crate::agent::chat_types::RichMessage,
+    forked: bool,
+    session: &str,
+) -> bool {
+    if record
+        .provider_session_id
+        .as_deref()
+        .is_some_and(|id| id != session)
+    {
+        return false;
+    }
+    if forked && record.provider_session_id.as_deref() != Some(session) {
+        return false;
+    }
+    true
+}
 
 pub fn restart_guard(
     items: Vec<String>,
@@ -90,6 +243,25 @@ pub(crate) fn apply_observed(
             && tab.agent_session_id.as_deref() == Some(session)
             && tab.session_binding_nonce.as_deref() == Some(nonce)
     };
+    let initial_fork_source = {
+        let mux = svc.mux.read();
+        mux.get_tab(tab_id)
+            .filter(|tab| matches_binding(tab))
+            .map(|tab| tab.fork_source_session_id.clone())
+    };
+    let Some(initial_fork_source) = initial_fork_source else {
+        return;
+    };
+    let (has_roster_events, tool_labels) = record_and_resolve_tool_labels(
+        tab_id,
+        session,
+        nonce,
+        initial_fork_source.is_some(),
+        records,
+    );
+    if !has_roster_events {
+        return;
+    }
     for _ in 0..2 {
         let (before, fork_source) = {
             let mux = svc.mux.read();
@@ -101,10 +273,18 @@ pub(crate) fn apply_observed(
                 tab.fork_source_session_id.clone(),
             )
         };
-        let mut next =
-            observe_background_records(&before, fork_source.is_some(), session, records, live);
-        let visible_changed = !next.visible_eq(&before);
+        let mut next = observe_background_records(
+            &before,
+            fork_source.is_some(),
+            session,
+            records,
+            live,
+            &tool_labels,
+        );
         let changed = next != before;
+        if !changed {
+            return;
+        }
         let committed = {
             let mut mux = svc.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
@@ -114,23 +294,31 @@ pub(crate) fn apply_observed(
                 && tab.fork_source_session_id == fork_source
                 && tab.provider_signals.background == before
             {
-                if changed {
-                    std::mem::swap(&mut tab.provider_signals.background, &mut next);
-                }
+                std::mem::swap(&mut tab.provider_signals.background, &mut next);
                 true
             } else {
                 false
             }
         };
         if committed {
-            if visible_changed {
-                svc.emit_state_changed(MuxEmitCause::BackgroundWork);
-                super::provider_update::background_work_changed(svc, tab_id);
-            }
+            svc.emit_state_changed(MuxEmitCause::BackgroundWork);
+            super::provider_update::background_work_changed(svc, tab_id);
             return;
         }
     }
     log::debug!("[background-work] discarded contended update tab={tab_id}");
+}
+
+fn lookup_label<'a>(
+    call_id: Option<&str>,
+    batch: &HashMap<&str, &'a str>,
+    side_table: &'a HashMap<String, String>,
+) -> Option<&'a str> {
+    let id = call_id?;
+    batch
+        .get(id)
+        .copied()
+        .or_else(|| side_table.get(id).map(String::as_str))
 }
 
 fn observe_background_records(
@@ -139,18 +327,18 @@ fn observe_background_records(
     session: &str,
     records: &[crate::agent::chat_types::RichMessage],
     live: bool,
+    tool_labels: &HashMap<String, String>,
 ) -> codeterm_types::agent::background_work::BackgroundRoster {
     let mut roster = previous.clone();
+    let mut batch_labels: HashMap<&str, &str> = HashMap::new();
     for record in records {
-        if record
-            .provider_session_id
-            .as_deref()
-            .is_some_and(|id| id != session)
-        {
+        if !record_matches_session(record, forked, session) {
             continue;
         }
-        if forked && record.provider_session_id.as_deref() != Some(session) {
-            continue;
+        for call in &record.background_tool_calls {
+            if !call.id.is_empty() && !call.label.trim().is_empty() {
+                batch_labels.insert(&call.id, call.label.trim());
+            }
         }
         for block in &record.blocks {
             if block.kind == "tool_use" && block.data["tool_kind"] == "command" {
@@ -169,18 +357,7 @@ fn observe_background_records(
                         })
                         .filter(|text| !text.trim().is_empty()),
                 ) {
-                    roster.observe(
-                        &BackgroundWorkObservation {
-                            id: call_id.into(),
-                            state: BackgroundWorkState::ToolCall,
-                            kind: Some(
-                                codeterm_types::agent::background_work::BackgroundWorkKind::Shell,
-                            ),
-                            label: Some(command.trim().chars().take(256).collect()),
-                            ..Default::default()
-                        },
-                        "",
-                    );
+                    batch_labels.insert(call_id, command.trim());
                 }
             }
             if let Some(id) = block
@@ -188,21 +365,22 @@ fn observe_background_records(
                 .get("tool_background_task_id")
                 .and_then(serde_json::Value::as_str)
             {
+                let tool_use_id = block
+                    .data
+                    .get("tool_use_id")
+                    .and_then(serde_json::Value::as_str);
                 let label = block
                     .data
                     .get("tool_summary")
                     .and_then(serde_json::Value::as_str)
+                    .filter(|text| !text.trim().is_empty())
+                    .or_else(|| lookup_label(tool_use_id, &batch_labels, tool_labels))
                     .unwrap_or("");
-                let tool_use_id = block
-                    .data
-                    .get("tool_use_id")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned);
                 roster.observe(
                     &BackgroundWorkObservation {
                         id: id.into(),
                         state: BackgroundWorkState::Unknown,
-                        tool_use_id,
+                        tool_use_id: tool_use_id.map(str::to_owned),
                         ..Default::default()
                     },
                     label,
@@ -216,23 +394,24 @@ fn observe_background_records(
             {
                 continue;
             }
-            let label = record
-                .blocks
-                .iter()
-                .find_map(|block| {
-                    let input = &block.data["input"];
-                    if block.data["tool_kind"] != "agent"
-                        || input["agent_id"].as_str() != Some(&observation.id)
-                    {
-                        return None;
-                    }
-                    ["agent_description", "agent_type"]
-                        .into_iter()
-                        .find_map(|field| {
-                            input[field].as_str().filter(|text| !text.trim().is_empty())
-                        })
-                })
-                .unwrap_or("");
+            let block_label = record.blocks.iter().find_map(|block| {
+                let input = &block.data["input"];
+                if block.data["tool_kind"] != "agent"
+                    || input["agent_id"].as_str() != Some(&observation.id)
+                {
+                    return None;
+                }
+                ["agent_description", "agent_type"]
+                    .into_iter()
+                    .find_map(|field| input[field].as_str().filter(|text| !text.trim().is_empty()))
+            });
+            let label = lookup_label(
+                observation.tool_use_id.as_deref(),
+                &batch_labels,
+                tool_labels,
+            )
+            .or(block_label)
+            .unwrap_or("");
             let mut observation = observation.clone();
             if record.provider_session_id.as_deref() != Some(session) {
                 observation.output_path = None;

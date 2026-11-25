@@ -155,6 +155,23 @@ impl Job {
             .collect()
     }
 
+    pub(crate) fn active_processes(&self) -> Result<u32, String> {
+        let mut accounting: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = unsafe { std::mem::zeroed() };
+        if unsafe {
+            QueryInformationJobObject(
+                self.0 as HANDLE,
+                JobObjectBasicAccountingInformation,
+                (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                std::mem::size_of_val(&accounting) as u32,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(accounting.ActiveProcesses)
+    }
+
     /// # Safety
     /// The process handle must remain valid for this call.
     pub unsafe fn contains_process(&self, process: HANDLE) -> Result<bool, String> {

@@ -194,7 +194,7 @@ impl ServiceContext {
         &self,
         params: &mut SpawnAgentParams,
     ) -> Result<Option<WorkerPersonaIntent>, String> {
-        if params.role.as_deref() != Some("Worker") {
+        if params.role.as_deref() != Some("Worker") && params.remote_task_binding.is_none() {
             return Ok(None);
         }
         if has_explicit_identity(params.agent_name.as_deref()) {
@@ -408,6 +408,11 @@ fn seed_for_worker_persona(
     params.plan_id.hash(&mut hasher);
     params.task_id.hash(&mut hasher);
     params.plan_task.hash(&mut hasher);
+    params
+        .remote_task_binding
+        .as_ref()
+        .map(|binding| binding.attempt_id.as_str())
+        .hash(&mut hasher);
     params.parent_tab_id.hash(&mut hasher);
     params.spawned_by_tab_id.hash(&mut hasher);
     params.cwd.hash(&mut hasher);

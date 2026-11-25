@@ -184,3 +184,30 @@ fn mesh_relay_answer_names_the_answering_peer_without_changing_the_relay_shape()
     let plain: RelayResponse = serde_json::from_value(value).expect("old readers still parse it");
     assert!(plain.ok);
 }
+
+#[test]
+fn mesh_peer_resolution_accepts_installation_id_and_prefix_distinct_from_instance_id() {
+    let instance_id = "66c926f1-aaaa-bbbb-cccc-000000000001";
+    let installation_id = "7a835b57-1111-2222-3333-000000000001";
+    let mut mesh = mesh_with(Vec::new());
+    mesh.insert_account_peer_with_installation_for_test(
+        installation_id.into(),
+        peer(instance_id, "acceptance-r161 [dev-r161]", true),
+    );
+    mesh.account_installations[0].name = "acceptance-r161".into();
+
+    for target in [
+        installation_id,
+        "7a835b57",
+        instance_id,
+        "66c926f1",
+        "acceptance-r161",
+        "acceptance-r161 [dev-r161]",
+    ] {
+        let resolved = match resolve_relay_peer(&mesh, target) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("{target} must resolve via relay, got {error:?}"),
+        };
+        assert_eq!(resolved.1, instance_id, "{target}");
+    }
+}

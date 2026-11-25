@@ -36,14 +36,10 @@ struct Peer {
 /// A paired peer with Full access and a signed route, or why it cannot host.
 fn select_peer(state: &AppState, target: &str) -> Result<Peer, (StatusCode, Json<Value>)> {
     let mesh = state.mesh.lock();
-    let peer = codeterm_service_core::mesh::paired_resolve::resolve_paired_by_name(
-        &mesh.paired_peers,
-        target,
-    )
-    .map_err(|error| {
+    let peer = mesh.resolve_peer(target).map_err(|error| {
         failure(
             StatusCode::NOT_FOUND,
-            format!("mesh peer resolution failed: {error:?}; use a paired instance ID"),
+            format!("mesh peer resolution failed: {error:?}; use a paired peer ID or name"),
         )
     })?;
     if !crate::mesh_routes::peer_has_full_access(Some(&peer.access_level)) {

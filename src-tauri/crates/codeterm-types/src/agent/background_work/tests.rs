@@ -59,67 +59,66 @@ fn invalidated_history_does_not_revive_after_replay() {
 }
 
 #[test]
-fn tool_call_observations_label_matching_tasks_without_overflow_or_visible_churn() {
+fn observation_label_takes_precedence_and_preserves_mixed_version_state_set() {
     let mut roster = BackgroundRoster::default();
-    let baseline = roster.clone();
-    roster.observe(
-        &BackgroundWorkObservation {
-            id: "opaque-call-1".into(),
-            state: BackgroundWorkState::ToolCall,
-            kind: Some(BackgroundWorkKind::Shell),
-            label: Some("opaque-cmd --run".into()),
-            ..Default::default()
-        },
-        "",
-    );
-    assert!(roster.visible_eq(&baseline));
-    assert!(roster.is_empty());
-
     roster.observe(
         &BackgroundWorkObservation {
             id: "opaque-task-1".into(),
             state: BackgroundWorkState::Running,
             kind: Some(BackgroundWorkKind::Shell),
+            label: Some("direct-cmd --run".into()),
             tool_use_id: Some("opaque-call-1".into()),
             ..Default::default()
         },
-        "",
+        "fallback-cmd",
     );
-    assert!(!roster.visible_eq(&baseline));
     assert_eq!(
         roster.running.get("opaque-task-1").map(String::as_str),
-        Some("opaque-cmd --run")
+        Some("direct-cmd --run")
     );
 
-    // Direct observation label takes precedence when supplied.
+    // Fallback label fills an initially empty unknown entry without needing extra state variants.
     roster.observe(
         &BackgroundWorkObservation {
             id: "opaque-task-2".into(),
-            state: BackgroundWorkState::Running,
+            state: BackgroundWorkState::Unknown,
             kind: Some(BackgroundWorkKind::Shell),
-            label: Some("direct-cmd".into()),
             ..Default::default()
         },
         "",
     );
+    roster.observe(
+        &BackgroundWorkObservation {
+            id: "opaque-task-2".into(),
+            state: BackgroundWorkState::Unknown,
+            kind: Some(BackgroundWorkKind::Shell),
+            ..Default::default()
+        },
+        "resolved-from-side-table",
+    );
     assert_eq!(
-        roster.running.get("opaque-task-2").map(String::as_str),
-        Some("direct-cmd")
+        roster.unknown.get("opaque-task-2").map(String::as_str),
+        Some("resolved-from-side-table")
     );
 
-    // Many foreground tool calls stay bounded and never trigger background overflow.
-    for index in 0..=LIMIT + 10 {
-        roster.observe(
-            &BackgroundWorkObservation {
-                id: format!("fg-call-{index}"),
-                state: BackgroundWorkState::ToolCall,
-                kind: Some(BackgroundWorkKind::Shell),
-                label: Some(format!("fg-cmd-{index}")),
-                ..Default::default()
-            },
-            "",
-        );
+    // Older hosts without label/tool_use_id ignore optional fields on wire deserialization.
+    #[derive(serde::Deserialize)]
+    struct LegacyObservation {
+        id: String,
+        state: BackgroundWorkState,
+        kind: Option<BackgroundWorkKind>,
     }
-    assert!(!roster.overflow);
-    assert_eq!(roster.running.len(), 2);
+    let wire = serde_json::to_value(BackgroundWorkObservation {
+        id: "opaque-task-3".into(),
+        state: BackgroundWorkState::Running,
+        kind: Some(BackgroundWorkKind::Shell),
+        label: Some("opaque-cmd".into()),
+        tool_use_id: Some("opaque-call-3".into()),
+        output_path: None,
+    })
+    .unwrap();
+    let legacy: LegacyObservation = serde_json::from_value(wire).unwrap();
+    assert_eq!(legacy.id, "opaque-task-3");
+    assert_eq!(legacy.state, BackgroundWorkState::Running);
+    assert_eq!(legacy.kind, Some(BackgroundWorkKind::Shell));
 }

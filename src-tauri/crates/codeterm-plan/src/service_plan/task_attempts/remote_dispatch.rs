@@ -15,6 +15,7 @@ impl PlanStore {
         peer_name: &str,
         provider: &str,
         role_profile: Option<&str>,
+        orchestrator_tab_id: Option<&str>,
         base: &str,
         destination: &str,
         now_ms: u64,
@@ -26,6 +27,10 @@ impl PlanStore {
                 "remote dispatch peer identity is incomplete".into(),
             ));
         }
+        let origin_tab_id = orchestrator_tab_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         self.with_task_rows(
             plan_id,
             task_id,
@@ -54,6 +59,8 @@ impl PlanStore {
                     agent_type: Some(provider.to_string()),
                     role: Some("Worker".into()),
                     role_profile: role_profile.map(str::to_owned),
+                    parent_tab_id: origin_tab_id.clone(),
+                    orchestrator_tab_id: origin_tab_id.clone(),
                     mesh_peer: Some(peer_id.clone()),
                     remote_dispatch_state: Some(RemoteDispatchState::PeerPreflight),
                     base: Some(base.to_string()),
@@ -294,6 +301,7 @@ impl PlanStore {
         attempt_id: &str,
         peer_id: &str,
         worker_tab_id: &str,
+        executor_title: Option<&str>,
         branch: &str,
         worktree_path: &str,
         base: &str,
@@ -326,6 +334,12 @@ impl PlanStore {
                     ));
                 }
                 attempt.executor_tab_id = worker_tab_id.to_string();
+                if let Some(title) = executor_title
+                    .map(str::trim)
+                    .filter(|title| !title.is_empty())
+                {
+                    attempt.executor_title = Some(title.to_string());
+                }
                 attempt.session_binding_nonce = Some(session_binding_nonce.to_string());
                 attempt.provider = Some(provider.to_string());
                 attempt.branch = Some(branch.to_string());
@@ -390,6 +404,7 @@ impl PlanStore {
                 }
                 attempt.report = Some(report);
                 attempt.reported_at = Some(now_ms);
+                attempt.report_target_written_at = None;
                 attempt.remote_dispatch_state = Some(RemoteDispatchState::Reported);
                 if task.status != TaskStatus::InReview {
                     task.status = TaskStatus::InReview;

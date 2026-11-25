@@ -24,6 +24,7 @@ import {
   reconcilePresetSelection,
   resolveEffort,
   resolvePersistedChoice,
+  unavailableProviderIds,
   writePersistedNewSessionChoice,
   type NewSessionChoice,
   type NewSessionMode,
@@ -55,6 +56,8 @@ import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
 import { blockerView, startErrorView, templateTitle, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
 import { peerOutcomeError } from "../../lib/teamTemplates/peerStartOutcome";
 import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
+
+const EMPTY_DISABLED_PROVIDERS: ReadonlySet<string> = new Set();
 
 function spawnAccountSlot(accounts: ReturnType<typeof useSpawnAccounts>, providerName: string, busy: boolean) {
   if (!accounts.snapshot || accountChoices(accounts.snapshot).length < 2) return undefined;
@@ -114,11 +117,7 @@ export function NewSessionPicker({
   const allowedModes = allowedNewSessionModes(section);
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const disabledProviderIds = useMemo(
-    () => new Set(
-      visibleProviders
-        .filter((p) => installMap[p.id] === false || (installMap[p.id] !== true && p.availability === "unavailable"))
-        .map((p) => p.id),
-    ),
+    () => unavailableProviderIds(visibleProviders, installMap),
     [visibleProviders, installMap],
   );
   const [templatePreviewRequested] = useState(hasPendingTemplatePreview);
@@ -176,6 +175,8 @@ export function NewSessionPicker({
   };
 
   const hasRestoredRef = useRef(false);
+  const pendingInitialProviderRef = useRef<string | undefined>(initialProviderId);
+  const installProbedRef = useRef(false);
   const remoteRefreshStartedRef = useRef(false);
 
   const remoteProviderKey = !cloudExecution.enabled ? "" : providers
@@ -204,8 +205,18 @@ export function NewSessionPicker({
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;
-    const localDisabled = location === "cloud" ? undefined : disabledProviderIds;
+    const localDisabled = location === "cloud" ? EMPTY_DISABLED_PROVIDERS : disabledProviderIds;
+    const pendingInitialId = pendingInitialProviderRef.current;
+    const initialCandidate = pendingInitialId
+      ? visibleProviders.find((candidate) => candidate.id === pendingInitialId && isProviderSelectable(candidate, disabledProviderIds))
+      : undefined;
     if (hasRestoredRef.current) {
+      if (initialCandidate) {
+        pendingInitialProviderRef.current = undefined;
+        setChoice(initialProviderChoice(initialCandidate));
+        return;
+      }
+      if (installProbedRef.current) pendingInitialProviderRef.current = undefined;
       setChoice((current) => choiceForSessionSection(
         resolvePersistedChoice(visibleProviders, current, current.mode === "single" ? localDisabled : disabledProviderIds),
         section,
@@ -215,12 +226,11 @@ export function NewSessionPicker({
       return;
     }
     const restored = readPersistedNewSessionChoice(visibleProviders, disabledProviderIds);
-    const initialCandidate = initialProviderId
-      ? visibleProviders.find((candidate) => candidate.id === initialProviderId && isProviderSelectable(candidate, disabledProviderIds))
-      : undefined;
     if (initialCandidate) {
+      pendingInitialProviderRef.current = undefined;
       setChoice(initialProviderChoice(initialCandidate));
     } else {
+      if (installProbedRef.current) pendingInitialProviderRef.current = undefined;
       const fitted = choiceForSessionSection(restored, section, visibleProviders, disabledProviderIds);
       const selectableFallback = firstSelectableProvider(visibleProviders, disabledProviderIds);
       const fallback = selectableFallback ? initialProviderChoice(selectableFallback) : undefined;
@@ -250,7 +260,10 @@ export function NewSessionPicker({
     let unlisten: (() => void) | undefined;
     const probe = (refresh = false) => {
       void probeProviderInstallMap(visibleProviders, refresh ? { refresh: true } : undefined).then((map) => {
-        if (!cancelled) setInstallMap(map);
+        if (!cancelled) {
+          installProbedRef.current = true;
+          setInstallMap(map);
+        }
       });
     };
     probe(false);
@@ -474,6 +487,7 @@ export function NewSessionPicker({
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     if (!allowedNewSessionModes(section).includes(mode)) return;
+    pendingInitialProviderRef.current = undefined;
     setChoice((prev) => {
       if (prev.mode === mode) return prev;
       if (mode === "terminal") return { mode: "terminal" };
@@ -605,6 +619,7 @@ export function NewSessionPicker({
                   effortId={choice.effortId}
                   disabledProviderIds={location === "local" ? disabledProviderIds : undefined}
                   onProviderChange={(providerId) => {
+                    pendingInitialProviderRef.current = undefined;
                     const provider = visibleProviders.find((p) => p.id === providerId);
                     if (provider) setChoice(initialProviderChoice(provider));
                   }}

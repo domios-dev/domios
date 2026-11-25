@@ -1033,14 +1033,16 @@ fn parse_session_records_and_delta_survive_v2_1_332_session_with_native_parity()
         .find(|row| row.uuid.as_deref() == Some("a-0002"))
         .expect("Bash tool_use row preserved");
     assert_eq!(bash_row.blocks[0].kind, "tool_use");
-    assert_eq!(bash_row.background_work.len(), 1);
+    assert!(bash_row.background_work.is_empty());
+    assert_eq!(bash_row.background_tool_calls.len(), 1);
+    assert_eq!(bash_row.background_tool_calls[0].id, "toolu_opaque_332");
     assert_eq!(
-        bash_row.background_work[0].state,
-        codeterm_types::agent::background_work::BackgroundWorkState::ToolCall
+        bash_row.background_tool_calls[0].label,
+        "opaque-command --check"
     );
     assert_eq!(
-        bash_row.background_work[0].label.as_deref(),
-        Some("opaque-command --check")
+        bash_row.background_tool_calls[0].kind,
+        Some(codeterm_types::agent::background_work::BackgroundWorkKind::Shell)
     );
     let reply = from_records
         .messages
@@ -1054,6 +1056,10 @@ fn parse_session_records_and_delta_survive_v2_1_332_session_with_native_parity()
         assert_eq!(
             native.parse_background_work(&value),
             js.parse_background_work(&value)
+        );
+        assert_eq!(
+            native.parse_background_tool_calls(&value),
+            js.parse_background_tool_calls(&value)
         );
         assert_eq!(
             native.parse_session_observations(&value),

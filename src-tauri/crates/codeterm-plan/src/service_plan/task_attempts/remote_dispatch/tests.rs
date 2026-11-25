@@ -55,6 +55,7 @@ fn remote_dispatch_ack_is_authenticated_and_idempotent() {
             &attempt_id,
             "peer-origin",
             "mesh-worker:attempt_remote",
+            Some("Alias"),
             "lane/remote-attempt",
             "D:/peer/repo-worktrees/lane",
             "base-sha",
@@ -63,12 +64,15 @@ fn remote_dispatch_ack_is_authenticated_and_idempotent() {
             3,
         )
         .unwrap();
+    let recorded = store.inspect_task_for_test(&task_id).unwrap();
     assert_eq!(
-        store
-            .inspect_task_for_test(&task_id)
-            .unwrap()
-            .task
-            .execution_attempts[0]
+        recorded.task.execution_attempts[0]
+            .executor_title
+            .as_deref(),
+        Some("Alias")
+    );
+    assert_eq!(
+        recorded.task.execution_attempts[0]
             .session_binding_nonce
             .as_deref(),
         Some("worker-nonce")
@@ -134,6 +138,7 @@ fn mesh_dispatch_records_origin_attempt_and_relays_ack_and_report() {
             &attempt_id,
             "peer-origin",
             "remote-tab-1",
+            None,
             "lane/remote-attempt",
             "D:/peer/repo-worktrees/lane",
             "base-sha",
@@ -225,6 +230,7 @@ fn remote_attempt_ack_deadline_marks_attempt_explicitly() {
             &attempt_id,
             "peer-origin",
             "remote-tab-1",
+            None,
             "lane/remote-attempt",
             "D:/peer/repo-worktrees/lane",
             "base-sha",
@@ -282,6 +288,7 @@ fn remote_peer_offline_is_explicit_attempt_state() {
             &attempt_id,
             "peer-origin",
             "remote-tab-1",
+            None,
             "lane/remote-attempt",
             "D:/peer/repo-worktrees/lane",
             "base-sha",
@@ -338,6 +345,7 @@ fn mesh_worker_peer_offline_attempt_can_be_retried() {
             "peer",
             "codex",
             None,
+            Some("origin-orchestrator"),
             "base-sha",
             "main",
             10,
@@ -361,6 +369,7 @@ fn remote_lane_integration_requires_origin_review_and_records_result() {
             &attempt_id,
             "peer-origin",
             "remote-tab-1",
+            None,
             "lane/remote-attempt",
             "D:/peer/repo-worktrees/lane",
             "base-sha",

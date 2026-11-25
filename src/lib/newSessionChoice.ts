@@ -21,12 +21,22 @@ export function allowedNewSessionModes(section: NewSessionSection): readonly New
   return section === "general" ? ["single"] : ["single", "pair", "terminal"];
 }
 
+export function unavailableProviderIds(
+  providers: ReadonlyArray<Pick<ProviderDescriptor, "id" | "availability">>,
+  installMap: Readonly<Record<string, boolean>>,
+): Set<string> {
+  return new Set(
+    providers
+      .filter((provider) => installMap[provider.id] === false || (installMap[provider.id] !== true && provider.availability === "unavailable"))
+      .map((provider) => provider.id),
+  );
+}
+
 export function isProviderSelectable(
   provider: Pick<ProviderDescriptor, "id" | "availability">,
   disabledProviderIds?: ReadonlySet<string>,
 ): boolean {
-  if (disabledProviderIds?.has(provider.id)) return false;
-  return provider.availability !== "unavailable";
+  return disabledProviderIds ? !disabledProviderIds.has(provider.id) : provider.availability !== "unavailable";
 }
 
 export function firstSelectableProvider(

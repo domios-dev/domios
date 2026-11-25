@@ -184,6 +184,9 @@ pub(super) fn dispatch(
     )
     .map_err(super::super::plan::plan_rpc_err)?;
     let skill_context = brief::plan_skill_context(&svc.plan_store, &plan_id, &manifest)?;
+    let origin_tab_id = owned_str(p, "caller_tab_id")
+        .or(task.owner_tab_id.clone())
+        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let attempt_id = codeterm_service_core::plan::ids::short_id("attempt");
     let (peer_id, peer_name, peer_client, peer_state) = select_peer(svc, &peer_target)?;
     if let Some(client) = peer_client
@@ -201,6 +204,7 @@ pub(super) fn dispatch(
             &peer_name,
             &model.provider_id,
             hosted_role.as_ref().map(|role| role.kind.as_str()),
+            Some(origin_tab_id.as_str()),
             &base,
             &destination,
             now,
@@ -230,9 +234,6 @@ pub(super) fn dispatch(
         &[],
         &authorized_gates,
     );
-    let origin_tab_id = owned_str(p, "caller_tab_id")
-        .or(task.owner_tab_id.clone())
-        .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let origin_id = svc
         .ext::<codeterm_service_core::MeshStateHandle>()
         .lock()
@@ -253,6 +254,8 @@ pub(super) fn dispatch(
         Some(role) => team_template_remote::compose_hosted_brief(&brief, role),
         None => brief,
     };
+    let (explicit_persona, _) =
+        super::routing::dispatch_worker_identity(preparation.personality.as_deref());
     let description_override =
         owned_str(p, "description").filter(|description| !description.trim().is_empty());
     let description = super::task_tab_description(&task.name, description_override.as_deref());
@@ -271,6 +274,7 @@ pub(super) fn dispatch(
         "model": model.model,
         "reasoning_effort": owned_str(p, "reasoning_effort"),
         "speed": owned_str(p, "speed").or_else(|| preparation.speed.clone()),
+        "title": explicit_persona.as_deref(),
         "description": description,
         "task_description_managed": description_override.is_none(),
         "brief": brief,
@@ -369,6 +373,13 @@ pub(super) fn dispatch(
                 "peer omitted worker binding nonce",
             )
         })?;
+    let worker_title = response
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_owned)
+        .or(explicit_persona);
     svc.plan_store
         .record_remote_dispatch_lane(
             &plan_id,
@@ -376,6 +387,7 @@ pub(super) fn dispatch(
             &attempt_id,
             &peer_id,
             worker_tab_id,
+            worker_title.as_deref(),
             branch,
             worktree_path,
             lane_base,
@@ -404,6 +416,7 @@ pub(super) fn dispatch(
         "peer_id": peer_id,
         "peer_name": peer_name,
         "tab_id": worker_tab_id,
+        "title": worker_title,
         "branch": branch,
         "worktree_path": worktree_path,
         "base": lane_base,
@@ -660,7 +673,7 @@ fn select_peer(
 > {
     let mesh_handle = svc.ext::<codeterm_service_core::MeshStateHandle>();
     let mesh = mesh_handle.lock();
-    let peer = resolve_dispatch_peer(&mesh.paired_peers, target)?;
+    let peer = resolve_dispatch_peer(&mesh, target)?;
     if peer.access_level != codeterm_service_core::mesh::types::AccessLevel::Full {
         return Err(invalid_dispatch(
             "mesh task dispatch requires Full peer access",
@@ -681,16 +694,14 @@ fn select_peer(
 }
 
 fn resolve_dispatch_peer<'a>(
-    peers: &'a std::collections::HashMap<String, codeterm_service_core::mesh::types::PairedPeer>,
+    mesh: &'a codeterm_service_core::mesh::MeshManager,
     target: &str,
 ) -> Result<&'a codeterm_service_core::mesh::types::PairedPeer, JsonRpcError> {
-    codeterm_service_core::mesh::paired_resolve::resolve_paired_by_name(peers, target).map_err(
-        |error| {
-            invalid_dispatch(&format!(
-                "mesh peer resolution failed: {error:?}; use a paired instance ID"
-            ))
-        },
-    )
+    mesh.resolve_peer(target).map_err(|error| {
+        invalid_dispatch(&format!(
+            "mesh peer resolution failed: {error:?}; use a paired peer ID or name"
+        ))
+    })
 }
 
 /// `--role` names a worker type of the dispatching Orchestrator's Team; the origin composes
@@ -847,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn mesh_peer_selection_accepts_names_and_refuses_ambiguity() {
+    fn mesh_peer_selection_accepts_names_installation_ids_and_refuses_ambiguity() {
         let peer =
             |id: &str, name: &str, online: bool| codeterm_service_core::mesh::types::PairedPeer {
                 instance_id: id.into(),
@@ -867,20 +878,32 @@ mod tests {
                 consecutive_misses: 0,
                 last_active_ms: None,
             };
-        let mut peers = std::collections::HashMap::new();
-        peers.insert("id-a".into(), peer("id-a", "ROG", true));
-        peers.insert("id-old".into(), peer("id-old", "ROG", false));
-        assert_eq!(
-            resolve_dispatch_peer(&peers, "rog").unwrap().instance_id,
-            "id-a"
+        let mut mesh = codeterm_service_core::mesh::MeshManager::new("origin".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.paired_peers.clear();
+        let inst_id = "7a835b57-1111-2222-3333-000000000001";
+        let peer_id = "66c926f1-aaaa-bbbb-cccc-000000000001";
+        mesh.insert_account_peer_with_installation_for_test(
+            inst_id.into(),
+            peer(peer_id, "ROG", true),
         );
+        mesh.paired_peers
+            .insert("id-old".into(), peer("id-old", "ROG", false));
+        for target in ["rog", peer_id, "66c926f1", inst_id, "7a835b57"] {
+            assert_eq!(
+                resolve_dispatch_peer(&mesh, target).unwrap().instance_id,
+                peer_id,
+                "{target}"
+            );
+        }
         assert_eq!(
-            resolve_dispatch_peer(&peers, "id-old").unwrap().instance_id,
+            resolve_dispatch_peer(&mesh, "id-old").unwrap().instance_id,
             "id-old"
         );
-        assert!(resolve_dispatch_peer(&peers, "foreign").is_err());
-        peers.insert("id-b".into(), peer("id-b", "ROG", true));
-        assert!(resolve_dispatch_peer(&peers, "ROG").is_err());
+        assert!(resolve_dispatch_peer(&mesh, "foreign").is_err());
+        mesh.paired_peers
+            .insert("id-b".into(), peer("id-b", "ROG", true));
+        assert!(resolve_dispatch_peer(&mesh, "ROG").is_err());
     }
 
     #[test]

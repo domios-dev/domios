@@ -108,13 +108,23 @@ pub struct RichMessage {
     #[serde(
         default,
         skip_serializing_if = "Vec::is_empty",
-        deserialize_with = "deserialize_known_background_work"
+        deserialize_with = "deserialize_known_vec"
     )]
     #[ts(
         as = "Option<Vec<super::background_work::BackgroundWorkObservation>>",
         optional
     )]
     pub background_work: Vec<super::background_work::BackgroundWorkObservation>,
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_known_vec"
+    )]
+    #[ts(
+        as = "Option<Vec<super::background_work::BackgroundToolCall>>",
+        optional
+    )]
+    pub background_tool_calls: Vec<super::background_work::BackgroundToolCall>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -220,34 +230,34 @@ pub struct RichMessage {
     pub record_row: u32,
 }
 
-/// Keep recognized background-work observations from a JSON array so a newer
-/// plugin emitting an unknown state variant never drops sibling observations
+/// Keep recognized side-channel array entries from a JSON array so a newer
+/// plugin emitting an unknown enum variant never drops sibling entries
 /// or breaks the enclosing transcript row.
-pub fn parse_known_background_work(
-    items: Vec<serde_json::Value>,
-) -> Result<Vec<super::background_work::BackgroundWorkObservation>, &'static str> {
-    let mut observations = Vec::with_capacity(items.len());
+pub fn parse_known_vec<T>(items: Vec<serde_json::Value>) -> Result<Vec<T>, &'static str>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let mut parsed = Vec::with_capacity(items.len());
     for item in items {
         if !item.is_object() {
-            return Err("background_work entry must be an object");
+            return Err("side-channel entry must be an object");
         }
-        if let Ok(observation) = serde_json::from_value(item) {
-            observations.push(observation);
+        if let Ok(entry) = serde_json::from_value(item) {
+            parsed.push(entry);
         }
     }
-    Ok(observations)
+    Ok(parsed)
 }
 
-fn deserialize_known_background_work<'de, D>(
-    deserializer: D,
-) -> Result<Vec<super::background_work::BackgroundWorkObservation>, D::Error>
+fn deserialize_known_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
 {
     let Some(items) = Option::<Vec<serde_json::Value>>::deserialize(deserializer)? else {
         return Ok(Vec::new());
     };
-    parse_known_background_work(items).map_err(serde::de::Error::custom)
+    parse_known_vec(items).map_err(serde::de::Error::custom)
 }
 
 fn deserialize_known_optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>

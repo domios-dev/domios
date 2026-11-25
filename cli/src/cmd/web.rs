@@ -187,22 +187,7 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
     let Some(peers) = peers else {
         crate::cmd::print::fail(1, "could not reach the daemon to list mesh peers.");
     };
-    // Match on instance name (case-insensitive) or an instance-id prefix.
-    let id = peers
-        .get("paired")
-        .and_then(|p| p.as_array())
-        .and_then(|arr| {
-            arr.iter().find(|p| {
-                let name = p
-                    .get("instance_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let pid = p.get("instance_id").and_then(|v| v.as_str()).unwrap_or("");
-                name.eq_ignore_ascii_case(peer_name) || pid.starts_with(peer_name)
-            })
-        })
-        .and_then(|p| p.get("instance_id").and_then(|v| v.as_str()))
-        .map(str::to_string);
+    let id = resolve_peer_instance_id_from_response(&peers, peer_name);
     let Some(id) = id else {
         crate::cmd::print::fail(
             1,
@@ -255,6 +240,109 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
     } else {
         println!("{}", url);
     }
+}
+
+pub(crate) fn resolve_peer_instance_id_from_response(
+    peers: &serde_json::Value,
+    target: &str,
+) -> Option<String> {
+    let target_lower = target.to_ascii_lowercase();
+    let is_short_id =
+        target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    let paired = peers.get("paired").and_then(|p| p.as_array());
+    if let Some(arr) = paired {
+        if let Some(id) = arr.iter().find_map(|p| {
+            let pid = p.get("instance_id").and_then(|v| v.as_str())?;
+            (pid == target).then(|| pid.to_string())
+        }) {
+            return Some(id);
+        }
+    }
+    if let Some(rows) = peers.get("installations").and_then(|v| v.as_array()) {
+        let from_installations = |pred: &dyn Fn(&serde_json::Value) -> bool| -> Option<String> {
+            let matches: Vec<&serde_json::Value> = rows
+                .iter()
+                .filter(|row| {
+                    row["active"] != false
+                        && row["instance_id"].as_str().is_some_and(|id| !id.is_empty())
+                        && pred(row)
+                })
+                .collect();
+            let online: Vec<&serde_json::Value> = matches
+                .iter()
+                .copied()
+                .filter(|row| row["online"] == true)
+                .collect();
+            let chosen = match online.as_slice() {
+                [only] => *only,
+                [] if matches.len() == 1 => matches[0],
+                _ => return None,
+            };
+            chosen["instance_id"].as_str().map(str::to_string)
+        };
+        if let Some(id) = from_installations(&|row| {
+            row["installation_id"]
+                .as_str()
+                .is_some_and(|id| id.eq_ignore_ascii_case(target))
+        }) {
+            return Some(id);
+        }
+        if is_short_id {
+            if let Some(id) = from_installations(&|row| {
+                row["installation_id"]
+                    .as_str()
+                    .is_some_and(|id| id.to_ascii_lowercase().starts_with(&target_lower))
+            }) {
+                return Some(id);
+            }
+        }
+        if let Some(id) = from_installations(&|row| {
+            row["name"]
+                .as_str()
+                .is_some_and(|name| name.eq_ignore_ascii_case(target))
+        }) {
+            return Some(id);
+        }
+    }
+    paired.and_then(|arr| {
+        let find = |pred: &dyn Fn(&serde_json::Value) -> bool| -> Option<String> {
+            let matches: Vec<&serde_json::Value> = arr.iter().filter(|p| pred(p)).collect();
+            let online: Vec<&serde_json::Value> = matches
+                .iter()
+                .copied()
+                .filter(|p| p["online"] == true)
+                .collect();
+            let chosen = match online.as_slice() {
+                [only] => *only,
+                [] if matches.len() == 1 => matches[0],
+                _ => return None,
+            };
+            chosen
+                .get("instance_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        };
+        if is_short_id {
+            if let Some(id) = find(&|p| {
+                p.get("instance_id")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|pid| pid.to_ascii_lowercase().starts_with(&target_lower))
+            }) {
+                return Some(id);
+            }
+        }
+        find(&|p| {
+            p.get("instance_name")
+                .and_then(|v| v.as_str())
+                .is_some_and(|name| {
+                    name.eq_ignore_ascii_case(target)
+                        || name
+                            .rfind(" [")
+                            .filter(|_| name.ends_with(']'))
+                            .is_some_and(|at| name[..at].eq_ignore_ascii_case(target))
+                })
+        })
+    })
 }
 
 fn local_web_token(base: &str) -> Result<String, crate::local_api::LocalApiError> {
