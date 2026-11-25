@@ -31,6 +31,10 @@ impl LiveDeskProjection {
     pub fn has_omissions(&self) -> bool {
         !self.omitted_tabs.is_empty()
     }
+
+    pub fn omitted_tabs(&self) -> &HashSet<String> {
+        &self.omitted_tabs
+    }
 }
 
 impl StorageDeskAdapter {

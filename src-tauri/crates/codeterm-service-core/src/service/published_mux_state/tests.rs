@@ -37,6 +37,25 @@ fn status_delta_uses_last_published_generation_and_carries_removals() {
 }
 
 #[test]
+fn status_delta_ignores_last_active_at_ms_churn_alongside_status_transition() {
+    let mut initial = status_snapshot(1);
+    initial["tabs"]["a"]["last_active_at_ms"] = json!(1_000);
+    let published = PublishedMuxState::new(1, &initial).unwrap();
+    let mut next = status_snapshot(2);
+    next["tabs"]["a"]["last_active_at_ms"] = json!(2_500);
+    next["tabs"]["a"]["agent_state"] = json!({"state": "idle"});
+    next["tab_statuses"]["a"] = json!("Idle");
+    assert_eq!(
+        published.publish_change(2, &next).unwrap(),
+        Some(json!({
+            "generation": 2,
+            "base_generation": 1,
+            "status_deltas": {"a": {"status": "Idle", "agent_state": {"state": "idle"}}}
+        }))
+    );
+}
+
+#[test]
 fn any_structural_change_falls_back_to_refetch_including_mixed_status_batches() {
     for (field, value) in [
         ("title", json!("renamed")),

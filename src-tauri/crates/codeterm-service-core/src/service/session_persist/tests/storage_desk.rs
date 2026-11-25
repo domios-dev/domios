@@ -142,6 +142,65 @@ fn oversized_leaf_does_not_block_desk_completion() {
 }
 
 #[test]
+fn repeated_preserving_save_with_omitted_tab_skips_redundant_commit() {
+    use crate::session::store::SplitNodeSnapshot;
+    use codeterm_storage::MAX_DESK_LEAF_BYTES;
+
+    let root = tempfile::tempdir().unwrap();
+    let authority = crate::startup::open_instance_storage_at(root.path());
+    let storage = authority.require_ready().expect("startup seeds the desk");
+    let adapter = || crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    let worker = pending_worker();
+    worker
+        .configure(WorkerMessage::InstallStorage(adapter()))
+        .unwrap();
+
+    let mut snapshot = fixture_snapshot("normal");
+    let mut oversized = fixture_snapshot("oversized")
+        .workspaces
+        .remove(0)
+        .tabs
+        .remove(0);
+    let SplitNodeSnapshot::Leaf { close_restore, .. } = &mut oversized.split_tree else {
+        panic!("expected a leaf");
+    };
+    *close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+        command: Some("x".repeat(MAX_DESK_LEAF_BYTES + 1024)),
+        ..Default::default()
+    });
+    snapshot.workspaces[0].tabs.push(oversized);
+
+    assert!(matches!(
+        worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true),
+        Ok(Some(SaveOutcome::Saved))
+    ));
+    let committed_revision = adapter().state().unwrap().revision;
+
+    for _ in 0..3 {
+        assert!(matches!(
+            worker.submit_snapshot(snapshot.clone(), SaveIntent::PreserveDesk, true),
+            Ok(Some(SaveOutcome::Saved))
+        ));
+    }
+    assert_eq!(adapter().state().unwrap().revision, committed_revision);
+
+    snapshot.workspaces[0].name = "Updated with omission".into();
+    assert!(matches!(
+        worker.submit_snapshot(snapshot, SaveIntent::PreserveDesk, true),
+        Ok(Some(SaveOutcome::Saved))
+    ));
+    let updated = adapter().state().unwrap();
+    assert!(updated.revision > committed_revision);
+    assert_eq!(
+        updated.snapshot.workspaces[0].record.name,
+        "Updated with omission"
+    );
+
+    stop_test_worker(&worker);
+    storage.shutdown().wait(PERSISTENCE_DEADLINE).unwrap();
+}
+
+#[test]
 fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
     let root = tempfile::tempdir().unwrap();
     let adapter = test_adapter(root.path());
