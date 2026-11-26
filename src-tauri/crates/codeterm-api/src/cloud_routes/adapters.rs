@@ -16,8 +16,9 @@ use codeterm_neighbors_service::service::{
 use codeterm_service_core::{
     mesh::crown::AuthenticatedOrigin,
     service::cloud_machines::{
-        CloudEndpoint, CloudEnrollmentPort, CloudError, CloudMachineRecord, CloudPeerControlPort,
-        CloudPromoRedemption, CloudProvisioningPort, CloudRate, CloudRouteSpec, CloudSleepMode,
+        CloudCheckoutSession, CloudEndpoint, CloudEnrollmentPort, CloudError, CloudMachineRecord,
+        CloudPeerControlPort, CloudPlanAllowances, CloudPromoRedemption, CloudProvisioningPort,
+        CloudRate, CloudRouteSpec, CloudSleepMode, CloudUsagePack, CloudUsageSize,
         CloudUsageSummary, DrainToken, EnrollmentBinding, EnrollmentOutcome, FlushWriteOutcome,
         HeldCloudSend, PeerBusySnapshot, ProvisionedLease, ProvisionedMachine,
         ProvisioningCreateRequest,
@@ -55,6 +56,9 @@ pub(super) fn map_account_refusal(refusal: AccountMeshRefusal) -> CloudError {
         AccountMeshRefusal::PromoDisabled => CloudError::PromoDisabled,
         AccountMeshRefusal::PromoExhausted => CloudError::PromoExhausted,
         AccountMeshRefusal::PromoSpendCapExceeded => CloudError::PromoSpendCapExceeded,
+        AccountMeshRefusal::CheckoutBelowMin => CloudError::CheckoutBelowMin,
+        AccountMeshRefusal::CheckoutAboveMax => CloudError::CheckoutAboveMax,
+        AccountMeshRefusal::CheckoutTerritory => CloudError::CheckoutTerritory,
         AccountMeshRefusal::NotFound => CloudError::MachineNotFound("cloud machine".into()),
         AccountMeshRefusal::Conflict | AccountMeshRefusal::Replay => {
             CloudError::Conflict(format!("{refusal:?}"))
@@ -75,6 +79,26 @@ pub(super) fn map_account_refusal(refusal: AccountMeshRefusal) -> CloudError {
         | AccountMeshRefusal::AuthorityUnavailable
         | AccountMeshRefusal::Offline => CloudError::ProviderUnavailable(format!("{refusal:?}")),
         other => CloudError::ProviderRefused(format!("{other:?}")),
+    }
+}
+
+pub(super) fn map_checkout_refusal(refusal: AccountMeshRefusal) -> CloudError {
+    match refusal {
+        AccountMeshRefusal::Invalid => CloudError::CheckoutInvalid,
+        AccountMeshRefusal::PromoSpendCapExceeded => CloudError::PromoSpendCapExceeded,
+        AccountMeshRefusal::CheckoutBelowMin => CloudError::CheckoutBelowMin,
+        AccountMeshRefusal::CheckoutAboveMax => CloudError::CheckoutAboveMax,
+        AccountMeshRefusal::CheckoutTerritory => CloudError::CheckoutTerritory,
+        AccountMeshRefusal::RateLimited {
+            retry_after_seconds,
+        } => CloudError::RateLimited {
+            retry_after_seconds,
+        },
+        AccountMeshRefusal::ProviderUnavailable
+        | AccountMeshRefusal::Unavailable
+        | AccountMeshRefusal::AuthorityUnavailable
+        | AccountMeshRefusal::Offline => CloudError::CheckoutUnavailable(format!("{refusal:?}")),
+        other => map_account_refusal(other),
     }
 }
 
@@ -239,6 +263,38 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             burn_per_size: reply.burn_per_size,
             currency: reply.currency,
             period_end_at: reply.period_end_at,
+            custom_min_cents: reply.custom_min_cents,
+            custom_max_cents: reply.custom_max_cents,
+            plan: reply.plan,
+            sizes: reply.sizes.map(|sizes| {
+                sizes
+                    .into_iter()
+                    .map(|size| CloudUsageSize {
+                        id: size.id,
+                        cpu: size.cpu,
+                        ram_gb: size.ram_gb,
+                        hourly_rate_cents: size.hourly_rate_cents,
+                        credits_per_hour: size.credits_per_hour,
+                    })
+                    .collect()
+            }),
+            packs: reply.packs.map(|packs| {
+                packs
+                    .into_iter()
+                    .map(|pack| CloudUsagePack {
+                        pack_id: pack.pack_id,
+                        price_cents: pack.price_cents,
+                        hours: pack.hours,
+                    })
+                    .collect()
+            }),
+            purchased_expiry_days: reply.purchased_expiry_days,
+            allowance_hours: reply.allowance_hours.map(|hours| CloudPlanAllowances {
+                free: hours.free,
+                pro: hours.pro,
+                max: hours.max,
+                sponsor: hours.sponsor,
+            }),
         })
     }
 
@@ -265,6 +321,35 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             expires_at: reply.expires_at,
             remaining: reply.remaining,
             purchased: reply.purchased,
+        })
+    }
+
+    async fn create_checkout(
+        &self,
+        pack_id: &str,
+        amount_cents: Option<u64>,
+    ) -> Result<CloudCheckoutSession, CloudError> {
+        let mesh = self
+            .svc
+            .account_mesh()
+            .await
+            .map_err(|_| CloudError::CheckoutUnavailable("account mesh unavailable".into()))?;
+        let controller = mesh
+            .mesh
+            .cloud_controller()
+            .await
+            .map_err(map_checkout_refusal)?;
+        let reply = controller
+            .create_checkout(pack_id, amount_cents)
+            .await
+            .map_err(map_checkout_refusal)?;
+        Ok(CloudCheckoutSession {
+            url: reply.url,
+            session_id: reply.session_id,
+            pack_id: reply.pack_id,
+            credits: reply.credits,
+            amount_cents: reply.amount_cents,
+            currency: reply.currency,
         })
     }
 }
@@ -410,9 +495,7 @@ impl MeshPeerControlAdapter {
             .and_then(|link| link.installation_id())
             .map(str::to_owned)
             .or_else(|| record.installation_id.clone())?;
-        let known_endpoint = mesh
-            .cloud_ingress_endpoint(&installation_id)
-            .or_else(|| record.endpoint.clone());
+        let known_endpoint = record.endpoint.clone();
         if known_endpoint.is_none() && mesh.peer_route_endpoints(&peer_id).is_some() {
             return None;
         }
@@ -606,6 +689,12 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         record: &CloudMachineRecord,
         endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
+        if let Some(installation_id) = self.resolve_installation_id(record) {
+            self.state
+                .mesh
+                .lock()
+                .pin_managed_cloud_endpoint(installation_id, endpoint.clone());
+        }
         let CloudEndpoint::Direct(address) = endpoint else {
             return Ok(());
         };
@@ -641,6 +730,10 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
                 record.machine_id
             ))
         })?;
+        self.state
+            .mesh
+            .lock()
+            .pin_managed_cloud_endpoint(installation_id.clone(), endpoint.clone());
         #[cfg(any(test, feature = "test-support"))]
         if let Some(override_pub) = self.state.svc.try_ext::<CloudEndpointPublisherOverride>() {
             return (override_pub.0)(endpoint.clone(), installation_id)

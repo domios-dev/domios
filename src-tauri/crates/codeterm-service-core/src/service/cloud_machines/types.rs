@@ -87,6 +87,30 @@ pub struct PendingProvisioningRequest {
     pub unconfirmed: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CloudUsageSize {
+    pub id: String,
+    pub cpu: u32,
+    pub ram_gb: f64,
+    pub hourly_rate_cents: u64,
+    pub credits_per_hour: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CloudUsagePack {
+    pub pack_id: String,
+    pub price_cents: u64,
+    pub hours: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CloudPlanAllowances {
+    pub free: f64,
+    pub pro: f64,
+    pub max: f64,
+    pub sponsor: f64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloudUsageSummary {
     pub used: f64,
@@ -100,6 +124,30 @@ pub struct CloudUsageSummary {
     pub currency: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub period_end_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_min_cents: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_max_cents: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<Vec<CloudUsageSize>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packs: Option<Vec<CloudUsagePack>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purchased_expiry_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowance_hours: Option<CloudPlanAllowances>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CloudCheckoutSession {
+    pub url: String,
+    pub session_id: String,
+    pub pack_id: String,
+    pub credits: f64,
+    pub amount_cents: u64,
+    pub currency: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -304,6 +352,11 @@ pub enum CloudError {
     PromoDisabled,
     PromoExhausted,
     PromoSpendCapExceeded,
+    CheckoutInvalid,
+    CheckoutBelowMin,
+    CheckoutAboveMax,
+    CheckoutTerritory,
+    CheckoutUnavailable(String),
     ImplicitCreateRefused,
     MachineNotFound(String),
     MachineAmbiguous(String),
@@ -355,6 +408,11 @@ impl CloudError {
             Self::PromoDisabled => "disabled",
             Self::PromoExhausted => "exhausted",
             Self::PromoSpendCapExceeded => "spend_cap_exceeded",
+            Self::CheckoutInvalid => "invalid",
+            Self::CheckoutBelowMin => "below_min",
+            Self::CheckoutAboveMax => "above_max",
+            Self::CheckoutTerritory => "territory",
+            Self::CheckoutUnavailable(_) => "unavailable",
             Self::ImplicitCreateRefused => "implicit_create_refused",
             Self::MachineNotFound(_) => "machine_not_found",
             Self::MachineAmbiguous(_) => "machine_ambiguous",
@@ -421,6 +479,15 @@ impl std::fmt::Display for CloudError {
             Self::PromoExhausted => write!(f, "Promo code has no redemptions remaining"),
             Self::PromoSpendCapExceeded => {
                 write!(f, "Monthly cloud credit spend cap exceeded")
+            }
+            Self::CheckoutInvalid => write!(f, "Cloud credit checkout request is not valid"),
+            Self::CheckoutBelowMin => write!(f, "Cloud credit top-up amount is below the minimum"),
+            Self::CheckoutAboveMax => write!(f, "Cloud credit top-up amount exceeds the maximum"),
+            Self::CheckoutTerritory => {
+                write!(f, "Cloud credit purchases are not available in this territory")
+            }
+            Self::CheckoutUnavailable(detail) => {
+                write!(f, "Cloud credit checkout unavailable: {detail}")
             }
             Self::ImplicitCreateRefused => {
                 write!(

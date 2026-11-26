@@ -73,19 +73,47 @@ fn map_error(e: SecretError) -> (StatusCode, Json<serde_json::Value>) {
 
 // ── Status / lifecycle ──────────────────────────────────────────────
 
+pub(crate) fn status_payload(
+    store: &dyn codeterm_service_core::secrets::SecretStore,
+    st: codeterm_service_core::secrets::StoreStatus,
+    load_errors: &[codeterm_service_core::plugin::js_runtime::PluginLoadError],
+) -> serde_json::Value {
+    let auto_unlock_capable = store.capabilities().auto_unlock;
+    let fallback = store.fallback();
+    let configured_backend = fallback
+        .as_ref()
+        .map(|entry| entry.configured_backend.clone())
+        .unwrap_or_else(|| store.id().to_string());
+    let fallback_reason = fallback.as_ref().map(|entry| {
+        let error = load_errors
+            .iter()
+            .find(|load_error| load_error.id == entry.configured_backend)
+            .map(|load_error| load_error.message.as_str());
+        codeterm_service_core::secrets::fallback_reason(
+            &entry.configured_backend,
+            &entry.active_backend,
+            error,
+        )
+    });
+    serde_json::json!({
+        "backend": store.id(),
+        "configured_backend": configured_backend,
+        "fallback_active": fallback.is_some(),
+        "fallback_reason": fallback_reason,
+        "status": st,
+        "auto_unlock_capable": auto_unlock_capable,
+        "master_password_saved": codeterm_service_core::secrets::master_password_saved(store),
+    })
+}
+
 pub async fn status(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     let store = state.svc.secrets.read().await;
     let st = store.status().await;
-    let auto_unlock_capable = store.capabilities().auto_unlock;
-    Ok(Json(serde_json::json!({
-        "backend": store.id(),
-        "status": st,
-        "auto_unlock_capable": auto_unlock_capable,
-        "master_password_saved": codeterm_service_core::secrets::master_password_saved(&**store),
-    })))
+    let load_errors = codeterm_service_core::plugin::js_runtime::plugin_load_errors();
+    Ok(Json(status_payload(&**store, st, &load_errors)))
 }
 
 #[derive(Deserialize)]
@@ -448,9 +476,16 @@ pub async fn switch_backend(
     // Read the new status so the caller can update its UI in one round-trip.
     let store = state.svc.secrets.read().await;
     let st = store.status().await;
+    let fallback = store.fallback();
+    let configured_backend = fallback
+        .as_ref()
+        .map(|entry| entry.configured_backend.clone())
+        .unwrap_or_else(|| store.id().to_string());
     Ok(Json(serde_json::json!({
         "ok": true,
         "backend": store.id(),
+        "configured_backend": configured_backend,
+        "fallback_active": fallback.is_some(),
         "status": st,
     })))
 }
@@ -695,5 +730,41 @@ mod tests {
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body["error"]["kind"], "backend");
         assert!(!body.to_string().contains(sentinel));
+    }
+
+    #[tokio::test]
+    async fn status_payload_surfaces_fallback_and_load_error_until_backend_activates() {
+        let registry = std::sync::Arc::new(codeterm_service_core::secrets::SecretRegistry::new());
+        let cfg = codeterm_service_core::config::schema::SecretsConfig {
+            backend: "bitwarden".into(),
+            ..Default::default()
+        };
+        let store = codeterm_service_core::secrets::build_active_store(&cfg, &registry);
+        let load_errors = vec![codeterm_service_core::plugin::js_runtime::PluginLoadError {
+            id: "bitwarden".into(),
+            path: std::path::PathBuf::from("/plugins/bitwarden/plugin.json"),
+            message: "load failed: incompatible: hostApi Some(2) requires hostIoJobs=true".into(),
+            at_ms: 1,
+            kept_previous: false,
+        }];
+
+        let before = status_payload(&*store, store.status().await, &load_errors);
+        assert_eq!(before["backend"], "local");
+        assert_eq!(before["configured_backend"], "bitwarden");
+        assert_eq!(before["fallback_active"], true);
+        let reason = before["fallback_reason"].as_str().unwrap();
+        assert!(reason.contains("bitwarden"), "{reason}");
+        assert!(reason.contains("hostIoJobs"), "{reason}");
+        assert!(reason.contains("local"), "{reason}");
+
+        registry.register(
+            "bitwarden",
+            std::sync::Arc::new(recording(StoreCapabilities::AUTO_UNLOCK)),
+        );
+        let after = status_payload(&*store, store.status().await, &[]);
+        assert_eq!(after["backend"], "consent-recording");
+        assert_eq!(after["configured_backend"], "consent-recording");
+        assert_eq!(after["fallback_active"], false);
+        assert!(after["fallback_reason"].is_null());
     }
 }

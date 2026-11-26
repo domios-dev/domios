@@ -760,7 +760,8 @@ function AppInner() {
     const size = zoomedFontSize(config.font.size, action);
     if (size !== config.font.size) void updateConfig({ ...config, font: { ...config.font, size } }).catch(() => {});
   };
-  const focusedTabId = () => stateRef.current.focused_tab_id;
+  const focusedTabId = () => stateRef.current.focused_tab_id
+    ?? (stateRef.current.active_workspace_id ? stateRef.current.activeTabIds[stateRef.current.active_workspace_id] ?? null : null);
   useAppShortcuts(config.keybindings, {
     new_tab: handleNewTab,
     close_tab: handleCloseCurrentTab,

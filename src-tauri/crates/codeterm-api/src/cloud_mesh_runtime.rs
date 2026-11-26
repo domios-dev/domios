@@ -282,8 +282,23 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                 return;
             };
             let enabled = owner.configuration().mesh.enabled;
+            let managed_records = owner.cloud_machines().list_records();
+            let mut managed_endpoints = HashMap::new();
             let routes = {
-                let manager = mesh.lock();
+                let mut manager = mesh.lock();
+                for record in managed_records {
+                    let Some(inst_id) = record.installation_id else {
+                        continue;
+                    };
+                    if record.state
+                        == codeterm_service_core::service::cloud_machines::CloudLifecycleState::Deleted
+                    {
+                        manager.unpin_managed_cloud_endpoint(&inst_id);
+                    } else if let Some(endpoint) = record.endpoint {
+                        manager.pin_managed_cloud_endpoint(inst_id.clone(), endpoint.clone());
+                        managed_endpoints.insert(inst_id, endpoint);
+                    }
+                }
                 let epoch = manager.remote_access_epoch();
                 manager
                     .endpoint_records()
@@ -292,7 +307,10 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                         if !enabled {
                             return None;
                         }
-                        let route = r.claim.endpoint.and_then(|e| e.cloud_endpoint())?;
+                        let route = managed_endpoints
+                            .get(&r.claim.installation_id)
+                            .cloned()
+                            .or_else(|| r.claim.endpoint.and_then(|e| e.cloud_endpoint()))?;
                         Some((r.claim.installation_id, (epoch?, r.claim.sequence, route)))
                     })
                     .collect::<HashMap<_, _>>()

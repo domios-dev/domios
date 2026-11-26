@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import { __setInvokeForTest } from "../../lib/bridge";
+import { nativeBridge } from "../../lib/nativeBridge";
 import { useTerminalInput } from "./useTerminalInput";
 import { useXterm } from "./useXterm";
 import { setXtermFrameScheduler } from "./xtermInitScheduler";
@@ -223,6 +224,29 @@ describe("xterm composition delivery", () => {
       expect(f.data).toEqual(["\r"]);
       expect(f.writes).toEqual([{ ptyId: "composition-pty", data: "\r" }]);
       expect(f.textarea.getAttribute("writingsuggestions")).toBe("false");
+    } finally { await f.dispose(); }
+  });
+
+  it("routes OSC 8 hyperlinks through local nativeBridge.openUrl without xterm's confirm/window.open fallback", async () => {
+    const openUrl = vi.spyOn(nativeBridge, "openUrl").mockResolvedValue(undefined);
+    const confirmSpy = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmSpy);
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
+    const f = await fixture();
+    try {
+      const handler = f.term.options.linkHandler;
+      expect(handler).toBeDefined();
+      expect(handler?.allowNonHttpProtocols).toBe(false);
+      const url = "https://claude.ai/oauth/authorize?code=true&state=remote-osc8";
+      handler?.activate(new MouseEvent("mouseup"), url, { start: { x: 1, y: 1 }, end: { x: 20, y: 1 } });
+      await Promise.resolve();
+      expect(openUrl).toHaveBeenCalledExactlyOnceWith(url);
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(windowOpen).not.toHaveBeenCalled();
+
+      handler?.activate(new MouseEvent("mouseup"), "file:///etc/passwd", { start: { x: 1, y: 1 }, end: { x: 10, y: 1 } });
+      await Promise.resolve();
+      expect(openUrl).toHaveBeenCalledTimes(1);
     } finally { await f.dispose(); }
   });
 });

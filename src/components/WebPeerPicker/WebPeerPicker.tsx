@@ -58,10 +58,22 @@ function MachineDot({ peerId, online }: { peerId?: string; online: boolean }) {
 
 const offlineClock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 
-function peerStatus(peer: EnrichedPairedPeer): { text: string; icon: CloudListIcon; online: boolean; cloud: boolean } {
+function peerStatus(
+  peer: EnrichedPairedPeer,
+  availability?: string,
+): { text: string; icon: CloudListIcon; online: boolean; cloud: boolean } {
   if (peer.kind === "cloud" && peer.cloud) {
     const view = cloudMachineCardView(peer.cloud);
+    if (view.listOnline && availability === "reconnecting") {
+      return { text: "reconnecting", icon: "dots", online: false, cloud: true };
+    }
     return { text: view.listStatus, icon: view.listIcon, online: view.listOnline, cloud: true };
+  }
+  if (availability === "reconnecting") {
+    return { text: "reconnecting", icon: "dots", online: false, cloud: false };
+  }
+  if (availability === "unreachable") {
+    return { text: "unreachable", icon: "dot", online: false, cloud: false };
   }
   if (peer.online) {
     return {
@@ -210,11 +222,19 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const selectedCloud = !selectedPeer
     ? unpairedCloud.find((machine) => (machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id) === target?.id)
     : undefined;
+  const selectedGeneral = target ? generals.find(general => general.peerId === target.id) : undefined;
+  const selectedAvailability = target
+    ? (browse && browse.target.id === target.id ? browse.availability : selectedGeneral?.availability)
+    : undefined;
   const local = { name: accountNames.local ?? localName, identity: identities.local_machine_identity };
   const totalRemote = peers.length + unpairedCloud.length;
   const singleMachine = totalRemote === 0;
   const all = !singleMachine && filter === "all";
   const localSelected = filter === "local" || (singleMachine && !target);
+  const selectedReconnecting = !all && Boolean(target) && (
+    selectedAvailability === "reconnecting"
+    || Boolean(browse && target && browse.target.id === target.id && browse.synced === false)
+  );
   const label = all ? "All machines" : target
     ? selectedPeer ? peerName(selectedPeer) : selectedCloud ? selectedCloud.name : cleanMachineName(target.name, target.id) ?? "Machine"
     : local.name;
@@ -224,14 +244,20 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       : identities.machine_identities?.[target.id]
     : local.identity;
   const viewer = useMachineViewerTheme();
-  const selectedOnline = !target || (selectedPeer ? peerStatus(selectedPeer).online : selectedCloud ? cloudMachineCardView(selectedCloud).listOnline : false);
+  const selectedOnline = !target || (
+    selectedPeer
+      ? peerStatus(selectedPeer, selectedAvailability).online
+      : selectedCloud
+        ? cloudMachineCardView(selectedCloud).listOnline
+        : false
+  );
   const selectedAppearance = useMachineChromeAppearance(target?.id, selectedOnline, !all);
   const selectedDoodle = useMachineDoodle(selectedAppearance, target?.id, selectedOnline);
   const selectedTone = !all && selectedAppearance ? machineGlyphColor(
     desaturateMachineColor(selectedAppearance.theme.blue, selectedOnline), viewer.background, viewer.foreground, 0.15,
   ) : undefined;
   const onlineCount = 1
-    + peers.filter(peer => peerStatus(peer).online).length
+    + peers.filter(peer => peerStatus(peer, generals.find(g => g.peerId === peer.instance_id)?.availability).online).length
     + unpairedCloud.filter(machine => cloudMachineCardView(machine).listOnline).length;
   const machineCount = `${totalRemote + 1} machines`;
 
@@ -250,11 +276,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Machine: ${label}`}
+        aria-label={selectedReconnecting ? `Machine: ${label} (reconnecting)` : `Machine: ${label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         data-offline={!all && !selectedOnline || undefined}
+        data-reconnecting={selectedReconnecting || undefined}
         style={{ "--ct-switcher-tone": selectedTone } as CSSProperties}
         onClick={() => open ? close() : setOpen(true)}
         onKeyDown={event => {
@@ -268,6 +295,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         {!all && <MachineDoodle doodle={selectedDoodle} />}
         {all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} tone={selectedTone ?? neutralTone} />}
         <span className="ct-machine-switcher__label min-w-0 truncate">{label}</span>
+        {selectedReconnecting && (
+          <span role="status" data-testid="peer-picker-reconnecting" className="inline-flex items-center gap-1 text-[10px] opacity-80 shrink-0">
+            <ActivityDots size="micro" active />
+            <span className="hidden min-[400px]:inline">Reconnecting</span>
+          </span>
+        )}
         {localSelected && <MachineThisBadge className="ct-machine-switcher__this hidden min-[400px]:inline-flex" />}
         <ChevronDown size={12} className="ct-machine-switcher__chevron shrink-0 opacity-60" aria-hidden="true" />
       </button>
@@ -302,9 +335,10 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
               onSelect={option => select("local", option)} />
             {peers.map(peer => {
               const name = peerName(peer);
-              const statusInfo = peerStatus(peer);
-              const working = browse?.target.id === peer.instance_id && browse.availability === "online"
-                ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
+              const general = generals.find(candidate => candidate.peerId === peer.instance_id);
+              const statusInfo = peerStatus(peer, general?.availability);
+              const working = browse && browse.target.id === peer.instance_id && browse.availability === "online"
+                ? observedWorkingCount(general?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
                 : 0;
               const peerIdentity = statusInfo.cloud ? { kind: "vm" as const } : identities.machine_identities?.[peer.instance_id];
               return <MachineOption key={peer.instance_id} name={name} identity={peerIdentity}

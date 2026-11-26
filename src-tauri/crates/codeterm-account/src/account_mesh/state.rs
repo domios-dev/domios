@@ -133,6 +133,12 @@ pub enum AccountMeshRefusal {
     PromoExhausted,
     #[serde(rename = "spend_cap_exceeded")]
     PromoSpendCapExceeded,
+    #[serde(rename = "below_min")]
+    CheckoutBelowMin,
+    #[serde(rename = "above_max")]
+    CheckoutAboveMax,
+    #[serde(rename = "territory")]
+    CheckoutTerritory,
     #[serde(rename = "not_found")]
     NotFound,
     #[serde(rename = "provider_refused")]
@@ -192,6 +198,9 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::PromoDisabled => Self::PromoDisabled,
             RegistryRefusal::PromoExhausted => Self::PromoExhausted,
             RegistryRefusal::PromoSpendCapExceeded => Self::PromoSpendCapExceeded,
+            RegistryRefusal::CheckoutBelowMin => Self::CheckoutBelowMin,
+            RegistryRefusal::CheckoutAboveMax => Self::CheckoutAboveMax,
+            RegistryRefusal::CheckoutTerritory => Self::CheckoutTerritory,
             RegistryRefusal::NotFound => Self::NotFound,
             RegistryRefusal::EndpointKindUnsupported | RegistryRefusal::ProviderRefused => {
                 Self::ProviderRefused

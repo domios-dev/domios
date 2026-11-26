@@ -6,8 +6,9 @@ use axum::{
     body::Body,
     extract::{Query, State as AxumState},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::Response,
+    response::{IntoResponse, Response},
 };
+use codeterm_neighbors_service::prelude::NeighborsAccountMesh1Ext as _;
 
 use super::{
     copy_content_type, origin, peer_not_paired_error, peer_unroutable_error, validate_relay_path,
@@ -42,6 +43,20 @@ pub(super) async fn stream_refusal(response: reqwest::Response) -> (StatusCode, 
         .await
         .unwrap_or_else(|error| format!("Stream refusal could not be read: {error}"));
     (status, message)
+}
+
+pub(super) fn refusal_response_with_retry_after(
+    status: StatusCode,
+    message: String,
+    retry_after_ms: u64,
+) -> Response {
+    let retry_after_secs = retry_after_ms.div_ceil(1_000).max(1);
+    (
+        status,
+        [(header::RETRY_AFTER, retry_after_secs.to_string())],
+        message,
+    )
+        .into_response()
 }
 
 #[derive(serde::Deserialize)]
@@ -126,12 +141,12 @@ pub async fn mesh_relay_stream(
     validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     let (peer_id, link) = (q.peer.clone(), q.link.clone());
-    let (diagnostic_level, client) =
+    let (diagnostic_level, client, link_nonce) =
         crate::auth::off_runtime(&state, &headers, move |state, headers| {
             let diagnostic_level = crate::stream_diagnostics::configured_level(
                 state.config.lock().diagnostics.terminal_transport,
             );
-            let (primary, alternatives) = {
+            let ((primary, alternatives), link_nonce) = {
                 let mesh = state.mesh.lock();
                 let peer = mesh
                     .paired_peers
@@ -153,6 +168,12 @@ pub async fn mesh_relay_stream(
                         "remote tab unavailable".into(),
                     ));
                 }
+                if !mesh.peer_requests_allowed(&peer_id) {
+                    return Err((
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "peer-reconnecting: authentication backoff active".into(),
+                    ));
+                }
                 if !codeterm_service_core::mesh::types::is_supported_relay_protocol(
                     peer.relay_protocol_version,
                 ) {
@@ -162,23 +183,70 @@ pub async fn mesh_relay_stream(
                             .1,
                     ));
                 }
-                mesh.peer_route_endpoints(&peer_id)
-                    .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
+                let link_nonce = mesh
+                    .link_record(&peer_id)
+                    .and_then(|record| record.link_nonce.clone());
+                let endpoints = mesh
+                    .peer_route_endpoints(&peer_id)
+                    .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?;
+                (endpoints, link_nonce)
             };
             let (_, client) = origin::signed_peer_client(state, headers, primary, alternatives)?;
-            Ok((diagnostic_level, client))
+            Ok((diagnostic_level, client, link_nonce))
         })
         .await?;
+    if let Err(remaining_ms) =
+        super::peer_stream_backoff::check_allowed(&state.mesh, &q.peer, link_nonce.as_deref())
+    {
+        return Ok(refusal_response_with_retry_after(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("peer-reconnecting: retry after {remaining_ms}ms"),
+            remaining_ms,
+        ));
+    }
     if shared {
-        return super::peer_rail::subscribe(client, state.mesh.clone(), q.peer, path).await;
+        return super::peer_rail::subscribe(
+            client,
+            state.mesh.clone(),
+            state.svc.clone(),
+            q.peer,
+            link_nonce,
+            path,
+        )
+        .await;
     }
     let resp = client
         .open_relay_stream(&path)
         .await
         .map_err(stream_unreachable)?;
     if !resp.status().is_success() {
+        if super::peer_stream_backoff::is_backoff_status(resp.status()) {
+            let retry_after_ms = super::peer_stream_backoff::parse_retry_after_ms(
+                resp.headers()
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok()),
+            );
+            let outcome = super::peer_stream_backoff::record_refusal(
+                &state.mesh,
+                &q.peer,
+                link_nonce.as_deref(),
+                retry_after_ms,
+            );
+            if outcome.trigger_refresh {
+                state.svc.spawn_account_mesh_refresh(
+                    codeterm_account::account_mesh::EnrollTrigger::Lease,
+                );
+            }
+            let (status, message) = stream_refusal(resp).await;
+            return Ok(refusal_response_with_retry_after(
+                status,
+                message,
+                outcome.delay_ms,
+            ));
+        }
         return Err(stream_refusal(resp).await);
     }
+    super::peer_stream_backoff::record_success(&state.mesh, &q.peer);
     let content_type = copy_content_type(&resp, "text/event-stream");
     let body = if bare == "/api/output/stream" {
         super::super::relay_stream::output_body(

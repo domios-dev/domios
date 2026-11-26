@@ -365,3 +365,18 @@ fn rescan_selects_every_own_source_on_the_affected_root() {
         vec![1]
     );
 }
+
+#[test]
+fn already_released_errors_match_missing_and_invalidated_watches() {
+    assert!(is_already_released(&notify::Error::watch_not_found()));
+    assert!(is_already_released(&notify::Error::path_not_found()));
+    assert!(is_already_released(&notify::Error::io(
+        std::io::Error::from(std::io::ErrorKind::NotFound)
+    )));
+    assert!(is_already_released(&notify::Error::io(
+        std::io::Error::from(std::io::ErrorKind::InvalidInput)
+    )));
+    assert!(!is_already_released(&notify::Error::io(
+        std::io::Error::from(std::io::ErrorKind::PermissionDenied)
+    )));
+}

@@ -433,3 +433,112 @@ async fn home_to_cloud_relay_routes_provider_proxy_from_gossip_and_persisted_end
     assert_eq!(recorded[1].route, persisted_endpoint);
     assert_eq!(recorded[1].installation_id, "cloud-inst-proxy-persisted");
 }
+
+#[tokio::test]
+async fn managed_cloud_machine_prefers_provisioned_endpoint_over_conflicting_gossip() {
+    let fixture = cloud_fixture(MultiplexerState::new().0);
+    let (home, _home_pub) = configure_peer_state(&fixture, "home-auth-ep");
+    let authoritative = CloudEndpoint::ProviderProxy {
+        host: "domios-authoritative.fly.dev".into(),
+    };
+    let spoofed_direct = SocketAddrV4::new(Ipv4Addr::new(8, 8, 8, 8), 7687);
+    let spoofed_host = CloudEndpoint::ProviderProxy {
+        host: "domios-spoofed.fly.dev".into(),
+    };
+
+    {
+        let mut mesh = home.mesh.lock();
+        mesh.insert_account_peer_with_installation_for_test(
+            "cloud-inst-managed-direct-gossip".into(),
+            test_paired_peer("cloud-peer-managed-a", "fly-auth-a"),
+        );
+        mesh.insert_direct_ingress_endpoint_for_test(
+            "cloud-inst-managed-direct-gossip".into(),
+            spoofed_direct,
+        );
+        mesh.insert_account_peer_with_installation_for_test(
+            "cloud-inst-managed-host-gossip".into(),
+            test_paired_peer("cloud-peer-managed-b", "fly-auth-b"),
+        );
+        mesh.insert_cloud_endpoint_for_test("cloud-inst-managed-host-gossip".into(), spoofed_host);
+    }
+
+    let make_record = |id: &str, name: &str, inst: &str, peer: &str| CloudMachineRecord {
+        machine_id: id.into(),
+        name: name.into(),
+        provider: "fly_machines".into(),
+        size: "small".into(),
+        state: CloudLifecycleState::Awake,
+        sleep_mode: CloudSleepMode::StopBilled,
+        installation_id: Some(inst.into()),
+        peer_instance_id: Some(peer.into()),
+        endpoint: Some(authoritative.clone()),
+        rate_per_hour: None,
+        created_at_ms: 1_000,
+        last_awake_at_ms: Some(1_000),
+        last_owner_interaction_at_ms: Some(1_000),
+        accumulated_awake_secs: 0,
+        period_start_ms: 1_000,
+        lease_id: None,
+        lease_expires_at_ms: None,
+        exhaustion_pending: false,
+        idle_since_ms: None,
+        apply_unconfirmed: false,
+        pending_request: None,
+        last_error: None,
+        ownership: CloudOwnershipReceipt::default(),
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = CloudMachineStore::new(dir.path().join("cloud_machines.json"));
+    store
+        .save(&[
+            make_record(
+                "cloud-fly-auth-a",
+                "fly-auth-a",
+                "cloud-inst-managed-direct-gossip",
+                "cloud-peer-managed-a",
+            ),
+            make_record(
+                "cloud-fly-auth-b",
+                "fly-auth-b",
+                "cloud-inst-managed-host-gossip",
+                "cloud-peer-managed-b",
+            ),
+        ])
+        .unwrap();
+    home.svc
+        .install_cloud_machines_for_test(Arc::new(CloudMachineController::new(
+            store,
+            "home-auth-ep".into(),
+            Arc::new(SystemClock),
+        )));
+
+    let channel = FakeCloudChannel::new();
+    assert!(home
+        .svc
+        .set_ext(CloudIngressConnectorOverride(channel.clone()))
+        .is_ok());
+
+    let app = routes::create_router_with_frontend(home, None);
+    for target in ["fly-auth-a", "fly-auth-b"] {
+        let (status, resp) = post_relay_to(
+            app.clone(),
+            "owner-secret",
+            &json!({
+                "target_peer_id": target,
+                "method": "POST",
+                "path": "/api/tabs/remote-tab/send",
+                "body": { "text": format!("hello {target}") },
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{resp}");
+        assert_eq!(resp["ok"], true, "{resp}");
+    }
+
+    let recorded = channel.recorded();
+    assert_eq!(recorded.len(), 2);
+    assert_eq!(recorded[0].route, authoritative);
+    assert_eq!(recorded[1].route, authoritative);
+}

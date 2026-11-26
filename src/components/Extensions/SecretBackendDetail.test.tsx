@@ -189,8 +189,51 @@ async function main() {
   assert(calls.orgs === 1 && calls.colls === 1, "a repeat 'unlocked' status must not re-fire the organizations/collections effects");
 
   await act(async () => root.unmount());
+
+  // Fallback state visibility: configured backend is bitwarden, daemon fell back to local, then bitwarden activates live.
+  let fallbackResponse: Record<string, unknown> = {
+    backend: "local",
+    configured_backend: "bitwarden",
+    fallback_active: true,
+    fallback_reason: "Plugin 'bitwarden' could not load (hostApi Some(2) requires hostIoJobs=true); 'local' secret storage is active until a compatible version is installed.",
+    status: { status: "unlocked" },
+  };
+  baseDaemonTransport().request = async (u) => {
+    if (u.includes("/api/secrets/status")) {
+      return { ok: true, json: async () => fallbackResponse } as Response;
+    }
+    return { ok: true, json: async () => ({ organizations: [], collections: [] }) } as Response;
+  };
+  const fallbackRoot = createRoot(host);
+  const bwConfig: AppConfigShape = {
+    api: { host: "127.0.0.1", port: 7686, token: "tok-a" },
+    integrations: { secrets: { backend: "bitwarden" } },
+  };
+  await act(async () => {
+    fallbackRoot.render(<SecretBackendDetail entry={catalogEntry} config={bwConfig} />);
+  });
+  await flush();
+  const fallbackNotice = host.querySelector('[data-testid="extensions-secret-backend-fallback"]');
+  assert(fallbackNotice !== null, "fallback notice must be shown when configured secret backend fell back to local");
+  assert(fallbackNotice?.textContent?.includes("hostIoJobs"), "fallback notice must include the load error reason");
+  const toggle = host.querySelector('[data-testid="extensions-secret-backend-toggle"]') as HTMLInputElement | null;
+  assert(toggle?.checked === false, "toggle must not show active while local fallback is running");
+
+  fallbackResponse = {
+    backend: "bitwarden",
+    configured_backend: "bitwarden",
+    fallback_active: false,
+    fallback_reason: null,
+    status: { status: "unlocked", user: "owner@example.test" },
+  };
+  assert(timer.flushOne(), "next poll timer must run to pick up live activation");
+  await flush();
+  assert(host.querySelector('[data-testid="extensions-secret-backend-fallback"]') === null, "fallback notice must clear once configured backend activates live");
+  assert((host.querySelector('[data-testid="extensions-secret-backend-toggle"]') as HTMLInputElement | null)?.checked === true, "toggle must reflect live activation without restart");
+
+  await act(async () => fallbackRoot.unmount());
   timer.restore();
-  console.log("SecretBackendDetail polling tests: 16/16 assertions passed");
+  console.log("SecretBackendDetail polling & fallback tests: all assertions passed");
 }
 
 void main();

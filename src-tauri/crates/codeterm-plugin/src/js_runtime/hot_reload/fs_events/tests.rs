@@ -273,7 +273,7 @@ fn a_missing_plugin_root_is_observed_through_its_existing_parent() {
     events.refresh().unwrap();
     assert_eq!(
         events.watched.get(&canonical),
-        Some(&RecursiveMode::Recursive)
+        Some(&RecursiveMode::NonRecursive)
     );
     std::fs::remove_dir(&root).unwrap();
     events
@@ -307,4 +307,146 @@ fn missing_descendants_keep_the_canonical_existing_ancestor() {
         canonical_root(&root.join("missing/nested/plugins")).unwrap(),
         root.canonicalize().unwrap().join("missing/nested/plugins")
     );
+}
+
+#[test]
+fn desired_watches_partitions_plain_root_and_never_watches_temp_or_rollback_dirs() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    std::fs::create_dir(root.join("bitwarden")).unwrap();
+    std::fs::create_dir(root.join("git")).unwrap();
+    std::fs::create_dir(root.join("bitwarden.tmp-install")).unwrap();
+    std::fs::create_dir(root.join("bitwarden.rollback.tmp-install")).unwrap();
+    let watched = desired_watches(&[root.to_path_buf()]).unwrap();
+    assert_eq!(watched.get(root), Some(&RecursiveMode::NonRecursive));
+    assert_eq!(
+        watched.get(&root.join("bitwarden")),
+        Some(&RecursiveMode::Recursive)
+    );
+    assert_eq!(
+        watched.get(&root.join("git")),
+        Some(&RecursiveMode::Recursive)
+    );
+    assert!(!watched.contains_key(&root.join("bitwarden.tmp-install")));
+    assert!(!watched.contains_key(&root.join("bitwarden.rollback.tmp-install")));
+}
+
+struct InotifyFaultWatcher {
+    inner: InjectedWatcher,
+    next_unwatch_error: Arc<Mutex<Option<notify::Error>>>,
+}
+
+impl PathWatcher for InotifyFaultWatcher {
+    fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()> {
+        self.inner.watch(path, mode)
+    }
+
+    fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+        self.inner.unwatch(path)?;
+        if let Some(error) = self.next_unwatch_error.lock().take() {
+            return Err(error);
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn release_bundle_is_idempotent_on_missing_or_invalidated_watches_and_rearms_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let bitwarden = root.join("bitwarden");
+    let git = root.join("git");
+    std::fs::create_dir(&bitwarden).unwrap();
+    std::fs::create_dir(&git).unwrap();
+    let native = Arc::new(Mutex::new(NativeSubscriptions::default()));
+    let next_error = Arc::new(Mutex::new(None));
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let mut events = FileEvents {
+        watcher: Box::new(InotifyFaultWatcher {
+            inner: InjectedWatcher(native.clone()),
+            next_unwatch_error: next_error.clone(),
+        }),
+        receiver,
+        watched: HashMap::new(),
+        state: EventState {
+            roots: Arc::new(vec![root.clone()]),
+            all_changed: Arc::new(AtomicBool::new(false)),
+            invalidated: Arc::new(Mutex::new(Vec::new())),
+            sender,
+        },
+    };
+    events.refresh().unwrap();
+
+    let errors = [
+        notify::Error::io(std::io::Error::from(std::io::ErrorKind::InvalidInput))
+            .add_path(root.join("bitwarden.rollback.tmp-install")),
+        notify::Error::watch_not_found().add_path(root.clone()),
+        notify::Error::path_not_found().add_path(git.clone()),
+        notify::Error::io(std::io::Error::from(std::io::ErrorKind::NotFound)).add_path(git.clone()),
+    ];
+    for (index, error) in errors.into_iter().enumerate() {
+        let target = if index % 2 == 0 { &bitwarden } else { &git };
+        *next_error.lock() = Some(error);
+        events.release_bundle(target).unwrap();
+        events.rearm_after_install(target).unwrap();
+        assert_eq!(
+            events.watched.get(&root),
+            Some(&RecursiveMode::NonRecursive)
+        );
+        assert_eq!(events.watched.get(target), Some(&RecursiveMode::Recursive));
+        assert!(native.lock().active.contains_key(&root));
+        assert!(native.lock().active.contains_key(target));
+    }
+}
+
+#[test]
+fn two_consecutive_live_swaps_succeed_on_platform_watcher_without_watching_temp_dirs() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("plugins");
+    let bitwarden = root.join("bitwarden");
+    let git = root.join("git");
+    std::fs::create_dir_all(&bitwarden).unwrap();
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(bitwarden.join("plugin.js"), "v1").unwrap();
+    std::fs::write(git.join("plugin.js"), "v1").unwrap();
+
+    let mut events = FileEvents::new(vec![root.clone()]).unwrap();
+    let canonical_root = root.canonicalize().unwrap();
+    assert_eq!(
+        events.watched.get(&canonical_root),
+        Some(&RecursiveMode::NonRecursive)
+    );
+
+    for (name, target) in [("bitwarden", &bitwarden), ("git", &git)] {
+        let staging = root.join(format!("{name}.tmp-install"));
+        let backup = root.join(format!("{name}.rollback.tmp-install"));
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("plugin.js"), "v2").unwrap();
+
+        events.release_bundle(target).unwrap();
+        std::fs::rename(target, &backup).unwrap();
+        std::fs::rename(&staging, target).unwrap();
+        std::fs::remove_dir_all(&backup).unwrap();
+        events.rearm_after_install(target).unwrap();
+
+        assert_eq!(
+            events.watched.get(&canonical_root),
+            Some(&RecursiveMode::NonRecursive)
+        );
+        assert!(events
+            .watched
+            .keys()
+            .all(|path| !path.to_string_lossy().contains(".tmp-install")));
+        assert_eq!(
+            events.watched.get(&target.canonicalize().unwrap()),
+            Some(&RecursiveMode::Recursive)
+        );
+    }
+
+    while events.receiver.try_recv().is_ok() {}
+    std::fs::write(git.join("plugin.js"), "v3").unwrap();
+    events
+        .receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
 }

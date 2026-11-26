@@ -23,7 +23,7 @@ mod listener;
 pub use authentication::{
     BootstrapResponder, ChannelProof, CloudIngressAuthority, IngressError, IngressReady,
 };
-pub use listener::{start, CloudIngressHandle};
+pub use listener::{start, start_with_proxy_host, CloudIngressHandle};
 
 pub const MAX_ENROLLMENT_FRAME_BYTES: usize = 64 * 1024;
 

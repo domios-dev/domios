@@ -187,22 +187,23 @@ pub(crate) async fn send_via_cloud_ingress(
         .await
 }
 
-/// Resolves an enrolled cloud peer's ingress endpoint from gossiped
-/// endpoint records first, falling back to the persisted managed `endpoint`.
+/// Resolves an enrolled cloud peer's ingress endpoint. For managed cloud
+/// machines the controller's backend-provisioned `endpoint` is authoritative
+/// over gossip; unmanaged cloud peers use the verified gossip endpoint.
 pub(crate) fn resolve_cloud_ingress_endpoint(
     state: &AppState,
     peer_id: &str,
     installation_id: &str,
     known: Option<CloudRoute>,
 ) -> Option<CloudRoute> {
-    if let Some(endpoint) = known {
-        return Some(endpoint);
-    }
     let machines = state.svc.cloud_machines();
-    machines
+    if let Some(record) = machines
         .find_by_peer(peer_id)
         .or_else(|| machines.find_by_peer(installation_id))
-        .and_then(|record| record.endpoint)
+    {
+        return record.endpoint;
+    }
+    known
 }
 
 pub(crate) fn has_cloud_outbox(state: &AppState) -> bool {

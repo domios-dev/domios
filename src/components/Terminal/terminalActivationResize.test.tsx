@@ -16,6 +16,7 @@ import { tabOutputRoute } from "../../lib/remoteTabRoute";
 interface FakeTerminal {
   cols: number;
   rows: number;
+  refreshCalls: number;
   resizeListeners: Set<(size: { cols: number; rows: number }) => void>;
   onResize: (listener: (size: { cols: number; rows: number }) => void) => { dispose: () => void };
   setSize: (cols: number, rows: number) => void;
@@ -95,6 +96,7 @@ function createTerminal(): FakeTerminal {
   const value = {
     cols: 80,
     rows: 24,
+    refreshCalls: 0,
     resizeListeners: new Set<(size: { cols: number; rows: number }) => void>(),
     onResize(listener: (size: { cols: number; rows: number }) => void) {
       value.resizeListeners.add(listener);
@@ -110,7 +112,7 @@ function createTerminal(): FakeTerminal {
       value.setSize(cols, rows);
     },
     focus() {},
-    refresh() {},
+    refresh() { value.refreshCalls += 1; },
   };
   return value;
 }
@@ -315,6 +317,14 @@ describe("terminal viewer activation resize", () => {
     await flushFrames();
     await act(async () => fitAndCommitCurrentResize?.());
     await act(async () => commitCurrentResize?.(true));
+    assert.equal(claims.length, 0);
+    assert.equal(resizes.length, 0);
+
+    // Clicking or Shift-dragging inside a remote terminal must not force-refresh
+    // xterm mid-gesture (which clears hovered links between mousedown and mouseup).
+    const refreshesBeforeClick = terminal.refreshCalls;
+    await interact();
+    assert.equal(terminal.refreshCalls, refreshesBeforeClick);
     assert.equal(claims.length, 0);
     assert.equal(resizes.length, 0);
   });

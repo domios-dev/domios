@@ -1,5 +1,6 @@
 import { baseDaemonTransport } from "./daemonBootstrap";
-import { createRemoteChannelRecovery, createSilenceDeadline, streamResponseFailureReason } from "./remoteChannelRecovery";
+import { createPeerStreamBackoff, type PeerStreamBackoffOptions } from "./peerStreamBackoff";
+import { createRemoteChannelRecovery, createSilenceDeadline, streamResponseFailureReason, type SilenceDeadlineScheduler } from "./remoteChannelRecovery";
 import type { TransportClient } from "./transportClient";
 import type { TabStatus } from "./types";
 import type { CommittedPlanChange } from "../../gen/CommittedPlanChange";
@@ -22,19 +23,76 @@ export type PeerEvent =
 interface Cursor { boot: string; seq: number }
 type Listener = (event: PeerEvent) => void;
 
-function openPeerLink(peerId: string, link: string, publish: Listener, transport: () => TransportClient) {
+export interface PeerEventRailOptions extends PeerStreamBackoffOptions {
+  scheduler?: SilenceDeadlineScheduler;
+  refreshCredentials?: (peerId: string) => Promise<void> | void;
+}
+
+const defaultRetryScheduler: SilenceDeadlineScheduler = {
+  schedule(callback, timeoutMs) {
+    const timer = setTimeout(callback, timeoutMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    return timer;
+  },
+  cancel(handle) {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
+
+function isBackoffStreamEnd(end: { reason: string; status?: number }): boolean {
+  return end.reason === "http" && ((end.status ?? 0) >= 400 && (end.status ?? 0) < 500 || end.status === 503);
+}
+
+function openPeerLink(
+  peerId: string,
+  link: string,
+  publish: Listener,
+  transport: () => TransportClient,
+  options: PeerEventRailOptions = {},
+) {
   const recovery = createRemoteChannelRecovery<Cursor>({
     channel: "control",
     advanced: (previous, next) => !previous || previous.boot !== next.boot || previous.seq < next.seq,
   });
+  const backoff = createPeerStreamBackoff(options);
+  const scheduler = options.scheduler ?? defaultRetryScheduler;
   let controller: AbortController | undefined;
+  let retryTimer: unknown | null = null;
+  let refreshInFlight = false;
   let closed = false;
 
+  const clearRetryTimer = () => {
+    if (retryTimer === null) return;
+    scheduler.cancel(retryTimer);
+    retryTimer = null;
+  };
+
+  const scheduleRetry = (delayMs: number, shouldRefresh: boolean) => {
+    if (closed || retryTimer !== null) return;
+    retryTimer = scheduler.schedule(() => {
+      retryTimer = null;
+      if (closed || !recovery.isAwaitingSignal()) return;
+      if (shouldRefresh && options.refreshCredentials && !refreshInFlight) {
+        refreshInFlight = true;
+        void Promise.resolve(options.refreshCredentials(peerId))
+          .catch(() => {})
+          .finally(() => {
+            refreshInFlight = false;
+            if (!closed && recovery.isAwaitingSignal() && !backoff.isBlocked()) connect();
+          });
+        return;
+      }
+      if (!backoff.isBlocked()) connect();
+    }, Math.max(0, delayMs));
+  };
+
   const connect = () => {
+    if (closed) return;
+    clearRetryTimer();
     const active = new AbortController();
     controller = active;
     const generation = recovery.beginConnection();
-    const deadline = createSilenceDeadline(recovery, generation, active);
+    const deadline = createSilenceDeadline(recovery, generation, active, undefined, scheduler);
     const params = new URLSearchParams({ peer: peerId, path: "/api/events/stream", scope: "peer", link });
     const cursor = recovery.currentCursor();
     if (cursor) params.set("since", `${cursor.boot}:${cursor.seq}`);
@@ -50,6 +108,7 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
         if (typeof frame.boot === "string" && typeof frame.seq === "number") {
           recovery.noteProgress(generation, { boot: frame.boot, seq: frame.seq });
         }
+        backoff.reset();
         replaying = false;
         publish({ type: "reconcile" });
         return;
@@ -59,11 +118,13 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
         if (typeof reset?.boot === "string" && typeof reset.next_seq === "number") {
           recovery.noteProgress(generation, { boot: reset.boot, seq: reset.next_seq - 1 });
         }
+        backoff.reset();
         if (!replaying) publish({ type: "reconcile" });
         return;
       }
       if (typeof frame.boot !== "string" || typeof frame.seq !== "number"
         || !recovery.noteProgress(generation, { boot: frame.boot, seq: frame.seq })) return;
+      backoff.reset();
       if (replaying) return;
       if (frame.event_type === "mux-state-changed") {
         const generation = (frame.data as { generation?: unknown } | null)?.generation;
@@ -137,22 +198,39 @@ function openPeerLink(peerId: string, link: string, publish: Listener, transport
         const reason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)
           : end.reason === "eof" ? "eof" : "error";
         if (admitted || !replaying) publish({ type: "invalidate" });
-        if (recovery.handleStreamEnd(generation, reason) === "reconnect") connect();
+        const decision = recovery.handleStreamEnd(generation, reason);
+        if (decision === "reconnect") {
+          connect();
+          return;
+        }
+        if (decision === "wait" && isBackoffStreamEnd(end)) {
+          const step = backoff.recordRefusal(end.retryAfterMs);
+          scheduleRetry(step.delayMs, step.shouldRefresh);
+        }
       },
     });
   };
   return {
     connect,
-    resume() { if (!closed && recovery.isAwaitingSignal()) connect(); },
+    resume() {
+      if (closed || !recovery.isAwaitingSignal()) return;
+      const remaining = backoff.remainingMs();
+      if (remaining > 0) {
+        scheduleRetry(remaining, false);
+        return;
+      }
+      connect();
+    },
     close() {
       closed = true;
+      clearRetryTimer();
       recovery.dispose();
       controller?.abort();
     },
   };
 }
 
-export function createPeerEventRail(transport = baseDaemonTransport) {
+export function createPeerEventRail(transport = baseDaemonTransport, options: PeerEventRailOptions = {}) {
   const observers = new Map<string, Set<Listener>>();
   const links = new Map<string, {
     link: string;
@@ -168,7 +246,7 @@ export function createPeerEventRail(transport = baseDaemonTransport) {
         const stream = openPeerLink(peerId, link, event => {
           for (const receive of listeners) receive(event);
           for (const receive of observers.get(peerId) ?? []) receive(event);
-        }, transport);
+        }, transport, options);
         current = { link, listeners, stream };
         links.set(peerId, current);
         stream.connect();
@@ -195,4 +273,6 @@ export function createPeerEventRail(transport = baseDaemonTransport) {
   };
 }
 
-export const peerEventRail = createPeerEventRail();
+export const peerEventRail = createPeerEventRail(baseDaemonTransport, {
+  refreshCredentials: () => baseDaemonTransport().localJson("GET", "/api/mesh/peers").then(() => undefined, () => undefined),
+});

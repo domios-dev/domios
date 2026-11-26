@@ -41,6 +41,21 @@ pub enum MeshCloudAction {
         /// Promo code to redeem
         code: String,
     },
+    /// Create a checkout link to top up managed cloud credits
+    #[command(group(
+        clap::ArgGroup::new("topup_target")
+            .required(true)
+            .multiple(false)
+            .args(["pack", "amount"])
+    ))]
+    Topup {
+        /// Credit pack ID from `domios mesh cloud usage`
+        #[arg(long)]
+        pack: Option<String>,
+        /// Custom top-up amount in USD
+        #[arg(long)]
+        amount: Option<String>,
+    },
 }
 
 fn auth_header(token: &Option<String>) -> String {
@@ -141,6 +156,52 @@ pub(crate) fn format_redeem_human(val: &Value) -> String {
     format!("{lead}{expiry} (remaining={remaining:.2}h purchased={purchased:.2}h)")
 }
 
+pub(crate) fn parse_usd_to_cents(raw: &str) -> Result<u64, String> {
+    let trimmed = raw.trim();
+    let trimmed = trimmed.strip_prefix('$').unwrap_or(trimmed);
+    if trimmed.is_empty() || trimmed.starts_with('-') || trimmed.starts_with('+') {
+        return Err(format!("invalid USD amount: {raw:?}"));
+    }
+    let mut parts = trimmed.split('.');
+    let whole_str = parts.next().unwrap_or("");
+    let frac_str = parts.next();
+    if parts.next().is_some()
+        || whole_str.is_empty()
+        || !whole_str.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(format!("invalid USD amount: {raw:?}"));
+    }
+    let whole: u64 = whole_str
+        .parse()
+        .map_err(|_| format!("invalid USD amount: {raw:?}"))?;
+    let frac: u64 = match frac_str {
+        None => 0,
+        Some(f) if f.is_empty() || f.len() > 2 || !f.bytes().all(|b| b.is_ascii_digit()) => {
+            return Err(format!("invalid USD amount: {raw:?}"));
+        }
+        Some(f) if f.len() == 1 => {
+            f.parse::<u64>()
+                .map_err(|_| format!("invalid USD amount: {raw:?}"))?
+                * 10
+        }
+        Some(f) => f
+            .parse::<u64>()
+            .map_err(|_| format!("invalid USD amount: {raw:?}"))?,
+    };
+    let cents = whole
+        .checked_mul(100)
+        .and_then(|v| v.checked_add(frac))
+        .ok_or_else(|| format!("USD amount overflow: {raw:?}"))?;
+    if cents == 0 {
+        return Err("USD amount must be greater than zero".into());
+    }
+    Ok(cents)
+}
+
+pub(crate) fn format_topup_human(val: &Value) -> String {
+    val["url"].as_str().unwrap_or_default().to_owned()
+}
+
 pub(crate) fn resolve_cloud_target(target: &str) -> Result<(String, Value), String> {
     let (base, token) = read_api_config();
     let http =
@@ -174,6 +235,7 @@ pub fn handle_cloud(
 ) {
     let is_usage = matches!(action, MeshCloudAction::Usage);
     let is_redeem = matches!(action, MeshCloudAction::Redeem { .. });
+    let is_topup = matches!(action, MeshCloudAction::Topup { .. });
     let response = match action {
         MeshCloudAction::Create { size, name } => {
             let mut body = serde_json::json!({});
@@ -225,6 +287,22 @@ pub fn handle_cloud(
             .header("Authorization", auth_header(token))
             .json(&serde_json::json!({ "code": code }))
             .send(),
+        MeshCloudAction::Topup { pack, amount } => {
+            let body = if let Some(pack_id) = pack {
+                serde_json::json!({ "pack_id": pack_id })
+            } else {
+                let raw = amount.as_deref().unwrap_or_default();
+                let amount_cents = match parse_usd_to_cents(raw) {
+                    Ok(cents) => cents,
+                    Err(error) => crate::cmd::print::fail(1, error),
+                };
+                serde_json::json!({ "pack_id": "custom", "amount_cents": amount_cents })
+            };
+            http.post(format!("{base}/api/mesh/cloud/checkout"))
+                .header("Authorization", auth_header(token))
+                .json(&body)
+                .send()
+        }
     };
 
     match response {
@@ -239,6 +317,8 @@ pub fn handle_cloud(
                 println!("{}", format_usage_human(&val));
             } else if is_redeem {
                 println!("{}", format_redeem_human(&val));
+            } else if is_topup {
+                println!("{}", format_topup_human(&val));
             } else if let Some(machines) = val["machines"].as_array() {
                 if machines.is_empty() {
                     println!("No cloud machines.");

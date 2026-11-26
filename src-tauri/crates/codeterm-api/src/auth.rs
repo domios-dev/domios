@@ -13,6 +13,7 @@ use peer_grant::PeerGrant;
 mod relay_agent;
 pub(crate) use relay_agent::{authenticated_agent, authenticated_agent_for_origin, remote_agent};
 mod credential_kind;
+mod refusal_log;
 pub(crate) mod remote;
 pub use actor::{ActorHeaders, AgentHeaders, RequestActor};
 mod tab;
@@ -386,20 +387,64 @@ pub(crate) fn authenticated_request(
         .map_err(|()| (StatusCode::UNAUTHORIZED, "Invalid or missing token".into()))
 }
 
-/// A paired peer whose signature is valid but whose traffic the account gate closed for the plan limit.
+#[cfg(test)]
 fn plan_limit_locked_peer(state: &AppState, token: &str) -> Option<String> {
-    use codeterm_service_core::mesh::account_mesh::gate::{BlockReason, TrafficDecision};
-    if token.is_empty() {
-        return None;
+    match credential_kind::classify_mesh_refusal(state, token) {
+        credential_kind::MeshRefusal::PlanLimitLocked(peer_id) => Some(peer_id),
+        credential_kind::MeshRefusal::NotReady | credential_kind::MeshRefusal::Unauthorized(_) => {
+            None
+        }
     }
-    let mesh = state.mesh.lock();
-    let peer_id = codeterm_service_core::mesh::crown::verify_signed_request(
-        token,
-        &mesh.paired_identity_keys(),
+}
+
+const MESH_NOT_READY_RETRY_AFTER_SECS: &str = "2";
+
+pub(super) fn mesh_not_ready_response() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(
+            axum::http::header::RETRY_AFTER,
+            MESH_NOT_READY_RETRY_AFTER_SECS,
+        )],
+        axum::Json(serde_json::json!({
+            "ok": false,
+            "error": {
+                "code": "mesh_not_ready",
+                "message": "Mesh admission is still loading; retry shortly",
+            }
+        })),
     )
-    .ok()?;
-    (mesh.traffic_decision(&peer_id) == TrafficDecision::Blocked(BlockReason::PlanLimitLocked))
-        .then_some(peer_id)
+        .into_response()
+}
+
+fn log_mesh_not_ready(
+    method: &Method,
+    path: &str,
+    remote_address: Option<SocketAddr>,
+    kind: &str,
+    suppressed: u64,
+) {
+    let remote = remote_address
+        .map(|address| address.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    if suppressed > 0 {
+        log::warn!(
+            "[auth-503] {} {} remote={} credential_kind={} reason=mesh_not_ready suppressed={}",
+            method,
+            path,
+            remote,
+            kind,
+            suppressed,
+        );
+    } else {
+        log::warn!(
+            "[auth-503] {} {} remote={} credential_kind={} reason=mesh_not_ready",
+            method,
+            path,
+            remote,
+            kind,
+        );
+    }
 }
 
 pub(crate) fn caller_peer_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
@@ -619,18 +664,24 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .extensions()
         .get::<codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener>()
         .is_some();
-    if tailnet_listener
-        && path != "/api/health"
-        && tailnet_exempt(&method, &path)
-        && (state
-            .mesh
-            .lock()
-            .account_state()
-            .signed_in_account()
-            .is_none()
-            || !state.config.lock().mesh.enabled)
-    {
-        return StatusCode::SERVICE_UNAVAILABLE.into_response().into();
+    if tailnet_listener && path != "/api/health" && tailnet_exempt(&method, &path) {
+        let (account_ready, signed_in) = {
+            let mesh = state.mesh.lock();
+            (
+                mesh.is_account_ready(),
+                mesh.account_state().signed_in_account().is_some(),
+            )
+        };
+        let mesh_enabled = state.config.lock().mesh.enabled;
+        if !mesh_enabled {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response().into();
+        }
+        if !account_ready {
+            return mesh_not_ready_response().into();
+        }
+        if !signed_in {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response().into();
+        }
     }
 
     let remote_address = req
@@ -690,16 +741,29 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         }
     }
     let caller = authenticated.map(|(identity, _, _)| identity);
-    if tailnet_listener
-        && state
-            .mesh
-            .lock()
-            .account_state()
-            .signed_in_account()
-            .is_none()
-        && !matches!(caller, Ok(CallerIdentity::Local))
-    {
-        return StatusCode::UNAUTHORIZED.into_response().into();
+    if tailnet_listener && !matches!(caller, Ok(CallerIdentity::Local)) {
+        let (account_ready, signed_out) = {
+            let mesh = state.mesh.lock();
+            (
+                mesh.is_account_ready(),
+                mesh.account_state().signed_in_account().is_none(),
+            )
+        };
+        if !account_ready {
+            let presented = auth.strip_prefix("Bearer ").unwrap_or("");
+            let kind = credential_kind::presented_kind(presented);
+            if kind == "mesh-signature" {
+                if let refusal_log::RefusalLogDecision::Emit { suppressed } =
+                    refusal_log::observe(remote_address, &path, kind, "mesh_not_ready")
+                {
+                    log_mesh_not_ready(&method, &path, remote_address, kind, suppressed);
+                }
+                return mesh_not_ready_response().into();
+            }
+        }
+        if signed_out {
+            return StatusCode::UNAUTHORIZED.into_response().into();
+        }
     }
 
     if let Ok(identity) = &caller {
@@ -792,27 +856,42 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         }
         Err(()) => {
             let presented = auth.strip_prefix("Bearer ").unwrap_or("");
-            if let Some(peer_id) = plan_limit_locked_peer(&state, presented) {
-                log::warn!("[auth-403] {method} {path} peer={peer_id} plan_limit_locked");
-                return (
-                    StatusCode::FORBIDDEN,
-                    axum::Json(serde_json::json!({
-                        "ok": false,
-                        "error": {
-                            "code": codeterm_service_core::service::billing::PLAN_LIMIT_LOCKED,
-                            "peer": peer_id,
-                            "message": codeterm_service_core::mesh::account_mesh::blocked_message(
-                                codeterm_service_core::mesh::account_mesh::gate::BlockReason::PlanLimitLocked,
-                            ),
+            let kind = credential_kind::presented_kind(presented);
+            let reason = if kind == "mesh-signature" {
+                match credential_kind::classify_mesh_refusal(&state, presented) {
+                    credential_kind::MeshRefusal::NotReady => {
+                        if let refusal_log::RefusalLogDecision::Emit { suppressed } =
+                            refusal_log::observe(remote_address, &path, kind, "mesh_not_ready")
+                        {
+                            log_mesh_not_ready(&method, &path, remote_address, kind, suppressed);
                         }
-                    })),
-                )
-                    .into_response()
-                    .into();
-            }
-            let expected = state.config.lock().api.token.clone();
+                        return mesh_not_ready_response().into();
+                    }
+                    credential_kind::MeshRefusal::PlanLimitLocked(peer_id) => {
+                        log::warn!("[auth-403] {method} {path} peer={peer_id} plan_limit_locked");
+                        return (
+                            StatusCode::FORBIDDEN,
+                            axum::Json(serde_json::json!({
+                                "ok": false,
+                                "error": {
+                                    "code": codeterm_service_core::service::billing::PLAN_LIMIT_LOCKED,
+                                    "peer": peer_id,
+                                    "message": codeterm_service_core::mesh::account_mesh::blocked_message(
+                                        codeterm_service_core::mesh::account_mesh::gate::BlockReason::PlanLimitLocked,
+                                    ),
+                                }
+                            })),
+                        )
+                            .into_response()
+                            .into();
+                    }
+                    credential_kind::MeshRefusal::Unauthorized(reason) => reason,
+                }
+            } else {
+                "unknown_or_invalid_credential"
+            };
             if let Some((tab_id, event)) = tab_hook_target(&method, &path) {
-                let reason = if presented.is_empty() {
+                let hook_reason = if presented.is_empty() {
                     "missing_token"
                 } else {
                     "invalid_token"
@@ -821,26 +900,50 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                     "[hook-auth] refused tab={} event={} reason={}",
                     tab_id,
                     event,
-                    reason
+                    hook_reason
                 );
             }
-            log::warn!(
-                "[auth-401] {} {} remote={} credential_kind={} reason={} presented[{}] expected[{}]",
-                method,
-                path,
-                remote_address.map(|address| address.to_string()).unwrap_or_else(|| "unknown".into()),
-                credential_kind::presented_kind(presented),
-                credential_kind::refusal_reason(&state, presented),
-                if presented.is_empty() {
+            if let refusal_log::RefusalLogDecision::Emit { suppressed } =
+                refusal_log::observe(remote_address, &path, kind, reason)
+            {
+                let expected = state.config.lock().api.token.clone();
+                let presented_fp = if presented.is_empty() {
                     "MISSING".to_string()
                 } else {
                     token_fp(presented)
-                },
-                match expected {
+                };
+                let expected_fp = match expected {
                     Some(ref t) if !t.is_empty() => token_fp(t),
                     _ => "NONE".to_string(),
+                };
+                let remote = remote_address
+                    .map(|address| address.to_string())
+                    .unwrap_or_else(|| "unknown".into());
+                if suppressed > 0 {
+                    log::warn!(
+                        "[auth-401] {} {} remote={} credential_kind={} reason={} suppressed={} presented[{}] expected[{}]",
+                        method,
+                        path,
+                        remote,
+                        kind,
+                        reason,
+                        suppressed,
+                        presented_fp,
+                        expected_fp,
+                    );
+                } else {
+                    log::warn!(
+                        "[auth-401] {} {} remote={} credential_kind={} reason={} presented[{}] expected[{}]",
+                        method,
+                        path,
+                        remote,
+                        kind,
+                        reason,
+                        presented_fp,
+                        expected_fp,
+                    );
                 }
-            );
+            }
             (StatusCode::UNAUTHORIZED, "Invalid or missing token")
                 .into_response()
                 .into()
