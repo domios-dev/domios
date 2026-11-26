@@ -1,10 +1,11 @@
-use axum::http::StatusCode;
-use codeterm_service_core::service::cloud_machines::{
-    CloudLifecycleState, DEFAULT_WAKE_HOLD_DEADLINE_MS,
+use axum::http::{HeaderMap, StatusCode};
+use codeterm_service_core::{
+    mesh::crown::{AuthenticatedAgent, AuthenticatedOrigin},
+    service::cloud_machines::{CloudLifecycleState, DEFAULT_WAKE_HOLD_DEADLINE_MS},
 };
 
 use super::{
-    is_tab_send, relay_failure, relay_send_delivery_id, AnsweringPeer, PeerRelayCommand,
+    is_tab_send, origin, relay_failure, relay_send_delivery_id, AnsweringPeer, PeerRelayCommand,
     PeerRelayResponse,
 };
 use crate::routes::AppState;
@@ -34,8 +35,22 @@ fn is_machine_sleeping_refusal(resp: &codeterm_service_core::mesh::types::RelayR
             == Some(false)
 }
 
+fn known_peer_lacks_require_agent(state: &AppState, raw_target: &str) -> Option<String> {
+    let mesh = state.mesh.lock();
+    let peer = mesh.resolve_peer_including_offline(raw_target).ok()?;
+    if peer.relay_protocol_version > 0
+        && !codeterm_service_core::mesh::types::is_supported_relay_protocol(
+            peer.relay_protocol_version,
+        )
+    {
+        return Some(peer.instance_name.clone());
+    }
+    None
+}
+
 pub(super) async fn preflight_cloud_wake(
     state: &AppState,
+    headers: &HeaderMap,
     req: &PeerRelayCommand,
 ) -> Result<Option<PeerRelayResponse>, (StatusCode, String)> {
     let raw_target = req
@@ -70,7 +85,31 @@ pub(super) async fn preflight_cloud_wake(
     if !machine.state.needs_wake_for_use() {
         return Ok(None);
     }
+
+    // Authenticate and sign the local caller before holding or waking so held sends
+    // never escalate privilege or bypass caller/origin checks.
+    let (caller_origin, caller_agent, _) =
+        crate::auth::off_runtime(state, headers, origin::signed_caller_token).await?;
+
     if is_tab_send(&req.method, &req.path) {
+        if req.body["require_agent"].as_bool() == Some(true) {
+            if let Some(peer_name) = known_peer_lacks_require_agent(state, raw_target) {
+                return Ok(Some(PeerRelayResponse {
+                    response: relay_failure(
+                        StatusCode::UPGRADE_REQUIRED.as_u16(),
+                        "peer_lacks_agent_only_send",
+                        Some(false),
+                        format!(
+                            "Cannot verify agent-only delivery on {peer_name}. Check that it is reachable and running an updated Domios."
+                        ),
+                    ),
+                    peer,
+                }));
+            }
+        }
+        crate::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &req.body)
+            .await
+            .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
         let tab_id = tab_id_from_path(&req.path);
         let delivery_id = relay_send_delivery_id(&req.method, &req.path)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -84,6 +123,8 @@ pub(super) async fn preflight_cloud_wake(
                 req.method.clone(),
                 req.path.clone(),
                 req.body.clone(),
+                caller_origin,
+                caller_agent,
                 DEFAULT_WAKE_HOLD_DEADLINE_MS,
             )
             .map_err(|error| (StatusCode::CONFLICT, error.to_string()))?;
@@ -126,6 +167,8 @@ pub(super) fn hold_if_drain_raced(
     peer_id: &str,
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
     resp: &codeterm_service_core::mesh::types::RelayResponse,
+    origin: AuthenticatedOrigin,
+    agent: Option<AuthenticatedAgent>,
 ) -> Option<codeterm_service_core::mesh::types::RelayResponse> {
     if !is_tab_send(&cmd.method, &cmd.path) || !is_machine_sleeping_refusal(resp) {
         return None;
@@ -146,6 +189,8 @@ pub(super) fn hold_if_drain_raced(
             cmd.method.clone(),
             cmd.path.clone(),
             cmd.body.clone(),
+            origin,
+            agent,
             DEFAULT_WAKE_HOLD_DEADLINE_MS,
         )
         .ok()?;

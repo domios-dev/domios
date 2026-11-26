@@ -133,9 +133,10 @@ pub(super) async fn child_history(
 
 pub(super) async fn show_login(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab): Path<String>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
+    require_permission_authority(&state, &headers)?;
     codeterm_service_core::service::agent_runtime::login::show(&state.svc, &tab)
         .map(login_response)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
@@ -147,19 +148,11 @@ pub(super) async fn login(
     Path(tab): Path<String>,
     Json(request): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
-    if request.action.as_deref() == Some("backupCredentials") {
-        require_permission_authority(&state, &headers)?;
-    }
+    require_permission_authority(&state, &headers)?;
     if request.api_key.is_some() && !super::auth::is_local_caller(&state, &headers) {
         return Err((
             StatusCode::FORBIDDEN,
             "API keys must be entered on the provider's own machine".into(),
-        ));
-    }
-    if request.code.is_some() && require_permission_authority(&state, &headers).is_err() {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Sign-in codes require owner or authenticated account-peer authority".into(),
         ));
     }
     operate(&state.svc, &tab, request)
@@ -210,17 +203,25 @@ pub(super) async fn thread_history(
     .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
-/// Permission choices belong to the owner and the owner's paired machines, never to an agent:
-/// one answering or widening its own questions would defeat the owner's Ask choice.
+/// Permission choices and runtime sign-in controls belong to the local owner or a paired
+/// `AccessLevel::Full` peer acting as owner/mesh, never to an agent or a narrowed/custom peer.
 pub(crate) fn require_permission_authority(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, String)> {
-    match crate::auth::RequestActor::authenticate(state, headers)? {
-        crate::auth::RequestActor::Owner | crate::auth::RequestActor::Peer => Ok(()),
+    match crate::auth::authenticated_request(state, headers)? {
+        (crate::auth::CallerIdentity::Local, crate::auth::AuthenticatedOrigin::Owner) => Ok(()),
+        (
+            crate::auth::CallerIdentity::Peer {
+                access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
+                ..
+            },
+            crate::auth::AuthenticatedOrigin::Owner | crate::auth::AuthenticatedOrigin::Mesh,
+        ) => Ok(()),
         _ => Err((
             StatusCode::FORBIDDEN,
-            "Only the owner changes a tab's permissions".to_string(),
+            "Only the owner or a Full-access peer changes tab permissions or runtime login"
+                .to_string(),
         )),
     }
 }

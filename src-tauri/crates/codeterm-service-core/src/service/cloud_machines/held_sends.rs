@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
+use crate::mesh::crown::{AuthenticatedAgent, AuthenticatedOrigin};
 use crate::service::chat_send_transaction::{ChatSendState, ChatSendStatus};
 
 use super::types::{CloudError, CLOUD_WAKE_SEND_PREFIX};
@@ -35,6 +36,9 @@ pub struct HeldCloudSend {
     pub method: String,
     pub path: String,
     pub body: serde_json::Value,
+    pub origin: AuthenticatedOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AuthenticatedAgent>,
     pub admitted_at_ms: u64,
     pub deadline_ms: u64,
     pub release_condition: String,
@@ -97,6 +101,47 @@ impl CloudWakeQueue {
         send_id.starts_with(CLOUD_WAKE_SEND_PREFIX)
     }
 
+    /// Reconstruct queue from persisted state. Any send that was `Claimed` before restart
+    /// becomes `SubmitUnconfirmed` and is never replayed.
+    pub fn from_persisted(next_sequence: u64, mut sends: Vec<HeldCloudSend>) -> (Self, bool) {
+        sends.sort_by_key(|rec| rec.sequence);
+        let mut max_seq = next_sequence;
+        let mut reconciled_claimed = false;
+        let mut by_id = HashMap::with_capacity(sends.len());
+        let mut order_by_machine: HashMap<String, VecDeque<String>> = HashMap::new();
+        for mut rec in sends {
+            max_seq = max_seq.max(rec.sequence);
+            if rec.state == HeldCloudSendState::Claimed {
+                rec.state = HeldCloudSendState::SubmitUnconfirmed;
+                rec.error = Some(
+                    "submit_unconfirmed: process restarted after claim before outcome was recorded"
+                        .into(),
+                );
+                reconciled_claimed = true;
+            }
+            order_by_machine
+                .entry(rec.machine_id.clone())
+                .or_default()
+                .push_back(rec.send_id.clone());
+            by_id.insert(rec.send_id.clone(), rec);
+        }
+        (
+            Self {
+                next_sequence: max_seq,
+                by_id,
+                order_by_machine,
+            },
+            reconciled_claimed,
+        )
+    }
+
+    pub fn snapshot_persisted(&self) -> (u64, Vec<HeldCloudSend>) {
+        let mut sends: Vec<HeldCloudSend> = self.by_id.values().cloned().collect();
+        sends.sort_by_key(|rec| rec.sequence);
+        (self.next_sequence, sends)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn admit(
         &mut self,
         machine_id: &str,
@@ -105,6 +150,8 @@ impl CloudWakeQueue {
         method: String,
         path: String,
         body: serde_json::Value,
+        origin: AuthenticatedOrigin,
+        agent: Option<AuthenticatedAgent>,
         now_ms: u64,
         deadline_ms: u64,
     ) -> Result<HeldCloudSend, CloudError> {
@@ -148,6 +195,8 @@ impl CloudWakeQueue {
             method,
             path,
             body,
+            origin,
+            agent,
             admitted_at_ms: now_ms,
             deadline_ms,
             release_condition: RELEASE_CONDITION_PEER_READY.into(),
@@ -202,7 +251,8 @@ impl CloudWakeQueue {
                 rec.error = None;
             }
             FlushWriteOutcome::RefusedMachineSleeping => {
-                // Proven bytes_written=false before write: safe to keep held for next wake.
+                // Proven bytes_written=false before write (sleeping or post-wake ingress unavailable):
+                // safe to keep held for next wake/connect.
                 rec.state = HeldCloudSendState::Held;
                 rec.error = None;
             }
@@ -359,9 +409,5 @@ impl SingleFlightWakes {
                 wake,
             }),
         })
-    }
-
-    pub fn is_waking(&self, machine_id: &str) -> bool {
-        self.in_flight.lock().contains_key(machine_id)
     }
 }

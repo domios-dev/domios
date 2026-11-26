@@ -134,3 +134,200 @@ async fn agents_cannot_change_a_mode_or_host_approvals_and_the_owner_can() {
         StatusCode::CONFLICT
     );
 }
+
+#[tokio::test]
+async fn runtime_login_get_and_all_post_actions_require_owner_or_full_peer_authority() {
+    use codeterm_service_core::mesh::{
+        crown::{
+            generate_peer_keypair, sign_request_with_agent, sign_request_with_origin,
+            AuthenticatedAgent, AuthenticatedOrigin,
+        },
+        types::{AccessLevel, PairedPeer, Permission, RELAY_PROTOCOL_VERSION},
+    };
+
+    let (mut mux, tab) = MultiplexerState::new();
+    {
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.agent_type = Some("fixture".into());
+        target.agent_session_id = Some("own-thread".into());
+        target.session_binding_nonce = Some("own-nonce".into());
+        target.reported_session_binding_nonce = Some("own-nonce".into());
+    }
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("owner-token".into());
+
+    let agent_token = state
+        .svc
+        .frontend_pty_env(Some(&tab))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+
+    let (admin_priv, admin_pub) = generate_peer_keypair();
+    let (full_priv, full_pub) = generate_peer_keypair();
+    {
+        let mut mesh = state.mesh.lock();
+        mesh.insert_account_peer_for_test(PairedPeer {
+            instance_id: "peer-custom-admin".into(),
+            instance_name: "CustomAdminPeer".into(),
+            addresses: vec![],
+            api_port: 7685,
+            public_key: admin_pub,
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: AccessLevel::Custom(vec![Permission::Admin]),
+            domios_version: None,
+            domios_build: None,
+            web_ui: None,
+            relay_protocol_version: RELAY_PROTOCOL_VERSION,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        });
+        mesh.insert_account_peer_for_test(PairedPeer {
+            instance_id: "peer-full".into(),
+            instance_name: "FullPeer".into(),
+            addresses: vec![],
+            api_port: 7685,
+            public_key: full_pub,
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: AccessLevel::Full,
+            domios_version: None,
+            domios_build: None,
+            web_ui: None,
+            relay_protocol_version: RELAY_PROTOCOL_VERSION,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        });
+    }
+
+    let app = router()
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::auth_middleware,
+        ))
+        .with_state(state);
+
+    let login_path = format!("/api/tabs/{tab}/agent/runtime/login");
+    let get_status = |token: String| {
+        let app = app.clone();
+        let path = login_path.clone();
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(path)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+        }
+    };
+    let post_status = |token: String, body: serde_json::Value| {
+        let app = app.clone();
+        let path = login_path.clone();
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+        }
+    };
+
+    // Local agent tab is refused on GET and every POST login action.
+    assert_eq!(get_status(agent_token.clone()).await, StatusCode::FORBIDDEN);
+    for body in [
+        serde_json::json!({"action": "start"}),
+        serde_json::json!({"action": "cancel"}),
+        serde_json::json!({"action": "terminal"}),
+        serde_json::json!({"action": "notify"}),
+        serde_json::json!({"action": "code", "code": "opaque"}),
+        serde_json::json!({"action": "backupCredentials"}),
+        serde_json::json!({"action": "api_key", "apiKey": "opaque"}),
+    ] {
+        assert_eq!(
+            post_status(agent_token.clone(), body.clone()).await,
+            StatusCode::FORBIDDEN,
+            "agent tab must be refused on login POST {body}"
+        );
+    }
+
+    // Custom(Admin) peer passes allows_full_dispatch, so it must still be refused on GET and POST.
+    let custom_admin_owner =
+        sign_request_with_origin(&admin_priv, "peer-custom-admin", AuthenticatedOrigin::Owner)
+            .unwrap();
+    assert_eq!(get_status(custom_admin_owner).await, StatusCode::FORBIDDEN);
+    for action in ["start", "cancel", "terminal", "notify", "backupCredentials"] {
+        let token =
+            sign_request_with_origin(&admin_priv, "peer-custom-admin", AuthenticatedOrigin::Owner)
+                .unwrap();
+        assert_eq!(
+            post_status(token, serde_json::json!({"action": action})).await,
+            StatusCode::FORBIDDEN,
+            "Custom(Admin) peer must be refused on login POST action {action}"
+        );
+    }
+
+    // Full peer carrying an Agent origin must be refused on GET and POST.
+    let full_agent = AuthenticatedAgent {
+        instance_id: "peer-full".into(),
+        tab_id: "remote-agent-tab".into(),
+    };
+    let full_agent_get = sign_request_with_agent(
+        &full_priv,
+        "peer-full",
+        AuthenticatedOrigin::Agent,
+        Some(&full_agent),
+    )
+    .unwrap();
+    assert_eq!(get_status(full_agent_get).await, StatusCode::FORBIDDEN);
+    let full_agent_post = sign_request_with_agent(
+        &full_priv,
+        "peer-full",
+        AuthenticatedOrigin::Agent,
+        Some(&full_agent),
+    )
+    .unwrap();
+    assert_eq!(
+        post_status(full_agent_post, serde_json::json!({"action": "start"})).await,
+        StatusCode::FORBIDDEN
+    );
+
+    // Full peer with Owner or Mesh origin passes authority check (reaches 409 without a runtime).
+    let full_owner_get =
+        sign_request_with_origin(&full_priv, "peer-full", AuthenticatedOrigin::Owner).unwrap();
+    assert_eq!(get_status(full_owner_get).await, StatusCode::CONFLICT);
+    let full_mesh_post =
+        sign_request_with_origin(&full_priv, "peer-full", AuthenticatedOrigin::Mesh).unwrap();
+    assert_eq!(
+        post_status(full_mesh_post, serde_json::json!({"action": "start"})).await,
+        StatusCode::CONFLICT
+    );
+    // Remote Full peer is still refused on local-only api_key submission.
+    let full_owner_key =
+        sign_request_with_origin(&full_priv, "peer-full", AuthenticatedOrigin::Owner).unwrap();
+    assert_eq!(
+        post_status(
+            full_owner_key,
+            serde_json::json!({"action": "api_key", "apiKey": "opaque"})
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+}

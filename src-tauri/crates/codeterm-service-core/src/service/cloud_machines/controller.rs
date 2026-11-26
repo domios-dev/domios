@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use rand::RngCore;
 use zeroize::Zeroizing;
 
+use crate::mesh::crown::{AuthenticatedAgent, AuthenticatedOrigin};
 use crate::service::chat_send_transaction::ChatSendStatus;
 
 use super::held_sends::{
@@ -22,7 +23,7 @@ use super::ports::{
     EnrollmentOutcome, ProvisioningCreateRequest, SystemClock,
 };
 use super::state::{can_issue_enrollment_apply, ownership_labels, transition, LifecycleEvent};
-use super::store::CloudMachineStore;
+use super::store::{CloudMachineStore, CloudWakeQueueStore};
 use super::types::{
     CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
     CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
@@ -45,8 +46,10 @@ pub fn mint_request_id() -> String {
 
 pub struct CloudMachineController {
     store: CloudMachineStore,
+    wake_queue_store: CloudWakeQueueStore,
     machines: Mutex<Vec<CloudMachineRecord>>,
     wake_queue: Mutex<CloudWakeQueue>,
+    flush_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     wakes: Arc<SingleFlightWakes>,
     local_drain_gate: Arc<LocalPeerDrainGate>,
     clock: Arc<dyn Clock>,
@@ -56,10 +59,21 @@ pub struct CloudMachineController {
 impl CloudMachineController {
     pub fn new(store: CloudMachineStore, controller_id: String, clock: Arc<dyn Clock>) -> Self {
         let loaded = store.load();
+        let wake_queue_store = store.wake_queue_store();
+        let (next_seq, sends) = wake_queue_store.load();
+        let (queue, reconciled_claimed) = CloudWakeQueue::from_persisted(next_seq, sends);
+        if reconciled_claimed {
+            let (seq, snapshot) = queue.snapshot_persisted();
+            if let Err(error) = wake_queue_store.save(seq, &snapshot) {
+                log::warn!("[cloud] failed to persist reconciled wake queue on startup: {error}");
+            }
+        }
         Self {
             store,
+            wake_queue_store,
             machines: Mutex::new(loaded),
-            wake_queue: Mutex::new(CloudWakeQueue::default()),
+            wake_queue: Mutex::new(queue),
+            flush_locks: Mutex::new(HashMap::new()),
             wakes: Arc::new(SingleFlightWakes::default()),
             local_drain_gate: Arc::new(LocalPeerDrainGate::default()),
             clock,
@@ -83,10 +97,26 @@ impl CloudMachineController {
         self.clock.now_ms()
     }
 
+    fn machine_flush_lock(&self, machine_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.flush_locks.lock();
+        Arc::clone(
+            locks
+                .entry(machine_id.to_owned())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    }
+
     fn persist_locked(&self, machines: &[CloudMachineRecord]) -> Result<(), CloudError> {
         self.store
             .save(machines)
             .map_err(|error| CloudError::Internal(format!("persist cloud machines: {error}")))
+    }
+
+    fn persist_wake_queue_locked(&self, queue: &CloudWakeQueue) -> Result<(), CloudError> {
+        let (next_seq, sends) = queue.snapshot_persisted();
+        self.wake_queue_store
+            .save(next_seq, &sends)
+            .map_err(|error| CloudError::Internal(format!("persist cloud wake queue: {error}")))
     }
 
     fn find_record(&self, selector: &str) -> Result<CloudMachineRecord, CloudError> {
@@ -230,6 +260,7 @@ impl CloudMachineController {
         params: CreateCloudMachineParams,
         provisioning: &dyn CloudProvisioningPort,
         enrollment: &dyn CloudEnrollmentPort,
+        peer_control: &dyn CloudPeerControlPort,
     ) -> Result<CloudReceipt, CloudError> {
         let size = if params.size.trim().is_empty() {
             "small".to_owned()
@@ -413,6 +444,40 @@ impl CloudMachineController {
                 installation_id,
                 peer_instance_id,
             }) => {
+                let enrolled = self.update_record(&machine_id, |rec| {
+                    let mut next = rec.clone();
+                    next.installation_id = Some(installation_id.clone());
+                    if peer_instance_id.is_some() {
+                        next.peer_instance_id = peer_instance_id.clone();
+                    }
+                    Ok(next)
+                })?;
+                if let Err(error) = peer_control
+                    .update_endpoint(&enrolled, provisioned.endpoint)
+                    .await
+                {
+                    let _ = self.update_record(&machine_id, |rec| {
+                        transition(
+                            rec,
+                            LifecycleEvent::Failed(error.to_string()),
+                            self.clock.now_ms(),
+                        )
+                    });
+                    return Err(error);
+                }
+                if let Err(error) = peer_control
+                    .publish_direct_endpoint(&enrolled, provisioned.endpoint)
+                    .await
+                {
+                    let _ = self.update_record(&machine_id, |rec| {
+                        transition(
+                            rec,
+                            LifecycleEvent::Failed(error.to_string()),
+                            self.clock.now_ms(),
+                        )
+                    });
+                    return Err(error);
+                }
                 let awake_now = self.clock.now_ms();
                 let awake = self.update_record(&machine_id, |rec| {
                     transition(
@@ -664,7 +729,7 @@ impl CloudMachineController {
                     }
                 };
 
-                // Persist updated endpoint (new IPv4 on delete_recreate) and lease before peer readiness and held-send flush.
+                // Persist updated endpoint (new IPv4 on delete_recreate) and lease before publication and held-send flush.
                 let waking = match self.update_record(&record.machine_id, |rec| {
                     let mut next = rec.clone();
                     next.provider = woken.provider.clone();
@@ -686,6 +751,22 @@ impl CloudMachineController {
                 };
 
                 if let Err(error) = peer_control.update_endpoint(&waking, woken.endpoint).await {
+                    let _ = self.update_record(&record.machine_id, |rec| {
+                        transition(
+                            rec,
+                            LifecycleEvent::WakeFailed(error.to_string()),
+                            self.clock.now_ms(),
+                        )
+                    });
+                    guard.finish(Err(error.to_string()));
+                    return Err(error);
+                }
+
+                // Publish signed direct endpoint before peer readiness and held-send release; failure counts as not ready.
+                if let Err(error) = peer_control
+                    .publish_direct_endpoint(&waking, woken.endpoint)
+                    .await
+                {
                     let _ = self.update_record(&record.machine_id, |rec| {
                         transition(
                             rec,
@@ -797,11 +878,13 @@ impl CloudMachineController {
             }
             PlacementDecision::CreateExplicit => {
                 let params = create_params.unwrap_or_default();
-                self.create(params, provisioning, enrollment).await
+                self.create(params, provisioning, enrollment, peer_control)
+                    .await
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn hold_send_for_wake(
         &self,
         machine_id: &str,
@@ -810,20 +893,27 @@ impl CloudMachineController {
         method: String,
         path: String,
         body: serde_json::Value,
+        origin: AuthenticatedOrigin,
+        agent: Option<AuthenticatedAgent>,
         hold_timeout_ms: u64,
     ) -> Result<HeldCloudSend, CloudError> {
         let now_ms = self.clock.now_ms();
         let deadline_ms = now_ms.saturating_add(hold_timeout_ms);
-        self.wake_queue.lock().admit(
+        let mut queue = self.wake_queue.lock();
+        let held = queue.admit(
             machine_id,
             tab_id,
             delivery_id,
             method,
             path,
             body,
+            origin,
+            agent,
             now_ms,
             deadline_ms,
-        )
+        )?;
+        self.persist_wake_queue_locked(&queue)?;
+        Ok(held)
     }
 
     pub async fn flush_held_sends(
@@ -831,6 +921,10 @@ impl CloudMachineController {
         machine_id: &str,
         peer_control: &dyn CloudPeerControlPort,
     ) -> Vec<HeldCloudSend> {
+        // Serialize claim, flush, and settlement per machine so concurrent wakes/flushes never race.
+        let flush_lock = self.machine_flush_lock(machine_id);
+        let _flush_guard = flush_lock.lock().await;
+
         let Ok(record) = self.find_record(machine_id) else {
             return Vec::new();
         };
@@ -838,23 +932,40 @@ impl CloudMachineController {
         loop {
             let next = {
                 let now_ms = self.clock.now_ms();
-                self.wake_queue
-                    .lock()
-                    .claim_next_for_machine(machine_id, now_ms)
+                let mut queue = self.wake_queue.lock();
+                let claimed = queue.claim_next_for_machine(machine_id, now_ms);
+                if claimed.is_some() {
+                    // Persist Claimed before writing so restart promotes it to SubmitUnconfirmed, never replaying.
+                    if let Err(error) = self.persist_wake_queue_locked(&queue) {
+                        log::warn!("[cloud] failed to persist claimed send before flush: {error}");
+                        if let Some(ref c) = claimed {
+                            let _ = queue.settle_claimed(
+                                &c.send_id,
+                                FlushWriteOutcome::RefusedMachineSleeping,
+                            );
+                        }
+                        break;
+                    }
+                }
+                claimed
             };
             let Some(claimed) = next else {
                 break;
             };
             let outcome = peer_control.flush_send(&record, &claimed).await;
-            let sleeping = outcome == FlushWriteOutcome::RefusedMachineSleeping;
-            if let Some(updated) = self
-                .wake_queue
-                .lock()
-                .settle_claimed(&claimed.send_id, outcome)
-            {
+            let keep_held = outcome == FlushWriteOutcome::RefusedMachineSleeping;
+            let updated = {
+                let mut queue = self.wake_queue.lock();
+                let updated = queue.settle_claimed(&claimed.send_id, outcome);
+                if let Err(error) = self.persist_wake_queue_locked(&queue) {
+                    log::warn!("[cloud] failed to persist settled send outcome: {error}");
+                }
+                updated
+            };
+            if let Some(updated) = updated {
                 settled.push(updated);
             }
-            if sleeping {
+            if keep_held {
                 break;
             }
         }
@@ -866,10 +977,10 @@ impl CloudMachineController {
     }
 
     pub fn cancel_held_send(&self, send_id: &str) -> Result<ChatSendStatus, CloudError> {
-        self.wake_queue
-            .lock()
-            .cancel_before_write(send_id)
-            .map(|rec| rec.to_chat_send_status())
+        let mut queue = self.wake_queue.lock();
+        let rec = queue.cancel_before_write(send_id)?;
+        self.persist_wake_queue_locked(&queue)?;
+        Ok(rec.to_chat_send_status())
     }
 
     pub fn held_send_count(&self) -> usize {
@@ -878,7 +989,12 @@ impl CloudMachineController {
 
     pub fn expire_overdue_held_sends(&self, machine_id: &str) -> Vec<HeldCloudSend> {
         let now_ms = self.clock.now_ms();
-        self.wake_queue.lock().expire_overdue(machine_id, now_ms)
+        let mut queue = self.wake_queue.lock();
+        let expired = queue.expire_overdue(machine_id, now_ms);
+        if !expired.is_empty() {
+            let _ = self.persist_wake_queue_locked(&queue);
+        }
+        expired
     }
 
     pub fn set_out_of_credits(&self, selector: &str) -> Result<CloudReceipt, CloudError> {
@@ -899,6 +1015,7 @@ impl CloudMachineController {
         Ok(updated.receipt(now_ms, None))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn evaluate_idle_tick(
         &self,
         machine_id: &str,
@@ -1010,101 +1127,6 @@ impl CloudMachineController {
                 Ok(decision)
             }
             IdleDecision::None => Ok(decision),
-        }
-    }
-
-    pub fn enrich_peers_value(&self, mut value: serde_json::Value) -> serde_json::Value {
-        let receipts = self.list();
-        if receipts.is_empty() {
-            return value;
-        }
-        let now_ms = self.clock.now_ms();
-        let records = self.list_records();
-        let lookup = |id: &str| {
-            records
-                .iter()
-                .find(|r| r.matches_selector(id))
-                .map(|r| r.cost_summary(now_ms))
-        };
-        if let Some(installations) = value
-            .get_mut("installations")
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            for row in installations {
-                let key = row
-                    .get("installation_id")
-                    .and_then(serde_json::Value::as_str)
-                    .or_else(|| row.get("instance_id").and_then(serde_json::Value::as_str))
-                    .map(str::to_owned);
-                if let Some(summary) = key.as_deref().and_then(lookup) {
-                    if let Some(obj) = row.as_object_mut() {
-                        obj.insert("kind".into(), serde_json::json!("cloud"));
-                        obj.insert(
-                            "cloud".into(),
-                            serde_json::to_value(summary).unwrap_or_default(),
-                        );
-                    }
-                }
-            }
-        }
-        if let Some(paired) = value
-            .get_mut("paired")
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            for peer in paired {
-                let key = peer
-                    .get("instance_id")
-                    .and_then(serde_json::Value::as_str)
-                    .or_else(|| {
-                        peer.get("instance_name")
-                            .and_then(serde_json::Value::as_str)
-                    })
-                    .map(str::to_owned);
-                if let Some(summary) = key.as_deref().and_then(lookup) {
-                    if let Some(obj) = peer.as_object_mut() {
-                        obj.insert("kind".into(), serde_json::json!("cloud"));
-                        obj.insert(
-                            "cloud".into(),
-                            serde_json::to_value(summary).unwrap_or_default(),
-                        );
-                    }
-                }
-            }
-        }
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert(
-                "cloud_machines".into(),
-                serde_json::to_value(receipts).unwrap_or_default(),
-            );
-        }
-        value
-    }
-
-    pub fn enrich_tab_list(&self, tabs: &mut [serde_json::Value]) {
-        let records = self.list_records();
-        if records.is_empty() {
-            return;
-        }
-        let now_ms = self.clock.now_ms();
-        for tab in tabs {
-            let peer = tab
-                .get("remote_peer")
-                .and_then(serde_json::Value::as_str)
-                .or_else(|| tab.get("peer_id").and_then(serde_json::Value::as_str))
-                .map(str::to_owned);
-            let Some(summary) = peer
-                .as_deref()
-                .and_then(|target| records.iter().find(|r| r.matches_selector(target)))
-                .map(|r| r.cost_summary(now_ms))
-            else {
-                continue;
-            };
-            if let Some(obj) = tab.as_object_mut() {
-                obj.insert(
-                    "cloud".into(),
-                    serde_json::to_value(summary).unwrap_or_default(),
-                );
-            }
         }
     }
 }
