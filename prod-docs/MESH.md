@@ -29,6 +29,14 @@ Verified HTTP works without Tailscale Serve HTTPS. The card prefers verified HTT
 
 Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
 
+## Cloud enrollment
+
+On Timeweb the system service starts at boot. Its public ingress listens on TCP 7687. Use the local command socket to inspect account status on the VPS. After enrollment the creation secret cannot authorize another Apply. If the controller loses the Apply reply, the result is unconfirmed until the enrolled installation confirms its identity.
+
+Cloud enrollment uses a dedicated ingress. A direct Timeweb endpoint carries a public IPv4 address and TCP port 7687. A preview endpoint carries an HTTPS origin and the name of its access header. The signed endpoint record contains only that metadata. Neither endpoint is a browser URL for opening the Domios UI.
+
+The controller and cloud installation protect enrollment messages inside the connection with a Noise session bound to the one-time creation secret and installation proofs. A preview front that refuses its access header produces `provider_access_stale`. Cloud ingress does not serve the ordinary API, health or ping routes.
+
 ## Admission and sign-out
 
 Protected traffic requires current signed membership on both sides. Renewals travel in authenticated peer announcements. Expiry blocks requests, relays and open streams without a grace period. Signing out blocks every connection before endpoint cleanup; signing in to the same account restores account connections automatically. The backend authorizes membership but never carries Mesh traffic. Renewal includes the endpoint in the same transaction. Its lifetime comes from the signed membership; renewal starts one twelfth of that lifetime before expiry. Local registry views and signed peer gossip avoid periodic registry reads. Removing a machine blocks it locally before the server request, even offline; other machines require the server-signed revocation revision.
@@ -171,4 +179,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 83 -->
+<!-- revision: 85 -->

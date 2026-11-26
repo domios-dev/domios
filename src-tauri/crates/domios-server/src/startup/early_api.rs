@@ -54,6 +54,11 @@ pub(crate) struct PreparedStartup {
     pub config: ConfigState,
     pub control: RestApiControlState,
     pub api: EarlyApi,
+    pub cloud: Option<(
+        codeterm_neighbors_service::service::cloud_installation::CloudInstallation,
+        crate::cloud_ingress::CloudIngressHandle,
+    )>,
+    ingress_ready: Option<tokio::sync::oneshot::Receiver<crate::cloud_ingress::IngressReady>>,
 }
 
 impl PreparedStartup {
@@ -65,9 +70,30 @@ impl PreparedStartup {
         let config = super::init_config();
         let control = Arc::new(RestApiControl::new());
         let api_config = config.lock().api.clone();
+        if std::env::var_os("DOMIOS_CLOUD_MACHINE").is_some() && api_config.enabled {
+            return Err(
+                "Cloud installations require the normal HTTP listener to be disabled".into(),
+            );
+        }
         let mut api = EarlyApi::new(api_config.token.clone());
         api.diagnostics_port = diagnostics_port;
         api.frontend_identity = frontend_identity;
+        if std::env::var_os("DOMIOS_CLOUD_MACHINE").is_some() {
+            let installation = super::cloud_start::installation()?;
+            let authority = Arc::new(installation.clone());
+            let (handle, ready) = crate::cloud_ingress::start(
+                ([0, 0, 0, 0], 7687).into(),
+                authority.clone(),
+                authority,
+            );
+            return Ok(Self {
+                config,
+                control,
+                api,
+                cloud: Some((installation, handle)),
+                ingress_ready: Some(ready),
+            });
+        }
         codeterm_service_core::config::validate_api_trust_boundary(&api_config)?;
         let remote = codeterm_service_core::startup::rest_api_additional_bind(
             &api_config,
@@ -101,10 +127,20 @@ impl PreparedStartup {
             config,
             control,
             api,
+            cloud: None,
+            ingress_ready: None,
         })
     }
 
-    pub async fn listening(&self) -> Result<SocketAddr, String> {
+    pub async fn listening(&mut self) -> Result<SocketAddr, String> {
+        if let Some(ready) = self.ingress_ready.take() {
+            let ready = tokio::time::timeout(crate::bootstrap::protocol::FAILURE_DEADLINE, ready)
+                .await
+                .map_err(|_| "Cloud ingress readiness deadline")?
+                .map_err(|_| "Cloud ingress failed before readiness")?;
+            self.api.complete("listener");
+            return Ok(ready.bound_address());
+        }
         let mut status = self.control.subscribe_status();
         tokio::time::timeout(crate::bootstrap::protocol::FAILURE_DEADLINE, async {
             loop {

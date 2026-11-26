@@ -27,6 +27,25 @@ fn identity_is_stable_across_loads() {
 }
 
 #[test]
+fn enrollment_returns_only_persisted_matching_public_identity() {
+    let dir = TempDir::new();
+    let file = dir.0.join("identity.json");
+    let public = persisted_public_identity_at(&file).unwrap();
+    let mut id = load_or_create_identity_at(&file);
+    assert_eq!(public.instance_id, id.instance_id);
+    assert_eq!(
+        public.mesh_public_key,
+        super::super::crown::verifying_key_from_b64(id.public_key.as_deref().unwrap())
+            .unwrap()
+            .to_bytes()
+    );
+    id.public_key = fresh_identity().public_key;
+    write_identity(&identity_file(&file), &id);
+    assert!(persisted_public_identity_at(&file).is_err());
+    assert!(persisted_public_identity_at(&file.join("unwritable")).is_err());
+}
+
+#[test]
 fn corrupt_identity_recovers_the_same_keypair_from_backup() {
     let dir = TempDir::new();
     let path = dir.0.join("identity.json");

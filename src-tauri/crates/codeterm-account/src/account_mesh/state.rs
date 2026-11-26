@@ -111,6 +111,16 @@ pub enum AccountMeshRefusal {
     ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
+    #[serde(rename = "replay")]
+    Replay,
+    #[serde(rename = "nonce_reused")]
+    NonceReused,
+    #[serde(rename = "cloud.machines")]
+    CloudMachineLimit {
+        mode: super::cloud_enrollment::CloudMode,
+        limit: u32,
+        active_count: u32,
+    },
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
     /// Local refusal of link traffic while this machine is outside the machine limit.
@@ -145,6 +155,17 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::AppCheck => Self::AppCheck,
             RegistryRefusal::Forbidden => Self::Forbidden,
             RegistryRefusal::Conflict => Self::Conflict,
+            RegistryRefusal::Replay => Self::Replay,
+            RegistryRefusal::NonceReused => Self::NonceReused,
+            RegistryRefusal::CloudMachineLimit {
+                mode,
+                limit,
+                active_count,
+            } => Self::CloudMachineLimit {
+                mode,
+                limit,
+                active_count,
+            },
             RegistryRefusal::KeyConflict => Self::KeyConflict,
             RegistryRefusal::GenerationMismatch => Self::GenerationMismatch,
             RegistryRefusal::ChallengeInvalid => Self::ChallengeInvalid,

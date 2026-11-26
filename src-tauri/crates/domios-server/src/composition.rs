@@ -442,6 +442,10 @@ pub(crate) fn compose_observed(
         assert!(svc_ctx.set_ext(account).is_ok());
     }
     codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
+    if let Some((installation, ingress)) = prepared.cloud {
+        assert!(svc_ctx.set_ext(installation).is_ok());
+        assert!(svc_ctx.set_ext(ingress).is_ok());
+    }
     let service_state: ServiceState = svc_ctx;
     // Account observers may wake bound concierges; establish lazy state before any can run.
     codeterm_service_core::service::lazy_restore::initialize(

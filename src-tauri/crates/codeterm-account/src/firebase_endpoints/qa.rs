@@ -55,7 +55,7 @@ impl Qa {
             project,
             api_key,
             app_id,
-            redeem: format!("{functions}redeemDesktopLoginCode"),
+            redeem: "https://qa-auth.domios.dev/api/redeemDesktopLoginCode".into(),
             signin: format!("https://{project}.web.app/signin/"),
             functions,
         })
