@@ -17,8 +17,9 @@ use codeterm_service_core::{
     multiplexer::state::MultiplexerState,
     service::{
         cloud_machines::{
-            CloudError, CloudMachineController, CloudMachineStore, CloudPromoRedemption,
-            CloudProvisioningPort, CloudSleepMode, CloudUsageSummary, ProvisionedLease,
+            CloudCheckoutSession, CloudError, CloudMachineController, CloudMachineStore,
+            CloudPlanAllowances, CloudPromoRedemption, CloudProvisioningPort, CloudSleepMode,
+            CloudUsagePack, CloudUsageSize, CloudUsageSummary, ProvisionedLease,
             ProvisionedMachine, ProvisioningCreateRequest, SystemClock,
         },
         test_fixture::ServiceFixture,
@@ -652,4 +653,405 @@ async fn cloud_peer_idle_counts_only_local_owner_and_full_peer_viewers() {
     assert_eq!(owner_busy["idle"], false);
 
     drop((owner_stream, ro_stream, iso_stream));
+}
+
+struct FakeCheckoutProvisioning {
+    seen_requests: Mutex<Vec<(String, Option<u64>)>>,
+    outcomes: Mutex<VecDeque<Result<CloudCheckoutSession, CloudError>>>,
+    usage: CloudUsageSummary,
+}
+
+impl FakeCheckoutProvisioning {
+    fn new(
+        outcomes: Vec<Result<CloudCheckoutSession, CloudError>>,
+        usage: CloudUsageSummary,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            seen_requests: Mutex::new(Vec::new()),
+            outcomes: Mutex::new(outcomes.into()),
+            usage,
+        })
+    }
+}
+
+#[async_trait]
+impl CloudProvisioningPort for FakeCheckoutProvisioning {
+    async fn create(
+        &self,
+        _: &ProvisioningCreateRequest,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        Err(CloudError::Internal("unused".into()))
+    }
+
+    async fn wake(&self, _: &str, _: &str) -> Result<ProvisionedMachine, CloudError> {
+        Err(CloudError::Internal("unused".into()))
+    }
+
+    async fn sleep(&self, _: &str, _: &str) -> Result<CloudSleepMode, CloudError> {
+        Ok(CloudSleepMode::Stop)
+    }
+
+    async fn delete(&self, _: &str, _: &str) -> Result<(), CloudError> {
+        Ok(())
+    }
+
+    async fn renew_lease(&self, _: &str, _: &str, _: &str) -> Result<ProvisionedLease, CloudError> {
+        Err(CloudError::Internal("unused".into()))
+    }
+
+    async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
+        Ok(self.usage.clone())
+    }
+
+    async fn create_checkout(
+        &self,
+        pack_id: &str,
+        amount_cents: Option<u64>,
+    ) -> Result<CloudCheckoutSession, CloudError> {
+        self.seen_requests
+            .lock()
+            .push((pack_id.to_owned(), amount_cents));
+        self.outcomes
+            .lock()
+            .pop_front()
+            .unwrap_or(Err(CloudError::CheckoutUnavailable("exhausted".into())))
+    }
+}
+
+async fn post_checkout(app: axum::Router, token: &str, payload: Value) -> (StatusCode, Value) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/mesh/cloud/checkout")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned())),
+    )
+}
+
+#[tokio::test]
+async fn cloud_checkout_route_enforces_local_owner_authority_and_maps_pack_custom_and_refusals() {
+    crate::register_api_extensions();
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("owner-secret".into());
+
+    let agent_token = state
+        .svc
+        .frontend_pty_env(Some(&tab))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+
+    let (full_priv, full_pub) = generate_peer_keypair();
+    let (ro_priv, ro_pub) = generate_peer_keypair();
+    {
+        let mut mesh = state.mesh.lock();
+        mesh.insert_account_peer_for_test(paired_peer_with_access(
+            "peer-full-checkout",
+            "FullPeer",
+            full_pub,
+            AccessLevel::Full,
+        ));
+        mesh.insert_account_peer_for_test(paired_peer_with_access(
+            "peer-ro-checkout",
+            "ReadOnlyPeer",
+            ro_pub,
+            AccessLevel::ReadOnly,
+        ));
+    }
+
+    let provisioning = FakeCheckoutProvisioning::new(
+        vec![
+            Ok(CloudCheckoutSession {
+                url: "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5".into(),
+                session_id: "cs_test_fixture_pack_5".into(),
+                pack_id: "pack_5".into(),
+                credits: 25.0,
+                amount_cents: 500,
+                currency: "USD".into(),
+            }),
+            Ok(CloudCheckoutSession {
+                url: "https://checkout.stripe.com/c/pay/cs_test_fixture_custom".into(),
+                session_id: "cs_test_fixture_custom".into(),
+                pack_id: "custom".into(),
+                credits: 35.0,
+                amount_cents: 700,
+                currency: "USD".into(),
+            }),
+            Err(CloudError::PromoSpendCapExceeded),
+            Err(CloudError::CheckoutBelowMin),
+            Err(CloudError::CheckoutAboveMax),
+            Err(CloudError::CheckoutTerritory),
+            Err(CloudError::CheckoutInvalid),
+            Err(CloudError::CheckoutUnavailable(
+                "stripe unconfigured".into(),
+            )),
+            Err(CloudError::RateLimited {
+                retry_after_seconds: 90,
+            }),
+        ],
+        CloudUsageSummary::default(),
+    );
+    assert!(state
+        .svc
+        .set_ext(CloudProvisioningOverride(provisioning.clone()))
+        .is_ok());
+
+    let app = routes::create_router_with_frontend(state, None);
+
+    // Local agent tab is refused (local owner only).
+    let (agent_status, agent_body) =
+        post_checkout(app.clone(), &agent_token, json!({ "pack_id": "pack_5" })).await;
+    assert_eq!(agent_status, StatusCode::FORBIDDEN, "{agent_body}");
+    assert_eq!(agent_body["error"]["code"], "local_owner_only");
+
+    // Remote peers (Full owner, Full agent, ReadOnly) are refused.
+    let full_owner_tok =
+        sign_request_with_origin(&full_priv, "peer-full-checkout", AuthenticatedOrigin::Owner)
+            .unwrap();
+    let (peer_owner_status, _) =
+        post_checkout(app.clone(), &full_owner_tok, json!({ "pack_id": "pack_5" })).await;
+    assert_eq!(peer_owner_status, StatusCode::FORBIDDEN);
+
+    let full_agent = AuthenticatedAgent {
+        instance_id: "peer-full-checkout".into(),
+        tab_id: "remote-tab".into(),
+        can_spawn: false,
+    };
+    let full_agent_tok = sign_request_with_agent(
+        &full_priv,
+        "peer-full-checkout",
+        AuthenticatedOrigin::Agent,
+        Some(&full_agent),
+    )
+    .unwrap();
+    let (peer_agent_status, _) =
+        post_checkout(app.clone(), &full_agent_tok, json!({ "pack_id": "pack_5" })).await;
+    assert_eq!(peer_agent_status, StatusCode::FORBIDDEN);
+
+    let ro_tok =
+        sign_request_with_origin(&ro_priv, "peer-ro-checkout", AuthenticatedOrigin::Owner).unwrap();
+    let (ro_status, _) = post_checkout(app.clone(), &ro_tok, json!({ "pack_id": "pack_5" })).await;
+    assert_eq!(ro_status, StatusCode::FORBIDDEN);
+    assert!(provisioning.seen_requests.lock().is_empty());
+
+    // Structural validation rejects blank pack_id, malformed custom, extra amount_cents, and unknown fields.
+    for bad in [
+        json!({ "pack_id": "   " }),
+        json!({ "pack_id": "custom" }),
+        json!({ "pack_id": "custom", "amount_cents": 0 }),
+        json!({ "pack_id": "pack_5", "amount_cents": 500 }),
+    ] {
+        let (st, body) = post_checkout(app.clone(), "owner-secret", bad).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["error"]["code"], "invalid");
+    }
+    let (extra_status, _) = post_checkout(
+        app.clone(),
+        "owner-secret",
+        json!({ "pack_id": "pack_5", "unknown": true }),
+    )
+    .await;
+    assert_eq!(extra_status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(provisioning.seen_requests.lock().is_empty());
+
+    // Local owner preset pack checkout forwards cleanly.
+    let (pack_status, pack_body) = post_checkout(
+        app.clone(),
+        "owner-secret",
+        json!({ "pack_id": " pack_5 " }),
+    )
+    .await;
+    assert_eq!(pack_status, StatusCode::OK, "{pack_body}");
+    assert_eq!(
+        pack_body["url"],
+        "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5"
+    );
+    assert_eq!(pack_body["session_id"], "cs_test_fixture_pack_5");
+    assert_eq!(pack_body["pack_id"], "pack_5");
+    assert_eq!(pack_body["credits"], 25.0);
+    assert_eq!(pack_body["amount_cents"], 500);
+    assert_eq!(pack_body["currency"], "USD");
+
+    // Local owner custom checkout forwards pack_id="custom" and amount_cents.
+    let (custom_status, custom_body) = post_checkout(
+        app.clone(),
+        "owner-secret",
+        json!({ "pack_id": "custom", "amount_cents": 700 }),
+    )
+    .await;
+    assert_eq!(custom_status, StatusCode::OK, "{custom_body}");
+    assert_eq!(
+        custom_body["url"],
+        "https://checkout.stripe.com/c/pay/cs_test_fixture_custom"
+    );
+    assert_eq!(custom_body["pack_id"], "custom");
+    assert_eq!(custom_body["amount_cents"], 700);
+    assert_eq!(
+        provisioning.seen_requests.lock().as_slice(),
+        &[("pack_5".into(), None), ("custom".into(), Some(700))]
+    );
+
+    // Typed refusals map to plain codes and expected statuses.
+    for (expected_status, expected_code) in [
+        (StatusCode::CONFLICT, "spend_cap_exceeded"),
+        (StatusCode::BAD_REQUEST, "below_min"),
+        (StatusCode::BAD_REQUEST, "above_max"),
+        (StatusCode::FORBIDDEN, "territory"),
+        (StatusCode::BAD_REQUEST, "invalid"),
+        (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
+    ] {
+        let (st, body) =
+            post_checkout(app.clone(), "owner-secret", json!({ "pack_id": "pack_5" })).await;
+        assert_eq!(st, expected_status, "{body}");
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["error"]["code"], expected_code);
+        assert!(body["error"]["message"]
+            .as_str()
+            .is_some_and(|m| !m.is_empty()));
+    }
+
+    let (rl_status, rl_body) =
+        post_checkout(app, "owner-secret", json!({ "pack_id": "pack_5" })).await;
+    assert_eq!(rl_status, StatusCode::TOO_MANY_REQUESTS, "{rl_body}");
+    assert_eq!(rl_body["error"]["code"], "rate_limited");
+    assert_eq!(rl_body["error"]["retry_after_seconds"], 90);
+}
+
+#[test]
+fn checkout_account_refusal_mapping_preserves_plain_codes() {
+    use codeterm_account::account_mesh::AccountMeshRefusal;
+
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::PromoSpendCapExceeded).code(),
+        "spend_cap_exceeded"
+    );
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::CheckoutBelowMin).code(),
+        "below_min"
+    );
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::CheckoutAboveMax).code(),
+        "above_max"
+    );
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::CheckoutTerritory).code(),
+        "territory"
+    );
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::Invalid).code(),
+        "invalid"
+    );
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::Unavailable).code(),
+        "unavailable"
+    );
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::Offline).code(),
+        "unavailable"
+    );
+    assert_eq!(
+        super::adapters::map_checkout_refusal(AccountMeshRefusal::RateLimited {
+            retry_after_seconds: 30
+        }),
+        CloudError::RateLimited {
+            retry_after_seconds: 30
+        }
+    );
+}
+
+#[tokio::test]
+async fn cloud_usage_route_forwards_custom_bounds_and_full_catalog_fields() {
+    crate::register_api_extensions();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("owner-secret".into());
+
+    let mut burn = std::collections::BTreeMap::new();
+    burn.insert("small".into(), 1.0);
+    let usage = CloudUsageSummary {
+        used: 1.5,
+        allowance: 10.0,
+        purchased: 25.0,
+        remaining: 33.5,
+        cap: 50.0,
+        burn_per_size: burn,
+        currency: Some("USD".into()),
+        period_end_at: Some(1_798_761_600),
+        custom_min_cents: Some(500),
+        custom_max_cents: Some(4500),
+        plan: Some("pro".into()),
+        sizes: Some(vec![CloudUsageSize {
+            id: "small".into(),
+            cpu: 2,
+            ram_gb: 4.0,
+            hourly_rate_cents: 20,
+            credits_per_hour: 1.0,
+        }]),
+        packs: Some(vec![
+            CloudUsagePack {
+                pack_id: "pack_5".into(),
+                price_cents: 500,
+                hours: 25.0,
+            },
+            CloudUsagePack {
+                pack_id: "pack_10".into(),
+                price_cents: 1000,
+                hours: 50.0,
+            },
+        ]),
+        purchased_expiry_days: Some(365),
+        allowance_hours: Some(CloudPlanAllowances {
+            free: 0.0,
+            pro: 10.0,
+            max: 40.0,
+            sponsor: 120.0,
+        }),
+    };
+    let provisioning = FakeCheckoutProvisioning::new(vec![], usage);
+    assert!(state
+        .svc
+        .set_ext(CloudProvisioningOverride(provisioning))
+        .is_ok());
+
+    let app = routes::create_router_with_frontend(state, None);
+    let (status, body) = request_json(app, "GET", "/api/mesh/cloud/usage", "owner-secret").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["used"], 1.5);
+    assert_eq!(body["allowance"], 10.0);
+    assert_eq!(body["purchased"], 25.0);
+    assert_eq!(body["remaining"], 33.5);
+    assert_eq!(body["cap"], 50.0);
+    assert_eq!(body["burn_per_size"]["small"], 1.0);
+    assert_eq!(body["currency"], "USD");
+    assert_eq!(body["period_end_at"], 1_798_761_600u64);
+    assert_eq!(body["custom_min_cents"], 500);
+    assert_eq!(body["custom_max_cents"], 4500);
+    assert_eq!(body["plan"], "pro");
+    assert_eq!(body["sizes"][0]["id"], "small");
+    assert_eq!(body["sizes"][0]["cpu"], 2);
+    assert_eq!(body["sizes"][0]["ram_gb"], 4.0);
+    assert_eq!(body["sizes"][0]["hourly_rate_cents"], 20);
+    assert_eq!(body["sizes"][0]["credits_per_hour"], 1.0);
+    assert_eq!(body["packs"][0]["pack_id"], "pack_5");
+    assert_eq!(body["packs"][0]["price_cents"], 500);
+    assert_eq!(body["packs"][0]["hours"], 25.0);
+    assert_eq!(body["purchased_expiry_days"], 365);
+    assert_eq!(body["allowance_hours"]["free"], 0.0);
+    assert_eq!(body["allowance_hours"]["pro"], 10.0);
+    assert_eq!(body["allowance_hours"]["max"], 40.0);
+    assert_eq!(body["allowance_hours"]["sponsor"], 120.0);
 }

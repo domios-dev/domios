@@ -219,6 +219,15 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
     {
         return RegistryRefusal::from_details(details);
     }
+    if status == 400
+        && body
+            .as_ref()
+            .and_then(|body| body.pointer("/error/status"))
+            .and_then(Value::as_str)
+            == Some("FAILED_PRECONDITION")
+    {
+        return RegistryRefusal::Unavailable;
+    }
     match status {
         400 => RegistryRefusal::Invalid,
         401 => RegistryRefusal::Unauthenticated,
@@ -436,6 +445,18 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         )
         .await
     }
+    async fn create_cloud_checkout(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::CreateCloudCreditPackCheckoutRequest,
+    ) -> RegistryResult<super::cloud_provisioning::CreateCloudCreditPackCheckoutReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_CHECKOUT,
+            session,
+            request,
+        )
+        .await
+    }
     fn handles_call_deadline(&self) -> bool {
         true
     }
@@ -602,6 +623,7 @@ impl CallableTransport for HttpCallable {
                 | super::cloud_provisioning::ROUTE_CLOUD_LEASE_RENEW
                 | super::cloud_provisioning::ROUTE_CLOUD_USAGE
                 | super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO
+                | super::cloud_provisioning::ROUTE_CLOUD_CHECKOUT
         ) && !endpoints.emulator
         {
             let redeem = url::Url::parse(endpoints.redeem).map_err(|_| CallableFailure::Offline)?;
