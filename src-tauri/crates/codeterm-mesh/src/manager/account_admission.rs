@@ -106,7 +106,7 @@ impl MeshManager {
         }
     }
 
-    fn verify_peer_membership(
+    pub(crate) fn verify_peer_membership(
         &self,
         context: &AdmissionContext,
         token: &str,

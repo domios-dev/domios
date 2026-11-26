@@ -29,6 +29,14 @@ Verified HTTP works without Tailscale Serve HTTPS. The card prefers verified HTT
 
 Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
 
+## Cloud enrollment
+
+On Timeweb the system service starts at boot. Its public ingress listens on TCP 7687. Use the local command socket to inspect account status on the VPS. After enrollment the creation secret cannot authorize another Apply. If the controller loses the Apply reply, the result is unconfirmed until the enrolled installation confirms its identity.
+
+Cloud enrollment uses a dedicated ingress. A direct Timeweb endpoint carries a public IPv4 address and TCP port 7687. A preview endpoint carries an HTTPS origin and the name of its access header. The signed endpoint record contains only that metadata. Neither endpoint is a browser URL for opening the Domios UI.
+
+The controller and cloud installation protect enrollment messages inside the connection with a Noise session bound to the one-time creation secret and installation proofs. A preview front that refuses its access header produces `provider_access_stale`. Cloud ingress does not serve the ordinary API, health or ping routes.
+
 ## Admission and sign-out
 
 Protected traffic requires current signed membership on both sides. Renewals travel in authenticated peer announcements. Expiry blocks requests, relays and open streams without a grace period. Signing out blocks every connection before endpoint cleanup; signing in to the same account restores account connections automatically. The backend authorizes membership but never carries Mesh traffic. Renewal includes the endpoint in the same transaction. Its lifetime comes from the signed membership; renewal starts one twelfth of that lifetime before expiry. Local registry views and signed peer gossip avoid periodic registry reads. Removing a machine blocks it locally before the server request, even offline; other machines require the server-signed revocation revision.
@@ -171,4 +179,21 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 83 -->
+## Cloud machines
+
+Cloud machines cost money while awake. Domios manages their lifecycle on the local controller and never creates a cloud machine implicitly.
+
+- `domios mesh cloud create` creates and enrolls a new cloud machine through the configured cloud provider plugin, subject to the per-account cloud machine limit (`limit_reached` when full; BYO default 3, configurable via `mesh.cloud_machine_limit`).
+- `domios mesh cloud list` shows each cloud machine with provider, size, hourly rate estimate, lifecycle state, and period uptime.
+- `domios mesh cloud sleep` drains an idle cloud machine and stops it; active agent turns, running background jobs, held sends, or attached viewers refuse sleep (`machine_busy`).
+- `domios mesh cloud wake` wakes a sleeping cloud machine; concurrent wakes join one wake.
+- `domios mesh cloud delete` warns about unpushed work unless `--confirm` is passed.
+- `domios mesh cloud usage` reports period uptime (managed credits reserved for Tally).
+
+Reuse-first placement: `domios agent spawn --cloud auto` and `domios plan task dispatch --cloud auto` pick an awake cloud machine first, then wake a sleeping one, and refuse implicit creation when none exist. Pass `--cloud new` (or run `domios mesh cloud create`) to create explicitly.
+
+Idle sleep and wake-on-use: after the idle window (`mesh.cloud_idle_sleep_minutes`, default 15) with no active agent turn, background job, held send, or attached viewer, the controller runs a two-phase drain on the cloud peer (`machine_sleeping` with `bytes_written=false` before stop). While work runs, the controller refreshes provider activity before the provider auto-stop deadline. Sends to a sleeping or draining cloud machine are held on the origin (`domios tab send-status`, `domios tab send-cancel`) with release condition `peer_ready` and a bounded deadline, wake the machine once, and flush in admission order at most once (`submit_unconfirmed` outcomes are never replayed).
+
+Cost visibility: `domios mesh peers`, `domios tab list`, and cloud spawn/dispatch receipts surface `kind=cloud`, provider, size, rate per hour, state, uptime, and a cost notice.
+
+<!-- revision: 86 -->

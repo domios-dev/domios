@@ -17,6 +17,7 @@ pub mod bundled;
 pub mod capability;
 pub mod chatbackend_provider;
 pub mod chatpreprocessor;
+pub mod cloud_machine_provider;
 pub mod common;
 pub mod converter;
 pub mod detector;

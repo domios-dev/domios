@@ -51,6 +51,7 @@ pub mod chat_send_transaction;
 mod client_selection;
 pub mod close_authority;
 mod close_history;
+pub mod cloud_machines;
 pub use close_history::close_inventory_error_data;
 mod command_port_impl;
 pub mod context_feed;
@@ -435,6 +436,8 @@ pub struct ServiceContext {
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
     /// tabs route their I/O here via the `TabTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
+    pub cloud_machine_provider:
+        std::sync::Arc<codeterm_plugin::cloud_machine_provider::CloudProviderRegistry>,
     /// Unified facade over the agent + chat-backend stores. Listing and
     /// spawn-classify go through this so call-sites stop touching two registries.
     pub provider_registry: Arc<crate::provider::ProviderRegistry>,

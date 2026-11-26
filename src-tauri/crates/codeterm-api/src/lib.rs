@@ -33,6 +33,7 @@ pub mod chat_history_routes;
 pub(crate) mod cli_rpc_routes;
 mod client_selection_routes;
 pub mod clipboard_routes;
+pub mod cloud_routes;
 pub mod config_routes;
 pub mod cron_routes;
 pub mod debug_routes;

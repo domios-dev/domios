@@ -168,10 +168,13 @@ impl MeshTransport for TransportBridge {
         let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() else {
             return false;
         };
-        let endpoint = endpoint.map(|endpoint| codeterm_mesh::endpoint_gossip::EndpointAddress {
-            tailnet_ip: endpoint.ip().to_string(),
-            api_port: endpoint.port(),
-        });
+        let endpoint =
+            endpoint.map(
+                |endpoint| codeterm_mesh::endpoint_gossip::EndpointAddress::Tailnet {
+                    tailnet_ip: endpoint.ip().to_string(),
+                    api_port: endpoint.port(),
+                },
+            );
         let record = mesh
             .lock()
             .sign_endpoint_record(endpoint, sequence, membership);

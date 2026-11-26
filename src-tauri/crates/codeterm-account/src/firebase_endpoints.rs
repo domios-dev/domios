@@ -46,7 +46,7 @@ pub const PRODUCTION: Endpoints = Endpoints {
     secure_token: "https://securetoken.googleapis.com/v1/",
     functions: "https://us-central1-domios-d9357.cloudfunctions.net/",
     signin: "https://auth.domios.dev/signin/",
-    redeem: "https://us-central1-domios-d9357.cloudfunctions.net/redeemDesktopLoginCode",
+    redeem: "https://auth.domios.dev/api/redeemDesktopLoginCode",
     emulator: false,
     qa: false,
 };

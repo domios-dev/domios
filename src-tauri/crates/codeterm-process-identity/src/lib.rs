@@ -6,6 +6,8 @@ mod platform;
 mod platform;
 
 pub use platform::PinnedProcess;
+#[cfg(windows)]
+pub use platform::ProcessExited;
 
 #[cfg(test)]
 mod artifact_digest;

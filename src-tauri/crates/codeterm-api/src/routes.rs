@@ -654,6 +654,7 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/mesh/ping", get(mesh_routes::mesh_ping))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
+        .merge(super::cloud_routes::router())
         .route(
             "/api/mesh/identity",
             get(crate::account_mesh_routes::machine_identity)

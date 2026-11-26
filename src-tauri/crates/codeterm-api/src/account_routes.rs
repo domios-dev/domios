@@ -26,6 +26,10 @@ pub struct AccountStatusView {
     #[serde(flatten)]
     status: Status,
     login_attempt_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signed_in: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    installation_id: Option<String>,
 }
 
 pub async fn status(
@@ -33,6 +37,28 @@ pub async fn status(
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<AccountStatusView>, Error> {
     admit(caller.as_ref())?;
+    if let Some(cloud) = state
+        .svc
+        .try_ext::<codeterm_neighbors_service::service::cloud_installation::CloudInstallation>(
+    ) {
+        let identity = cloud.identity();
+        return Ok(Json(AccountStatusView {
+            signed_in: Some(identity.is_some()),
+            installation_id: Some(cloud.installation_id().to_owned()),
+            login_attempt_id: None,
+            status: Status {
+                provider: "delegated_cloud".into(),
+                identity,
+                pending: false,
+                session_only: false,
+                session_revoked: false,
+                server_stop_unconfirmed: false,
+                last_sign_in_failure: None,
+                target_mismatch: None,
+                purchases_enabled: false,
+            },
+        }));
+    }
     let (status, attempt) = state
         .svc
         .account()
@@ -46,6 +72,8 @@ pub async fn status(
     Ok(Json(AccountStatusView {
         status: project_status(status, cached),
         login_attempt_id: attempt,
+        signed_in: None,
+        installation_id: None,
     }))
 }
 

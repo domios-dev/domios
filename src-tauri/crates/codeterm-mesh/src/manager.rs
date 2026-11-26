@@ -474,11 +474,8 @@ impl MeshManager {
             .and_then(|link| link.installation_id())
             .and_then(|installation| self.verified_endpoint_record(installation))
         {
-            let endpoint = record.claim.endpoint.as_ref()?;
-            return Some((
-                transport::peer_http_origin(&endpoint.tailnet_ip, endpoint.api_port),
-                Vec::new(),
-            ));
+            let (ip, port) = record.claim.endpoint.as_ref()?.tailnet()?;
+            return Some((transport::peer_http_origin(ip, port), Vec::new()));
         }
         let mut addresses = types::sanitize_addresses(&peer.addresses);
         addresses.sort_by_key(types::address_tier);

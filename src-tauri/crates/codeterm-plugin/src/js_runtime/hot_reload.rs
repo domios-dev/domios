@@ -42,6 +42,7 @@ pub use codeterm_plugins::snapshot_contracts::PluginLoadError;
 
 #[derive(Clone)]
 pub struct CapabilityRegistries {
+    pub cloud_machine_provider: Arc<crate::cloud_machine_provider::CloudProviderRegistry>,
     pub decision_model:
         Arc<crate::capability::CapabilityRegistry<dyn codeterm_decision::DecisionModel>>,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
@@ -85,6 +86,14 @@ impl CapabilityRegistries {
             self.deregister_plugin(id);
         }
         vm.activate_binary_transfers();
+        if caps.cloud_machine_provider && super::has_method(vm, "cloudMachineProvider") {
+            self.cloud_machine_provider.register(
+                id.clone(),
+                Arc::new(super::cloud_machine_provider::JsCloudProvider::new(
+                    vm.clone(),
+                )),
+            );
+        }
         if caps.transcriber {
             let transcriber = Arc::new(
                 super::JsTranscriber::new(vm.clone(), id.clone()).with_dictation(caps.dictation),
@@ -263,6 +272,7 @@ impl CapabilityRegistries {
     }
 
     fn deregister_common(&self, id: &str) {
+        self.cloud_machine_provider.unregister(id);
         super::host_transfer::deactivate(id);
         crate::media_delivery::revoke_plugin(id);
         self.decision_model.unregister(id);

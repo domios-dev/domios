@@ -143,7 +143,32 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                             } else {
                                 "Connecting automatically"
                             };
-                            println!("  {name} ({id}): {status}");
+                            let cloud_suffix = row
+                                .get("cloud")
+                                .filter(|c| c.is_object())
+                                .map(|c| {
+                                    format!(" [{}]", mesh_cli::cloud::format_cloud_cost_badge(c))
+                                })
+                                .unwrap_or_default();
+                            println!("  {name} ({id}): {status}{cloud_suffix}");
+                        }
+                    }
+                    if let Some(clouds) = val
+                        .get("cloud_machines")
+                        .and_then(|rows| rows.as_array())
+                        .filter(|rows| !rows.is_empty())
+                    {
+                        println!(
+                            "Cloud machines ({} — these machines cost money while awake):",
+                            clouds.len()
+                        );
+                        for cloud in clouds {
+                            let cname = cloud["name"].as_str().unwrap_or("?");
+                            let cid = cloud["machine_id"].as_str().unwrap_or("?");
+                            println!(
+                                "  {cname} ({cid}): {}",
+                                mesh_cli::cloud::format_cloud_cost_badge(cloud)
+                            );
                         }
                     }
                 }
@@ -310,6 +335,9 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         MeshAction::Offline => set_mesh_enabled(&http, &base, &token, false, json),
         MeshAction::Online => set_mesh_enabled(&http, &base, &token, true, json),
         MeshAction::Remove { machine } => remove_mesh_machine(&http, &base, &token, &machine, json),
+        MeshAction::Cloud { action } => {
+            mesh_cli::cloud::handle_cloud(&http, &base, &token, json, action)
+        }
     }
 }
 

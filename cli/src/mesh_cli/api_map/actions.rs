@@ -801,10 +801,16 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             authorized_gates,
             provider_reserve_pct,
             non_user_facing,
+            cloud,
             unplanned,
             tags: _,
             reason: _,
         } => {
+            if cloud.is_some() {
+                return unsupported(
+                    "--cloud selects a cloud machine on the local controller and cannot be combined with --mesh",
+                );
+            }
             if matches!(location, Some(crate::args::agent::SpawnLocation::Cloud)) || environment.is_some() {
                 return unsupported("Remote task spawning is local-only; run the command on the peer that owns the provider");
             }

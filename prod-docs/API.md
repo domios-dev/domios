@@ -61,6 +61,16 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 | POST | `/api/account/mesh/identity` | `{kind}` | Save as owner, or request owner approval as an authenticated agent |
 | GET | `/api/mesh/identity` | — | Read a paired target's identity through the signed relay |
 | POST | `/api/mesh/identity` | `{kind}` | Save or request owner approval on the paired target through the signed relay |
+| POST | `/api/mesh/cloud/create` | `{provider?, size?, name?, auto_stop_minutes?, labels?}` | Local-only. Create and enroll a cloud machine through a configured provider plugin; enforces per-account cloud limit (`limit_reached`). |
+| GET | `/api/mesh/cloud/list` | — | Local-only. List cloud machines with state, hourly rate estimate, uptime, and limit. |
+| POST | `/api/mesh/cloud/{id}/sleep` | `{}` | Local-only. Run two-phase drain on an idle cloud peer and stop it (`machine_busy` if work runs). |
+| POST | `/api/mesh/cloud/{id}/wake` | `{}` | Local-only. Wake a sleeping cloud machine (concurrent wakes join one wake) and flush held sends in order. |
+| POST | `/api/mesh/cloud/{id}/delete` | `{confirm}` | Local-only. Delete a cloud machine; without `confirm: true` returns `delete_confirmation_required` warning about unpushed work. |
+| POST | `/api/mesh/cloud/resolve` | `{target, provider?, size?, name?}` | Local-only. Resolve reuse-first cloud placement (`auto` reuses awake then wakes asleep, never creates; `new` creates explicitly; `<machine>` targets one). |
+| GET | `/api/mesh/cloud/usage` | — | Local-only. Period uptime summary for BYO cloud machines (managed credits reserved for Tally). |
+| GET | `/api/mesh/cloud/peer/idle` | — | Cloud-peer control route (Full peer access). Reports active turns, background jobs, held sends, attached viewers, and drain state. |
+| POST | `/api/mesh/cloud/peer/drain` | `{}` | Cloud-peer control route (Full peer access). Atomically enters draining iff idle (`machine_busy` otherwise); writes during drain return `machine_sleeping` with `bytes_written: false`. |
+| POST | `/api/mesh/cloud/peer/reopen` | `{}` | Cloud-peer control route (Full peer access). Exits draining state back to open. |
 
 An identity mutation reports `saved` with the identity or `awaiting_owner` with the notification ID.
 
@@ -220,4 +230,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 256 -->
+<!-- revision: 257 -->

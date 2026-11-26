@@ -1,6 +1,7 @@
 mod connection_phases;
 mod endpoint_gossip;
 mod health;
+mod ingress;
 mod refusals;
 mod registry_gossip;
 mod review;
