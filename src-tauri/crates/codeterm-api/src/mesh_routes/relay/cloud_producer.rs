@@ -231,7 +231,6 @@ pub(super) enum OutboundRelayTransport {
     CloudIngress {
         installation_id: String,
         address: Option<SocketAddrV4>,
-        signed_token: String,
         origin: AuthenticatedOrigin,
         agent: Option<AuthenticatedAgent>,
     },
@@ -283,13 +282,12 @@ pub(super) fn resolve_outbound_transport(
             installation_id,
             address,
         } => {
-            let (origin, agent, signed_token) = origin::signed_caller_token(state, headers)?;
+            let (origin, agent) = origin::authenticated_local_caller(state, headers)?;
             (
                 origin,
                 OutboundRelayTransport::CloudIngress {
                     installation_id,
                     address,
-                    signed_token,
                     origin,
                     agent,
                 },
@@ -323,7 +321,6 @@ pub(super) enum ReadyOutboundTransport {
     CloudIngress {
         installation_id: String,
         address: SocketAddrV4,
-        signed_token: String,
         origin: AuthenticatedOrigin,
         agent: Option<AuthenticatedAgent>,
     },
@@ -341,7 +338,6 @@ impl ReadyOutboundTransport {
             OutboundRelayTransport::CloudIngress {
                 installation_id,
                 address,
-                signed_token,
                 origin,
                 agent,
             } => {
@@ -353,7 +349,6 @@ impl ReadyOutboundTransport {
                 Ok(Self::CloudIngress {
                     installation_id,
                     address,
-                    signed_token,
                     origin,
                     agent,
                 })
@@ -372,7 +367,7 @@ impl ReadyOutboundTransport {
                 agent,
                 ..
             } => {
-                let token = origin::sign(state, *origin, agent.as_ref()).ok()?;
+                let token = super::sign_caller(state, *origin, agent.as_ref()).ok()?;
                 let command = RelayCommand {
                     method: "GET".into(),
                     path: "/api/identify".into(),
@@ -422,7 +417,7 @@ impl ReadyOutboundTransport {
                         let origin = *origin;
                         let agent = agent.clone();
                         async move {
-                            let token = origin::sign(&state, origin, agent.as_ref())
+                            let token = super::sign_caller(&state, origin, agent.as_ref())
                                 .map_err(|(_, message)| message)?;
                             send_via_cloud_ingress(
                                 &state,
@@ -458,9 +453,30 @@ impl ReadyOutboundTransport {
             Self::CloudIngress {
                 installation_id,
                 address,
-                signed_token,
-                ..
+                origin,
+                agent,
             } => {
+                let sign_state = state.clone();
+                let signed_token = tokio::task::spawn_blocking(move || {
+                    super::sign_caller(&sign_state, origin, agent.as_ref())
+                })
+                .await
+                .map_err(|error| {
+                    relay_failure(
+                        StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                        codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
+                        Some(false),
+                        error.to_string(),
+                    )
+                })?
+                .map_err(|(status, message)| {
+                    relay_failure(
+                        status.as_u16(),
+                        codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
+                        Some(false),
+                        message,
+                    )
+                })?;
                 send_via_cloud_ingress(state, address, &installation_id, cmd.clone(), signed_token)
                     .await
                     .map_err(|err| {

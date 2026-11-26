@@ -11,7 +11,7 @@ mod capability;
 mod cloud_producer;
 mod cloud_wake;
 mod observation_limit;
-mod origin;
+pub(crate) mod origin;
 mod peer_asset;
 mod peer_rail;
 mod peer_stream;
@@ -34,6 +34,7 @@ pub use sync::mesh_sync;
 #[cfg(test)]
 use sync::{sync_input_for_access, sync_output_for_access};
 
+pub(crate) use origin::sign as sign_caller;
 pub(super) use origin::{authenticate_signed_mesh_request, SignedMeshRequest};
 
 /// Verify relay sender: must be paired. Paired = trusted.
@@ -915,38 +916,32 @@ async fn perform_relay_unredacted(
     tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, sender_id, &sender_name);
     tag_relay_notification_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 
-    log::debug!(
-        "[mesh/relay] branch=loopback method={} path={} source={sender_name}",
-        cmd.method,
-        cmd.path
-    );
-    let request = if sender_id == "local" {
+    let auth_header = if sender_id == "local" {
         let loopback_state = state.clone();
-        let loopback_cmd = cmd.clone();
         let loopback_agent = agent.cloned();
-        tokio::task::spawn_blocking(move || {
-            origin::loopback_request(
-                &loopback_state,
-                origin,
-                &loopback_cmd,
-                &body,
-                loopback_agent.as_ref(),
-            )
+        let token = tokio::task::spawn_blocking(move || {
+            origin::sign(&loopback_state, origin, loopback_agent.as_ref())
         })
         .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
+        format!("Bearer {token}").parse().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid signed authorization".into(),
+            )
+        })?
     } else if let Some(authorization) = authorization {
-        origin::loopback_request_with_auth(state, cmd, &body, authorization.clone())?
+        authorization.clone()
     } else {
         return Ok((grant_refusal(), true));
     };
+    let forward_target = origin::build_local_forward(state, cmd, &body, auth_header, &sender_name)?;
     if admitted_grant
         .as_ref()
         .is_some_and(|grant| !grant.current(&state.mesh.lock()))
     {
         return Ok((grant_refusal(), true));
     }
-    let client = local_forward_http_client()?;
 
     let observation =
         codeterm_service_core::api_support::access_policy::is_observation(&cmd.method, &cmd.path);
@@ -961,19 +956,19 @@ async fn perform_relay_unredacted(
     if let Some(refusal) = relay_prewrite_refusal(state, sender_id) {
         return Ok((refusal, true));
     }
-    let resp = match client.execute(request).await {
-        Ok(resp) => resp,
-        Err(error) => return Ok((local_forward_failure(&error), true)),
+    let (status, is_json, result) = match origin::execute_local_forward(
+        forward_target,
+        local_forward_deadline(&cmd.method, &cmd.path),
+    )
+    .await?
+    {
+        origin::LocalForwardOutcome::Response {
+            status,
+            is_json,
+            body,
+        } => (status, is_json, body),
+        origin::LocalForwardOutcome::Failed(failure) => return Ok((failure, true)),
     };
-
-    let status = resp.status().as_u16();
-    let is_json = resp
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-        .is_some_and(|value| value.eq_ignore_ascii_case("application/json"));
-    let result = resp.bytes().await;
     if observation
         && admitted_grant
             .as_ref()

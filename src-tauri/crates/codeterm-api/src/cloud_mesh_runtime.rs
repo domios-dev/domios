@@ -73,6 +73,18 @@ impl DrainAuthorizationPolicy for LiveDrainPolicy {
                 reason: "invalid_outbox_request".into(),
             };
         }
+        if frame.request.caller_context.origin == AuthenticatedOrigin::Agent {
+            let Some(agent) = frame.request.caller_context.agent.as_ref() else {
+                return DrainPolicyDecision::Refuse {
+                    reason: "caller_agent_missing".into(),
+                };
+            };
+            if service.mux.read().get_tab(&agent.tab_id).is_none() {
+                return DrainPolicyDecision::Refuse {
+                    reason: "caller_tab_closed".into(),
+                };
+            }
+        }
         let mesh = self.mesh.lock();
         let account = mesh.account_state();
         if account.signed_in_account() != Some(frame.request.account_id.as_str()) {
@@ -100,18 +112,48 @@ impl DrainAuthorizationPolicy for LiveDrainPolicy {
                 reason: "caller_instance_mismatch".into(),
             };
         }
-        if let Some(peer_id) = mesh.paired_peers.keys().find(|peer_id| {
+        let target_id = frame.request.target_installation_id.as_str();
+        let paired_peer_id = mesh.paired_peers.keys().find(|peer_id| {
             mesh.link_record(peer_id)
                 .and_then(|record| record.installation_id())
-                == Some(frame.request.target_installation_id.as_str())
-        }) {
-            if !mesh.traffic_open(peer_id) {
-                return DrainPolicyDecision::Defer {
+                == Some(target_id)
+        });
+        let Some(peer_id) = paired_peer_id else {
+            let excluded_by_registry = account
+                .registry_members
+                .as_ref()
+                .is_some_and(|members| !members.contains_key(target_id));
+            let unpaired_in_inventory = !mesh.account_installations.is_empty()
+                && !mesh
+                    .account_installations
+                    .iter()
+                    .any(|row| row.active && !row.signed_out && row.installation_id == target_id);
+            return if excluded_by_registry || unpaired_in_inventory {
+                DrainPolicyDecision::Refuse {
+                    reason: "target_unpaired_or_revoked".into(),
+                }
+            } else {
+                DrainPolicyDecision::Defer {
+                    reason: "target_peer_not_paired".into(),
+                }
+            };
+        };
+        match mesh.traffic_decision(peer_id) {
+            codeterm_mesh::account_mesh::gate::TrafficDecision::Open => DrainPolicyDecision::Allow,
+            codeterm_mesh::account_mesh::gate::TrafficDecision::Blocked(
+                codeterm_mesh::account_mesh::gate::BlockReason::Revoked
+                | codeterm_mesh::account_mesh::gate::BlockReason::KeyMismatch
+                | codeterm_mesh::account_mesh::gate::BlockReason::OtherAccount
+                | codeterm_mesh::account_mesh::gate::BlockReason::NoProvenance,
+            ) => DrainPolicyDecision::Refuse {
+                reason: "target_revoked".into(),
+            },
+            codeterm_mesh::account_mesh::gate::TrafficDecision::Blocked(_) => {
+                DrainPolicyDecision::Defer {
                     reason: "peer_traffic_closed".into(),
-                };
+                }
             }
         }
-        DrainPolicyDecision::Allow
     }
 }
 
