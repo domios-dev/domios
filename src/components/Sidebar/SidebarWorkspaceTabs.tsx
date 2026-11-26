@@ -177,6 +177,8 @@ export interface SidebarWorkspaceTabsProps {
   onOpenRemoteTab?: () => void;
   newGeneralSessionMenu?: ReactNode;
   newSessionDisabled?: boolean;
+  newSessionTitle?: string;
+  showNewSessionWhenFiltered?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onRenamePlan?: (planId: string, title: string) => Promise<void>;
   onAddTeamMember?: (
@@ -221,6 +223,8 @@ export function SidebarWorkspaceTabs({
   onOpenRemoteTab,
   newGeneralSessionMenu,
   newSessionDisabled = false,
+  newSessionTitle,
+  showNewSessionWhenFiltered = false,
   onRenameTeam,
   onRenamePlan,
   onAddTeamMember,
@@ -549,10 +553,10 @@ export function SidebarWorkspaceTabs({
           {observedRows}
         </div>
       </SortableContext>
-      <div hidden={typeof filter === "object"} className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
+      <div hidden={!showNewSessionWhenFiltered && typeof filter === "object"} className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
         {onNewSession && !ws.cwd_missing && <CursorTooltip
           active={newSessionDisabled}
-          content="Finish Get started first"
+          content={newSessionTitle ?? "Finish Get started first"}
           className="flex min-w-0 flex-1"
         >
           <button
@@ -565,9 +569,11 @@ export function SidebarWorkspaceTabs({
             // The cursor tip is the visual affordance; the control still carries
             // its own explanation, which is what a reader and a test can see.
             title={
-              newSessionDisabled
-                ? "Finish Get started before creating another session"
-                : "New session in this workspace"
+              newSessionTitle ?? (
+                newSessionDisabled
+                  ? "Finish Get started before creating another session"
+                  : "New session in this workspace"
+              )
             }
           >
             <Plus size={10} strokeWidth={1.5} className="shrink-0" />

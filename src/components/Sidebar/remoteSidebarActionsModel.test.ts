@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  remoteObservedTabAllowedMenuIds,
   remotePeerActionEligibility,
   remotePeerStatusLabel,
   remoteTabCloseAction,
   remoteTeamMenuActions,
   remoteWorkspaceCloseAction,
   remoteWorkspaceCreateAction,
+  remoteWorkspaceMenuActions,
   workspaceNameFromPath,
 } from "./remoteSidebarActionsModel";
 import { buildTabMenu, unavailableTabMenu } from "../Terminal/tabMenuModel";
@@ -164,5 +166,62 @@ describe("remote sidebar actions decision model", () => {
     expect(workspaceNameFromPath("/home/user/projects/demo/")).toBe("demo");
     expect(workspaceNameFromPath("C:\\Developer\\domios\\")).toBe("domios");
     expect(workspaceNameFromPath("/")).toBe("Workspace");
+  });
+
+  it("governs remote workspace menu actions (new session, new terminal, rename, close) by peer availability and folder presence", () => {
+    expect(remoteWorkspaceMenuActions({ workspaceProtected: false, cwdMissing: false, availability: "online" })).toEqual({
+      newSession: { visible: true, disabled: false, reason: null },
+      newTerminal: { visible: true, disabled: false, reason: null },
+      renameWorkspace: { visible: true, disabled: false, reason: null },
+      closeWorkspace: { visible: true, disabled: false, reason: null },
+    });
+    expect(remoteWorkspaceMenuActions({ workspaceProtected: false, cwdMissing: true, availability: "online" })).toEqual({
+      newSession: { visible: false, disabled: true, reason: null },
+      newTerminal: { visible: false, disabled: true, reason: null },
+      renameWorkspace: { visible: true, disabled: false, reason: null },
+      closeWorkspace: { visible: true, disabled: false, reason: null },
+    });
+    for (const [availability, label] of UNAVAILABLE_STATES) {
+      expect(remoteWorkspaceMenuActions({ workspaceProtected: false, availability })).toEqual({
+        newSession: { visible: true, disabled: true, reason: label },
+        newTerminal: { visible: true, disabled: true, reason: label },
+        renameWorkspace: { visible: true, disabled: true, reason: label },
+        closeWorkspace: { visible: true, disabled: true, reason: label },
+      });
+    }
+  });
+
+  it("keeps rename, restart, stop, and close operable on online observed remote tabs without opening them", () => {
+    const standard = buildTabMenu({
+      tab: remoteTab({ agent_session_id: "sess-1", agent_state: { state: "working", status_line: "Working" } }),
+      surface: "sidebar",
+      status: "Working",
+      descriptor: null,
+      descriptors: [],
+      activity: null,
+      orchestrators: [],
+      canRename: true,
+      canClose: true,
+      pluginTabMenu: { items: [], receiverTargets: {} },
+      telegramThread: null,
+    });
+    const observedOnline = unavailableTabMenu(standard, "Open this tab to use its actions.", {
+      allowClose: true,
+      allowIds: remoteObservedTabAllowedMenuIds(true),
+    });
+    for (const id of ["rename", "restart", "stop", "close"]) {
+      const entry = observedOnline.find(item => item.id === id);
+      expect(entry?.kind === "item" && entry.action).not.toBeNull();
+      expect(entry?.kind === "item" && entry.unavailable).toBeUndefined();
+    }
+    const observedOffline = unavailableTabMenu(standard, "offline", {
+      allowClose: false,
+      allowIds: remoteObservedTabAllowedMenuIds(false),
+    });
+    for (const id of ["rename", "restart", "stop", "close"]) {
+      const entry = observedOffline.find(item => item.id === id);
+      expect(entry?.kind === "item" && entry.action).toBeNull();
+      expect(entry?.kind === "item" && entry.unavailable).toBe(true);
+    }
   });
 });

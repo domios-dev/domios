@@ -1,6 +1,8 @@
 import { createNoticePublisher } from "../../lib/notices";
 import { describeError } from "../../lib/describeError";
 import { useMultiplexer } from "../../store/multiplexer/hooks";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
+import { findObservedTabOwnerWorkspaceId } from "../Sidebar/remoteWorkspaceManagement";
 import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
@@ -139,6 +141,7 @@ export function TabTopBar({
   const [renaming, setRenaming] = useState(false);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
   const { upsertToast } = useMultiplexer();
+  const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
   const liveTranscript = useLiveTranscriptHost();
   const menuTab = tabMenu?.tab ?? null;
   const titleTab = shellTab ?? menuTab;
@@ -247,12 +250,16 @@ export function TabTopBar({
     if (action.type === "close") {
       void (async () => {
         if (!tabMenu?.onClose) return;
-        if (!workspaceId) {
+        const remote = parseCompositeTabId(tabId);
+        if (!workspaceId && !remote) {
           reportFailure(new Error("Could not read Blueprint close inventory: workspace unavailable."), "closing this tab");
           return;
         }
         try {
-          const running = await readTabCloseBlueprints(workspaceId, tabId);
+          const ownerWorkspaceId = remote
+            ? menuTab?.remote_workspace_id ?? shellTab?.remote_workspace_id ?? findObservedTabOwnerWorkspaceId(tabId, peerWorkspaces, generals)
+            : undefined;
+          const running = await readTabCloseBlueprints(workspaceId ?? "", tabId, ownerWorkspaceId);
           if (running.length > 0) setCloseBlueprints(running);
           else tabMenu.onClose?.();
         } catch (error) {

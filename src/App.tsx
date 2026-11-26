@@ -75,10 +75,14 @@ import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdatePanelProvider } from "./hooks/useUpdatePanel";
 import { UpdateProvider } from "./hooks/useUpdate";
 import { usePluginActivity } from "./lib/usePluginActivity";
+import { createNoticePublisher } from "./lib/notices";
+import { useWorkspaceBrowseTarget } from "./lib/workspaceBrowseTarget";
+import { resolveRemoteWorkspaceForShortcut, useRemoteWorkspaceManagement } from "./components/Sidebar/remoteWorkspaceManagement";
 import {
   MultiplexerProvider,
   useMultiplexer,
   useMuxSelector,
+  usePairedWorkspaceInventory,
 } from "./store/multiplexer";
 import { appShellStateEqual } from "./store/multiplexer/selectors";
 import type { ExtendedState } from "./store/multiplexer/tree";
@@ -317,6 +321,7 @@ function AppInner() {
   const {
     createWorkspace,
     createTab,
+    attachRemoteTab,
     closeTab,
     reopenClosed,
     setFocusedTab,
@@ -331,7 +336,16 @@ function AppInner() {
     answerNotification,
     dismissToast,
     spawnClaudeTab,
+    upsertToast,
   } = useMultiplexer();
+  const browseTarget = useWorkspaceBrowseTarget();
+  const { generals: pairedGenerals, peerWorkspaces, refreshPeerInventory } = usePairedWorkspaceInventory();
+  const generalWorkspaceId = useMemo(() => state.workspaces.find((workspace) => workspace.protected)?.id ?? null, [state.workspaces]);
+  const remoteWorkspace = useRemoteWorkspaceManagement({
+    availabilityForPeer: useCallback((peerId: string) => pairedGenerals.find((peer) => peer.peerId === peerId)?.availability, [pairedGenerals]),
+    machineNameForPeer: useCallback((peerId: string) => pairedGenerals.find((peer) => peer.peerId === peerId)?.name ?? browseTarget?.name ?? "Machine", [pairedGenerals, browseTarget?.name]),
+    generalWorkspaceId, attachRemoteTab, refreshPeerInventory, notify: useMemo(() => createNoticePublisher({ upsertToast }), [upsertToast]),
+  });
   useEffect(() => {
     if (IS_WEB && !configLoading) void emitFeatureUsed(localJson, "web_ui_opened");
   }, [configLoading]);
@@ -656,11 +670,16 @@ function AppInner() {
   const canvasFocusTarget = useCanvasFocusTarget();
   const handleNewTab = useCallback(() => {
     if (lockedRef.current) return;
+    if (browseTarget) {
+      const target = resolveRemoteWorkspaceForShortcut(browseTarget.id, activeTab, peerWorkspaces);
+      if (target) void remoteWorkspace.createRemoteTerminalTab(target.peerId, target.workspace.id, target.workspace.cwd);
+      return;
+    }
     if (!activeWs) return;
     const focusedTab = state.focused_tab_id ? state.tabs[state.focused_tab_id] : null;
     const cwd = focusedTab?.cwd || undefined;
     createTab(activeWs.id, cwd);
-  }, [activeWs, state.focused_tab_id, state.tabs, createTab]);
+  }, [browseTarget, activeTab, peerWorkspaces, remoteWorkspace, activeWs, state.focused_tab_id, state.tabs, createTab]);
 
   const handleCloseCurrentTab = useCallback(() => {
     if (lockedRef.current) return;

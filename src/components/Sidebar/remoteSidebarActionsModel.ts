@@ -11,6 +11,13 @@ export interface RemoteTeamMenuDecision {
   closeTeam: RemoteActionDecision;
 }
 
+export interface RemoteWorkspaceMenuDecision {
+  newSession: RemoteActionDecision;
+  newTerminal: RemoteActionDecision;
+  renameWorkspace: RemoteActionDecision;
+  closeWorkspace: RemoteActionDecision;
+}
+
 export function remotePeerStatusLabel(availability: GeneralAvailability | undefined): string {
   switch (availability) {
     case "online":
@@ -53,6 +60,34 @@ export function remoteWorkspaceCloseAction(
   if (workspaceProtected) return { visible: false, disabled: true, reason: null };
   const eligibility = remotePeerActionEligibility(availability);
   return { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason };
+}
+
+export function remoteWorkspaceMenuActions({
+  workspaceProtected,
+  cwdMissing = false,
+  availability,
+}: {
+  workspaceProtected: boolean;
+  cwdMissing?: boolean;
+  availability?: GeneralAvailability;
+}): RemoteWorkspaceMenuDecision {
+  const eligibility = remotePeerActionEligibility(availability);
+  const spawnAction: RemoteActionDecision = cwdMissing
+    ? { visible: false, disabled: true, reason: null }
+    : { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason };
+  const closeWorkspace = remoteWorkspaceCloseAction(workspaceProtected, availability);
+  return {
+    newSession: spawnAction,
+    newTerminal: spawnAction,
+    renameWorkspace: workspaceProtected
+      ? { visible: false, disabled: true, reason: null }
+      : { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason },
+    closeWorkspace,
+  };
+}
+
+export function remoteObservedTabAllowedMenuIds(canOperate: boolean): readonly string[] {
+  return canOperate ? ["rename", "restart", "stop", "close"] : [];
 }
 
 export function remoteTeamMenuActions({

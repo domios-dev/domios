@@ -97,7 +97,14 @@ export function reconcileAttachedRemoteTabs(
 ): Record<string, Tab> {
   const tabs = { ...attached, ...live };
   for (const [id, attachment] of Object.entries(attached)) {
-    if (live[id]) tabs[id] = { ...live[id], workspace_id: attachment.workspace_id };
+    if (live[id]) {
+      const remoteWorkspaceId = live[id].remote_workspace_id ?? attachment.remote_workspace_id;
+      tabs[id] = {
+        ...live[id],
+        workspace_id: attachment.workspace_id,
+        ...(remoteWorkspaceId ? { remote_workspace_id: remoteWorkspaceId } : {}),
+      };
+    }
   }
   return tabs;
 }
@@ -142,6 +149,7 @@ export function projectAttachedRemoteTab(
   workspaceId: string,
 ): Tab {
   const ordinaryId = `mesh:${peer.peer_id}/${source.id}`;
+  const remoteWorkspaceId = source.remote_workspace_id ?? source.workspace_id ?? undefined;
   return {
     ...source,
     id: ordinaryId,
@@ -152,6 +160,7 @@ export function projectAttachedRemoteTab(
     remote_peer_name: peer.peer_name,
     remote_tab_id: source.id,
     remote_team_id: source.team_id ?? source.ownership?.team?.id,
+    ...(remoteWorkspaceId ? { remote_workspace_id: remoteWorkspaceId } : {}),
     remote_channels: { control: "available", output: "available", chat: "available" },
     ownership: undefined,
     parent_tab_id: null,

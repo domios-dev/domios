@@ -9,25 +9,31 @@ import { LOCAL_MACHINE_ID } from "../../lib/machinePlacement";
 import { useMachinePlacementInventory } from "../shared/useMachinePlacementInventory";
 import { MachinePlacementMenu } from "../shared/MachinePlacement";
 import { useMultiplexer } from "../../store/multiplexer/hooks";
+import type { PairedGeneral } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { remotePeerActionEligibility } from "./remoteSidebarActionsModel";
 import { SidebarWorkspaceTabs, type SidebarWorkspaceTabsProps } from "./SidebarWorkspaceTabs";
-import { setSidebarMachineFilter } from "./sidebarMachineFilter";
+import { setSidebarMachineFilter, useSidebarMachineFilter } from "./sidebarMachineFilter";
 
 interface GeneralWorkspaceTabsProps extends Omit<SidebarWorkspaceTabsProps, "onNewSession" | "onOpenRemoteTab" | "newGeneralSessionMenu"> {
   providerId?: string;
   generalCwd: string | null;
+  viewedPeer?: PairedGeneral | null;
 }
 
 export function GeneralWorkspaceTabs({
   providerId,
   generalCwd,
+  viewedPeer = null,
   newSessionDisabled,
   ...props
 }: GeneralWorkspaceTabsProps) {
   const inventory = useMachinePlacementInventory();
+  const machineFilter = useSidebarMachineFilter();
   const { spawnAgentTab, selectTabByTab, upsertToast } = useMultiplexer();
   const createOnMachine = useCallback(async (machineId: string) => {
     const machine = inventory.choices?.find((choice) => choice.id === machineId);
     if (!machine || machine.unavailableReason || newSessionDisabled || (machine.local && !generalCwd)) return;
+    const stayOnPeer = typeof machineFilter === "object" && machineFilter.peerId === machine.id;
     try {
       const created = await spawnAgentTab(
         props.workspace.id,
@@ -42,7 +48,7 @@ export function GeneralWorkspaceTabs({
         undefined,
         machine.local ? undefined : machine.id,
         undefined,
-        machine.local ? undefined : () => setSidebarMachineFilter("all"),
+        machine.local || stayOnPeer ? undefined : () => setSidebarMachineFilter("all"),
       );
       if (created && machine.local) await selectTabByTab(created.workspaceId, created.tabId).catch(() => {});
     } catch (error) {
@@ -57,7 +63,7 @@ export function GeneralWorkspaceTabs({
         severity: "Error",
       });
     }
-  }, [generalCwd, inventory.choices, newSessionDisabled, props.workspace.id, providerId, selectTabByTab, spawnAgentTab, upsertToast]);
+  }, [generalCwd, inventory.choices, machineFilter, newSessionDisabled, props.workspace.id, providerId, selectTabByTab, spawnAgentTab, upsertToast]);
 
   const machineMenu = <MachinePlacementMenu
     choices={inventory.choices}
@@ -74,12 +80,30 @@ export function GeneralWorkspaceTabs({
       <MonitorUp size={12} strokeWidth={1.5} />
     </button>}
   />;
+  const viewedPeerEligibility = viewedPeer ? remotePeerActionEligibility(viewedPeer.availability) : null;
 
   return <SidebarWorkspaceTabs
     {...props}
-    newSessionDisabled={newSessionDisabled || !generalCwd}
-    newGeneralSessionMenu={machineMenu}
+    showNewSessionWhenFiltered={Boolean(viewedPeer)}
+    newSessionDisabled={newSessionDisabled || (viewedPeer ? !viewedPeerEligibility?.allowed : !generalCwd)}
+    newSessionTitle={viewedPeer
+      ? viewedPeerEligibility?.allowed
+        ? `New General session on ${viewedPeer.name}`
+        : `New session unavailable: ${viewedPeerEligibility?.reason ?? "offline"}`
+      : undefined}
+    newGeneralSessionMenu={viewedPeer ? undefined : machineMenu}
     onNewSession={() => {
+      if (viewedPeer) {
+        if (newSessionDisabled || !viewedPeerEligibility?.allowed) return;
+        openNewSessionPicker({
+          workspaceId: props.workspace.id,
+          workspaceCwd: null,
+          section: "general",
+          remotePeerId: viewedPeer.peerId,
+          remoteMachineName: viewedPeer.name,
+        });
+        return;
+      }
       if (newSessionDisabled || !generalCwd) return;
       openNewSessionPicker({ workspaceId: props.workspace.id, workspaceCwd: generalCwd, initialProviderId: providerId, section: "general" });
     }}

@@ -32,7 +32,7 @@ import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { managedByLabel } from "./remoteOwnership";
-import { remoteTabCloseAction } from "./remoteSidebarActionsModel";
+import { remoteObservedTabAllowedMenuIds, remoteTabCloseAction } from "./remoteSidebarActionsModel";
 import { RemoteMachineSummary, RemoteTabIcon, RemoteTabMachineGlyph, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
 import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { managedTabPresentation } from "../../lib/managedTab";
@@ -404,7 +404,10 @@ function TabItemInner({
   const menuEntries = remote && remoteClose?.disabled && remoteClose.reason
     ? unavailableTabMenu(standardMenu, remoteClose.reason, { allowClose: false })
     : readOnly
-      ? unavailableTabMenu(standardMenu, "Open this tab to use its actions.", { allowClose: true })
+      ? unavailableTabMenu(standardMenu, "Open this tab to use its actions.", {
+          allowClose: true,
+          allowIds: remote ? remoteObservedTabAllowedMenuIds(!remoteClose?.disabled) : undefined,
+        })
       : standardMenu;
 
   const runMenuAction = (action: TabMenuAction) => {
@@ -548,7 +551,7 @@ function TabItemInner({
             data-testid="tab-title"
             className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${remoteStateLabel ? "text-[var(--ct-fg)]/60" : attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-semibold" : ""} ${lockedDimClass(lock)}`}
             onDoubleClick={(e) => {
-              if (readOnly || tab?.protected) return; // Main is unrenameable
+              if ((readOnly && (!remote || remoteClose?.disabled || !_onRename)) || tab?.protected) return;
               e.stopPropagation();
               setEditName(canonicalTitle);
               setEditing(true);
