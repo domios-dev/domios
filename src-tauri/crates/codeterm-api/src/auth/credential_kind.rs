@@ -23,9 +23,19 @@ pub(super) fn presented_kind(token: &str) -> &'static str {
     "bearer"
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum MeshRefusal {
+    NotReady,
     PlanLimitLocked(String),
     Unauthorized(&'static str),
+}
+
+pub(super) fn classify_verify_error(error: &str) -> &'static str {
+    match error {
+        "Request expired" => "clock_skew_expired",
+        "Request timestamp too far in the future" => "clock_skew_future",
+        _ => "unknown_or_invalid_credential",
+    }
 }
 
 pub(super) fn classify_mesh_refusal(state: &crate::routes::AppState, token: &str) -> MeshRefusal {
@@ -34,12 +44,20 @@ pub(super) fn classify_mesh_refusal(state: &crate::routes::AppState, token: &str
         return MeshRefusal::Unauthorized("unknown_or_invalid_credential");
     }
     // Clone keys before Ed25519 verification so refusal storms never hold the mesh mutex.
-    let paired_keys = state.mesh.lock().paired_identity_keys();
-    let Ok(peer) = codeterm_service_core::mesh::crown::verify_signed_request(token, &paired_keys)
-    else {
-        return MeshRefusal::Unauthorized("unknown_or_invalid_credential");
+    let (account_ready, paired_keys) = {
+        let mesh = state.mesh.lock();
+        (mesh.is_account_ready(), mesh.paired_identity_keys())
+    };
+    if !account_ready {
+        return MeshRefusal::NotReady;
+    }
+    let peer = match codeterm_service_core::mesh::crown::verify_signed_request(token, &paired_keys)
+    {
+        Ok(peer) => peer,
+        Err(error) => return MeshRefusal::Unauthorized(classify_verify_error(&error)),
     };
     match state.mesh.lock().traffic_decision(&peer) {
+        TrafficDecision::Blocked(BlockReason::AccountPending) => MeshRefusal::NotReady,
         TrafficDecision::Blocked(BlockReason::PlanLimitLocked) => {
             MeshRefusal::PlanLimitLocked(peer)
         }

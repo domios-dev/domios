@@ -263,7 +263,7 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
             return;
           }
           if (decision === "wait" && end.reason === "http" && ((end.status ?? 0) >= 400 && (end.status ?? 0) < 500 || end.status === 503)) {
-            const step = source.backoff.recordRefusal();
+            const step = source.backoff.recordRefusal(end.retryAfterMs);
             scheduleRetry(source, step.delayMs);
           }
         },

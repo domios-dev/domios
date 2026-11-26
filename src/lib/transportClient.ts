@@ -5,6 +5,7 @@ import { withRestRequestSignal } from "./restTimeoutPolicy";
 import { createStartupLoading, startingSubsystem } from "./startupLoading";
 import { createStartupMutations, startupMutationKey } from "./startupMutations";
 import { MUX_REQUEST_TIMEOUT, MUX_CAPACITY_WAIT, type MuxRequestInit } from "./streamMuxRequestModel";
+import { parseRetryAfterMs } from "./peerStreamBackoff";
 
 export const streamClientId = uid();
 export const browserFetch: NonNullable<TransportOptions["fetch"]> = (input, init) => {
@@ -30,6 +31,7 @@ export interface StreamEnd {
   reason: "eof" | "http" | "error" | "abort" | "capacity";
   bytes?: number;
   status?: number;
+  retryAfterMs?: number;
   error?: unknown;
 }
 
@@ -44,7 +46,12 @@ export interface TransportClient {
 }
 
 export class TransportError extends Error {
-  constructor(public status: number, public path: string, public body: string) {
+  constructor(
+    public status: number,
+    public path: string,
+    public body: string,
+    public retryAfterMs?: number,
+  ) {
     super(`${path} → HTTP ${status}: ${body.slice(0, 300)}`);
     this.name = "WebApiError";
   }
@@ -205,7 +212,14 @@ export function createTransportClient(options: TransportOptions): TransportClien
               response = await fetchStream();
             }
           }
-          if (!response.ok) throw new TransportError(response.status, path, await response.text());
+          if (!response.ok) {
+            throw new TransportError(
+              response.status,
+              path,
+              await response.text(),
+              parseRetryAfterMs(response.headers.get("retry-after")),
+            );
+          }
           if (init.requireEventStream && response.headers.get("content-type")?.split(";")[0] !== "text/event-stream") {
             await response.body?.cancel();
             throw new Error("Daemon response is not an event stream");
@@ -236,7 +250,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
           else {
             end = error instanceof SseCapacityError ? { reason: "capacity", bytes: error.bytes }
               : error instanceof TransportError && !("retryable" in error && error.retryable === true)
-              ? { reason: "http", status: error.status, error }
+              ? { reason: "http", status: error.status, retryAfterMs: error.retryAfterMs, error }
               : { reason: "error", error };
             if (error instanceof SseCapacityError && !init.onEnd) {
               if (options.onStreamError) options.onStreamError(error);

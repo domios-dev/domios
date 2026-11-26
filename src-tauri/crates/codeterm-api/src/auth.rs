@@ -391,7 +391,59 @@ pub(crate) fn authenticated_request(
 fn plan_limit_locked_peer(state: &AppState, token: &str) -> Option<String> {
     match credential_kind::classify_mesh_refusal(state, token) {
         credential_kind::MeshRefusal::PlanLimitLocked(peer_id) => Some(peer_id),
-        credential_kind::MeshRefusal::Unauthorized(_) => None,
+        credential_kind::MeshRefusal::NotReady | credential_kind::MeshRefusal::Unauthorized(_) => {
+            None
+        }
+    }
+}
+
+const MESH_NOT_READY_RETRY_AFTER_SECS: &str = "2";
+
+pub(super) fn mesh_not_ready_response() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(
+            axum::http::header::RETRY_AFTER,
+            MESH_NOT_READY_RETRY_AFTER_SECS,
+        )],
+        axum::Json(serde_json::json!({
+            "ok": false,
+            "error": {
+                "code": "mesh_not_ready",
+                "message": "Mesh admission is still loading; retry shortly",
+            }
+        })),
+    )
+        .into_response()
+}
+
+fn log_mesh_not_ready(
+    method: &Method,
+    path: &str,
+    remote_address: Option<SocketAddr>,
+    kind: &str,
+    suppressed: u64,
+) {
+    let remote = remote_address
+        .map(|address| address.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    if suppressed > 0 {
+        log::warn!(
+            "[auth-503] {} {} remote={} credential_kind={} reason=mesh_not_ready suppressed={}",
+            method,
+            path,
+            remote,
+            kind,
+            suppressed,
+        );
+    } else {
+        log::warn!(
+            "[auth-503] {} {} remote={} credential_kind={} reason=mesh_not_ready",
+            method,
+            path,
+            remote,
+            kind,
+        );
     }
 }
 
@@ -613,14 +665,21 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .get::<codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener>()
         .is_some();
     if tailnet_listener && path != "/api/health" && tailnet_exempt(&method, &path) {
-        let signed_in = state
-            .mesh
-            .lock()
-            .account_state()
-            .signed_in_account()
-            .is_some();
+        let (account_ready, signed_in) = {
+            let mesh = state.mesh.lock();
+            (
+                mesh.is_account_ready(),
+                mesh.account_state().signed_in_account().is_some(),
+            )
+        };
         let mesh_enabled = state.config.lock().mesh.enabled;
-        if !signed_in || !mesh_enabled {
+        if !mesh_enabled {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response().into();
+        }
+        if !account_ready {
+            return mesh_not_ready_response().into();
+        }
+        if !signed_in {
             return StatusCode::SERVICE_UNAVAILABLE.into_response().into();
         }
     }
@@ -682,16 +741,29 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         }
     }
     let caller = authenticated.map(|(identity, _, _)| identity);
-    if tailnet_listener
-        && state
-            .mesh
-            .lock()
-            .account_state()
-            .signed_in_account()
-            .is_none()
-        && !matches!(caller, Ok(CallerIdentity::Local))
-    {
-        return StatusCode::UNAUTHORIZED.into_response().into();
+    if tailnet_listener && !matches!(caller, Ok(CallerIdentity::Local)) {
+        let (account_ready, signed_out) = {
+            let mesh = state.mesh.lock();
+            (
+                mesh.is_account_ready(),
+                mesh.account_state().signed_in_account().is_none(),
+            )
+        };
+        if !account_ready {
+            let presented = auth.strip_prefix("Bearer ").unwrap_or("");
+            let kind = credential_kind::presented_kind(presented);
+            if kind == "mesh-signature" {
+                if let refusal_log::RefusalLogDecision::Emit { suppressed } =
+                    refusal_log::observe(remote_address, &path, kind, "mesh_not_ready")
+                {
+                    log_mesh_not_ready(&method, &path, remote_address, kind, suppressed);
+                }
+                return mesh_not_ready_response().into();
+            }
+        }
+        if signed_out {
+            return StatusCode::UNAUTHORIZED.into_response().into();
+        }
     }
 
     if let Ok(identity) = &caller {
@@ -787,6 +859,14 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
             let kind = credential_kind::presented_kind(presented);
             let reason = if kind == "mesh-signature" {
                 match credential_kind::classify_mesh_refusal(&state, presented) {
+                    credential_kind::MeshRefusal::NotReady => {
+                        if let refusal_log::RefusalLogDecision::Emit { suppressed } =
+                            refusal_log::observe(remote_address, &path, kind, "mesh_not_ready")
+                        {
+                            log_mesh_not_ready(&method, &path, remote_address, kind, suppressed);
+                        }
+                        return mesh_not_ready_response().into();
+                    }
                     credential_kind::MeshRefusal::PlanLimitLocked(peer_id) => {
                         log::warn!("[auth-403] {method} {path} peer={peer_id} plan_limit_locked");
                         return (

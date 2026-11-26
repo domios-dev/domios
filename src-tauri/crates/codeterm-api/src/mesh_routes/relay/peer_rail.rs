@@ -21,6 +21,7 @@ use crate::{
 };
 
 type Refusal = (StatusCode, String);
+type RailRefusal = (StatusCode, Option<u64>, String);
 type RailKey = (usize, String, String);
 type Rails = HashMap<RailKey, Weak<Rail>>;
 
@@ -34,7 +35,7 @@ static RAILS: LazyLock<Mutex<Rails>> = LazyLock::new(|| Mutex::new(HashMap::new(
 enum Status {
     Opening,
     Open,
-    Closed(Option<Refusal>),
+    Closed(Option<RailRefusal>),
 }
 
 struct Rail {
@@ -104,7 +105,14 @@ pub(super) async fn subscribe(
         match current {
             Status::Opening if status.changed().await.is_ok() => {}
             Status::Open => break,
-            Status::Closed(Some(refusal)) => return Err(refusal),
+            Status::Closed(Some((code, Some(retry_after_ms), message))) => {
+                return Ok(super::peer_stream::refusal_response_with_retry_after(
+                    code,
+                    message,
+                    retry_after_ms,
+                ));
+            }
+            Status::Closed(Some((code, None, message))) => return Err((code, message)),
             _ => {
                 return Err((
                     StatusCode::BAD_GATEWAY,
@@ -163,23 +171,38 @@ async fn drive_rail(
         let response = tokio::time::timeout(SILENCE_DEADLINE, client.open_relay_stream(&path))
             .await
             .map_err(|_| {
-                super::peer_stream::stream_unreachable("Peer rail admission timed out".into())
+                let (code, msg) =
+                    super::peer_stream::stream_unreachable("Peer rail admission timed out".into());
+                (code, None, msg)
             })?
-            .map_err(super::peer_stream::stream_unreachable)?;
+            .map_err(|error| {
+                let (code, msg) = super::peer_stream::stream_unreachable(error);
+                (code, None, msg)
+            })?;
         if !response.status().is_success() {
-            if response.status() == StatusCode::UNAUTHORIZED {
+            let mut retry_after_delay = None;
+            if super::peer_stream_backoff::is_backoff_status(response.status()) {
+                let retry_after_ms = super::peer_stream_backoff::parse_retry_after_ms(
+                    response
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|value| value.to_str().ok()),
+                );
                 let outcome = super::peer_stream_backoff::record_refusal(
                     &mesh,
                     &peer_id,
                     link_nonce.as_deref(),
+                    retry_after_ms,
                 );
+                retry_after_delay = Some(outcome.delay_ms);
                 if outcome.trigger_refresh {
                     svc.spawn_account_mesh_refresh(
                         codeterm_account::account_mesh::EnrollTrigger::Lease,
                     );
                 }
             }
-            return Err(super::peer_stream::stream_refusal(response).await);
+            let (code, msg) = super::peer_stream::stream_refusal(response).await;
+            return Err((code, retry_after_delay, msg));
         }
         super::peer_stream_backoff::record_success(&mesh, &peer_id);
         status.send_replace(Status::Open);
@@ -192,15 +215,20 @@ async fn drive_rail(
             let item = tokio::time::timeout(SILENCE_DEADLINE, stream.next())
                 .await
                 .map_err(|_| {
-                    super::peer_stream::stream_unreachable("Peer rail went silent".into())
+                    let (code, msg) =
+                        super::peer_stream::stream_unreachable("Peer rail went silent".into());
+                    (code, None, msg)
                 })?;
             let Some(chunk) = item else { break };
-            let chunk =
-                chunk.map_err(|error| super::peer_stream::stream_unreachable(error.to_string()))?;
+            let chunk = chunk.map_err(|error| {
+                let (code, msg) = super::peer_stream::stream_unreachable(error.to_string());
+                (code, None, msg)
+            })?;
             for segment in chunk.split_inclusive(|byte| *byte == b'\n') {
                 if buffer.len() + segment.len() > FRAME_LIMIT {
                     return Err((
                         StatusCode::BAD_GATEWAY,
+                        None,
                         "Peer rail frame exceeds its bound".into(),
                     ));
                 }

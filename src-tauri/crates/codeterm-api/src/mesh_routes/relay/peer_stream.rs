@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     extract::{Query, State as AxumState},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use codeterm_neighbors_service::prelude::NeighborsAccountMesh1Ext as _;
 
@@ -43,6 +43,20 @@ pub(super) async fn stream_refusal(response: reqwest::Response) -> (StatusCode, 
         .await
         .unwrap_or_else(|error| format!("Stream refusal could not be read: {error}"));
     (status, message)
+}
+
+pub(super) fn refusal_response_with_retry_after(
+    status: StatusCode,
+    message: String,
+    retry_after_ms: u64,
+) -> Response {
+    let retry_after_secs = retry_after_ms.div_ceil(1_000).max(1);
+    (
+        status,
+        [(header::RETRY_AFTER, retry_after_secs.to_string())],
+        message,
+    )
+        .into_response()
 }
 
 #[derive(serde::Deserialize)]
@@ -184,9 +198,10 @@ pub async fn mesh_relay_stream(
     if let Err(remaining_ms) =
         super::peer_stream_backoff::check_allowed(&state.mesh, &q.peer, link_nonce.as_deref())
     {
-        return Err((
+        return Ok(refusal_response_with_retry_after(
             StatusCode::SERVICE_UNAVAILABLE,
             format!("peer-reconnecting: retry after {remaining_ms}ms"),
+            remaining_ms,
         ));
     }
     if shared {
@@ -205,17 +220,29 @@ pub async fn mesh_relay_stream(
         .await
         .map_err(stream_unreachable)?;
     if !resp.status().is_success() {
-        if resp.status() == StatusCode::UNAUTHORIZED {
+        if super::peer_stream_backoff::is_backoff_status(resp.status()) {
+            let retry_after_ms = super::peer_stream_backoff::parse_retry_after_ms(
+                resp.headers()
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok()),
+            );
             let outcome = super::peer_stream_backoff::record_refusal(
                 &state.mesh,
                 &q.peer,
                 link_nonce.as_deref(),
+                retry_after_ms,
             );
             if outcome.trigger_refresh {
                 state.svc.spawn_account_mesh_refresh(
                     codeterm_account::account_mesh::EnrollTrigger::Lease,
                 );
             }
+            let (status, message) = stream_refusal(resp).await;
+            return Ok(refusal_response_with_retry_after(
+                status,
+                message,
+                outcome.delay_ms,
+            ));
         }
         return Err(stream_refusal(resp).await);
     }

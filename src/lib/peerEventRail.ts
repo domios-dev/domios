@@ -204,7 +204,7 @@ function openPeerLink(
           return;
         }
         if (decision === "wait" && isBackoffStreamEnd(end)) {
-          const step = backoff.recordRefusal();
+          const step = backoff.recordRefusal(end.retryAfterMs);
           scheduleRetry(step.delayMs, step.shouldRefresh);
         }
       },

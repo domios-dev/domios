@@ -1,5 +1,5 @@
 import { describe, expect, finish, it } from "../test/standaloneTest";
-import { computePeerStreamBackoffMs, createPeerStreamBackoff } from "./peerStreamBackoff";
+import { computePeerStreamBackoffMs, createPeerStreamBackoff, parseRetryAfterMs } from "./peerStreamBackoff";
 
 describe("peer stream refusal backoff", () => {
   it("grows exponentially with jitter and caps at the maximum delay", () => {
@@ -56,6 +56,26 @@ describe("peer stream refusal backoff", () => {
     expect(computePeerStreamBackoffMs(1, -5, 1_000, 30_000)).toBe(500);
     expect(computePeerStreamBackoffMs(1, 5, 1_000, 30_000)).toBe(1_000);
     expect(computePeerStreamBackoffMs(1, Number.NaN, 1_000, 30_000)).toBe(750);
+  });
+
+  it("honors Retry-After floors clamped to the cap", () => {
+    expect(parseRetryAfterMs("2")).toBe(2_000);
+    expect(parseRetryAfterMs(" 5 ")).toBe(5_000);
+    expect(parseRetryAfterMs("0")).toBeUndefined();
+    expect(parseRetryAfterMs("bad")).toBeUndefined();
+    expect(parseRetryAfterMs(null)).toBeUndefined();
+
+    let clock = 1_000;
+    const backoff = createPeerStreamBackoff({
+      now: () => clock,
+      random: () => 0,
+      firstMs: 1_000,
+      capMs: 30_000,
+      refreshCooldownMs: 10_000,
+    });
+    expect(backoff.recordRefusal(5_000).delayMs).toBe(5_000);
+    clock += 5_000;
+    expect(backoff.recordRefusal(120_000).delayMs).toBe(30_000);
   });
 });
 
