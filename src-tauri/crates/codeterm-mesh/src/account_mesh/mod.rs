@@ -6,7 +6,7 @@ pub mod protocol;
 pub mod transcript;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use crate::manager::{blocked_message, wait_until_blocked};
 pub use ports::*;

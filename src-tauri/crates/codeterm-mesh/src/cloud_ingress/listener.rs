@@ -124,14 +124,26 @@ pub fn start(
 
 type Socket = WebSocketStream<TcpStream>;
 
+#[derive(Clone, Copy)]
+enum Route {
+    Bootstrap,
+    Enrolled,
+    Recovery,
+}
+
 fn upgrade(
     request: &Request,
     response: Response,
-    enrolled: &mut bool,
+    route: &mut Route,
 ) -> Result<Response, ErrorResponse> {
     let path = request.uri().path_and_query().map(|p| p.as_str());
-    *enrolled = path == Some(super::enrolled::PATH);
-    if *enrolled || path == Some("/cloud/enrollment/v1") {
+    if let Some(selected) = match path {
+        Some(super::enrolled::PATH) => Some(Route::Enrolled),
+        Some(super::renewal_recovery::PATH) => Some(Route::Recovery),
+        Some("/cloud/enrollment/v1") => Some(Route::Bootstrap),
+        _ => None,
+    } {
+        *route = selected;
         return Ok(response);
     }
     let mut refused = ErrorResponse::new(None);
@@ -177,19 +189,33 @@ async fn connection(
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_ENROLLMENT_FRAME_BYTES))
         .max_frame_size(Some(MAX_ENROLLMENT_FRAME_BYTES));
-    let mut enrolled = false;
+    let mut route = Route::Bootstrap;
     let socket = tokio::time::timeout(
         Duration::from_secs(10),
         accept_hdr_async_with_config(
             socket,
-            |req: &Request, res: Response| upgrade(req, res, &mut enrolled),
+            |req: &Request, res: Response| upgrade(req, res, &mut route),
             Some(config),
         ),
     )
     .await
     .map_err(|_| IngressError::Unavailable)?
     .map_err(|_| IngressError::Rejected)?;
-    if enrolled {
+    if matches!(route, Route::Recovery) {
+        let rt = runtime.get().ok_or(IngressError::Rejected)?;
+        if !rt.renewals.enrolled() || !rt.dispatcher.enabled() {
+            return Err(IngressError::Rejected);
+        }
+        return tokio::time::timeout(
+            Duration::from_secs(120),
+            super::renewal_recovery::respond(socket, &rt.mesh, rt.renewals.as_ref(), || {
+                rt.dispatcher.enabled()
+            }),
+        )
+        .await
+        .map_err(|_| IngressError::Unavailable)?;
+    }
+    if matches!(route, Route::Enrolled) {
         return super::enrolled::serve(socket, runtime.get().ok_or(IngressError::Rejected)?).await;
     }
     tokio::time::timeout(
