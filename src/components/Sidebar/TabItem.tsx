@@ -392,7 +392,8 @@ function TabItemInner({
     telegramThread: telegramThread.state,
   }), [activity, canClose, descriptor, lock, observedName, observedPeerId, orchestrators, pluginTabMenu, readOnly, tabState.status, tab, telegramThread.state]);
 
-  const remoteClose = remote
+  // Only an observed peer row closes on the peer; an attached remote row keeps its shared close even offline.
+  const remoteClose = remote && readOnly
     ? remoteTabCloseAction({
         isProtected: tab.protected === true,
         availability: observedMachine?.availability,

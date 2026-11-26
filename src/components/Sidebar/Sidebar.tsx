@@ -483,22 +483,6 @@ export const Sidebar = memo(function Sidebar({
   }, [closeTab]);
 
   const animatedCloseTab = useCallback((wsId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => {
-    const remote = parseCompositeTabId(tabId);
-    if (remote) {
-      const eligibility = remotePeerActionEligibility(availabilityForPeer(remote.peerId));
-      if (!eligibility.allowed) {
-        createNoticePublisher({ upsertToast })({
-          kind: "toast",
-          id: `tab-close-unavailable:${tabId}`,
-          tabId,
-          workspaceId: wsId,
-          title: "Tab close unavailable",
-          detail: `${title || "This tab"} on ${machineNameForPeer(remote.peerId)} cannot be closed while the machine is ${eligibility.reason ?? "offline"}.`,
-          severity: "Error",
-        });
-        return;
-      }
-    }
     void (async () => {
       let running: string[];
       try {
@@ -517,7 +501,26 @@ export const Sidebar = memo(function Sidebar({
       }
       performCloseTab(wsId, tabId);
     })();
-  }, [availabilityForPeer, machineNameForPeer, upsertToast, performCloseTab, state.tabs]);
+  }, [upsertToast, performCloseTab, state.tabs]);
+
+  // An observed peer tab is closed on that peer, so it needs the peer online; attached rows keep the shared close path.
+  const closeObservedTab = useCallback((wsId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => {
+    const remote = parseCompositeTabId(tabId);
+    const eligibility = remote ? remotePeerActionEligibility(availabilityForPeer(remote.peerId)) : null;
+    if (remote && eligibility && !eligibility.allowed) {
+      createNoticePublisher({ upsertToast })({
+        kind: "toast",
+        id: `tab-close-unavailable:${tabId}`,
+        tabId,
+        workspaceId: wsId,
+        title: "Tab close unavailable",
+        detail: `${title || "This tab"} on ${machineNameForPeer(remote.peerId)} cannot be closed while the machine is ${eligibility.reason ?? "offline"}.`,
+        severity: "Error",
+      });
+      return;
+    }
+    animatedCloseTab(wsId, tabId, title, ownerWorkspaceId);
+  }, [animatedCloseTab, availabilityForPeer, machineNameForPeer, upsertToast]);
 
   const requestTeamClose = useCallback(async (workspaceId: string, teamId: string) => {
     const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
@@ -973,7 +976,7 @@ export const Sidebar = memo(function Sidebar({
                         onRenameViewer={(tab, title) => {
                           if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
                         }}
-                        onCloseViewer={(tabId, title, ownerWorkspaceId) => animatedCloseTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
+                        onCloseViewer={(tabId, title, ownerWorkspaceId) => closeObservedTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
                         onCloseTeam={(target) => {
                           const targetKey = selectedWorkspaceKey;
                           void remoteTeamClose.request(target, () => selectedWorkspaceKeyRef.current === targetKey);
