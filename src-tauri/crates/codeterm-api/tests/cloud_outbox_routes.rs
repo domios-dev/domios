@@ -769,3 +769,65 @@ async fn remote_notification_enforces_per_peer_rate_limit_independently() {
     assert_eq!(response_b["ok"], true, "{response_b}");
     assert_eq!(response_b["status"], 200, "{response_b}");
 }
+
+#[tokio::test]
+async fn direct_local_notification_ignores_source_peer_and_still_vets_target_tab() {
+    initialize();
+
+    let (mut mux, agent_tab) = MultiplexerState::new();
+    mux.get_tab_mut(&agent_tab).unwrap().agent_type = Some("fixture-provider".into());
+    let fixture = ServiceFixture::new(mux);
+    let state = peer_state(&fixture, "local-source-peer-test", 0);
+    let app = routes::create_router_with_frontend(state.clone(), None);
+
+    let post_as_local_agent = |body: Value| {
+        let app = app.clone();
+        let tab = agent_tab.clone();
+        async move {
+            let request = Request::builder()
+                .method("POST")
+                .uri("/api/notifications")
+                .header("authorization", "Bearer owner-secret")
+                .header("x-codeterm-tab-id", tab)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            let response = app.oneshot(request).await.unwrap();
+            let status = response.status();
+            let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+            (
+                status,
+                serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null),
+            )
+        }
+    };
+
+    // Caller-supplied source_peer must not bypass vet_target_tab on direct local calls.
+    let (bad_target_status, _) = post_as_local_agent(json!({
+        "title": "Bypass attempt",
+        "source_peer": "forged-peer",
+        "target_tab_id": "nonexistent-tab"
+    }))
+    .await;
+    assert_eq!(bad_target_status, StatusCode::BAD_REQUEST);
+    assert!(state.svc.notif.lock().list(false).is_empty());
+
+    // Caller-supplied source_peer is ignored on direct local calls; peer_name stays None.
+    let (ok_status, created) = post_as_local_agent(json!({
+        "title": "Local notice",
+        "source_peer": "forged-peer"
+    }))
+    .await;
+    assert_eq!(ok_status, StatusCode::OK, "{created}");
+    assert!(created["id"].as_str().is_some(), "{created}");
+
+    let notif = state.svc.notif.lock();
+    let notifs = notif.list(false);
+    assert_eq!(notifs.len(), 1);
+    assert_eq!(notifs[0].title, "Local notice");
+    assert!(
+        notifs[0].peer_name.is_none(),
+        "direct local POST /api/notifications must ignore caller-supplied source_peer"
+    );
+    assert_eq!(notifs[0].tab_id.as_deref(), Some(agent_tab.as_str()));
+}

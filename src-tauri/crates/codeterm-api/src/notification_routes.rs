@@ -73,17 +73,15 @@ pub async fn create_notification(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-        // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
-        if body.source_peer.is_none() {
-            vet_target_tab(body.target_tab_id.as_deref(), |tab| {
-                state.svc.mux.read().resolve_tab_id(tab).is_some()
-            })
-            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-        }
+        vet_target_tab(body.target_tab_id.as_deref(), |tab| {
+            state.svc.mux.read().resolve_tab_id(tab).is_some()
+        })
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        // Direct calls are local-only; ignore any caller-supplied source_peer.
         let origin = codeterm_service_core::service::notification::NotificationOrigin {
             caller_tab_id: crate::tab_routes::caller_tab_header(&headers),
             claimed_tab_id: body.tab_id,
-            peer_name: body.source_peer,
+            peer_name: None,
             target: codeterm_service_core::notification::deep_link::NotificationTarget::from_hints(
                 body.target_tab_id.as_deref(),
                 body.chat_message_id.as_deref(),
