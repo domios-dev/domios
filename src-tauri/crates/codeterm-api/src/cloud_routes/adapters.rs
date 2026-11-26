@@ -318,11 +318,13 @@ impl CloudEnrollmentPort for BakerEnrollmentAdapter {
 
 /// Optional host extension allowing registered-router tests to substitute a
 /// fake `CloudProvisioningPort` without opening a live account-mesh RPC channel.
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 pub struct CloudProvisioningOverride(pub Arc<dyn CloudProvisioningPort>);
 
 /// Optional host extension allowing tests to intercept `publish_direct_endpoint`
 /// without opening a live enrolled cloud channel.
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 pub struct CloudEndpointPublisherOverride(
     pub  Arc<
@@ -640,12 +642,14 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
                 record.machine_id
             ))
         })?;
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(override_pub) = self.state.svc.try_ext::<CloudEndpointPublisherOverride>() {
             return (override_pub.0)(endpoint, installation_id)
                 .await
                 .map_err(CloudError::ProviderUnavailable);
         }
         // Registered-router fake-ingress tests install a connector override without a live TCP peer.
+        #[cfg(any(test, feature = "test-support"))]
         if self
             .state
             .svc

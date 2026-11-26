@@ -1091,6 +1091,11 @@ pub struct MeshConfig {
     pub instance_name: String,
     #[serde(default = "default_cloud_idle_sleep_minutes")]
     pub cloud_idle_sleep_minutes: u32,
+    /// Optional controller-side ceiling (minutes) on continuous awake time without
+    /// an owner-originated interaction. `0` (default) disables the ceiling so long
+    /// autonomous agent runs are bounded by the account spend cap and idle sleep.
+    #[serde(default)]
+    pub cloud_max_awake_without_owner_minutes: u32,
 }
 
 impl Default for MeshConfig {
@@ -1099,6 +1104,7 @@ impl Default for MeshConfig {
             enabled: true,
             instance_name: String::new(),
             cloud_idle_sleep_minutes: default_cloud_idle_sleep_minutes(),
+            cloud_max_awake_without_owner_minutes: 0,
         }
     }
 }

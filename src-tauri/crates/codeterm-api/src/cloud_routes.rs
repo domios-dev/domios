@@ -18,26 +18,30 @@ use serde::Deserialize;
 
 use crate::routes::AppState;
 
+pub use adapters::MeshPeerControlAdapter;
 use adapters::{AccountCloudProvisioningAdapter, BakerEnrollmentAdapter};
-pub use adapters::{
-    CloudEndpointPublisherOverride, CloudProvisioningOverride, MeshPeerControlAdapter,
-};
+#[cfg(any(test, feature = "test-support"))]
+pub use adapters::{CloudEndpointPublisherOverride, CloudProvisioningOverride};
 
-pub(crate) fn register_extensions(builder: &mut codeterm_service_core::service::ExtensionsBuilder) {
-    builder.insert_late::<CloudProvisioningOverride>();
-    builder.insert_late::<CloudEndpointPublisherOverride>();
+pub(crate) fn register_extensions(
+    #[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables))]
+    builder: &mut codeterm_service_core::service::ExtensionsBuilder,
+) {
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        builder.insert_late::<CloudProvisioningOverride>();
+        builder.insert_late::<CloudEndpointPublisherOverride>();
+    }
 }
 
 fn resolve_provisioning(state: &AppState) -> Arc<dyn CloudProvisioningPort> {
-    state
-        .svc
-        .try_ext::<CloudProvisioningOverride>()
-        .map(|ext| Arc::clone(&ext.0))
-        .unwrap_or_else(|| {
-            Arc::new(AccountCloudProvisioningAdapter {
-                svc: state.svc.clone(),
-            })
-        })
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(ext) = state.svc.try_ext::<CloudProvisioningOverride>() {
+        return Arc::clone(&ext.0);
+    }
+    Arc::new(AccountCloudProvisioningAdapter {
+        svc: state.svc.clone(),
+    })
 }
 
 /// Start the home-side per-machine driver for every awake cloud machine owned by this controller.
@@ -64,12 +68,21 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
         };
         u64::from(effective).saturating_mul(60_000)
     });
+    let ceiling_config = state.config.clone();
+    let max_awake_without_owner_ms = Arc::new(move || {
+        let minutes = ceiling_config
+            .lock()
+            .mesh
+            .cloud_max_awake_without_owner_minutes;
+        (minutes > 0).then(|| u64::from(minutes).saturating_mul(60_000))
+    });
     Some(spawn_cloud_idle_driver(
         controller,
         provisioning,
         peer_control,
         Arc::new(TokioIdleTickWaiter),
-        CloudIdleDriverConfig::with_idle_window_reader(idle_window_ms),
+        CloudIdleDriverConfig::with_idle_window_reader(idle_window_ms)
+            .with_max_awake_without_owner_reader(max_awake_without_owner_ms),
     ))
 }
 
@@ -363,24 +376,60 @@ async fn redeem_promo(
     Ok(Json(serde_json::to_value(redeemed).unwrap_or_default()))
 }
 
-async fn peer_idle(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
-    let viewers = crate::stream_census::STREAMS.live_count();
+fn require_peer_control_authority(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    crate::runtime_login::require_permission_authority(state, headers).map_err(
+        |(status, message)| {
+            (
+                status,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "error": {
+                        "code": "peer_control_forbidden",
+                        "message": message,
+                    }
+                })),
+            )
+        },
+    )
+}
+
+fn authorized_viewer_count(state: &AppState) -> usize {
+    let mesh = state.mesh.lock();
+    crate::stream_census::STREAMS.live_count_matching_peers(|peer_id| {
+        mesh.resolve_peer_including_offline(peer_id)
+            .is_ok_and(|peer| {
+                peer.access_level == codeterm_service_core::mesh::types::AccessLevel::Full
+            })
+    })
+}
+
+async fn peer_idle(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_peer_control_authority(&state, &headers)?;
+    let viewers = authorized_viewer_count(&state);
     let snapshot = state.svc.cloud_peer_busy_snapshot(viewers);
     let draining = state.svc.cloud_machines().local_drain_gate().is_draining();
-    Json(serde_json::json!({
+    Ok(Json(serde_json::json!({
         "active_agent_turns": snapshot.active_agent_turns,
         "running_background_jobs": snapshot.running_background_jobs,
         "held_sends": snapshot.held_sends,
         "attached_viewers": snapshot.attached_viewers,
         "idle": snapshot.is_idle(),
         "draining": draining,
-    }))
+    })))
 }
 
 async fn peer_drain(
     AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let viewers = crate::stream_census::STREAMS.live_count();
+    require_peer_control_authority(&state, &headers)?;
+    let viewers = authorized_viewer_count(&state);
     let snapshot = state.svc.cloud_peer_busy_snapshot(viewers);
     let now_ms = state.svc.cloud_machines().now_ms();
     let machine_id = state.mesh.lock().status().instance_id;
@@ -393,9 +442,13 @@ async fn peer_drain(
     Ok(Json(serde_json::to_value(token).unwrap_or_default()))
 }
 
-async fn peer_reopen(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
+async fn peer_reopen(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_peer_control_authority(&state, &headers)?;
     state.svc.cloud_machines().local_drain_gate().reopen();
-    Json(serde_json::json!({ "ok": true, "draining": false }))
+    Ok(Json(serde_json::json!({ "ok": true, "draining": false })))
 }
 
 pub(super) fn router() -> Router<AppState> {

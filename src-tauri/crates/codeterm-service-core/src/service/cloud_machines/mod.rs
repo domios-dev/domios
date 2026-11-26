@@ -1,4 +1,5 @@
 pub mod controller;
+mod controller_idle;
 mod enrichment;
 pub mod held_sends;
 pub mod idle_drain;

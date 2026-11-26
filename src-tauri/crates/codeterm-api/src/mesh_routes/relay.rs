@@ -21,13 +21,21 @@ pub(crate) use cloud_producer::{
     cloud_outbox_announce, resolve_cloud_ingress_address, send_via_cloud_ingress,
 };
 pub use cloud_producer::{
-    CloudIngressConnector, CloudIngressConnectorOverride, CloudIngressSendError,
-    CloudOutboxOverride, CLOUD_NOTIFICATION_RELAY_REFUSED, CLOUD_OUTBOUND_OPERATION_UNSUPPORTED,
+    CloudIngressConnector, CloudIngressSendError, CLOUD_NOTIFICATION_RELAY_REFUSED,
+    CLOUD_OUTBOUND_OPERATION_UNSUPPORTED,
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use cloud_producer::{CloudIngressConnectorOverride, CloudOutboxOverride};
 
-pub(crate) fn register_extensions(builder: &mut codeterm_service_core::service::ExtensionsBuilder) {
-    builder.insert_late::<CloudIngressConnectorOverride>();
-    builder.insert_late::<CloudOutboxOverride>();
+pub(crate) fn register_extensions(
+    #[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables))]
+    builder: &mut codeterm_service_core::service::ExtensionsBuilder,
+) {
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        builder.insert_late::<CloudIngressConnectorOverride>();
+        builder.insert_late::<CloudOutboxOverride>();
+    }
 }
 #[cfg(test)]
 use peer_asset::is_relay_asset_path;
@@ -346,6 +354,12 @@ pub async fn mesh_relay_to_peer(
             cloud_producer::resolve_outbound_transport(state, headers, &target, inbound_only)
         })
         .await?;
+    if request_origin == crate::auth::AuthenticatedOrigin::Owner {
+        state
+            .svc
+            .cloud_machines()
+            .record_owner_interaction(&peer_id);
+    }
     let actor =
         crate::auth::ActorHeaders::authenticated(&identity, request_origin, headers.clone());
     let answered_by = |response| {

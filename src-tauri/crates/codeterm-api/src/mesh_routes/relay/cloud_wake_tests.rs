@@ -281,6 +281,7 @@ fn setup_sleeping_cloud_peer(
             rate_per_hour: None,
             created_at_ms: 1_000,
             last_awake_at_ms: None,
+            last_owner_interaction_at_ms: None,
             accumulated_awake_secs: 0,
             period_start_ms: 1_000,
             lease_id: None,

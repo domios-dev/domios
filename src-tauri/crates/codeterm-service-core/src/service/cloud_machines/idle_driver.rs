@@ -32,6 +32,7 @@ impl IdleTickWaiter for TokioIdleTickWaiter {
 
 pub struct CloudIdleDriverConfig {
     pub idle_window_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    pub max_awake_without_owner_ms: Arc<dyn Fn() -> Option<u64> + Send + Sync>,
     pub lease_renew_lead_ms: u64,
     pub delete_on_stop_billed: bool,
     pub cadence_ms: u64,
@@ -41,10 +42,19 @@ impl CloudIdleDriverConfig {
     pub fn with_idle_window_reader(idle_window_ms: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
         Self {
             idle_window_ms,
+            max_awake_without_owner_ms: Arc::new(|| None),
             lease_renew_lead_ms: DEFAULT_LEASE_RENEW_LEAD_MS,
             delete_on_stop_billed: true,
             cadence_ms: IDLE_DRIVER_CADENCE_MS,
         }
+    }
+
+    pub fn with_max_awake_without_owner_reader(
+        mut self,
+        max_awake_without_owner_ms: Arc<dyn Fn() -> Option<u64> + Send + Sync>,
+    ) -> Self {
+        self.max_awake_without_owner_ms = max_awake_without_owner_ms;
+        self
     }
 }
 
@@ -226,6 +236,7 @@ async fn run_machine_idle_loop(
         }
 
         // Probe busy snapshot over mesh (never Firebase) and evaluate lease renewal / idle sleep.
+        let max_awake_without_owner_ms = (config.max_awake_without_owner_ms)();
         let delay_ms = match peer_control.read_idle(&record).await {
             Ok(busy) => {
                 let idle_window_ms = (config.idle_window_ms)();
@@ -235,6 +246,7 @@ async fn run_machine_idle_loop(
                         busy,
                         idle_window_ms,
                         config.lease_renew_lead_ms,
+                        max_awake_without_owner_ms,
                         config.delete_on_stop_billed,
                         provisioning.as_ref(),
                         peer_control.as_ref(),
@@ -259,7 +271,29 @@ async fn run_machine_idle_loop(
                 log::debug!(
                     "[cloud/idle-driver] mesh read_idle unavailable for {machine_id}: {error}"
                 );
-                cadence_ms
+                match controller
+                    .reconcile_unreachable_lease(
+                        &machine_id,
+                        config.lease_renew_lead_ms,
+                        max_awake_without_owner_ms,
+                        provisioning.as_ref(),
+                        peer_control.as_ref(),
+                    )
+                    .await
+                {
+                    Ok(IdleDecision::BeginTwoPhaseDrain { .. }) => break,
+                    Ok(IdleDecision::ScheduleAt { at_ms, .. }) => {
+                        let now_ms = controller.now_ms();
+                        at_ms.saturating_sub(now_ms).clamp(1, cadence_ms)
+                    }
+                    Ok(IdleDecision::None | IdleDecision::RenewLeaseNow { .. }) => cadence_ms,
+                    Err(reconcile_error) => {
+                        log::warn!(
+                            "[cloud/idle-driver] unreachable lease reconciliation failed for {machine_id}: {reconcile_error}"
+                        );
+                        cadence_ms
+                    }
+                }
             }
         };
 

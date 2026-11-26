@@ -141,11 +141,13 @@ impl CloudIngressConnector for LiveCloudIngressConnector {
 
 /// Optional host extension allowing registered-router tests to substitute a
 /// fake enrolled cloud channel without bypassing any relay guard.
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 pub struct CloudIngressConnectorOverride(pub Arc<dyn CloudIngressConnector>);
 
 /// Optional host extension allowing registered-router tests to bind a test
 /// `CloudOutboxPort` on `ServiceContext` without opening a live ingress socket.
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 pub struct CloudOutboxOverride(pub Arc<dyn CloudOutboxPort>);
 
@@ -157,12 +159,13 @@ pub(crate) async fn send_via_cloud_ingress(
     signed_token: String,
 ) -> Result<RelayResponse, CloudIngressSendError> {
     let route = CloudRoute::Direct(address);
-    let override_connector = state
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(connector) = state
         .svc
         .try_ext::<CloudIngressConnectorOverride>()
-        .map(|ext| Arc::clone(&ext.0));
-    if let Some(connector) = override_connector {
-        connector
+        .map(|ext| Arc::clone(&ext.0))
+    {
+        return connector
             .send_relay(
                 state.mesh.clone(),
                 route,
@@ -170,18 +173,17 @@ pub(crate) async fn send_via_cloud_ingress(
                 command,
                 signed_token,
             )
-            .await
-    } else {
-        LiveCloudIngressConnector
-            .send_relay(
-                state.mesh.clone(),
-                route,
-                installation_id.to_owned(),
-                command,
-                signed_token,
-            )
-            .await
+            .await;
     }
+    LiveCloudIngressConnector
+        .send_relay(
+            state.mesh.clone(),
+            route,
+            installation_id.to_owned(),
+            command,
+            signed_token,
+        )
+        .await
 }
 
 /// Resolves an enrolled cloud peer's direct ingress address from gossiped
@@ -203,13 +205,17 @@ pub(crate) fn resolve_cloud_ingress_address(
 }
 
 pub(crate) fn has_cloud_outbox(state: &AppState) -> bool {
-    state.svc.try_ext::<CloudOutboxOverride>().is_some()
-        || state.svc.try_ext::<CloudIngressHandle>().is_some()
+    #[cfg(any(test, feature = "test-support"))]
+    if state.svc.try_ext::<CloudOutboxOverride>().is_some() {
+        return true;
+    }
+    state.svc.try_ext::<CloudIngressHandle>().is_some()
 }
 
 async fn resolve_cloud_outbox(
     state: &AppState,
 ) -> Result<Arc<dyn CloudOutboxPort>, (StatusCode, String)> {
+    #[cfg(any(test, feature = "test-support"))]
     if let Some(ext) = state.svc.try_ext::<CloudOutboxOverride>() {
         return Ok(Arc::clone(&ext.0));
     }

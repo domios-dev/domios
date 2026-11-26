@@ -55,6 +55,7 @@ pub enum IdleSleepAction {
 pub struct IdlePolicy {
     pub idle_window_ms: u64,
     pub lease_renew_lead_ms: u64,
+    pub max_awake_without_owner_ms: Option<u64>,
     pub sleep_mode: CloudSleepMode,
     pub delete_on_stop_billed: bool,
 }
@@ -81,6 +82,7 @@ pub struct IdleEvalInput {
     pub busy: PeerBusySnapshot,
     pub now_ms: u64,
     pub idle_since_ms: Option<u64>,
+    pub last_owner_interaction_at_ms: Option<u64>,
     pub lease_expires_at_ms: Option<u64>,
     pub exhaustion_pending: bool,
     pub policy: IdlePolicy,
@@ -91,10 +93,12 @@ pub enum IdleDecision {
     None,
     RenewLeaseNow {
         lease_expires_at_ms: u64,
+        idle_since_ms: Option<u64>,
     },
     BeginTwoPhaseDrain {
         action: IdleSleepAction,
         out_of_credits: bool,
+        ceiling_exceeded: bool,
     },
     ScheduleAt {
         at_ms: u64,
@@ -107,6 +111,16 @@ pub fn evaluate_idle_and_renewal(input: IdleEvalInput) -> IdleDecision {
         return IdleDecision::None;
     }
 
+    let ceiling_at = input
+        .policy
+        .max_awake_without_owner_ms
+        .filter(|&limit| limit > 0)
+        .and_then(|limit| {
+            input
+                .last_owner_interaction_at_ms
+                .map(|last| last.saturating_add(limit))
+        });
+
     // Exhaustion path: renewal was refused; finish the prepaid lease, then sleep with files kept.
     if input.exhaustion_pending {
         let action = match input.policy.sleep_action() {
@@ -114,12 +128,16 @@ pub fn evaluate_idle_and_renewal(input: IdleEvalInput) -> IdleDecision {
             action => action,
         };
         if let Some(expires_at) = input.lease_expires_at_ms {
-            if input.now_ms >= expires_at {
+            if input.now_ms >= expires_at
+                || ceiling_at.is_some_and(|ceiling| input.now_ms >= ceiling)
+            {
                 return IdleDecision::BeginTwoPhaseDrain {
                     action,
                     out_of_credits: true,
+                    ceiling_exceeded: false,
                 };
             }
+            let bound = ceiling_at.map_or(expires_at, |c| expires_at.min(c));
             if input.busy.is_idle() {
                 let idle_since = input.idle_since_ms.unwrap_or(input.now_ms);
                 let sleep_at = idle_since.saturating_add(input.policy.idle_window_ms);
@@ -127,36 +145,59 @@ pub fn evaluate_idle_and_renewal(input: IdleEvalInput) -> IdleDecision {
                     return IdleDecision::BeginTwoPhaseDrain {
                         action,
                         out_of_credits: true,
+                        ceiling_exceeded: false,
                     };
                 }
                 return IdleDecision::ScheduleAt {
-                    at_ms: sleep_at.min(expires_at),
+                    at_ms: sleep_at.min(bound),
                     idle_since_ms: Some(idle_since),
                 };
             }
             return IdleDecision::ScheduleAt {
-                at_ms: expires_at,
+                at_ms: bound,
                 idle_since_ms: None,
             };
         }
         return IdleDecision::BeginTwoPhaseDrain {
             action,
             out_of_credits: true,
+            ceiling_exceeded: false,
+        };
+    }
+
+    // Controller-side ceiling on continuous awake time without owner-originated interaction.
+    if ceiling_at.is_some_and(|ceiling| input.now_ms >= ceiling) {
+        let action = match input.policy.sleep_action() {
+            IdleSleepAction::KeepUnderLease => IdleSleepAction::DeleteForRecreate,
+            action => action,
+        };
+        return IdleDecision::BeginTwoPhaseDrain {
+            action,
+            out_of_credits: false,
+            ceiling_exceeded: true,
         };
     }
 
     if !input.busy.is_idle() {
         let Some(expires_at) = input.lease_expires_at_ms else {
-            return IdleDecision::None;
+            return match ceiling_at {
+                Some(at_ms) => IdleDecision::ScheduleAt {
+                    at_ms,
+                    idle_since_ms: None,
+                },
+                None => IdleDecision::None,
+            };
         };
         let renew_at = expires_at.saturating_sub(input.policy.lease_renew_lead_ms);
         if input.now_ms >= renew_at {
             return IdleDecision::RenewLeaseNow {
                 lease_expires_at_ms: expires_at,
+                idle_since_ms: None,
             };
         }
+        let next_at = ceiling_at.map_or(renew_at, |c| renew_at.min(c));
         return IdleDecision::ScheduleAt {
-            at_ms: renew_at,
+            at_ms: next_at,
             idle_since_ms: None,
         };
     }
@@ -170,12 +211,27 @@ pub fn evaluate_idle_and_renewal(input: IdleEvalInput) -> IdleDecision {
             action => IdleDecision::BeginTwoPhaseDrain {
                 action,
                 out_of_credits: false,
+                ceiling_exceeded: false,
             },
         };
     }
 
+    // Sleep is not yet due: renew before the backend dead-man switch fires (600 s lease < 15 min
+    // idle window) while preserving `idle_since_ms` so the idle countdown never resets.
+    let mut next_at = ceiling_at.map_or(sleep_at, |c| sleep_at.min(c));
+    if let Some(expires_at) = input.lease_expires_at_ms {
+        let renew_at = expires_at.saturating_sub(input.policy.lease_renew_lead_ms);
+        if input.now_ms >= renew_at {
+            return IdleDecision::RenewLeaseNow {
+                lease_expires_at_ms: expires_at,
+                idle_since_ms: Some(idle_since),
+            };
+        }
+        next_at = next_at.min(renew_at);
+    }
+
     IdleDecision::ScheduleAt {
-        at_ms: sleep_at,
+        at_ms: next_at,
         idle_since_ms: Some(idle_since),
     }
 }

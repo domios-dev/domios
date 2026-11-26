@@ -146,6 +146,8 @@ pub struct CloudMachineRecord {
     pub created_at_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_awake_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_owner_interaction_at_ms: Option<u64>,
     #[serde(default)]
     pub accumulated_awake_secs: u64,
     pub period_start_ms: u64,

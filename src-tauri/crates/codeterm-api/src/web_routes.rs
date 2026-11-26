@@ -355,12 +355,17 @@ pub async fn events_stream(
 {
     let caller = caller.map(|caller| caller.0);
     peer_events::validate_scope(&state, &q, caller.as_ref())?;
+    let stream_scope = crate::stream_census::stream_scope_for_caller(caller.as_ref());
     let events = state.events.clone();
     let scope = q.scope;
     let tab = q.tab_id.clone();
-    Ok(events_sse_filtered(events, q, &STREAMS, move |event| {
-        peer_events::visible(&state, caller.as_ref(), scope, tab.as_deref(), event)
-    }))
+    Ok(events_sse_filtered_with_scope(
+        events,
+        q,
+        &STREAMS,
+        stream_scope,
+        move |event| peer_events::visible(&state, caller.as_ref(), scope, tab.as_deref(), event),
+    ))
 }
 
 pub(crate) fn events_sse(
@@ -368,13 +373,36 @@ pub(crate) fn events_sse(
     q: EventsStreamQuery,
     census: &StreamCensus,
 ) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
-    events_sse_filtered(events, q, census, |_| true)
+    events_sse_filtered_with_scope(
+        events,
+        q,
+        census,
+        crate::stream_census::StreamScope::Local,
+        |_| true,
+    )
 }
 
+#[cfg(test)]
 fn events_sse_filtered(
     events: crate::events::EventBroadcasterState,
     q: EventsStreamQuery,
     census: &StreamCensus,
+    visible: impl Fn(&crate::events::SystemEvent) -> bool + Send + 'static,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    events_sse_filtered_with_scope(
+        events,
+        q,
+        census,
+        crate::stream_census::StreamScope::Local,
+        visible,
+    )
+}
+
+fn events_sse_filtered_with_scope(
+    events: crate::events::EventBroadcasterState,
+    q: EventsStreamQuery,
+    census: &StreamCensus,
+    stream_scope: crate::stream_census::StreamScope,
     visible: impl Fn(&crate::events::SystemEvent) -> bool + Send + 'static,
 ) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
     use crate::events::ReplayPlan;
@@ -445,11 +473,8 @@ fn events_sse_filtered(
             }
         }
     };
-    Sse::new(track(
-        stream,
-        census.open(StreamKind::Events, crate::stream_census::StreamScope::Local),
-    ))
-    .keep_alive(KeepAlive::default())
+    Sse::new(track(stream, census.open(StreamKind::Events, stream_scope)))
+        .keep_alive(KeepAlive::default())
 }
 
 // ── PWA manifest — served per-token because installed iOS web apps get a storage container separate from Safari ──

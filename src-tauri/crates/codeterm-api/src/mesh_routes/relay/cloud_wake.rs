@@ -90,6 +90,12 @@ pub(super) async fn preflight_cloud_wake(
     // never escalate privilege or bypass caller/origin checks.
     let (caller_origin, caller_agent, _) =
         crate::auth::off_runtime(state, headers, origin::signed_caller_token).await?;
+    if caller_origin == AuthenticatedOrigin::Owner {
+        state
+            .svc
+            .cloud_machines()
+            .record_owner_interaction(&machine.machine_id);
+    }
 
     if is_tab_send(&req.method, &req.path) {
         if req.body["require_agent"].as_bool() == Some(true) {

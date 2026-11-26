@@ -242,6 +242,7 @@ impl CloudProvisioningPort for DriverProvisioning {
 
 struct DriverPeerControl {
     busy: Mutex<PeerBusySnapshot>,
+    read_idle_error: Mutex<Option<String>>,
     read_idle_calls: AtomicUsize,
     drain_calls: AtomicUsize,
 }
@@ -250,6 +251,7 @@ impl DriverPeerControl {
     fn new(busy: PeerBusySnapshot) -> Arc<Self> {
         Arc::new(Self {
             busy: Mutex::new(busy),
+            read_idle_error: Mutex::new(None),
             read_idle_calls: AtomicUsize::new(0),
             drain_calls: AtomicUsize::new(0),
         })
@@ -263,6 +265,9 @@ impl CloudPeerControlPort for DriverPeerControl {
         _record: &CloudMachineRecord,
     ) -> Result<PeerBusySnapshot, CloudError> {
         self.read_idle_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(err) = self.read_idle_error.lock().clone() {
+            return Err(CloudError::ProviderUnavailable(err));
+        }
         Ok(*self.busy.lock())
     }
 
@@ -328,6 +333,7 @@ fn awake_record(id: &str, now_ms: u64, lease_expires_at_ms: u64) -> CloudMachine
         rate_per_hour: None,
         created_at_ms: now_ms,
         last_awake_at_ms: Some(now_ms),
+        last_owner_interaction_at_ms: Some(now_ms),
         accumulated_awake_secs: 0,
         period_start_ms: now_ms,
         lease_id: Some("lease-0".into()),
@@ -556,6 +562,242 @@ async fn offline_home_lapsed_lease_conflict_reconciles_local_state_to_asleep_and
     wait_for_active_ids(&handle, &[]).await;
     assert_eq!(
         ctrl.find_by_peer("cloud-offline").unwrap().state,
+        CloudLifecycleState::Asleep
+    );
+}
+
+#[tokio::test]
+async fn idle_machine_renews_lease_before_expiry_without_resetting_idle_window_then_drains_and_sleeps(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    // 600 s lease (expires at t=610_000, renew lead 120 s -> renew at t=490_000) vs 15 min idle window (900_000 ms).
+    CloudMachineStore::new(store_path.clone())
+        .save(&[awake_record("cloud-idle-renew", 10_000, 610_000)])
+        .unwrap();
+
+    let clock = InjectedClock::new(10_000);
+    let ctrl = Arc::new(CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "home-1".into(),
+        clock.clone(),
+    ));
+    let prov = DriverProvisioning::new(clock.clone(), 600_000);
+    let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+    let waiter = SteppingWaiter::new(clock.clone());
+
+    let handle = spawn_cloud_idle_driver(
+        ctrl.clone(),
+        prov.clone(),
+        peer.clone(),
+        waiter.clone(),
+        CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+    );
+    waiter.wait_until_parked(1).await;
+    assert_eq!(
+        ctrl.find_by_peer("cloud-idle-renew").unwrap().idle_since_ms,
+        Some(10_000)
+    );
+    assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 0);
+
+    // Advance minute-by-minute past the minute-8 renewal deadline (t=490_000 = 8 * 60_000 + 10_000).
+    for _ in 0..8 {
+        waiter.advance_step().await;
+    }
+    assert_eq!(clock.now_ms(), 490_000);
+    assert_eq!(
+        prov.renew_calls.load(Ordering::SeqCst),
+        1,
+        "idle machine must renew lease before minute 10 so backend dead-man switch does not kill it"
+    );
+    assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        ctrl.find_by_peer("cloud-idle-renew").unwrap().idle_since_ms,
+        Some(10_000),
+        "renewing an idle machine's lease must preserve idle_since_ms instead of resetting the 15 min countdown"
+    );
+
+    // Advance the remaining 7 minutes to t=910_000 (15 min idle): must cleanly two-phase drain and sleep.
+    for _ in 0..7 {
+        waiter
+            .advance_step_until(|| {
+                ctrl.find_by_peer("cloud-idle-renew")
+                    .is_some_and(|r| r.state == CloudLifecycleState::Asleep)
+            })
+            .await;
+    }
+    wait_for_active_ids(&handle, &[]).await;
+    assert_eq!(clock.now_ms(), 910_000);
+    assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(peer.drain_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        ctrl.find_by_peer("cloud-idle-renew").unwrap().state,
+        CloudLifecycleState::Asleep
+    );
+}
+
+#[tokio::test]
+async fn unreachable_peer_reconciles_lease_past_renew_window_to_asleep_and_out_of_credits() {
+    // Case 1: Peer is unreachable on mesh; backend already slept it (Conflict) -> transitions to Asleep.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join("cloud_machines.json");
+        CloudMachineStore::new(store_path.clone())
+            .save(&[awake_record("cloud-unreach-sleep", 10_000, 610_000)])
+            .unwrap();
+
+        let clock = InjectedClock::new(10_000);
+        let ctrl = Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(store_path),
+            "home-1".into(),
+            clock.clone(),
+        ));
+        let prov = DriverProvisioning::new(clock.clone(), 600_000);
+        prov.renew_outcomes
+            .lock()
+            .push_back(Err(CloudError::Conflict("Machine is not awake".into())));
+        let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+        *peer.read_idle_error.lock() = Some("mesh transport unreachable".into());
+        let waiter = SteppingWaiter::new(clock.clone());
+
+        let handle = spawn_cloud_idle_driver(
+            ctrl.clone(),
+            prov.clone(),
+            peer.clone(),
+            waiter.clone(),
+            CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+        );
+        waiter.wait_until_parked(1).await;
+        // Before the renew window (t=10_000 < 490_000), unreachable read_idle must not hit backend yet.
+        assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            ctrl.find_by_peer("cloud-unreach-sleep").unwrap().state,
+            CloudLifecycleState::Awake
+        );
+
+        // Advance to renew window (t=490_000): reconciles against backend, gets Conflict -> Asleep & stops driver.
+        for _ in 0..8 {
+            waiter
+                .advance_step_until(|| {
+                    ctrl.find_by_peer("cloud-unreach-sleep")
+                        .is_some_and(|r| r.state == CloudLifecycleState::Asleep)
+                })
+                .await;
+        }
+        wait_for_active_ids(&handle, &[]).await;
+        assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            ctrl.find_by_peer("cloud-unreach-sleep").unwrap().state,
+            CloudLifecycleState::Asleep
+        );
+    }
+
+    // Case 2: Peer is unreachable past lease expiry and credits are exhausted -> transitions to OutOfCredits.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join("cloud_machines.json");
+        CloudMachineStore::new(store_path.clone())
+            .save(&[awake_record("cloud-unreach-ooc", 10_000, 610_000)])
+            .unwrap();
+
+        let clock = InjectedClock::new(620_000);
+        let ctrl = Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(store_path),
+            "home-1".into(),
+            clock.clone(),
+        ));
+        let prov = DriverProvisioning::new(clock.clone(), 600_000);
+        prov.renew_outcomes
+            .lock()
+            .push_back(Err(CloudError::CreditsExhausted));
+        let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+        *peer.read_idle_error.lock() = Some("mesh transport unreachable".into());
+        let waiter = SteppingWaiter::new(clock);
+
+        let handle = spawn_cloud_idle_driver(
+            ctrl.clone(),
+            prov.clone(),
+            peer,
+            waiter,
+            CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+        );
+        wait_for_active_ids(&handle, &[]).await;
+        assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            ctrl.find_by_peer("cloud-unreach-ooc").unwrap().state,
+            CloudLifecycleState::OutOfCredits
+        );
+    }
+}
+
+#[tokio::test]
+async fn max_awake_without_owner_ceiling_sleeps_busy_machine_and_owner_interaction_extends_window()
+{
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    // Awake at t=10_000 with 10 min ceiling (600_000 ms -> fires at 610_000 if no owner interaction).
+    CloudMachineStore::new(store_path.clone())
+        .save(&[awake_record("cloud-ceiling", 10_000, 3_600_000)])
+        .unwrap();
+
+    let clock = InjectedClock::new(10_000);
+    let ctrl = Arc::new(CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "home-1".into(),
+        clock.clone(),
+    ));
+    let prov = DriverProvisioning::new(clock.clone(), 3_600_000);
+    // Keep machine continuously busy (viewer + agent turn) so normal idle sleep never fires.
+    let peer = DriverPeerControl::new(PeerBusySnapshot {
+        active_agent_turns: 1,
+        attached_viewers: 1,
+        ..Default::default()
+    });
+    let waiter = SteppingWaiter::new(clock.clone());
+
+    let handle = spawn_cloud_idle_driver(
+        ctrl.clone(),
+        prov.clone(),
+        peer.clone(),
+        waiter.clone(),
+        CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000))
+            .with_max_awake_without_owner_reader(Arc::new(|| Some(10 * 60_000))),
+    );
+    waiter.wait_until_parked(1).await;
+
+    // Advance 5 minutes (t=310_000) and record an owner interaction -> ceiling shifts from 610_000 to 910_000.
+    for _ in 0..5 {
+        waiter.advance_step().await;
+    }
+    assert_eq!(clock.now_ms(), 310_000);
+    ctrl.record_owner_interaction("cloud-ceiling");
+
+    // At t=610_000 (original ceiling), machine must STILL be awake because owner interacted at t=310_000.
+    for _ in 0..5 {
+        waiter.advance_step().await;
+    }
+    assert_eq!(clock.now_ms(), 610_000);
+    assert_eq!(
+        ctrl.find_by_peer("cloud-ceiling").unwrap().state,
+        CloudLifecycleState::Awake
+    );
+    assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 0);
+
+    // Advance 5 more minutes to t=910_000 (10 min since last owner interaction): ceiling sleeps the busy machine.
+    for _ in 0..5 {
+        waiter
+            .advance_step_until(|| {
+                ctrl.find_by_peer("cloud-ceiling")
+                    .is_some_and(|r| r.state == CloudLifecycleState::Asleep)
+            })
+            .await;
+    }
+    wait_for_active_ids(&handle, &[]).await;
+    assert_eq!(clock.now_ms(), 910_000);
+    assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        ctrl.find_by_peer("cloud-ceiling").unwrap().state,
         CloudLifecycleState::Asleep
     );
 }

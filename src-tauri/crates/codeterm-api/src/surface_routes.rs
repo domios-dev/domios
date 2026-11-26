@@ -140,6 +140,7 @@ fn stream_viewport(query: &StreamQuery) -> Option<ViewportRequest> {
 /// SSE `state` / `frame` / `notice`; the stream is the viewer, so disconnecting leaves the screencast.
 pub(crate) async fn stream(
     AxumState(state): AxumState<AppState>,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
     _headers: HeaderMap,
     Path(tab_id): Path<String>,
     Query(query): Query<StreamQuery>,
@@ -157,10 +158,8 @@ pub(crate) async fn stream(
         let (name, data) = sse_payload(&event);
         Ok(Event::default().event(name).data(data))
     });
-    Ok(
-        Sse::new(track(events, StreamGuard::local(StreamKind::Surface)))
-            .keep_alive(KeepAlive::default()),
-    )
+    let guard = StreamGuard::for_caller(StreamKind::Surface, caller.as_ref().map(|c| &c.0));
+    Ok(Sse::new(track(events, guard)).keep_alive(KeepAlive::default()))
 }
 
 #[derive(Deserialize)]
