@@ -43,6 +43,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function peerRefusalReason(raw: string): string {
+  return raw.replace(/^.*? → HTTP \d{3}: /, "").trim() || raw.trim();
+}
+
+function teamCloseRefusalDetail(message: string, cause: string, raw: string): string {
+  return JSON.stringify({ code: "team_close_refused", message, cause, raw });
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -145,14 +153,17 @@ export function useRemoteTeamClose(
     const eligibility = remotePeerActionEligibility(availabilityForPeer(target.peerId));
     if (target.availability !== "online" || !eligibility.allowed) {
       const reason = target.availability !== "online" ? remotePeerActionEligibility(target.availability).reason : eligibility.reason;
+      const summary = `${target.teamName} on ${target.machineName} cannot be closed while the machine is ${reason ?? "offline"}.`;
       notify({
         kind: "toast",
         id: `remote-team-close-unavailable:${target.peerId}:${target.teamId}`,
         tabId: null,
         workspaceId: target.workspaceId,
         title: "Team close unavailable",
-        detail: `${target.teamName} on ${target.machineName} cannot be closed while the machine is ${reason ?? "offline"}.`,
+        detail: teamCloseRefusalDetail(summary, `${target.teamName} on ${target.machineName} stays open.`, summary),
         severity: "Error",
+        persistent: true,
+        retainInNotifications: true,
       });
       return;
     }
@@ -194,14 +205,17 @@ export function useRemoteTeamClose(
     const eligibility = remotePeerActionEligibility(availabilityForPeer(target.peerId));
     if (!eligibility.allowed) {
       cancel();
+      const summary = `${target.teamName} on ${target.machineName} is ${eligibility.reason ?? "offline"}.`;
       notify({
         kind: "toast",
         id: `remote-team-close:${target.peerId}:${target.teamId}`,
         tabId: null,
         workspaceId: target.workspaceId,
         title: "Team close not sent",
-        detail: `${target.teamName} on ${target.machineName} is ${eligibility.reason ?? "offline"}.`,
+        detail: teamCloseRefusalDetail(summary, `${target.teamName} on ${target.machineName} stays open.`, summary),
         severity: "Error",
+        persistent: true,
+        retainInNotifications: true,
       });
       return;
     }
@@ -241,13 +255,30 @@ export function useRemoteTeamClose(
         : closeFailed
           ? "Team close refused"
           : "Lanes preserved";
-    const detail = [
+    const failureText = closeFailure != null ? errorMessage(closeFailure) : "";
+    const rawDetail = [
       targetLabel,
       verificationUnavailable && outcome.kind !== "partial"
         ? "The close could not be verified on the remote machine."
         : (outcome.kind === "partial" ? outcome.survivors : outcome.preserved).join("\n"),
-      closeFailure != null ? errorMessage(closeFailure) : "",
+      failureText,
     ].filter(Boolean).join("\n");
+    const isError = closeFailed || verificationUnavailable || outcome.kind === "partial";
+    const detail = isError
+      ? teamCloseRefusalDetail(
+        failureText
+          ? peerRefusalReason(failureText)
+          : verificationUnavailable
+            ? "The close could not be verified on the remote machine."
+            : `${targetLabel} stays open.`,
+        outcome.kind === "partial"
+          ? `${targetLabel} stays open.`
+          : verificationUnavailable
+            ? `Refresh ${target.machineName} before retrying.`
+            : `${targetLabel} reported an error during close.`,
+        rawDetail,
+      )
+      : rawDetail;
     notify({
       kind: "toast",
       id: `remote-team-close:${target.peerId}:${target.teamId}`,
@@ -255,7 +286,8 @@ export function useRemoteTeamClose(
       workspaceId: target.workspaceId,
       title,
       detail,
-      severity: closeFailed || verificationUnavailable || outcome.kind === "partial" ? "Error" : "Info",
+      severity: isError ? "Error" : "Info",
+      ...(isError ? { persistent: true, retainInNotifications: true } : {}),
     });
   }, [availabilityForPeer, cancel, notify, onClosed, port]);
 
