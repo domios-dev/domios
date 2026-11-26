@@ -1,4 +1,3 @@
-use std::net::SocketAddrV4;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -60,6 +59,9 @@ impl CloudIngressSendError {
             }
             IngressError::InvalidFrame => {
                 Self::ConnectUnavailable("cloud ingress handshake frame invalid".into())
+            }
+            IngressError::TlsFailed => {
+                Self::AdmissionRejected("cloud ingress TLS verification failed".into())
             }
         }
     }
@@ -153,12 +155,11 @@ pub struct CloudOutboxOverride(pub Arc<dyn CloudOutboxPort>);
 
 pub(crate) async fn send_via_cloud_ingress(
     state: &AppState,
-    address: SocketAddrV4,
+    route: CloudRoute,
     installation_id: &str,
     command: RelayCommand,
     signed_token: String,
 ) -> Result<RelayResponse, CloudIngressSendError> {
-    let route = CloudRoute::Direct(address);
     #[cfg(any(test, feature = "test-support"))]
     if let Some(connector) = state
         .svc
@@ -186,22 +187,22 @@ pub(crate) async fn send_via_cloud_ingress(
         .await
 }
 
-/// Resolves an enrolled cloud peer's direct ingress address from gossiped
-/// endpoint records first, falling back to Warden's persisted managed `endpoint_addr`.
-pub(crate) fn resolve_cloud_ingress_address(
+/// Resolves an enrolled cloud peer's ingress endpoint from gossiped
+/// endpoint records first, falling back to the persisted managed `endpoint`.
+pub(crate) fn resolve_cloud_ingress_endpoint(
     state: &AppState,
     peer_id: &str,
     installation_id: &str,
-    known: Option<SocketAddrV4>,
-) -> Option<SocketAddrV4> {
-    if let Some(address) = known {
-        return Some(address);
+    known: Option<CloudRoute>,
+) -> Option<CloudRoute> {
+    if let Some(endpoint) = known {
+        return Some(endpoint);
     }
     let machines = state.svc.cloud_machines();
     machines
         .find_by_peer(peer_id)
         .or_else(|| machines.find_by_peer(installation_id))
-        .and_then(|record| record.endpoint_addr)
+        .and_then(|record| record.endpoint)
 }
 
 pub(crate) fn has_cloud_outbox(state: &AppState) -> bool {
@@ -236,7 +237,7 @@ pub(super) enum OutboundRelayTransport {
     Http(codeterm_service_core::mesh::transport::PeerClient),
     CloudIngress {
         installation_id: String,
-        address: Option<SocketAddrV4>,
+        endpoint: Option<CloudRoute>,
         origin: AuthenticatedOrigin,
         agent: Option<AuthenticatedAgent>,
     },
@@ -286,14 +287,14 @@ pub(super) fn resolve_outbound_transport(
         }
         RelayTargetRoute::CloudIngress {
             installation_id,
-            address,
+            endpoint,
         } => {
             let (origin, agent) = origin::authenticated_local_caller(state, headers)?;
             (
                 origin,
                 OutboundRelayTransport::CloudIngress {
                     installation_id,
-                    address,
+                    endpoint,
                     origin,
                     agent,
                 },
@@ -326,7 +327,7 @@ pub(super) enum ReadyOutboundTransport {
     Http(codeterm_service_core::mesh::transport::PeerClient),
     CloudIngress {
         installation_id: String,
-        address: SocketAddrV4,
+        endpoint: CloudRoute,
         origin: AuthenticatedOrigin,
         agent: Option<AuthenticatedAgent>,
     },
@@ -343,18 +344,18 @@ impl ReadyOutboundTransport {
             OutboundRelayTransport::Http(client) => Ok(Self::Http(client)),
             OutboundRelayTransport::CloudIngress {
                 installation_id,
-                address,
+                endpoint,
                 origin,
                 agent,
             } => {
-                let Some(address) =
-                    resolve_cloud_ingress_address(state, peer_id, &installation_id, address)
+                let Some(endpoint) =
+                    resolve_cloud_ingress_endpoint(state, peer_id, &installation_id, endpoint)
                 else {
                     return Err(peer_unroutable_error(peer_name));
                 };
                 Ok(Self::CloudIngress {
                     installation_id,
-                    address,
+                    endpoint,
                     origin,
                     agent,
                 })
@@ -368,7 +369,7 @@ impl ReadyOutboundTransport {
             Self::Http(client) => client.auth_get_json("/api/identify").await.ok(),
             Self::CloudIngress {
                 installation_id,
-                address,
+                endpoint,
                 origin,
                 agent,
                 ..
@@ -380,9 +381,15 @@ impl ReadyOutboundTransport {
                     body: serde_json::Value::Null,
                     delivery_id: None,
                 };
-                let resp = send_via_cloud_ingress(state, *address, installation_id, command, token)
-                    .await
-                    .ok()?;
+                let resp = send_via_cloud_ingress(
+                    state,
+                    endpoint.clone(),
+                    installation_id,
+                    command,
+                    token,
+                )
+                .await
+                .ok()?;
                 resp.ok.then_some(resp.data).flatten()
             }
         }
@@ -405,7 +412,7 @@ impl ReadyOutboundTransport {
             }
             Self::CloudIngress {
                 installation_id,
-                address,
+                endpoint,
                 origin,
                 agent,
                 ..
@@ -419,7 +426,7 @@ impl ReadyOutboundTransport {
                     |command| {
                         let state = state.clone();
                         let installation_id = installation_id.clone();
-                        let address = *address;
+                        let endpoint = endpoint.clone();
                         let origin = *origin;
                         let agent = agent.clone();
                         async move {
@@ -427,7 +434,7 @@ impl ReadyOutboundTransport {
                                 .map_err(|(_, message)| message)?;
                             send_via_cloud_ingress(
                                 &state,
-                                address,
+                                endpoint,
                                 &installation_id,
                                 command,
                                 token,
@@ -458,7 +465,7 @@ impl ReadyOutboundTransport {
             }),
             Self::CloudIngress {
                 installation_id,
-                address,
+                endpoint,
                 origin,
                 agent,
             } => {
@@ -483,7 +490,7 @@ impl ReadyOutboundTransport {
                         message,
                     )
                 })?;
-                send_via_cloud_ingress(state, address, &installation_id, cmd.clone(), signed_token)
+                send_via_cloud_ingress(state, endpoint, &installation_id, cmd.clone(), signed_token)
                     .await
                     .map_err(|err| {
                         relay_failure(

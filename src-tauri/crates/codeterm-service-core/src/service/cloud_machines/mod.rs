@@ -39,10 +39,11 @@ pub use state::{
 };
 pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{
-    CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
-    CloudPromoRedemption, CloudRate, CloudReceipt, CloudSleepMode, CloudUsageSummary,
-    PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT, CLOUD_WAKE_SEND_PREFIX,
-    COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
+    CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
+    CloudOwnershipReceipt, CloudPromoRedemption, CloudRate, CloudReceipt, CloudSleepMode,
+    CloudUsageSummary, PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT,
+    CLOUD_WAKE_SEND_PREFIX, COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES,
+    DEFAULT_LEASE_RENEW_LEAD_MS, PROVIDER_PROXY_PORT,
 };
 
 #[derive(Clone)]
@@ -82,7 +83,9 @@ impl ServiceContext {
             if self.tab_has_active_agent_turn(tab_id) {
                 active_agent_turns += 1;
             }
-            if !background_work::running(self, tab_id).is_empty() {
+            if !background_work::running(self, tab_id).is_empty()
+                || self.tab_has_observed_background_work(tab_id)
+            {
                 running_background_jobs += 1;
             }
             if self.chat_send_ledger.has_unsettled_update_input(tab_id) {
@@ -98,12 +101,26 @@ impl ServiceContext {
         }
     }
 
+    fn tab_has_observed_background_work(&self, tab_id: &str) -> bool {
+        self.mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| !tab.provider_signals.background.is_empty())
+    }
+
     fn tab_has_active_agent_turn(&self, tab_id: &str) -> bool {
         let (mux_active, pty_id) = {
             let mux = self.mux.read();
             match mux.get_tab(tab_id) {
                 Some(tab) => {
                     let active = tab.agent_booting
+                        || tab.agent_state.as_ref().is_some_and(|state| {
+                            matches!(
+                                state.state,
+                                codeterm_types::pty::TimelineState::Working
+                                    | codeterm_types::pty::TimelineState::Question
+                            )
+                        })
                         || tab.agent_runtime_state.as_ref().is_some_and(|state| {
                             state
                                 .get("active_turn_started_at_ms")
@@ -112,8 +129,7 @@ impl ServiceContext {
                                     state.get("status").and_then(serde_json::Value::as_str),
                                     Some("working" | "running" | "streaming")
                                 )
-                        })
-                        || !tab.provider_signals.background.guarded_items().is_empty();
+                        });
                     (active, tab.pty_id.clone())
                 }
                 None => (false, None),
@@ -131,6 +147,8 @@ impl ServiceContext {
     }
 }
 
+#[cfg(test)]
+mod endpoint_tests;
 #[cfg(test)]
 mod idle_driver_tests;
 #[cfg(test)]

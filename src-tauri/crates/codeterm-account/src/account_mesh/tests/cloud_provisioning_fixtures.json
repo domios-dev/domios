@@ -105,8 +105,11 @@
     "create": {
       "machine_id": "cm_fixture0000000000000001",
       "provider": "timeweb",
-      "ipv4": "198.51.100.10",
-      "port": 7687,
+      "endpoint": {
+        "kind": "dedicated_ipv4",
+        "ipv4": "198.51.100.10",
+        "port": 7687
+      },
       "size": "small",
       "rate": {
         "amount": 0.2,
@@ -119,11 +122,35 @@
       "lease_id": "lease_fixture_1",
       "lease_expires_at": 1795700600
     },
+    "create_provider_proxy": {
+      "machine_id": "cm_fixture0000000000000002",
+      "provider": "fly_machines",
+      "endpoint": {
+        "kind": "provider_proxy",
+        "host": "domios-a1b2c3d4.fly.dev",
+        "port": 443,
+        "scheme": "wss"
+      },
+      "size": "small",
+      "rate": {
+        "amount": 0.2,
+        "currency": "USD",
+        "basis": "managed",
+        "credits_per_hour": 1
+      },
+      "sleep_mode": "stop_billed",
+      "state": "awake",
+      "lease_id": "lease_fixture_3",
+      "lease_expires_at": 1795700600
+    },
     "wake": {
       "machine_id": "cm_fixture0000000000000001",
       "provider": "timeweb",
-      "ipv4": "198.51.100.42",
-      "port": 7687,
+      "endpoint": {
+        "kind": "dedicated_ipv4",
+        "ipv4": "198.51.100.42",
+        "port": 7687
+      },
       "size": "small",
       "rate": {
         "amount": 0.2,
@@ -134,6 +161,27 @@
       "sleep_mode": "delete_recreate",
       "state": "awake",
       "lease_id": "lease_fixture_2",
+      "lease_expires_at": 1795700660
+    },
+    "wake_provider_proxy": {
+      "machine_id": "cm_fixture0000000000000002",
+      "provider": "fly_machines",
+      "endpoint": {
+        "kind": "provider_proxy",
+        "host": "domios-a1b2c3d4.fly.dev",
+        "port": 443,
+        "scheme": "wss"
+      },
+      "size": "small",
+      "rate": {
+        "amount": 0.2,
+        "currency": "USD",
+        "basis": "managed",
+        "credits_per_hour": 1
+      },
+      "sleep_mode": "stop_billed",
+      "state": "awake",
+      "lease_id": "lease_fixture_4",
       "lease_expires_at": 1795700660
     },
     "sleep": {
@@ -291,6 +339,13 @@
         "retry_after_seconds": 60
       }
     },
+    "endpoint_kind_unsupported": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "endpoint_kind_unsupported"
+      }
+    },
     "provider_refused": {
       "http_status": 400,
       "grpc_status": "FAILED_PRECONDITION",
@@ -318,6 +373,13 @@
       "grpc_status": "UNAVAILABLE",
       "details": {
         "reason": "authority-unavailable"
+      }
+    },
+    "apply_too_large": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "apply_too_large"
       }
     },
     "unavailable": {

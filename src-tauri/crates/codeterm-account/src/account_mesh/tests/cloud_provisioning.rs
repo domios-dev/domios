@@ -11,11 +11,12 @@ use crate::account_mesh::{
         enrollment_message, fixed_bytes, nonce_commitment, EnrollmentReply, EnrollmentRequest,
     },
     cloud_provisioning::{
-        provisioning_message, CloudProvisioningRefusal, CreateCloudMachineRequest,
+        provisioning_message, CloudEndpoint, CloudProvisioningRefusal, CreateCloudMachineRequest,
         DeleteMachineReply, ManagedCloudMachineActionRequest, ProvisionedMachineReply,
-        SleepMachineReply, WireCloudSleepMode, CLOUD_INGRESS_PORT, DOMAIN_CLOUD_CREATE,
-        DOMAIN_CLOUD_DELETE, DOMAIN_CLOUD_SLEEP, DOMAIN_CLOUD_WAKE, ROUTE_CLOUD_CREATE,
-        ROUTE_CLOUD_DELETE, ROUTE_CLOUD_SLEEP, ROUTE_CLOUD_WAKE,
+        SleepMachineReply, WireCloudEndpoint, WireCloudSleepMode, CLOUD_INGRESS_PORT,
+        DOMAIN_CLOUD_CREATE, DOMAIN_CLOUD_DELETE, DOMAIN_CLOUD_SLEEP, DOMAIN_CLOUD_WAKE,
+        PROVIDER_PROXY_PORT, ROUTE_CLOUD_CREATE, ROUTE_CLOUD_DELETE, ROUTE_CLOUD_SLEEP,
+        ROUTE_CLOUD_WAKE,
     },
     delegated_renewal::{RenewalReply, RenewalRequest},
     wire::RegistryRefusal,
@@ -55,7 +56,9 @@ struct FixtureRequests {
 #[derive(Deserialize)]
 struct FixtureReplies {
     create: ProvisionedMachineReply,
+    create_provider_proxy: ProvisionedMachineReply,
     wake: ProvisionedMachineReply,
+    wake_provider_proxy: ProvisionedMachineReply,
     sleep: SleepMachineReply,
     delete: DeleteMachineReply,
     enroll: EnrollmentReply,
@@ -169,13 +172,13 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
         &fixtures.requests.renew.controller_signature,
     );
 
-    // Verify all 6 reply fixtures decode with expected endpoints, sleep_mode, and rates.
+    // Verify all reply fixtures decode with expected endpoints, sleep_mode, and rates.
     assert_eq!(
         fixtures.replies.create.validated_endpoint(),
-        Some(SocketAddrV4::new(
+        Some(CloudEndpoint::Direct(SocketAddrV4::new(
             Ipv4Addr::new(198, 51, 100, 10),
             CLOUD_INGRESS_PORT
-        ))
+        )))
     );
     assert_eq!(
         fixtures.replies.create.sleep_mode,
@@ -184,6 +187,32 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
     assert_eq!(fixtures.replies.create.rate.basis, "managed");
     assert_eq!(fixtures.replies.create.rate.credits_per_hour, 1.0);
 
+    // Provider-proxy create and wake replies carry the stable lowercase DNS host over wss/443.
+    assert_eq!(
+        fixtures.replies.create_provider_proxy.validated_endpoint(),
+        Some(CloudEndpoint::ProviderProxy {
+            host: "domios-a1b2c3d4.fly.dev".into(),
+        })
+    );
+    assert_eq!(
+        fixtures.replies.create_provider_proxy.sleep_mode,
+        WireCloudSleepMode::StopBilled
+    );
+    assert_eq!(
+        fixtures.replies.wake_provider_proxy.machine_id,
+        fixtures.replies.create_provider_proxy.machine_id
+    );
+    assert_eq!(
+        fixtures.replies.wake_provider_proxy.validated_endpoint(),
+        Some(CloudEndpoint::ProviderProxy {
+            host: "domios-a1b2c3d4.fly.dev".into(),
+        })
+    );
+    assert_eq!(
+        fixtures.replies.wake_provider_proxy.sleep_mode,
+        WireCloudSleepMode::StopBilled
+    );
+
     // delete_recreate wake returns a new IPv4 on the same machine_id.
     assert_eq!(
         fixtures.replies.wake.machine_id,
@@ -191,10 +220,10 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
     );
     assert_eq!(
         fixtures.replies.wake.validated_endpoint(),
-        Some(SocketAddrV4::new(
+        Some(CloudEndpoint::Direct(SocketAddrV4::new(
             Ipv4Addr::new(198, 51, 100, 42),
             CLOUD_INGRESS_PORT
-        ))
+        )))
     );
     assert_eq!(fixtures.replies.sleep.state, "asleep");
     assert_eq!(
@@ -210,7 +239,7 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
 fn decodes_all_ledger_cloud_provisioning_refusal_fixtures() {
     let fixtures: FixtureFile =
         serde_json::from_str(FIXTURES_JSON).expect("decode shared/cloud-provisioning fixtures");
-    assert_eq!(fixtures.refusals.len(), 20);
+    assert_eq!(fixtures.refusals.len(), 22);
 
     let decode_http = |name: &str| -> (CloudProvisioningRefusal, RegistryRefusal) {
         let entry = &fixtures.refusals[name];
@@ -340,6 +369,26 @@ fn decodes_all_ledger_cloud_provisioning_refusal_fixtures() {
                 retry_after_seconds: 60,
             }
         )
+    );
+    assert_eq!(
+        decode_http("endpoint_kind_unsupported"),
+        (
+            CloudProvisioningRefusal::EndpointKindUnsupported,
+            RegistryRefusal::EndpointKindUnsupported
+        )
+    );
+    assert_eq!(
+        refusal(&CallableFailure::Status {
+            status: fixtures.refusals["apply_too_large"].http_status,
+            retry_after_seconds: None,
+            body: Some(json!({
+                "error": {
+                    "status": fixtures.refusals["apply_too_large"].grpc_status,
+                    "details": fixtures.refusals["apply_too_large"].details,
+                }
+            })),
+        }),
+        RegistryRefusal::ApplyTooLarge
     );
     assert_eq!(
         decode_http("provider_refused"),
@@ -527,4 +576,101 @@ fn decodes_and_validates_redeem_cloud_credit_promo_wire_types_and_refusals() {
             retry_after_seconds: 1
         }
     );
+}
+
+#[test]
+fn endpoint_union_refuses_unknown_kind_ip_host_wrong_ports_and_non_wss_scheme() {
+    let base_reply = |endpoint: Value| {
+        json!({
+            "machine_id": "cm_test_1",
+            "provider": "fly_machines",
+            "endpoint": endpoint,
+            "size": "small",
+            "rate": {
+                "amount": 0.2,
+                "currency": "USD",
+                "basis": "managed",
+                "credits_per_hour": 1.0
+            },
+            "sleep_mode": "stop_billed",
+            "state": "awake",
+            "lease_id": "lease_1",
+            "lease_expires_at": 1795700600u64
+        })
+    };
+
+    // Unknown kind, extra fields, and legacy top-level ipv4/port fail deserialization.
+    assert!(serde_json::from_value::<WireCloudEndpoint>(json!({
+        "kind": "relay_tunnel",
+        "host": "domios-a.fly.dev",
+        "port": 443,
+        "scheme": "wss"
+    }))
+    .is_err());
+    assert!(serde_json::from_value::<WireCloudEndpoint>(json!({
+        "kind": "provider_proxy",
+        "host": "domios-a.fly.dev",
+        "port": 443,
+        "scheme": "wss",
+        "extra": true
+    }))
+    .is_err());
+    assert!(serde_json::from_value::<ProvisionedMachineReply>(json!({
+        "machine_id": "cm_legacy",
+        "provider": "timeweb",
+        "ipv4": "198.51.100.10",
+        "port": 7687,
+        "size": "small",
+        "rate": {
+            "amount": 0.2,
+            "currency": "USD",
+            "basis": "managed",
+            "credits_per_hour": 1.0
+        },
+        "sleep_mode": "delete_recreate",
+        "state": "awake",
+        "lease_id": "lease_legacy",
+        "lease_expires_at": 1795700600u64
+    }))
+    .is_err());
+
+    let too_long_host = format!(
+        "{}.{}.{}.{}",
+        "a".repeat(63),
+        "b".repeat(63),
+        "c".repeat(63),
+        "d".repeat(62)
+    );
+    assert_eq!(too_long_host.len(), 254);
+
+    for bad_endpoint in [
+        // IP literals as provider_proxy host
+        json!({"kind": "provider_proxy", "host": "198.51.100.10", "port": PROVIDER_PROXY_PORT, "scheme": "wss"}),
+        json!({"kind": "provider_proxy", "host": "127.0.0.1", "port": PROVIDER_PROXY_PORT, "scheme": "wss"}),
+        json!({"kind": "provider_proxy", "host": "::1", "port": PROVIDER_PROXY_PORT, "scheme": "wss"}),
+        json!({"kind": "provider_proxy", "host": "[::1]", "port": PROVIDER_PROXY_PORT, "scheme": "wss"}),
+        // Uppercase or oversized or port-bearing host
+        json!({"kind": "provider_proxy", "host": "Domios-App.fly.dev", "port": PROVIDER_PROXY_PORT, "scheme": "wss"}),
+        json!({"kind": "provider_proxy", "host": "domios-app.fly.dev:443", "port": PROVIDER_PROXY_PORT, "scheme": "wss"}),
+        json!({"kind": "provider_proxy", "host": too_long_host, "port": PROVIDER_PROXY_PORT, "scheme": "wss"}),
+        // Wrong port for provider_proxy
+        json!({"kind": "provider_proxy", "host": "domios-app.fly.dev", "port": 7687, "scheme": "wss"}),
+        json!({"kind": "provider_proxy", "host": "domios-app.fly.dev", "port": 8443, "scheme": "wss"}),
+        json!({"kind": "provider_proxy", "host": "domios-app.fly.dev", "port": 80, "scheme": "wss"}),
+        // Non-wss scheme for provider_proxy
+        json!({"kind": "provider_proxy", "host": "domios-app.fly.dev", "port": PROVIDER_PROXY_PORT, "scheme": "ws"}),
+        json!({"kind": "provider_proxy", "host": "domios-app.fly.dev", "port": PROVIDER_PROXY_PORT, "scheme": "https"}),
+        json!({"kind": "provider_proxy", "host": "domios-app.fly.dev", "port": PROVIDER_PROXY_PORT, "scheme": "http"}),
+        // Wrong port or non-IPv4 for dedicated_ipv4
+        json!({"kind": "dedicated_ipv4", "ipv4": "198.51.100.10", "port": 443}),
+        json!({"kind": "dedicated_ipv4", "ipv4": "domios-app.fly.dev", "port": CLOUD_INGRESS_PORT}),
+    ] {
+        let reply: ProvisionedMachineReply =
+            serde_json::from_value(base_reply(bad_endpoint.clone())).unwrap();
+        assert_eq!(
+            reply.validated_endpoint(),
+            None,
+            "expected endpoint refusal for {bad_endpoint}"
+        );
+    }
 }

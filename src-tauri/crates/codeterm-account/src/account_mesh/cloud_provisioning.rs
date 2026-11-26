@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
+use codeterm_util::cloud_endpoint::provider_proxy_host_allowed;
+pub use codeterm_util::cloud_endpoint::{CloudEndpoint, CLOUD_INGRESS_PORT, PROVIDER_PROXY_PORT};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
@@ -22,7 +24,42 @@ pub const DOMAIN_CLOUD_SLEEP: &str = "domios.cloud-sleep.v1";
 pub const DOMAIN_CLOUD_DELETE: &str = "domios.cloud-delete.v1";
 pub const DOMAIN_CLOUD_LEASE_RENEW: &str = "domios.cloud-lease-renew.v1";
 
-pub const CLOUD_INGRESS_PORT: u16 = 7687;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WireCloudEndpoint {
+    DedicatedIpv4 {
+        ipv4: String,
+        port: u16,
+    },
+    ProviderProxy {
+        host: String,
+        port: u16,
+        scheme: String,
+    },
+}
+
+impl WireCloudEndpoint {
+    pub fn validate(&self) -> Option<CloudEndpoint> {
+        match self {
+            Self::DedicatedIpv4 { ipv4, port } => {
+                if *port != CLOUD_INGRESS_PORT {
+                    return None;
+                }
+                let ip: Ipv4Addr = ipv4.parse().ok()?;
+                Some(CloudEndpoint::Direct(SocketAddrV4::new(ip, *port)))
+            }
+            Self::ProviderProxy { host, port, scheme } => {
+                if *port != PROVIDER_PROXY_PORT
+                    || scheme != "wss"
+                    || !provider_proxy_host_allowed(host)
+                {
+                    return None;
+                }
+                Some(CloudEndpoint::ProviderProxy { host: host.clone() })
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -117,8 +154,7 @@ pub struct ManagedCloudMachineActionRequest {
 pub struct ProvisionedMachineReply {
     pub machine_id: String,
     pub provider: String,
-    pub ipv4: String,
-    pub port: u16,
+    pub endpoint: WireCloudEndpoint,
     pub size: String,
     pub rate: WireCloudManagedRate,
     pub sleep_mode: WireCloudSleepMode,
@@ -128,9 +164,8 @@ pub struct ProvisionedMachineReply {
 }
 
 impl ProvisionedMachineReply {
-    pub fn validated_endpoint(&self) -> Option<SocketAddrV4> {
-        if self.port != CLOUD_INGRESS_PORT
-            || self.state != "awake"
+    pub fn validated_endpoint(&self) -> Option<CloudEndpoint> {
+        if self.state != "awake"
             || self.machine_id.trim().is_empty()
             || self.provider.trim().is_empty()
             || self.size.trim().is_empty()
@@ -139,8 +174,7 @@ impl ProvisionedMachineReply {
         {
             return None;
         }
-        let ip: Ipv4Addr = self.ipv4.parse().ok()?;
-        Some(SocketAddrV4::new(ip, self.port))
+        self.endpoint.validate()
     }
 }
 
@@ -291,6 +325,8 @@ pub enum CloudProvisioningRefusal {
     Replay,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
+    #[serde(rename = "endpoint_kind_unsupported")]
+    EndpointKindUnsupported,
     #[serde(rename = "provider_refused")]
     ProviderRefused {
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -27,7 +27,7 @@ pub async fn connect_enrollment(
     sign: impl FnOnce(&ChannelProof) -> Result<[u8; 64], IngressError>,
 ) -> Result<EnrollmentClient, IngressError> {
     tokio::time::timeout(Duration::from_secs(30), async {
-        let mut socket = open(route, "/cloud/enrollment/v1").await?;
+        let mut socket = open(&route, "/cloud/enrollment/v1").await?;
         let params = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
             .parse()
             .map_err(|_| IngressError::Unavailable)?;

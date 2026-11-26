@@ -327,16 +327,12 @@ impl MeshManager {
                 .into_iter()
                 .filter_map(|r| {
                     let id = r.claim.installation_id;
-                    let crate::endpoint_gossip::EndpointAddress::DirectIngress { address } =
-                        r.claim.endpoint?
-                    else {
-                        return None;
-                    };
+                    let endpoint = r.claim.endpoint?.cloud_endpoint()?;
                     let stream_attached = self.reverse_streams.contains_key(&id);
                     Some((
                         id,
                         types::DirectIngressStatus {
-                            address: address.to_string(),
+                            address: endpoint.to_string(),
                             stream_attached,
                             inbound_only: true,
                         },

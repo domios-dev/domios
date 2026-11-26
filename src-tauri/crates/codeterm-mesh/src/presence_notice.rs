@@ -29,21 +29,15 @@ pub async fn broadcast_registry_snapshot(
         .endpoint_records()
         .into_iter()
         .filter_map(|record| {
-            if let Some(crate::endpoint_gossip::EndpointAddress::DirectIngress { address }) =
-                record.claim.endpoint
-            {
-                Some((record.claim.installation_id, address))
-            } else {
-                None
-            }
+            let route = record.claim.endpoint.as_ref()?.cloud_endpoint()?;
+            Some((record.claim.installation_id, route))
         })
         .collect::<Vec<_>>();
     let mut direct = tokio::task::JoinSet::new();
-    for (installation_id, address) in targets {
+    for (installation_id, route) in targets {
         let mesh = mesh.clone();
         let registry = snapshot.clone();
         direct.spawn(async move {
-            let route = crate::cloud_ingress::CloudRoute::Direct(address);
             if let Ok(channel) =
                 crate::cloud_ingress::connect_enrolled(mesh, route, &installation_id).await
             {

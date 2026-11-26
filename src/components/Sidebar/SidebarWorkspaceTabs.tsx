@@ -3,7 +3,7 @@ import type { PlanView as Plan } from "../Canvas/planProjection";
 import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { countWorkingTabs } from "./tabStatuses";
 import { useContext, useMemo, type ReactNode } from "react";
-import { MonitorUp, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import type {
   Tab,
   TabStatus,
@@ -174,8 +174,8 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession?: () => void;
-  onOpenRemoteTab?: () => void;
-  newGeneralSessionMenu?: ReactNode;
+  newSessionTitle?: string;
+  newSessionDisabledReason?: string;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onRenamePlan?: (planId: string, title: string) => Promise<void>;
@@ -218,8 +218,8 @@ export function SidebarWorkspaceTabs({
   onCloseTab,
   onRenameTab,
   onNewSession,
-  onOpenRemoteTab,
-  newGeneralSessionMenu,
+  newSessionTitle,
+  newSessionDisabledReason,
   newSessionDisabled = false,
   onRenameTeam,
   onRenamePlan,
@@ -549,37 +549,36 @@ export function SidebarWorkspaceTabs({
           {observedRows}
         </div>
       </SortableContext>
-      <div hidden={typeof filter === "object"} className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
-        {onNewSession && !ws.cwd_missing && <CursorTooltip
-          active={newSessionDisabled}
-          content="Finish Get started first"
-          className="flex min-w-0 flex-1"
-        >
-          <button
-            type="button"
-            data-testid="sidebar-new-session"
-            onClick={onNewSession}
-            disabled={newSessionDisabled}
-            aria-disabled={newSessionDisabled}
-            className={`sidebar-new-session flex min-w-0 flex-1 items-center gap-2 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
-            // The cursor tip is the visual affordance; the control still carries
-            // its own explanation, which is what a reader and a test can see.
-            title={
-              newSessionDisabled
-                ? "Finish Get started before creating another session"
-                : "New session in this workspace"
-            }
+      {onNewSession && (typeof filter === "object" || !ws.cwd_missing) && (
+        <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
+          <CursorTooltip
+            active={newSessionDisabled}
+            content={newSessionDisabledReason ?? "Finish Get started first"}
+            className="flex min-w-0 flex-1"
           >
-            <Plus size={10} strokeWidth={1.5} className="shrink-0" />
-            <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
-          </button>
-        </CursorTooltip>}
-        {newGeneralSessionMenu ?? (onOpenRemoteTab && (
-          <button type="button" onClick={onOpenRemoteTab} aria-label="New session on another machine" title="New session on another machine" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
-            <MonitorUp size={12} strokeWidth={1.5} />
-          </button>
-        ))}
-      </div>
+            <button
+              type="button"
+              data-testid="sidebar-new-session"
+              onClick={onNewSession}
+              disabled={newSessionDisabled}
+              aria-disabled={newSessionDisabled}
+              className={`sidebar-new-session flex min-w-0 flex-1 items-center gap-2 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
+              // The cursor tip is the visual affordance; the control still carries
+              // its own explanation, which is what a reader and a test can see.
+              title={
+                newSessionTitle ?? (
+                  newSessionDisabled
+                    ? "Finish Get started before creating another session"
+                    : "New session in this workspace"
+                )
+              }
+            >
+              <Plus size={10} strokeWidth={1.5} className="shrink-0" />
+              <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
+            </button>
+          </CursorTooltip>
+        </div>
+      )}
     </>
   );
 }

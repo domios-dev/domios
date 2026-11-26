@@ -1,4 +1,3 @@
-use std::net::SocketAddrV4;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,7 +6,6 @@ use codeterm_account::account_mesh::{
     cloud_provisioning::{ProvisionedMachineReply, WireCloudSleepMode},
     AccountMeshRefusal,
 };
-use codeterm_mesh::cloud_ingress::CloudRoute;
 use codeterm_neighbors_service::service::{
     account_mesh::NeighborsExt,
     cloud_installation::controller::{
@@ -18,7 +16,7 @@ use codeterm_neighbors_service::service::{
 use codeterm_service_core::{
     mesh::crown::AuthenticatedOrigin,
     service::cloud_machines::{
-        CloudEnrollmentPort, CloudError, CloudMachineRecord, CloudPeerControlPort,
+        CloudEndpoint, CloudEnrollmentPort, CloudError, CloudMachineRecord, CloudPeerControlPort,
         CloudPromoRedemption, CloudProvisioningPort, CloudRate, CloudRouteSpec, CloudSleepMode,
         CloudUsageSummary, DrainToken, EnrollmentBinding, EnrollmentOutcome, FlushWriteOutcome,
         HeldCloudSend, PeerBusySnapshot, ProvisionedLease, ProvisionedMachine,
@@ -301,9 +299,7 @@ impl CloudEnrollmentPort for BakerEnrollmentAdapter {
             .opaque
             .downcast_ref::<CreationBinding>()
             .ok_or_else(|| CloudError::EnrollmentFailed("invalid creation binding".into()))?;
-        let CloudRouteSpec::Direct { address } = route;
-        let cloud_route = CloudRoute::Direct(*address);
-        match baker_enroll(&self.svc, cloud_route, creation, provider, size).await {
+        match baker_enroll(&self.svc, route.clone(), creation, provider, size).await {
             Ok(installation_id) => Ok(EnrollmentOutcome::Enrolled {
                 installation_id,
                 peer_instance_id: None,
@@ -329,7 +325,7 @@ pub struct CloudProvisioningOverride(pub Arc<dyn CloudProvisioningPort>);
 pub struct CloudEndpointPublisherOverride(
     pub  Arc<
         dyn Fn(
-                SocketAddrV4,
+                CloudEndpoint,
                 String,
             ) -> codeterm_mesh::account_mesh::BoxFuture<'static, Result<(), String>>
             + Send
@@ -389,7 +385,7 @@ impl MeshPeerControlAdapter {
     fn cloud_ingress_route(
         &self,
         record: &CloudMachineRecord,
-    ) -> Option<(String, String, Option<std::net::SocketAddrV4>)> {
+    ) -> Option<(String, String, Option<CloudEndpoint>)> {
         let mesh = self.state.mesh.lock();
         let mut resolved_peer_id = None;
         for selector in [
@@ -414,13 +410,13 @@ impl MeshPeerControlAdapter {
             .and_then(|link| link.installation_id())
             .map(str::to_owned)
             .or_else(|| record.installation_id.clone())?;
-        let known_address = mesh
-            .direct_ingress_address(&installation_id)
-            .or(record.endpoint_addr);
-        if known_address.is_none() && mesh.peer_route_endpoints(&peer_id).is_some() {
+        let known_endpoint = mesh
+            .cloud_ingress_endpoint(&installation_id)
+            .or_else(|| record.endpoint.clone());
+        if known_endpoint.is_none() && mesh.peer_route_endpoints(&peer_id).is_some() {
             return None;
         }
-        Some((peer_id, installation_id, known_address))
+        Some((peer_id, installation_id, known_endpoint))
     }
 
     async fn send_cloud_relay_with_token(
@@ -435,7 +431,7 @@ impl MeshPeerControlAdapter {
         >,
     > {
         let (peer_id, installation_id, known) = self.cloud_ingress_route(record)?;
-        let address = crate::mesh_routes::relay::resolve_cloud_ingress_address(
+        let endpoint = crate::mesh_routes::relay::resolve_cloud_ingress_endpoint(
             &self.state,
             &peer_id,
             &installation_id,
@@ -444,7 +440,7 @@ impl MeshPeerControlAdapter {
         Some(
             crate::mesh_routes::relay::send_via_cloud_ingress(
                 &self.state,
-                address,
+                endpoint,
                 &installation_id,
                 cmd,
                 token,
@@ -489,7 +485,7 @@ impl MeshPeerControlAdapter {
             .link_record(&peer.instance_id)
             .and_then(|link| link.installation_id())
             .or(record.installation_id.as_deref());
-        installation_id.is_some_and(|id| mesh.direct_ingress_address(id).is_some())
+        installation_id.is_some_and(|id| mesh.cloud_ingress_endpoint(id).is_some())
     }
 }
 
@@ -608,8 +604,11 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
     async fn update_endpoint(
         &self,
         record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
+        let CloudEndpoint::Direct(address) = endpoint else {
+            return Ok(());
+        };
         let mut mesh = self.state.mesh.lock();
         let target = record
             .peer_instance_id
@@ -622,8 +621,8 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         {
             if let Err(error) = mesh.set_peer_addr_override(
                 &peer_id,
-                &endpoint.ip().to_string(),
-                Some(endpoint.port()),
+                &address.ip().to_string(),
+                Some(address.port()),
             ) {
                 log::warn!("[cloud] failed to set peer addr override for {peer_id}: {error}");
             }
@@ -634,7 +633,7 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
     async fn publish_direct_endpoint(
         &self,
         record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
         let installation_id = self.resolve_installation_id(record).ok_or_else(|| {
             CloudError::ProviderUnavailable(format!(
@@ -644,7 +643,7 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         })?;
         #[cfg(any(test, feature = "test-support"))]
         if let Some(override_pub) = self.state.svc.try_ext::<CloudEndpointPublisherOverride>() {
-            return (override_pub.0)(endpoint, installation_id)
+            return (override_pub.0)(endpoint.clone(), installation_id)
                 .await
                 .map_err(CloudError::ProviderUnavailable);
         }
@@ -658,7 +657,7 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         {
             return Ok(());
         }
-        ferry_publish_direct_endpoint(&self.state.svc, endpoint, &installation_id)
+        ferry_publish_direct_endpoint(&self.state.svc, endpoint.clone(), &installation_id)
             .await
             .map_err(|error| {
                 CloudError::ProviderUnavailable(format!(

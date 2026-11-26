@@ -1340,6 +1340,7 @@ dependencies = [
  "codeterm-account",
  "codeterm-agent-lifecycle",
  "codeterm-analytics",
+ "codeterm-api",
  "codeterm-billing",
  "codeterm-blueprint-types",
  "codeterm-bridge",
@@ -1922,15 +1923,19 @@ dependencies = [
  "parking_lot 0.12.5",
  "rand 0.8.6",
  "reqwest 0.12.28",
+ "rustls",
+ "rustls-pki-types",
  "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "snow",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "ts-rs",
  "uuid",
+ "webpki-roots 0.26.11",
  "workspace-hack",
 ]
 
@@ -10081,8 +10086,12 @@ checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -10423,6 +10432,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.10.3",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 2.0.21",
 ]
@@ -11810,6 +11821,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "ts-rs",
+ "tungstenite",
  "typenum",
  "url",
  "uuid",

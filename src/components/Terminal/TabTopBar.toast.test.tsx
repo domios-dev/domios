@@ -258,6 +258,41 @@ function Harness({ chat = true, locked = false, chatCapable = false, usageTabId 
   </MultiplexerActionsContext.Provider>;
 }
 
+it("omits the right-hand remote machine bubble while keeping the left-side machine identity", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
+  const tab = {
+    id: "mesh:peer-blackstar/tab-verdi",
+    title: "Verdi",
+    role: "Manager",
+    role_profile: "orchestrator",
+    agent_type: "fixture",
+    remote_peer_id: "peer-blackstar",
+    remote_peer_name: "BLACKSTAR",
+  } as Tab;
+  try {
+    await act(async () => {
+      rememberMachineIdentities({
+        ...localMesh,
+        paired: [{ instance_id: "peer-blackstar", instance_name: "BLACKSTAR", online: true }] as MeshPeersResponse["paired"],
+      });
+      root.render(
+        <MultiplexerActionsContext.Provider value={actions}>
+          <TabTopBar tabId={tab.id} shellTab={tab} cwd={null} showSwitch={false} isActive />
+        </MultiplexerActionsContext.Provider>,
+      );
+    });
+    expect(host.querySelector('[data-testid="remote-viewer-pill"]')).toBeNull();
+    expect(host.querySelector(".ct-tab-header-title__subtitle")?.textContent).toBe("ORCHESTRATOR · BLACKSTAR");
+  } finally {
+    await act(async () => root.unmount());
+    rememberMachineIdentities({ ...localMesh, local_instance_name: "" });
+    host.remove();
+  }
+});
+
 it("reads usage on the displayed machine and drops it when that peer goes offline", async () => {
   const host = document.createElement("div");
   document.body.append(host);

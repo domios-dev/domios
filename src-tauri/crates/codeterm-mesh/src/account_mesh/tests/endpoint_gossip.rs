@@ -263,3 +263,75 @@ fn direct_endpoint_changes_address_only_on_newer_signed_records() {
     forged.claim.endpoint = None;
     assert!(b.mesh.lock().verify_endpoint_record(&forged).is_err());
 }
+
+#[test]
+fn provider_proxy_endpoint_round_trips_through_gossip_signing_and_refuses_invalid_hosts() {
+    let clock = clock();
+    let (a, b, c) = (machine(1, &clock), machine(2, &clock), machine(3, &clock));
+    admit(&[&a, &b, &c]);
+    let token = record(&a, 1).claim.membership;
+    let host = "domios-a1b2c3d4.fly.dev".to_owned();
+    let signed = a
+        .mesh
+        .lock()
+        .sign_endpoint_record(
+            Some(EndpointAddress::ProviderProxy { host: host.clone() }),
+            2,
+            &token,
+        )
+        .unwrap();
+    assert!(b
+        .mesh
+        .lock()
+        .receive_endpoint_record(signed.clone())
+        .unwrap());
+    for entry in b.mesh.lock().build_sync_payload().endpoints {
+        c.mesh.lock().receive_endpoint_record(entry).unwrap();
+    }
+    let expected =
+        codeterm_util::cloud_endpoint::CloudEndpoint::ProviderProxy { host: host.clone() };
+    for peer in [&b, &c] {
+        assert_eq!(
+            peer.mesh.lock().cloud_ingress_endpoint(&a.installation_id),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            peer.mesh.lock().direct_ingress_address(&a.installation_id),
+            None
+        );
+        let status = peer.mesh.lock().peers_response();
+        assert_eq!(
+            status
+                .direct_ingress
+                .get(&a.installation_id)
+                .map(|s| s.address.as_str()),
+            Some("wss://domios-a1b2c3d4.fly.dev")
+        );
+    }
+
+    let mut tampered = signed;
+    tampered.claim.endpoint = Some(EndpointAddress::ProviderProxy {
+        host: "other-host.fly.dev".into(),
+    });
+    assert!(b.mesh.lock().verify_endpoint_record(&tampered).is_err());
+
+    for bad_host in [
+        "127.0.0.1",
+        "8.8.8.8",
+        "App.Fly.Dev",
+        "app.fly.dev:443",
+        "::1",
+    ] {
+        assert!(a
+            .mesh
+            .lock()
+            .sign_endpoint_record(
+                Some(EndpointAddress::ProviderProxy {
+                    host: bad_host.into(),
+                }),
+                3,
+                &token,
+            )
+            .is_err());
+    }
+}

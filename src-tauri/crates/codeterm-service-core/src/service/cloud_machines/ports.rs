@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -8,7 +7,7 @@ use zeroize::Zeroizing;
 use super::held_sends::{FlushWriteOutcome, HeldCloudSend};
 use super::idle_drain::{DrainToken, PeerBusySnapshot};
 use super::types::{
-    CloudError, CloudMachineRecord, CloudPromoRedemption, CloudRate, CloudSleepMode,
+    CloudEndpoint, CloudError, CloudMachineRecord, CloudPromoRedemption, CloudRate, CloudSleepMode,
     CloudUsageSummary,
 };
 
@@ -27,10 +26,7 @@ impl Clock for SystemClock {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CloudRouteSpec {
-    Direct { address: SocketAddrV4 },
-}
+pub type CloudRouteSpec = CloudEndpoint;
 
 pub struct ProvisioningCreateRequest {
     pub size: String,
@@ -44,7 +40,7 @@ pub struct ProvisioningCreateRequest {
 pub struct ProvisionedMachine {
     pub machine_id: String,
     pub provider: String,
-    pub endpoint: SocketAddrV4,
+    pub endpoint: CloudEndpoint,
     pub size: String,
     pub rate: CloudRate,
     pub sleep_mode: CloudSleepMode,
@@ -124,12 +120,12 @@ pub trait CloudPeerControlPort: Send + Sync {
     async fn update_endpoint(
         &self,
         record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError>;
     async fn publish_direct_endpoint(
         &self,
         record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError>;
     async fn await_peer_ready(
         &self,

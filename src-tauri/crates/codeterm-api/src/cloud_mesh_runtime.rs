@@ -7,7 +7,6 @@ use codeterm_mesh::cloud_outbox::{
     OuterWireRequest, ReceiverDedupe, OUTER_RELAY_ROUTE,
 };
 use codeterm_mesh::crown::AuthenticatedOrigin;
-use codeterm_mesh::endpoint_gossip::EndpointAddress;
 use codeterm_mesh::MeshState;
 use codeterm_service_core::{
     ports::rest::LocalApiRouter,
@@ -15,7 +14,6 @@ use codeterm_service_core::{
 };
 use std::{
     collections::HashMap,
-    net::SocketAddrV4,
     sync::{Arc, Weak},
     time::Duration,
 };
@@ -224,14 +222,13 @@ impl ReverseDispatcher for Dispatcher {
 async fn maintain(
     mesh: MeshState,
     id: String,
-    address: SocketAddrV4,
+    route: CloudRoute,
     dedupe: Arc<ReceiverDedupe>,
     dispatcher: Arc<Dispatcher>,
 ) -> Result<(), IngressError> {
-    let route = CloudRoute::Direct(address);
     let mut previous_expiry = None;
     loop {
-        let channel = connect_enrolled(mesh.clone(), route, &id).await?;
+        let channel = connect_enrolled(mesh.clone(), route.clone(), &id).await?;
         let member = channel.peer_membership()?;
         let expiry = member.expires_at;
         if previous_expiry.is_some_and(|prior| expiry <= prior) {
@@ -243,20 +240,20 @@ async fn maintain(
             result=channel.receive_reverse(&dedupe,dispatcher.as_ref())=>return result,
             _=tokio::time::sleep(delay)=>{}
         }
-        connect_enrolled(mesh.clone(), route, &id)
+        connect_enrolled(mesh.clone(), route.clone(), &id)
             .await?
             .renew()
             .await?;
-        connect_enrolled(mesh.clone(), route, &id)
+        connect_enrolled(mesh.clone(), route.clone(), &id)
             .await?
-            .publish_endpoint(address)
+            .publish_endpoint(&route)
             .await?;
         previous_expiry = Some(expiry);
     }
 }
 
 struct RouteTask {
-    address: SocketAddrV4,
+    route: CloudRoute,
     epoch: u64,
     sequence: u64,
     task: JoinHandle<()>,
@@ -295,24 +292,20 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                         if !enabled {
                             return None;
                         }
-                        match r.claim.endpoint {
-                            Some(EndpointAddress::DirectIngress { address }) => {
-                                Some((r.claim.installation_id, (epoch?, r.claim.sequence, address)))
-                            }
-                            _ => None,
-                        }
+                        let route = r.claim.endpoint.and_then(|e| e.cloud_endpoint())?;
+                        Some((r.claim.installation_id, (epoch?, r.claim.sequence, route)))
                     })
                     .collect::<HashMap<_, _>>()
             };
             drop(owner);
             tasks.retain(|id, task| {
-                routes.get(id).is_some_and(|(epoch, sequence, address)| {
+                routes.get(id).is_some_and(|(epoch, sequence, route)| {
                     task.epoch == *epoch
-                        && task.address == *address
+                        && task.route == *route
                         && (task.sequence == *sequence || !task.task.is_finished())
                 })
             });
-            for (id, (epoch, sequence, address)) in routes {
+            for (id, (epoch, sequence, route)) in routes {
                 if tasks.contains_key(&id) {
                     continue;
                 }
@@ -333,13 +326,14 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                 let target = id.clone();
                 let store = Arc::clone(store);
                 let dispatcher = Arc::clone(&dispatcher);
+                let task_route = route.clone();
                 let task = tokio::spawn(async move {
-                    let _ = maintain(mesh, target, address, store, dispatcher).await;
+                    let _ = maintain(mesh, target, task_route, store, dispatcher).await;
                 });
                 tasks.insert(
                     id,
                     RouteTask {
-                        address,
+                        route,
                         epoch,
                         sequence,
                         task,

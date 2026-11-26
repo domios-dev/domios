@@ -80,13 +80,14 @@ pub async fn enroll(
     if controller.public_key() != binding.controller {
         return Err(ControllerError::InvalidEvidence);
     }
-    let mut client = connect_enrollment(route, &binding.nonce, binding.controller, |proof| {
-        controller
-            .sign_channel_proof(proof.as_bytes())
-            .ok_or(IngressError::Rejected)
-    })
-    .await
-    .map_err(ControllerError::Ingress)?;
+    let mut client =
+        connect_enrollment(route.clone(), &binding.nonce, binding.controller, |proof| {
+            controller
+                .sign_channel_proof(proof.as_bytes())
+                .ok_or(IngressError::Rejected)
+        })
+        .await
+        .map_err(ControllerError::Ingress)?;
     let bytes = client
         .request(EnrollmentOperation::Discover, &[])
         .await
@@ -180,25 +181,26 @@ async fn enrolled_channel(
 
 pub async fn publish_direct_endpoint(
     service: &ServiceContext,
-    address: std::net::SocketAddrV4,
+    route: CloudRoute,
     id: &str,
 ) -> Result<(), ControllerError> {
-    let route = CloudRoute::Direct(address);
-    let channel = match enrolled_channel(service, route, id).await {
+    let channel = match enrolled_channel(service, route.clone(), id).await {
         Ok(channel) => channel,
+        Err(original @ ControllerError::Ingress(IngressError::TlsFailed)) => return Err(original),
         Err(original) => {
             let mesh = service
                 .try_ext::<crate::MeshStateHandle>()
                 .ok_or(ControllerError::Unavailable)?;
-            match codeterm_mesh::cloud_ingress::recover_expired_cloud(mesh, route, id).await {
-                Ok(()) => enrolled_channel(service, route, id).await?,
+            match codeterm_mesh::cloud_ingress::recover_expired_cloud(mesh, route.clone(), id).await
+            {
+                Ok(()) => enrolled_channel(service, route.clone(), id).await?,
                 Err(IngressError::Rejected) => return Err(original),
                 Err(error) => return Err(ControllerError::Ingress(error)),
             }
         }
     };
     channel
-        .publish_endpoint(address)
+        .publish_endpoint(&route)
         .await
         .map_err(ControllerError::Ingress)
 }

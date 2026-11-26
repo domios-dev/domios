@@ -19,6 +19,7 @@ pub enum IngressError {
     Rejected,
     InvalidFrame,
     Unavailable,
+    TlsFailed,
 }
 
 impl IngressError {
@@ -27,6 +28,7 @@ impl IngressError {
             Self::Rejected => "ingress_rejected",
             Self::InvalidFrame => "invalid_frame",
             Self::Unavailable => "ingress_unavailable",
+            Self::TlsFailed => "ingress_tls_failed",
         }
     }
 }

@@ -319,12 +319,19 @@ it("filters General in place and preserves its selected row", async () => {
     expect(local.hidden).toBe(true);
     expect(remote.hidden).toBe(false);
     expect(local.querySelector('button[aria-current="page"]')).toBe(selected);
+    expect(view.host.querySelector('[aria-label="New session on another machine"]')).toBeNull();
+    const peerNewSession = view.host.querySelector<HTMLButtonElement>('[data-testid="sidebar-new-session"]');
+    expect(peerNewSession).not.toBeNull();
+    expect(peerNewSession?.disabled).toBe(false);
+    expect(peerNewSession?.closest("[hidden]")).toBeNull();
     await act(async () => setSidebarMachineFilter("local"));
     expect(local.hidden).toBe(false);
     expect(remote.hidden).toBe(true);
+    expect(view.host.querySelector('[aria-label="New session on another machine"]')).toBeNull();
     await act(async () => setSidebarMachineFilter("all"));
     expect(remote.hidden).toBe(false);
     expect(view.host.querySelector('[data-tab-id="main"]')).toBe(local);
+    expect(view.host.querySelector('[aria-label="New session on another machine"]')).toBeNull();
   } finally { await view.close(); }
 });
 
