@@ -88,9 +88,9 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
 
 fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
     let status = match &error {
-        CloudError::LimitReached { .. } | CloudError::ImplicitCreateRefused => {
-            StatusCode::FORBIDDEN
-        }
+        CloudError::LimitReached { .. }
+        | CloudError::ImplicitCreateRefused
+        | CloudError::CheckoutTerritory => StatusCode::FORBIDDEN,
         CloudError::LeaseRequired
         | CloudError::CreditsExhausted
         | CloudError::MachineOutOfCredits { .. } => StatusCode::PAYMENT_REQUIRED,
@@ -108,11 +108,15 @@ fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
         | CloudError::ProviderUnavailable(_)
         | CloudError::ProviderUnconfirmed(_)
         | CloudError::WakeDeadlineExceeded { .. }
-        | CloudError::ApplyUnconfirmed { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        | CloudError::ApplyUnconfirmed { .. }
+        | CloudError::CheckoutUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
         CloudError::ProviderRefused(_)
         | CloudError::PromoInvalidCode
         | CloudError::PromoExpired
-        | CloudError::PromoDisabled => StatusCode::BAD_REQUEST,
+        | CloudError::PromoDisabled
+        | CloudError::CheckoutInvalid
+        | CloudError::CheckoutBelowMin
+        | CloudError::CheckoutAboveMax => StatusCode::BAD_REQUEST,
         CloudError::EnrollmentFailed(_) | CloudError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
@@ -150,6 +154,32 @@ fn require_local_caller(
                 "error": {
                     "code": "local_only",
                     "message": "Cloud controller mutations require a local caller",
+                }
+            })),
+        ))
+    }
+}
+
+fn require_local_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if matches!(
+        crate::auth::authenticated_request(state, headers),
+        Ok((
+            crate::auth::CallerIdentity::Local,
+            crate::auth::AuthenticatedOrigin::Owner,
+        ))
+    ) {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": {
+                    "code": "local_owner_only",
+                    "message": "Cloud credit checkout requires the local owner",
                 }
             })),
         ))
@@ -376,6 +406,39 @@ async fn redeem_promo(
     Ok(Json(serde_json::to_value(redeemed).unwrap_or_default()))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudCheckoutBody {
+    pub pack_id: String,
+    #[serde(default)]
+    pub amount_cents: Option<u64>,
+}
+
+async fn create_checkout(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CloudCheckoutBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_local_owner(&state, &headers)?;
+    let pack_id = body.pack_id.trim();
+    if pack_id.is_empty() {
+        return Err(error_response(CloudError::CheckoutInvalid));
+    }
+    if pack_id == "custom" {
+        if !body.amount_cents.is_some_and(|cents| cents > 0) {
+            return Err(error_response(CloudError::CheckoutInvalid));
+        }
+    } else if body.amount_cents.is_some() {
+        return Err(error_response(CloudError::CheckoutInvalid));
+    }
+    let provisioning = resolve_provisioning(&state);
+    let session = provisioning
+        .create_checkout(pack_id, body.amount_cents)
+        .await
+        .map_err(error_response)?;
+    Ok(Json(serde_json::to_value(session).unwrap_or_default()))
+}
+
 fn require_peer_control_authority(
     state: &AppState,
     headers: &HeaderMap,
@@ -461,6 +524,7 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/mesh/cloud/resolve", post(resolve_machine))
         .route("/api/mesh/cloud/usage", get(usage_summary))
         .route("/api/mesh/cloud/redeem", post(redeem_promo))
+        .route("/api/mesh/cloud/checkout", post(create_checkout))
         .route("/api/mesh/cloud/peer/idle", get(peer_idle))
         .route("/api/mesh/cloud/peer/drain", post(peer_drain))
         .route("/api/mesh/cloud/peer/reopen", post(peer_reopen))

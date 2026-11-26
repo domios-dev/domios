@@ -110,6 +110,9 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::PromoDisabled
         | AccountMeshRefusal::PromoExhausted
         | AccountMeshRefusal::PromoSpendCapExceeded
+        | AccountMeshRefusal::CheckoutBelowMin
+        | AccountMeshRefusal::CheckoutAboveMax
+        | AccountMeshRefusal::CheckoutTerritory
         | AccountMeshRefusal::NotFound
         | AccountMeshRefusal::ProviderRefused
         | AccountMeshRefusal::ProviderUnavailable

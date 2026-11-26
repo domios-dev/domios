@@ -7,8 +7,8 @@ use zeroize::Zeroizing;
 use super::held_sends::{FlushWriteOutcome, HeldCloudSend};
 use super::idle_drain::{DrainToken, PeerBusySnapshot};
 use super::types::{
-    CloudEndpoint, CloudError, CloudMachineRecord, CloudPromoRedemption, CloudRate, CloudSleepMode,
-    CloudUsageSummary,
+    CloudCheckoutSession, CloudEndpoint, CloudError, CloudMachineRecord, CloudPromoRedemption,
+    CloudRate, CloudSleepMode, CloudUsageSummary,
 };
 
 pub trait Clock: Send + Sync {
@@ -79,6 +79,15 @@ pub trait CloudProvisioningPort: Send + Sync {
     async fn redeem_promo(&self, _code: &str) -> Result<CloudPromoRedemption, CloudError> {
         Err(CloudError::ProviderUnavailable(
             "promo code redemption unavailable".into(),
+        ))
+    }
+    async fn create_checkout(
+        &self,
+        _pack_id: &str,
+        _amount_cents: Option<u64>,
+    ) -> Result<CloudCheckoutSession, CloudError> {
+        Err(CloudError::CheckoutUnavailable(
+            "cloud credit checkout unavailable".into(),
         ))
     }
 }

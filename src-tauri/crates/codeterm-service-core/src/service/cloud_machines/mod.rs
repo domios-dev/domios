@@ -39,11 +39,12 @@ pub use state::{
 };
 pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{
-    CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
-    CloudOwnershipReceipt, CloudPromoRedemption, CloudRate, CloudReceipt, CloudSleepMode,
-    CloudUsageSummary, PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT,
-    CLOUD_WAKE_SEND_PREFIX, COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES,
-    DEFAULT_LEASE_RENEW_LEAD_MS, PROVIDER_PROXY_PORT,
+    CloudCheckoutSession, CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState,
+    CloudMachineRecord, CloudOwnershipReceipt, CloudPlanAllowances, CloudPromoRedemption,
+    CloudRate, CloudReceipt, CloudSleepMode, CloudUsagePack, CloudUsageSize, CloudUsageSummary,
+    PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT, CLOUD_WAKE_SEND_PREFIX,
+    COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
+    PROVIDER_PROXY_PORT,
 };
 
 #[derive(Clone)]

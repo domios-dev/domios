@@ -17,6 +17,7 @@ pub const ROUTE_CLOUD_DELETE: &str = "deleteManagedCloudMachine";
 pub const ROUTE_CLOUD_LEASE_RENEW: &str = "renewManagedCloudLease";
 pub const ROUTE_CLOUD_USAGE: &str = "getManagedCloudUsage";
 pub const ROUTE_CLOUD_REDEEM_PROMO: &str = "redeemCloudCreditPromo";
+pub const ROUTE_CLOUD_CHECKOUT: &str = "createCloudCreditPackCheckout";
 
 pub const DOMAIN_CLOUD_CREATE: &str = "domios.cloud-create.v1";
 pub const DOMAIN_CLOUD_WAKE: &str = "domios.cloud-wake.v1";
@@ -219,6 +220,33 @@ pub struct RenewLeaseReply {
     pub lease_expires_at: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCloudUsageSize {
+    pub id: String,
+    pub cpu: u32,
+    pub ram_gb: f64,
+    pub hourly_rate_cents: u64,
+    pub credits_per_hour: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCloudUsagePack {
+    pub pack_id: String,
+    pub price_cents: u64,
+    pub hours: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCloudPlanAllowances {
+    pub free: f64,
+    pub pro: f64,
+    pub max: f64,
+    pub sponsor: f64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudUsageReply {
@@ -237,6 +265,82 @@ pub struct CloudUsageReply {
     pub custom_min_cents: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_max_cents: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<Vec<WireCloudUsageSize>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packs: Option<Vec<WireCloudUsagePack>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purchased_expiry_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowance_hours: Option<WireCloudPlanAllowances>,
+}
+
+/// Wire request for `createCloudCreditPackCheckout` (`shared/cloud-credits.ts`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateCloudCreditPackCheckoutRequest {
+    pub pack_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount_cents: Option<u64>,
+}
+
+/// Wire reply for `createCloudCreditPackCheckout` (`shared/cloud-credits.ts::CreateCloudCreditPackCheckoutReply`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateCloudCreditPackCheckoutReply {
+    pub url: String,
+    pub session_id: String,
+    pub pack_id: String,
+    pub credits: f64,
+    pub amount_cents: u64,
+    pub currency: String,
+}
+
+impl CreateCloudCreditPackCheckoutReply {
+    pub fn is_valid(&self) -> bool {
+        url::Url::parse(&self.url)
+            .is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some())
+            && !self.session_id.trim().is_empty()
+            && !self.pack_id.trim().is_empty()
+            && self.credits.is_finite()
+            && self.credits >= 0.0
+            && self.amount_cents > 0
+            && !self.currency.trim().is_empty()
+    }
+}
+
+/// Typed refusal detail for `createCloudCreditPackCheckout`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "reason", deny_unknown_fields)]
+pub enum CloudCheckoutRefusal {
+    #[serde(rename = "invalid")]
+    Invalid,
+    #[serde(rename = "spend_cap_exceeded")]
+    SpendCapExceeded {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cap_cents: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spent_cents: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pending_cents: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pack_cents: Option<u64>,
+    },
+    #[serde(rename = "below_min")]
+    BelowMin,
+    #[serde(rename = "above_max")]
+    AboveMax,
+    #[serde(rename = "territory")]
+    Territory,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "rate_limited")]
+    RateLimited {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after_seconds: Option<u64>,
+    },
 }
 
 /// Wire request for `redeemCloudCreditPromo` (`shared/cloud-credits.ts::RedeemCloudCreditPromoRequest`).
@@ -596,6 +700,43 @@ impl CloudController<'_> {
                     .ports
                     .registry
                     .redeem_cloud_promo(&self.signed.session, &request),
+            )
+            .await?;
+        self.ensure_current()?;
+        if !reply.is_valid() {
+            return Err(AccountMeshRefusal::Unavailable);
+        }
+        Ok(reply)
+    }
+
+    pub async fn create_checkout(
+        &self,
+        pack_id: &str,
+        amount_cents: Option<u64>,
+    ) -> Result<CreateCloudCreditPackCheckoutReply, AccountMeshRefusal> {
+        self.ensure_current()?;
+        let pack_id = pack_id.trim();
+        if pack_id.is_empty() {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        if pack_id == "custom" {
+            if !amount_cents.is_some_and(|cents| cents > 0) {
+                return Err(AccountMeshRefusal::Invalid);
+            }
+        } else if amount_cents.is_some() {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        let request = CreateCloudCreditPackCheckoutRequest {
+            pack_id: pack_id.to_owned(),
+            amount_cents,
+        };
+        let reply = self
+            .mesh
+            .call(
+                self.mesh
+                    .ports
+                    .registry
+                    .create_cloud_checkout(&self.signed.session, &request),
             )
             .await?;
         self.ensure_current()?;
