@@ -192,7 +192,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const localSelected = filter === "local" || (singleMachine && !target);
   const selectedReconnecting = !all && Boolean(target) && (
     selectedAvailability === "reconnecting"
-    || (browse?.target.id === target?.id && browse.synced === false)
+    || (browse !== null && browse.target.id === target?.id && browse.synced === false)
   );
   const label = all ? "All machines" : target
     ? selectedPeer ? peerName(selectedPeer) : cleanMachineName(target.name, target.id) ?? "Machine"
