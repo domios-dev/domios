@@ -114,7 +114,10 @@ impl CloudProvisioningPort for FakeProvisioningPort {
         let machine = ProvisionedMachine {
             machine_id: format!("cm_prov_{seq}"),
             provider: "timeweb".into(),
-            endpoint: SocketAddrV4::new(*self.create_ip.lock(), CLOUD_INGRESS_PORT),
+            endpoint: CloudEndpoint::Direct(SocketAddrV4::new(
+                *self.create_ip.lock(),
+                CLOUD_INGRESS_PORT,
+            )),
             size: request.size.clone(),
             rate: self.rate.lock().clone(),
             sleep_mode: *self.sleep_mode.lock(),
@@ -144,7 +147,10 @@ impl CloudProvisioningPort for FakeProvisioningPort {
         Ok(ProvisionedMachine {
             machine_id: machine_id.to_owned(),
             provider: "timeweb".into(),
-            endpoint: SocketAddrV4::new(*self.wake_ip.lock(), CLOUD_INGRESS_PORT),
+            endpoint: CloudEndpoint::Direct(SocketAddrV4::new(
+                *self.wake_ip.lock(),
+                CLOUD_INGRESS_PORT,
+            )),
             size: "small".into(),
             rate: self.rate.lock().clone(),
             sleep_mode: *self.sleep_mode.lock(),
@@ -276,10 +282,10 @@ struct FakePeerControl {
     busy: Mutex<PeerBusySnapshot>,
     drain_gate: Arc<LocalPeerDrainGate>,
     flush_outcomes: Mutex<VecDeque<FlushWriteOutcome>>,
-    flushed_payloads: Mutex<Vec<(String, String, Option<SocketAddrV4>)>>,
+    flushed_payloads: Mutex<Vec<(String, String, Option<CloudEndpoint>)>>,
     events: Mutex<Vec<String>>,
-    endpoint_updates: Mutex<Vec<SocketAddrV4>>,
-    published_endpoints: Mutex<Vec<(String, SocketAddrV4)>>,
+    endpoint_updates: Mutex<Vec<CloudEndpoint>>,
+    published_endpoints: Mutex<Vec<(String, CloudEndpoint)>>,
 }
 
 impl FakePeerControl {
@@ -318,9 +324,9 @@ impl CloudPeerControlPort for FakePeerControl {
     async fn update_endpoint(
         &self,
         _record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
-        self.endpoint_updates.lock().push(endpoint);
+        self.endpoint_updates.lock().push(endpoint.clone());
         self.events.lock().push(format!("endpoint:{endpoint}"));
         Ok(())
     }
@@ -328,11 +334,12 @@ impl CloudPeerControlPort for FakePeerControl {
     async fn publish_direct_endpoint(
         &self,
         record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
-        self.published_endpoints
-            .lock()
-            .push((record.installation_id.clone().unwrap_or_default(), endpoint));
+        self.published_endpoints.lock().push((
+            record.installation_id.clone().unwrap_or_default(),
+            endpoint.clone(),
+        ));
         self.events.lock().push(format!("publish:{endpoint}"));
         Ok(())
     }
@@ -359,7 +366,7 @@ impl CloudPeerControlPort for FakePeerControl {
         self.flushed_payloads.lock().push((
             send.send_id.clone(),
             send.body["text"].as_str().unwrap_or("").to_owned(),
-            record.endpoint_addr,
+            record.endpoint.clone(),
         ));
         self.flush_outcomes
             .lock()
@@ -860,8 +867,11 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
         )
         .await
         .unwrap();
-    let initial_addr = SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 10), CLOUD_INGRESS_PORT);
-    assert_eq!(created.endpoint_addr, Some(initial_addr));
+    let initial_addr = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 10),
+        CLOUD_INGRESS_PORT,
+    ));
+    assert_eq!(created.endpoint, Some(initial_addr.clone()));
     assert_eq!(
         peer_ctrl.published_endpoints.lock().as_slice(),
         &[("inst-wake".into(), initial_addr)]
@@ -941,9 +951,15 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
     assert!(t2.await.unwrap().is_ok());
     assert_eq!(prov.wake_calls.load(Ordering::SeqCst), 1);
 
-    let new_addr = SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 42), CLOUD_INGRESS_PORT);
-    assert_eq!(woken1.endpoint_addr, Some(new_addr));
-    assert_eq!(peer_ctrl.endpoint_updates.lock().as_slice(), &[new_addr]);
+    let new_addr = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 42),
+        CLOUD_INGRESS_PORT,
+    ));
+    assert_eq!(woken1.endpoint, Some(new_addr.clone()));
+    assert_eq!(
+        peer_ctrl.endpoint_updates.lock().as_slice(),
+        &[new_addr.clone()]
+    );
 
     // Endpoint update and direct endpoint publication strictly precede ready and flush.
     let events = peer_ctrl.events.lock().clone();
@@ -961,7 +977,11 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
     assert_eq!(
         flushed,
         vec![
-            (s1.send_id.clone(), "first-opaque".into(), Some(new_addr)),
+            (
+                s1.send_id.clone(),
+                "first-opaque".into(),
+                Some(new_addr.clone())
+            ),
             (s2.send_id.clone(), "second-opaque".into(), Some(new_addr)),
         ]
     );

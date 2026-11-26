@@ -327,3 +327,109 @@ async fn cloud_producer_mints_relay_token_after_transfer_artifacts() {
         "send_relay must not reuse a token pre-minted before transfer_artifacts"
     );
 }
+
+#[tokio::test]
+async fn home_to_cloud_relay_routes_provider_proxy_from_gossip_and_persisted_endpoint() {
+    let fixture = cloud_fixture(MultiplexerState::new().0);
+    let (home, _home_pub) = configure_peer_state(&fixture, "home-proxy");
+    let gossip_endpoint = CloudEndpoint::ProviderProxy {
+        host: "domios-gossip.fly.dev".into(),
+    };
+    let persisted_endpoint = CloudEndpoint::ProviderProxy {
+        host: "domios-persisted.fly.dev".into(),
+    };
+
+    {
+        let mut mesh = home.mesh.lock();
+        mesh.insert_account_peer_with_installation_for_test(
+            "cloud-inst-proxy-persisted".into(),
+            test_paired_peer("cloud-peer-proxy-persisted", "fly-persisted"),
+        );
+        mesh.insert_account_peer_with_installation_for_test(
+            "cloud-inst-proxy-gossip".into(),
+            test_paired_peer("cloud-peer-proxy-gossip", "fly-gossip"),
+        );
+        mesh.insert_cloud_endpoint_for_test(
+            "cloud-inst-proxy-gossip".into(),
+            gossip_endpoint.clone(),
+        );
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = CloudMachineStore::new(dir.path().join("cloud_machines.json"));
+    store
+        .save(&[CloudMachineRecord {
+            machine_id: "cloud-fly-1".into(),
+            name: "fly-persisted".into(),
+            provider: "fly_machines".into(),
+            size: "small".into(),
+            state: CloudLifecycleState::Awake,
+            sleep_mode: CloudSleepMode::StopBilled,
+            installation_id: Some("cloud-inst-proxy-persisted".into()),
+            peer_instance_id: Some("cloud-peer-proxy-persisted".into()),
+            endpoint: Some(persisted_endpoint.clone()),
+            rate_per_hour: None,
+            created_at_ms: 1_000,
+            last_awake_at_ms: Some(1_000),
+            last_owner_interaction_at_ms: Some(1_000),
+            accumulated_awake_secs: 0,
+            period_start_ms: 1_000,
+            lease_id: None,
+            lease_expires_at_ms: None,
+            exhaustion_pending: false,
+            idle_since_ms: None,
+            apply_unconfirmed: false,
+            pending_request: None,
+            last_error: None,
+            ownership: CloudOwnershipReceipt::default(),
+        }])
+        .unwrap();
+    home.svc
+        .install_cloud_machines_for_test(Arc::new(CloudMachineController::new(
+            store,
+            "home-proxy".into(),
+            Arc::new(SystemClock),
+        )));
+
+    let channel = FakeCloudChannel::new();
+    assert!(home
+        .svc
+        .set_ext(CloudIngressConnectorOverride(channel.clone()))
+        .is_ok());
+
+    let app = routes::create_router_with_frontend(home, None);
+    let (status, resp) = post_relay_to(
+        app.clone(),
+        "owner-secret",
+        &json!({
+            "target_peer_id": "fly-gossip",
+            "method": "POST",
+            "path": "/api/tabs/remote-tab/send",
+            "body": { "text": "hello gossip proxy" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resp}");
+    assert_eq!(resp["ok"], true, "{resp}");
+
+    let (status, resp) = post_relay_to(
+        app,
+        "owner-secret",
+        &json!({
+            "target_peer_id": "fly-persisted",
+            "method": "POST",
+            "path": "/api/tabs/remote-tab/send",
+            "body": { "text": "hello persisted proxy" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resp}");
+    assert_eq!(resp["ok"], true, "{resp}");
+
+    let recorded = channel.recorded();
+    assert_eq!(recorded.len(), 2);
+    assert_eq!(recorded[0].route, gossip_endpoint);
+    assert_eq!(recorded[0].installation_id, "cloud-inst-proxy-gossip");
+    assert_eq!(recorded[1].route, persisted_endpoint);
+    assert_eq!(recorded[1].installation_id, "cloud-inst-proxy-persisted");
+}

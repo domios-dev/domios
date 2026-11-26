@@ -39,10 +39,11 @@ pub use state::{
 };
 pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{
-    CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
-    CloudPromoRedemption, CloudRate, CloudReceipt, CloudSleepMode, CloudUsageSummary,
-    PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT, CLOUD_WAKE_SEND_PREFIX,
-    COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
+    CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
+    CloudOwnershipReceipt, CloudPromoRedemption, CloudRate, CloudReceipt, CloudSleepMode,
+    CloudUsageSummary, PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT,
+    CLOUD_WAKE_SEND_PREFIX, COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES,
+    DEFAULT_LEASE_RENEW_LEAD_MS, PROVIDER_PROXY_PORT,
 };
 
 #[derive(Clone)]
@@ -131,6 +132,8 @@ impl ServiceContext {
     }
 }
 
+#[cfg(test)]
+mod endpoint_tests;
 #[cfg(test)]
 mod idle_driver_tests;
 #[cfg(test)]

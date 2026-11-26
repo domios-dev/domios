@@ -16,14 +16,14 @@ use super::held_sends::{
 use super::idle_drain::{IdlePolicy, IdleSleepAction, LocalPeerDrainGate};
 use super::placement::{select_placement, CloudTarget, PlacementDecision};
 use super::ports::{
-    Clock, CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, CloudRouteSpec,
-    EnrollmentOutcome, ProvisioningCreateRequest, SystemClock,
+    Clock, CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, EnrollmentOutcome,
+    ProvisioningCreateRequest, SystemClock,
 };
 use super::state::{can_issue_enrollment_apply, ownership_labels, transition, LifecycleEvent};
 use super::store::{CloudMachineStore, CloudWakeQueueStore};
 use super::types::{
-    CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
-    CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
+    CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
+    CloudOwnershipReceipt, CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
     PendingProvisioningRequest, DEFAULT_LEASE_RENEW_LEAD_MS,
 };
 
@@ -355,7 +355,7 @@ impl CloudMachineController {
                     sleep_mode: CloudSleepMode::DeleteRecreate,
                     installation_id: None,
                     peer_instance_id: None,
-                    endpoint_addr: None,
+                    endpoint: None,
                     rate_per_hour: None,
                     created_at_ms: now_ms,
                     last_awake_at_ms: None,
@@ -437,7 +437,7 @@ impl CloudMachineController {
             next.size = provisioned.size.clone();
             next.sleep_mode = provisioned.sleep_mode;
             next.rate_per_hour = Some(provisioned.rate.clone());
-            next.endpoint_addr = Some(provisioned.endpoint);
+            next.endpoint = Some(provisioned.endpoint.clone());
             next.lease_id = Some(provisioned.lease_id.clone());
             next.lease_expires_at_ms = Some(provisioned.lease_expires_at_ms);
             next.pending_request = None;
@@ -452,9 +452,7 @@ impl CloudMachineController {
             });
         }
 
-        let route = CloudRouteSpec::Direct {
-            address: provisioned.endpoint,
-        };
+        let route = provisioned.endpoint.clone();
         let enroll_result = enrollment
             .enroll(&route, &binding, &provisioned.provider, &provisioned.size)
             .await;
@@ -475,7 +473,7 @@ impl CloudMachineController {
                     Ok(next)
                 })?;
                 if let Err(error) = peer_control
-                    .update_endpoint(&enrolled, provisioned.endpoint)
+                    .update_endpoint(&enrolled, &provisioned.endpoint)
                     .await
                 {
                     let _ = self.update_record(&machine_id, |rec| {
@@ -488,7 +486,7 @@ impl CloudMachineController {
                     return Err(error);
                 }
                 if let Err(error) = peer_control
-                    .publish_direct_endpoint(&enrolled, provisioned.endpoint)
+                    .publish_direct_endpoint(&enrolled, &provisioned.endpoint)
                     .await
                 {
                     let _ = self.update_record(&machine_id, |rec| {
@@ -713,6 +711,11 @@ impl CloudMachineController {
                     }
                 };
 
+                let previous_endpoint = waking.endpoint.clone();
+                let stable_proxy_endpoint =
+                    matches!(woken.endpoint, CloudEndpoint::ProviderProxy { .. })
+                        && previous_endpoint.as_ref() == Some(&woken.endpoint);
+
                 // Persist updated endpoint (new IPv4 on delete_recreate) and lease before publication and held-send flush.
                 let waking = match self.update_record(&record.machine_id, |rec| {
                     let mut next = rec.clone();
@@ -720,7 +723,7 @@ impl CloudMachineController {
                     next.size = woken.size.clone();
                     next.sleep_mode = woken.sleep_mode;
                     next.rate_per_hour = Some(woken.rate.clone());
-                    next.endpoint_addr = Some(woken.endpoint);
+                    next.endpoint = Some(woken.endpoint.clone());
                     next.lease_id = Some(woken.lease_id.clone());
                     next.lease_expires_at_ms = Some(woken.lease_expires_at_ms);
                     next.exhaustion_pending = false;
@@ -734,32 +737,39 @@ impl CloudMachineController {
                     }
                 };
 
-                if let Err(error) = peer_control.update_endpoint(&waking, woken.endpoint).await {
-                    let _ = self.update_record(&record.machine_id, |rec| {
-                        transition(
-                            rec,
-                            LifecycleEvent::WakeFailed(error.to_string()),
-                            self.clock.now_ms(),
-                        )
-                    });
-                    guard.finish(Err(error.to_string()));
-                    return Err(error);
-                }
+                if !stable_proxy_endpoint {
+                    if let Err(error) = peer_control.update_endpoint(&waking, &woken.endpoint).await
+                    {
+                        let _ = self.update_record(&record.machine_id, |rec| {
+                            let mut next = transition(
+                                rec,
+                                LifecycleEvent::WakeFailed(error.to_string()),
+                                self.clock.now_ms(),
+                            )?;
+                            next.endpoint = previous_endpoint.clone();
+                            Ok(next)
+                        });
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
 
-                // Publish signed direct endpoint before peer readiness and held-send release; failure counts as not ready.
-                if let Err(error) = peer_control
-                    .publish_direct_endpoint(&waking, woken.endpoint)
-                    .await
-                {
-                    let _ = self.update_record(&record.machine_id, |rec| {
-                        transition(
-                            rec,
-                            LifecycleEvent::WakeFailed(error.to_string()),
-                            self.clock.now_ms(),
-                        )
-                    });
-                    guard.finish(Err(error.to_string()));
-                    return Err(error);
+                    // Publish signed endpoint before peer readiness and held-send release; failure counts as not ready.
+                    if let Err(error) = peer_control
+                        .publish_direct_endpoint(&waking, &woken.endpoint)
+                        .await
+                    {
+                        let _ = self.update_record(&record.machine_id, |rec| {
+                            let mut next = transition(
+                                rec,
+                                LifecycleEvent::WakeFailed(error.to_string()),
+                                self.clock.now_ms(),
+                            )?;
+                            next.endpoint = previous_endpoint.clone();
+                            Ok(next)
+                        });
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
                 }
 
                 let ready_deadline = self.clock.now_ms().saturating_add(deadline_ms);

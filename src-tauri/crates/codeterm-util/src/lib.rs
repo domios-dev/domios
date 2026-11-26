@@ -1,6 +1,7 @@
 pub mod atomic_write;
 pub mod attachments;
 pub mod autostart;
+pub mod cloud_endpoint;
 pub mod embedding_cpu;
 pub mod fs_links;
 pub mod git_checkout;

@@ -131,10 +131,17 @@ enum Route {
     Recovery,
 }
 
+fn parse_proxy_host(request: &Request) -> Option<String> {
+    let raw = request.headers().get("host")?.to_str().ok()?;
+    let host = raw.strip_suffix(":443").unwrap_or(raw);
+    super::provider_proxy_host_allowed(host).then(|| host.to_owned())
+}
+
 fn upgrade(
     request: &Request,
     response: Response,
     route: &mut Route,
+    proxy_host: &mut Option<String>,
 ) -> Result<Response, ErrorResponse> {
     let path = request.uri().path_and_query().map(|p| p.as_str());
     if let Some(selected) = match path {
@@ -144,6 +151,7 @@ fn upgrade(
         _ => None,
     } {
         *route = selected;
+        *proxy_host = parse_proxy_host(request);
         return Ok(response);
     }
     let mut refused = ErrorResponse::new(None);
@@ -190,11 +198,12 @@ async fn connection(
         .max_message_size(Some(MAX_ENROLLMENT_FRAME_BYTES))
         .max_frame_size(Some(MAX_ENROLLMENT_FRAME_BYTES));
     let mut route = Route::Bootstrap;
+    let mut proxy_host = None;
     let socket = tokio::time::timeout(
         Duration::from_secs(10),
         accept_hdr_async_with_config(
             socket,
-            |req: &Request, res: Response| upgrade(req, res, &mut route),
+            |req: &Request, res: Response| upgrade(req, res, &mut route, &mut proxy_host),
             Some(config),
         ),
     )
@@ -216,7 +225,12 @@ async fn connection(
         .map_err(|_| IngressError::Unavailable)?;
     }
     if matches!(route, Route::Enrolled) {
-        return super::enrolled::serve(socket, runtime.get().ok_or(IngressError::Rejected)?).await;
+        return super::enrolled::serve(
+            socket,
+            proxy_host,
+            runtime.get().ok_or(IngressError::Rejected)?,
+        )
+        .await;
     }
     tokio::time::timeout(
         Duration::from_secs(120),

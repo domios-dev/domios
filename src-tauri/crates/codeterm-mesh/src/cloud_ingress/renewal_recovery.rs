@@ -341,7 +341,7 @@ pub async fn recover_expired_cloud(
 ) -> Result<(), IngressError> {
     let (recovery, _, old) = Recovery::pinned(&mesh.lock(), id, true)?;
     tokio::time::timeout(Duration::from_secs(120), async {
-        let socket = dial::open(route, PATH).await?;
+        let socket = dial::open(&route, PATH).await?;
         let mut stream = EncryptedStream::handshake_with_domain(socket, true, DOMAIN).await?;
         initiate(&mut stream, mesh, recovery, &old.verified).await
     })

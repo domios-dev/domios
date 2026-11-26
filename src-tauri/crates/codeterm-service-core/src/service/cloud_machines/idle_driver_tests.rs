@@ -286,7 +286,7 @@ impl CloudPeerControlPort for DriverPeerControl {
     async fn update_endpoint(
         &self,
         _record: &CloudMachineRecord,
-        _endpoint: SocketAddrV4,
+        _endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
         Ok(())
     }
@@ -294,7 +294,7 @@ impl CloudPeerControlPort for DriverPeerControl {
     async fn publish_direct_endpoint(
         &self,
         _record: &CloudMachineRecord,
-        _endpoint: SocketAddrV4,
+        _endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
         Ok(())
     }
@@ -326,10 +326,10 @@ fn awake_record(id: &str, now_ms: u64, lease_expires_at_ms: u64) -> CloudMachine
         sleep_mode: CloudSleepMode::DeleteRecreate,
         installation_id: Some(format!("inst-{id}")),
         peer_instance_id: Some(format!("peer-{id}")),
-        endpoint_addr: Some(SocketAddrV4::new(
+        endpoint: Some(CloudEndpoint::Direct(SocketAddrV4::new(
             Ipv4Addr::new(198, 51, 100, 10),
             CLOUD_INGRESS_PORT,
-        )),
+        ))),
         rate_per_hour: None,
         created_at_ms: now_ms,
         last_awake_at_ms: Some(now_ms),

@@ -1,5 +1,5 @@
 use super::admission::{EnrolledProof, IngressRole, VerifiedIngressPeer};
-use super::dial::{open, ClientSocket};
+use super::dial::{open, ClientStream};
 use super::enrolled_wire::{ChannelIo, EncryptedStream};
 use super::{CloudRoute, IngressError};
 use crate::account_mesh::{
@@ -93,7 +93,7 @@ fn verify_intro(
     Ok(())
 }
 
-pub struct EnrolledChannel<S = tokio::net::TcpStream> {
+pub struct EnrolledChannel<S = ClientStream> {
     pub(super) stream: EncryptedStream<S>,
     pub(super) mesh: MeshState,
     pub(super) peer: VerifiedIngressPeer,
@@ -129,10 +129,7 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> EnrolledCha
             )),
         }
     }
-    pub async fn publish_endpoint(
-        mut self,
-        address: std::net::SocketAddrV4,
-    ) -> Result<(), IngressError> {
+    pub async fn publish_endpoint(mut self, expected: &CloudRoute) -> Result<(), IngressError> {
         use crate::endpoint_gossip::{
             receive_endpoint_records, EndpointAddress, SignedEndpointRecord,
         };
@@ -145,7 +142,7 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> EnrolledCha
         .map_err(|_| IngressError::Unavailable)??;
         self.admit()?;
         if record.claim.installation_id != self.peer.remote_membership().installation_id
-            || record.claim.endpoint != Some(EndpointAddress::DirectIngress { address })
+            || record.claim.endpoint != Some(EndpointAddress::from(expected.clone()))
         {
             return Err(IngressError::Rejected);
         }
@@ -252,7 +249,7 @@ pub async fn connect_enrolled(
     installation_id: &str,
 ) -> Result<EnrolledChannel, IngressError> {
     tokio::time::timeout(Duration::from_secs(30), async {
-        initiate(mesh, open(route, PATH).await?, installation_id).await
+        initiate(mesh, open(&route, PATH).await?, installation_id).await
     })
     .await
     .map_err(|_| IngressError::Unavailable)?
@@ -344,7 +341,11 @@ pub(crate) async fn accept<S: ChannelIo>(
     Ok((EnrolledChannel { stream, mesh, peer }, remote))
 }
 
-pub(super) async fn serve(socket: ClientSocket, runtime: &Runtime) -> Result<(), IngressError> {
+pub(super) async fn serve(
+    socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    proxy_host: Option<String>,
+    runtime: &Runtime,
+) -> Result<(), IngressError> {
     if !runtime.renewals.enrolled() || !runtime.dispatcher.enabled() {
         return Err(IngressError::Rejected);
     }
@@ -393,14 +394,16 @@ pub(super) async fn serve(socket: ClientSocket, runtime: &Runtime) -> Result<(),
         }
         Request::Endpoint => {
             use crate::endpoint_gossip::EndpointAddress;
-            let std::net::SocketAddr::V4(address) = local_address else {
-                return Err(IngressError::Rejected);
+            let endpoint = match local_address {
+                std::net::SocketAddr::V4(address) if super::direct_address_allowed(address) => {
+                    Some(EndpointAddress::DirectIngress { address })
+                }
+                _ => match proxy_host.filter(|host| super::provider_proxy_host_allowed(host)) {
+                    Some(host) => Some(EndpointAddress::ProviderProxy { host }),
+                    None => return Err(IngressError::Rejected),
+                },
             };
-            if !super::direct_address_allowed(address) {
-                return Err(IngressError::Rejected);
-            }
             let local = channel.mesh.lock().admission_context()?;
-            let endpoint = Some(EndpointAddress::DirectIngress { address });
             let known = channel
                 .mesh
                 .lock()
