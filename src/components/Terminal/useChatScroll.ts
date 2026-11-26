@@ -24,7 +24,7 @@ import {
   type ChatContentAnchor,
 } from "./chatScrollAnchor";
 
-import { chatLayoutScrollTarget, chatScrollWriteTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { chatLayoutScrollTarget, chatScrollWriteTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor, shouldRevealNewerChatRows } from "./chatScrollDecisions";
 import { chatOverflowAnchorFor } from "./chatAnchorAuthority";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatRevealIndex } from "./chatAnchorModel";
@@ -132,6 +132,8 @@ export function useChatScroll({
   };
   const gesture = useChatScrollGesture(scrollRef, active, sessionKey, gestureEndRef, gestureStartRef, sharedUserScrollingRef);
   const userScrollingRef = gesture.userScrolling;
+  const gestureOwnedRef = useRef(gesture.owned);
+  gestureOwnedRef.current = gesture.owned;
   const resetGesture = gesture.reset;
   const recordGestureScroll = gesture.recordScroll;
   const holdingView = gesture.holding;
@@ -222,7 +224,16 @@ export function useChatScroll({
     const detached = modeRef.current === "detached";
     setShowScrollDown(detached && (distance > SHOW_SCROLL_DOWN_THRESHOLD_PX || isChatViewportNearBottom(el)));
     const newer = newerRef.current;
-    if (detached && newer.count > 0 && !userScrollingRef.current && isChatViewportAtBottom(el) && newer.reveal?.()) {
+    if (
+      shouldRevealNewerChatRows({
+        mode: modeRef.current,
+        newerCount: newer.count,
+        userScrolling: userScrollingRef.current,
+        gestureOwned: gestureOwnedRef.current,
+        atBottom: isChatViewportAtBottom(el),
+      })
+      && newer.reveal?.()
+    ) {
       newer.count = 0; // until the next render reports what is still held back
       journalChatNewerRevealed(newer.tabId, detachCauseRef.current);
     }
@@ -462,15 +473,16 @@ export function useChatScroll({
   };
   useLayoutEffect(repairViewport, [repairViewport]);
 
-  // Rows held back below the window change no geometry, so their arrival is checked here.
+  // Rows held back below the window change no geometry, so their arrival — and a settled scroll landing on the
+  // bottom edge — is checked here once gesture ownership has released.
   useLayoutEffect(() => {
     if (suppressNewerRevealRef.current) {
       suppressNewerRevealRef.current = false;
       return;
     }
     const el = scrollRef.current;
-    if (el && active && newerCount > 0 && el.clientHeight > 0) updateScrollDown(el);
-  }, [active, newerCount, updateScrollDown]);
+    if (el && active && !gesture.owned && newerCount > 0 && el.clientHeight > 0) updateScrollDown(el);
+  }, [active, gesture.owned, newerCount, updateScrollDown]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;

@@ -91,7 +91,7 @@ export function mountedChatWindowCoversViewport(
   if (count === 0 || current.total !== total || current.end <= current.start) return false;
   const height = Math.max(1, viewportHeight);
   const top = Math.max(0, Math.min(scrollTop, Math.max(0, total - height)));
-  const margin = Math.floor(height * 0.25);
+  const margin = Math.floor(height * 0.5);
   const coversTop = current.start === 0 || current.top <= Math.max(0, top - margin);
   const coversBottom = current.end >= count || total - current.bottom >= Math.min(total, top + height + margin);
   return coversTop && coversBottom;

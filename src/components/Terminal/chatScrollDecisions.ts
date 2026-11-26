@@ -47,3 +47,20 @@ export function chatInnerScrollConsumesWheel(viewport: ChatViewportGeometry, del
   const top = Math.max(0, Math.min(viewport.scrollTop, max));
   return deltaY < 0 ? top >= CHAT_TAIL_TOLERANCE_PX : max - top >= CHAT_TAIL_TOLERANCE_PX;
 }
+
+/** Reveals rows held back below a detached reading window only after scroll gesture ownership has released. */
+export function shouldRevealNewerChatRows({
+  mode,
+  newerCount,
+  userScrolling,
+  gestureOwned,
+  atBottom,
+}: {
+  mode: ChatViewportMode;
+  newerCount: number;
+  userScrolling: boolean;
+  gestureOwned: boolean;
+  atBottom: boolean;
+}): boolean {
+  return mode === "detached" && newerCount > 0 && !userScrolling && !gestureOwned && atBottom;
+}
