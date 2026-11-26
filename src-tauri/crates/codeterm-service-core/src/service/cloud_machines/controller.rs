@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use parking_lot::Mutex;
+use rand::RngCore;
+use zeroize::Zeroizing;
 
 use crate::service::chat_send_transaction::ChatSendStatus;
 
@@ -13,33 +16,31 @@ use super::idle_drain::{
     evaluate_idle_and_renewal, IdleDecision, IdleEvalInput, IdlePolicy, IdleSleepAction,
     LocalPeerDrainGate, PeerBusySnapshot,
 };
-use super::placement::{
-    check_machine_limit, select_placement, CloudLimitPolicy, CloudTarget, PlacementDecision,
-};
+use super::placement::{select_placement, CloudTarget, PlacementDecision};
 use super::ports::{
-    Clock, CloudBackendPort, CloudCreateRequest, CloudEnrollmentPort, CloudPeerControlPort,
-    EnrollmentOutcome, SystemClock,
+    Clock, CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, CloudRouteSpec,
+    EnrollmentOutcome, ProvisioningCreateRequest, SystemClock,
 };
-use super::state::{
-    can_issue_enrollment_apply, ownership_labels, reconcile_provider_machines, transition,
-    LifecycleEvent, ReconcileOutcome, LABEL_CONTROLLER, LABEL_MANAGED,
-};
+use super::state::{can_issue_enrollment_apply, ownership_labels, transition, LifecycleEvent};
 use super::store::CloudMachineStore;
 use super::types::{
     CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
-    CloudReceipt, CLOUD_INGRESS_PORT, DEFAULT_AUTO_STOP_MINUTES,
+    CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
+    PendingProvisioningRequest, DEFAULT_LEASE_RENEW_LEAD_MS,
 };
 
-pub const BOOTSTRAP_CONTROLLER_KEY_ENV: &str = "DOMIOS_BOOTSTRAP_CONTROLLER_KEY";
-pub const BOOTSTRAP_NONCE_ENV: &str = "DOMIOS_BOOTSTRAP_NONCE";
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct CreateCloudMachineParams {
-    pub provider: String,
     pub size: String,
     pub name: Option<String>,
-    pub auto_stop_minutes: u32,
+    pub retry_machine_id: Option<String>,
     pub extra_labels: BTreeMap<String, String>,
+}
+
+pub fn mint_request_id() -> String {
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub struct CloudMachineController {
@@ -117,6 +118,69 @@ impl CloudMachineController {
         Ok(updated)
     }
 
+    fn remove_tentative_record(&self, machine_id: &str) {
+        let mut machines = self.machines.lock();
+        let before = machines.len();
+        machines.retain(|m| m.machine_id != machine_id);
+        if machines.len() != before {
+            let _ = self.persist_locked(&machines);
+        }
+    }
+
+    /// Persist a fresh request id before any backend call, or reuse the existing persisted id on retry.
+    fn begin_pending_request(
+        &self,
+        machine_id: &str,
+        op: PendingProvisioningOp,
+    ) -> Result<String, CloudError> {
+        let now_ms = self.clock.now_ms();
+        let mut chosen = String::new();
+        self.update_record(machine_id, |rec| {
+            let mut next = rec.clone();
+            if let Some(existing) = &rec.pending_request {
+                if existing.op == op {
+                    chosen = existing.request_id.clone();
+                    next.pending_request = Some(PendingProvisioningRequest {
+                        op,
+                        request_id: existing.request_id.clone(),
+                        started_at_ms: existing.started_at_ms,
+                        unconfirmed: false,
+                    });
+                    return Ok(next);
+                }
+            }
+            let request_id = mint_request_id();
+            chosen = request_id.clone();
+            next.pending_request = Some(PendingProvisioningRequest {
+                op,
+                request_id,
+                started_at_ms: now_ms,
+                unconfirmed: false,
+            });
+            Ok(next)
+        })?;
+        Ok(chosen)
+    }
+
+    fn mark_pending_unconfirmed(&self, machine_id: &str, op: PendingProvisioningOp, reason: &str) {
+        let _ = self.update_record(machine_id, |rec| {
+            let mut next = rec.clone();
+            if let Some(pending) = next.pending_request.as_mut().filter(|p| p.op == op) {
+                pending.unconfirmed = true;
+            }
+            next.last_error = Some(reason.to_owned());
+            Ok(next)
+        });
+    }
+
+    fn clear_pending_request(&self, machine_id: &str) {
+        let _ = self.update_record(machine_id, |rec| {
+            let mut next = rec.clone();
+            next.pending_request = None;
+            Ok(next)
+        });
+    }
+
     pub fn list(&self) -> Vec<CloudReceipt> {
         let now_ms = self.clock.now_ms();
         self.machines
@@ -154,181 +218,197 @@ impl CloudMachineController {
             .map(|rec| rec.cost_summary(now_ms))
     }
 
-    pub async fn reconcile(
+    pub async fn usage(
         &self,
-        provider: &str,
-        backend: &dyn CloudBackendPort,
-    ) -> Result<ReconcileOutcome, CloudError> {
-        let mut filter = BTreeMap::new();
-        filter.insert(LABEL_MANAGED.into(), "true".into());
-        filter.insert(LABEL_CONTROLLER.into(), self.controller_id.clone());
-        let observed = backend.list(&filter).await?;
-        let sleep_mode = backend.sleep_mode().await.unwrap_or_default();
-        let default_rate = backend.hourly_rate("small").await.ok().flatten();
-        let now_ms = self.clock.now_ms();
-
-        let mut machines = self.machines.lock();
-        let outcome = reconcile_provider_machines(
-            &machines,
-            &observed,
-            &self.controller_id,
-            provider,
-            sleep_mode,
-            default_rate,
-            now_ms,
-        );
-        *machines = outcome.records.clone();
-        self.persist_locked(&machines)?;
-        Ok(outcome)
+        provisioning: &dyn CloudProvisioningPort,
+    ) -> Result<CloudUsageSummary, CloudError> {
+        provisioning.usage().await
     }
 
     pub async fn create(
         &self,
         params: CreateCloudMachineParams,
-        backend: &dyn CloudBackendPort,
+        provisioning: &dyn CloudProvisioningPort,
         enrollment: &dyn CloudEnrollmentPort,
-        limit_policy: CloudLimitPolicy,
     ) -> Result<CloudReceipt, CloudError> {
-        {
-            let machines = self.machines.lock();
-            check_machine_limit(&machines, limit_policy)?;
-        }
-
-        let binding = enrollment.prepare_binding().await?;
-        let sleep_mode = backend.sleep_mode().await?;
         let size = if params.size.trim().is_empty() {
             "small".to_owned()
         } else {
             params.size.trim().to_owned()
         };
-        let rate_per_hour = backend.hourly_rate(&size).await.ok().flatten();
-        let image_id = backend.prepare_image(&size).await?;
-
-        let now_ms = self.clock.now_ms();
-        let request_id = uuid::Uuid::new_v4();
-        let short = &request_id.simple().to_string()[..8];
-        let machine_id = format!("cloud-{short}");
-        let name = params
+        let requested_name = params
             .name
             .as_deref()
             .map(str::trim)
             .filter(|n| !n.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("cloud-{short}"));
-        let auto_stop_minutes = if params.auto_stop_minutes == 0 {
-            DEFAULT_AUTO_STOP_MINUTES
-        } else {
-            params.auto_stop_minutes
-        };
-        let labels = ownership_labels(
-            &self.controller_id,
-            &machine_id,
-            &name,
-            &size,
-            &params.extra_labels,
-        );
+            .map(str::to_owned);
 
-        let initial = CloudMachineRecord {
-            machine_id: machine_id.clone(),
-            name: name.clone(),
-            provider: params.provider.clone(),
-            size: size.clone(),
-            state: CloudLifecycleState::Creating,
-            sleep_mode,
-            installation_id: None,
-            peer_instance_id: None,
-            rate_per_hour,
-            created_at_ms: now_ms,
-            last_awake_at_ms: None,
-            accumulated_awake_secs: 0,
-            period_start_ms: now_ms,
-            auto_stop_minutes,
-            last_activity_refresh_ms: None,
-            idle_since_ms: None,
-            apply_unconfirmed: false,
-            last_error: None,
-            ownership: CloudOwnershipReceipt {
-                provider_machine_id: String::new(),
-                floating_ip_id: None,
-                auxiliary_resource_ids: BTreeMap::new(),
-                controller_id: self.controller_id.clone(),
-                labels: labels.clone(),
-            },
-        };
-        {
+        // Reuse a persisted pending create request id on retry after an uncertain outcome.
+        let (machine_id, request_id, name) = {
             let mut machines = self.machines.lock();
-            check_machine_limit(&machines, limit_policy)?;
-            machines.push(initial);
-            self.persist_locked(&machines)?;
-        }
+            let existing_idx = if let Some(retry_id) = params.retry_machine_id.as_deref() {
+                machines.iter().position(|m| {
+                    m.machine_id == retry_id
+                        && m.state == CloudLifecycleState::Creating
+                        && m.pending_request
+                            .as_ref()
+                            .is_some_and(|p| p.op == PendingProvisioningOp::Create)
+                })
+            } else {
+                machines.iter().position(|m| {
+                    m.state == CloudLifecycleState::Creating
+                        && m.size == size
+                        && requested_name
+                            .as_deref()
+                            .is_none_or(|wanted| m.name == wanted)
+                        && m.pending_request
+                            .as_ref()
+                            .is_some_and(|p| p.op == PendingProvisioningOp::Create && p.unconfirmed)
+                })
+            };
 
-        let mut env = BTreeMap::new();
-        env.insert(
-            BOOTSTRAP_CONTROLLER_KEY_ENV.into(),
-            binding.controller_key.clone(),
-        );
-        env.insert(
-            BOOTSTRAP_NONCE_ENV.into(),
-            (*binding.provider_creation_nonce).clone(),
-        );
-        let create_req = CloudCreateRequest {
-            size: size.clone(),
-            image_id,
-            request_id,
-            labels,
-            env,
-            auto_stop_minutes,
+            if let Some(idx) = existing_idx {
+                let rec = &mut machines[idx];
+                let req_id = rec
+                    .pending_request
+                    .as_ref()
+                    .map(|p| p.request_id.clone())
+                    .unwrap_or_else(mint_request_id);
+                if let Some(pending) = rec.pending_request.as_mut() {
+                    pending.unconfirmed = false;
+                }
+                let mid = rec.machine_id.clone();
+                let mname = rec.name.clone();
+                self.persist_locked(&machines)?;
+                (mid, req_id, mname)
+            } else {
+                let now_ms = self.clock.now_ms();
+                let request_id = mint_request_id();
+                let short = &request_id[..8.min(request_id.len())];
+                let machine_id = format!("cloud-{short}");
+                let name = requested_name.unwrap_or_else(|| format!("cloud-{short}"));
+                let labels = ownership_labels(
+                    &self.controller_id,
+                    &machine_id,
+                    &name,
+                    &size,
+                    &params.extra_labels,
+                );
+                let initial = CloudMachineRecord {
+                    machine_id: machine_id.clone(),
+                    name: name.clone(),
+                    provider: "managed".into(),
+                    size: size.clone(),
+                    state: CloudLifecycleState::Creating,
+                    sleep_mode: CloudSleepMode::DeleteRecreate,
+                    installation_id: None,
+                    peer_instance_id: None,
+                    endpoint_addr: None,
+                    rate_per_hour: None,
+                    created_at_ms: now_ms,
+                    last_awake_at_ms: None,
+                    accumulated_awake_secs: 0,
+                    period_start_ms: now_ms,
+                    lease_id: None,
+                    lease_expires_at_ms: None,
+                    exhaustion_pending: false,
+                    idle_since_ms: None,
+                    apply_unconfirmed: false,
+                    pending_request: Some(PendingProvisioningRequest {
+                        op: PendingProvisioningOp::Create,
+                        request_id: request_id.clone(),
+                        started_at_ms: now_ms,
+                        unconfirmed: false,
+                    }),
+                    last_error: None,
+                    ownership: CloudOwnershipReceipt {
+                        provider_machine_id: String::new(),
+                        floating_ip_id: None,
+                        auxiliary_resource_ids: BTreeMap::new(),
+                        controller_id: self.controller_id.clone(),
+                        labels,
+                    },
+                };
+                machines.push(initial);
+                self.persist_locked(&machines)?;
+                (machine_id, request_id, name)
+            }
         };
 
-        let created = match backend.create(&create_req).await {
+        let binding = match enrollment.prepare_binding().await {
+            Ok(binding) => binding,
+            Err(error) => {
+                self.remove_tentative_record(&machine_id);
+                return Err(error);
+            }
+        };
+
+        let create_req = ProvisioningCreateRequest {
+            size: size.clone(),
+            name: Some(name),
+            controller_key: binding.controller_key.clone(),
+            creation_psk: Zeroizing::new((*binding.provider_creation_nonce).clone()),
+            request_id: request_id.clone(),
+        };
+
+        let provisioned = provisioning.create(&create_req).await;
+        // Drop the request copy of the creation PSK immediately after the backend call.
+        drop(create_req);
+
+        let provisioned = match provisioned {
             Ok(machine) => machine,
             Err(error) => {
-                let fail_now = self.clock.now_ms();
-                let _ = self.update_record(&machine_id, |rec| {
-                    transition(rec, LifecycleEvent::Failed(error.to_string()), fail_now)
-                });
+                drop(binding);
+                if error.is_uncertain_provisioning_outcome() {
+                    self.mark_pending_unconfirmed(
+                        &machine_id,
+                        PendingProvisioningOp::Create,
+                        &error.to_string(),
+                    );
+                } else {
+                    self.remove_tentative_record(&machine_id);
+                }
                 return Err(error);
             }
         };
 
         let enrolling = self.update_record(&machine_id, |rec| {
-            transition(
+            let mut next = transition(
                 rec,
                 LifecycleEvent::ProviderCreated {
-                    provider_machine_id: created.provider_machine_id.clone(),
+                    provider_machine_id: provisioned.machine_id.clone(),
                 },
                 self.clock.now_ms(),
-            )
+            )?;
+            next.provider = provisioned.provider.clone();
+            next.size = provisioned.size.clone();
+            next.sleep_mode = provisioned.sleep_mode;
+            next.rate_per_hour = Some(provisioned.rate.clone());
+            next.endpoint_addr = Some(provisioned.endpoint);
+            next.lease_id = Some(provisioned.lease_id.clone());
+            next.lease_expires_at_ms = Some(provisioned.lease_expires_at_ms);
+            next.pending_request = None;
+            Ok(next)
         })?;
 
         if !can_issue_enrollment_apply(&enrolling) {
+            drop(binding);
             return Err(CloudError::ApplyUnconfirmed {
                 machine_id,
                 installation_id: enrolling.installation_id.unwrap_or_default(),
             });
         }
 
-        let route = match backend
-            .access(&created.provider_machine_id, CLOUD_INGRESS_PORT)
-            .await
-        {
-            Ok(route) => route,
-            Err(error) => {
-                let _ = self.update_record(&machine_id, |rec| {
-                    transition(
-                        rec,
-                        LifecycleEvent::Failed(error.to_string()),
-                        self.clock.now_ms(),
-                    )
-                });
-                return Err(error);
-            }
+        let route = CloudRouteSpec::Direct {
+            address: provisioned.endpoint,
         };
+        let enroll_result = enrollment
+            .enroll(&route, &binding, &provisioned.provider, &provisioned.size)
+            .await;
+        // Creation secret must not outlive bootstrap enrollment.
+        drop(binding);
 
-        match enrollment
-            .enroll(&route, &binding, &params.provider, &size)
-            .await
-        {
+        match enroll_result {
             Ok(EnrollmentOutcome::Enrolled {
                 installation_id,
                 peer_instance_id,
@@ -377,7 +457,7 @@ impl CloudMachineController {
     pub async fn sleep(
         &self,
         selector: &str,
-        backend: &dyn CloudBackendPort,
+        provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
         delete_on_stop_billed: bool,
     ) -> Result<CloudReceipt, CloudError> {
@@ -388,7 +468,7 @@ impl CloudMachineController {
 
         let policy = IdlePolicy {
             idle_window_ms: 0,
-            auto_stop_minutes: record.auto_stop_minutes,
+            lease_renew_lead_ms: DEFAULT_LEASE_RENEW_LEAD_MS,
             sleep_mode: record.sleep_mode,
             delete_on_stop_billed,
         };
@@ -413,26 +493,37 @@ impl CloudMachineController {
             return Err(error);
         }
 
-        let stop_result = match action {
-            IdleSleepAction::StopProvider => {
-                backend.stop(&draining.ownership.provider_machine_id).await
-            }
-            IdleSleepAction::DeleteForRecreate => backend.delete(&draining.ownership).await,
-            IdleSleepAction::KeepUnderLease => Ok(()),
-        };
-
-        match stop_result {
-            Ok(()) => {
+        let request_id =
+            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
+        match provisioning
+            .sleep(draining.backend_machine_id(), &request_id)
+            .await
+        {
+            Ok(sleep_mode) => {
                 let now_ms = self.clock.now_ms();
                 let asleep = self.update_record(&record.machine_id, |rec| {
-                    transition(rec, LifecycleEvent::ProviderStopped, now_ms)
+                    let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
+                    next.sleep_mode = sleep_mode;
+                    next.pending_request = None;
+                    Ok(next)
                 })?;
-                let warning = (action == IdleSleepAction::DeleteForRecreate).then(|| {
-                    "provider uses delete_recreate sleep mode; instance was deleted to stop billing and will recreate on next wake".into()
-                });
+                let warning = (sleep_mode == CloudSleepMode::DeleteRecreate
+                    || action == IdleSleepAction::DeleteForRecreate)
+                    .then(|| {
+                        "machine uses delete_recreate sleep mode; instance was imaged and deleted to stop billing and will recreate with a new IPv4 on next wake".into()
+                    });
                 Ok(asleep.receipt(now_ms, warning))
             }
             Err(error) => {
+                if error.is_uncertain_provisioning_outcome() {
+                    self.mark_pending_unconfirmed(
+                        &record.machine_id,
+                        PendingProvisioningOp::Sleep,
+                        &error.to_string(),
+                    );
+                } else {
+                    self.clear_pending_request(&record.machine_id);
+                }
                 let _ = peer_control.reopen_drain(&draining).await;
                 let _ = self.update_record(&record.machine_id, |rec| {
                     transition(rec, LifecycleEvent::DrainAbortedBusy, self.clock.now_ms())
@@ -442,10 +533,49 @@ impl CloudMachineController {
         }
     }
 
+    async fn sleep_for_exhaustion(
+        &self,
+        machine_id: &str,
+        provisioning: &dyn CloudProvisioningPort,
+        peer_control: &dyn CloudPeerControlPort,
+    ) -> Result<CloudReceipt, CloudError> {
+        let record = self.find_record(machine_id)?;
+        let _ = peer_control.enter_drain(&record).await;
+        let request_id =
+            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
+        match provisioning
+            .sleep(record.backend_machine_id(), &request_id)
+            .await
+        {
+            Ok(sleep_mode) => {
+                let now_ms = self.clock.now_ms();
+                let exhausted = self.update_record(&record.machine_id, |rec| {
+                    let mut next = transition(rec, LifecycleEvent::CreditsExhausted, now_ms)?;
+                    next.sleep_mode = sleep_mode;
+                    next.pending_request = None;
+                    Ok(next)
+                })?;
+                Ok(exhausted.receipt(now_ms, Some("Out of credits: top up to wake".into())))
+            }
+            Err(error) => {
+                if error.is_uncertain_provisioning_outcome() {
+                    self.mark_pending_unconfirmed(
+                        &record.machine_id,
+                        PendingProvisioningOp::Sleep,
+                        &error.to_string(),
+                    );
+                } else {
+                    self.clear_pending_request(&record.machine_id);
+                }
+                Err(error)
+            }
+        }
+    }
+
     pub async fn wake(
         &self,
         selector: &str,
-        backend: &dyn CloudBackendPort,
+        provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
         deadline_ms: u64,
     ) -> Result<CloudReceipt, CloudError> {
@@ -485,13 +615,77 @@ impl CloudMachineController {
                     }
                 };
 
-                if let Err(error) = backend
-                    .start(
-                        &waking.ownership.provider_machine_id,
-                        waking.auto_stop_minutes,
-                    )
+                let request_id = match self
+                    .begin_pending_request(&record.machine_id, PendingProvisioningOp::Wake)
+                {
+                    Ok(id) => id,
+                    Err(error) => {
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
+                };
+
+                let woken = match provisioning
+                    .wake(waking.backend_machine_id(), &request_id)
                     .await
                 {
+                    Ok(machine) => machine,
+                    Err(error) => {
+                        if matches!(error, CloudError::CreditsExhausted) {
+                            let _ = self.update_record(&record.machine_id, |rec| {
+                                let mut next = transition(
+                                    rec,
+                                    LifecycleEvent::CreditsExhausted,
+                                    self.clock.now_ms(),
+                                )?;
+                                next.pending_request = None;
+                                Ok(next)
+                            });
+                        } else {
+                            if error.is_uncertain_provisioning_outcome() {
+                                self.mark_pending_unconfirmed(
+                                    &record.machine_id,
+                                    PendingProvisioningOp::Wake,
+                                    &error.to_string(),
+                                );
+                            } else {
+                                self.clear_pending_request(&record.machine_id);
+                            }
+                            let _ = self.update_record(&record.machine_id, |rec| {
+                                transition(
+                                    rec,
+                                    LifecycleEvent::WakeFailed(error.to_string()),
+                                    self.clock.now_ms(),
+                                )
+                            });
+                        }
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
+                };
+
+                // Persist updated endpoint (new IPv4 on delete_recreate) and lease before peer readiness and held-send flush.
+                let waking = match self.update_record(&record.machine_id, |rec| {
+                    let mut next = rec.clone();
+                    next.provider = woken.provider.clone();
+                    next.size = woken.size.clone();
+                    next.sleep_mode = woken.sleep_mode;
+                    next.rate_per_hour = Some(woken.rate.clone());
+                    next.endpoint_addr = Some(woken.endpoint);
+                    next.lease_id = Some(woken.lease_id.clone());
+                    next.lease_expires_at_ms = Some(woken.lease_expires_at_ms);
+                    next.exhaustion_pending = false;
+                    next.pending_request = None;
+                    Ok(next)
+                }) {
+                    Ok(updated) => updated,
+                    Err(error) => {
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
+                };
+
+                if let Err(error) = peer_control.update_endpoint(&waking, woken.endpoint).await {
                     let _ = self.update_record(&record.machine_id, |rec| {
                         transition(
                             rec,
@@ -537,7 +731,7 @@ impl CloudMachineController {
         &self,
         selector: &str,
         confirm: bool,
-        backend: &dyn CloudBackendPort,
+        provisioning: &dyn CloudProvisioningPort,
     ) -> Result<CloudReceipt, CloudError> {
         let record = self.find_record(selector)?;
         if !confirm {
@@ -549,10 +743,28 @@ impl CloudMachineController {
                 ),
             });
         }
-        backend.delete(&record.ownership).await?;
+        let request_id =
+            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Delete)?;
+        if let Err(error) = provisioning
+            .delete(record.backend_machine_id(), &request_id)
+            .await
+        {
+            if error.is_uncertain_provisioning_outcome() {
+                self.mark_pending_unconfirmed(
+                    &record.machine_id,
+                    PendingProvisioningOp::Delete,
+                    &error.to_string(),
+                );
+            } else {
+                self.clear_pending_request(&record.machine_id);
+            }
+            return Err(error);
+        }
         let now_ms = self.clock.now_ms();
         let deleted = self.update_record(&record.machine_id, |rec| {
-            transition(rec, LifecycleEvent::Deleted, now_ms)
+            let mut next = transition(rec, LifecycleEvent::Deleted, now_ms)?;
+            next.pending_request = None;
+            Ok(next)
         })?;
         Ok(deleted.receipt(now_ms, None))
     }
@@ -561,14 +773,13 @@ impl CloudMachineController {
         &self,
         target: &CloudTarget,
         create_params: Option<CreateCloudMachineParams>,
-        backend: &dyn CloudBackendPort,
+        provisioning: &dyn CloudProvisioningPort,
         enrollment: &dyn CloudEnrollmentPort,
         peer_control: &dyn CloudPeerControlPort,
-        limit_policy: CloudLimitPolicy,
     ) -> Result<CloudReceipt, CloudError> {
         let decision = {
             let machines = self.machines.lock();
-            select_placement(&machines, target, limit_policy)?
+            select_placement(&machines, target)?
         };
         match decision {
             PlacementDecision::ReuseAwake(id) => {
@@ -576,16 +787,17 @@ impl CloudMachineController {
                 Ok(record.receipt(self.clock.now_ms(), None))
             }
             PlacementDecision::WakeAndReuse(id) => {
-                self.wake(&id, backend, peer_control, DEFAULT_WAKE_HOLD_DEADLINE_MS)
-                    .await
+                self.wake(
+                    &id,
+                    provisioning,
+                    peer_control,
+                    DEFAULT_WAKE_HOLD_DEADLINE_MS,
+                )
+                .await
             }
             PlacementDecision::CreateExplicit => {
-                let params = create_params.ok_or_else(|| {
-                    CloudError::Internal(
-                        "explicit --cloud new requires provider create parameters".into(),
-                    )
-                })?;
-                self.create(params, backend, enrollment, limit_policy).await
+                let params = create_params.unwrap_or_default();
+                self.create(params, provisioning, enrollment).await
             }
         }
     }
@@ -678,13 +890,23 @@ impl CloudMachineController {
         Ok(updated.receipt(now_ms, None))
     }
 
+    pub fn restore_credits(&self, selector: &str) -> Result<CloudReceipt, CloudError> {
+        let record = self.find_record(selector)?;
+        let now_ms = self.clock.now_ms();
+        let updated = self.update_record(&record.machine_id, |rec| {
+            transition(rec, LifecycleEvent::CreditsRestored, now_ms)
+        })?;
+        Ok(updated.receipt(now_ms, None))
+    }
+
     pub async fn evaluate_idle_tick(
         &self,
         machine_id: &str,
         busy: PeerBusySnapshot,
         idle_window_ms: u64,
+        lease_renew_lead_ms: u64,
         delete_on_stop_billed: bool,
-        backend: &dyn CloudBackendPort,
+        provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
     ) -> Result<IdleDecision, CloudError> {
         let record = self.find_record(machine_id)?;
@@ -694,33 +916,88 @@ impl CloudMachineController {
             busy,
             now_ms,
             idle_since_ms: record.idle_since_ms,
-            last_activity_refresh_ms: record.last_activity_refresh_ms,
+            lease_expires_at_ms: record.lease_expires_at_ms,
+            exhaustion_pending: record.exhaustion_pending,
             policy: IdlePolicy {
                 idle_window_ms,
-                auto_stop_minutes: record.auto_stop_minutes,
+                lease_renew_lead_ms,
                 sleep_mode: record.sleep_mode,
                 delete_on_stop_billed,
             },
         });
         match decision {
-            IdleDecision::RenewActivityNow { .. } => {
-                backend
-                    .refresh_activity(
-                        &record.ownership.provider_machine_id,
-                        record.auto_stop_minutes,
+            IdleDecision::RenewLeaseNow {
+                lease_expires_at_ms,
+            } => {
+                let lease_id = record.lease_id.clone().unwrap_or_default();
+                let request_id = mint_request_id();
+                match provisioning
+                    .renew_lease(record.backend_machine_id(), &lease_id, &request_id)
+                    .await
+                {
+                    Ok(renewed) => {
+                        let _ = self.update_record(machine_id, |rec| {
+                            let mut next = rec.clone();
+                            next.lease_id = Some(renewed.lease_id.clone());
+                            next.lease_expires_at_ms = Some(renewed.lease_expires_at_ms);
+                            next.idle_since_ms = None;
+                            next.exhaustion_pending = false;
+                            Ok(next)
+                        });
+                        Ok(IdleDecision::ScheduleAt {
+                            at_ms: renewed
+                                .lease_expires_at_ms
+                                .saturating_sub(lease_renew_lead_ms),
+                            idle_since_ms: None,
+                        })
+                    }
+                    Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
+                        let _ = self.update_record(machine_id, |rec| {
+                            let mut next = rec.clone();
+                            next.exhaustion_pending = true;
+                            Ok(next)
+                        });
+                        if now_ms >= lease_expires_at_ms {
+                            let _ = self
+                                .sleep_for_exhaustion(machine_id, provisioning, peer_control)
+                                .await?;
+                            Ok(IdleDecision::BeginTwoPhaseDrain {
+                                action: IdleSleepAction::DeleteForRecreate,
+                                out_of_credits: true,
+                            })
+                        } else {
+                            // Finish the current prepaid lease, then sleep at its expiry.
+                            Ok(IdleDecision::ScheduleAt {
+                                at_ms: lease_expires_at_ms,
+                                idle_since_ms: None,
+                            })
+                        }
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            IdleDecision::BeginTwoPhaseDrain {
+                out_of_credits: true,
+                ..
+            } => {
+                let _ = self
+                    .sleep_for_exhaustion(machine_id, provisioning, peer_control)
+                    .await?;
+                Ok(decision)
+            }
+            IdleDecision::BeginTwoPhaseDrain {
+                out_of_credits: false,
+                ..
+            } => {
+                let _ = self
+                    .sleep(
+                        machine_id,
+                        provisioning,
+                        peer_control,
+                        delete_on_stop_billed,
                     )
                     .await?;
-                let _ = self.update_record(machine_id, |rec| {
-                    let mut next = rec.clone();
-                    next.last_activity_refresh_ms = Some(now_ms);
-                    next.idle_since_ms = None;
-                    Ok(next)
-                });
-            }
-            IdleDecision::BeginTwoPhaseDrain { .. } => {
-                let _ = self
-                    .sleep(machine_id, backend, peer_control, delete_on_stop_billed)
-                    .await?;
+                Ok(decision)
             }
             IdleDecision::ScheduleAt { idle_since_ms, .. } => {
                 if record.idle_since_ms != idle_since_ms {
@@ -730,10 +1007,10 @@ impl CloudMachineController {
                         Ok(next)
                     });
                 }
+                Ok(decision)
             }
-            IdleDecision::None => {}
+            IdleDecision::None => Ok(decision),
         }
-        Ok(decision)
     }
 
     pub fn enrich_peers_value(&self, mut value: serde_json::Value) -> serde_json::Value {

@@ -3,7 +3,6 @@ use codeterm_plugin::js_runtime::{CapabilityRegistries, PluginManifest, PluginVm
 
 fn registries(registry: Arc<SecretRegistry>) -> CapabilityRegistries {
     CapabilityRegistries {
-        cloud_machine_provider: Default::default(),
         decision_model: Arc::new(codeterm_plugin::capability::CapabilityRegistry::new()),
         transcribe: Arc::new(codeterm_plugin::transcribe::TranscribeRegistry::new()),
         converter: Arc::new(codeterm_plugin::converter::ConverterRegistry::new()),

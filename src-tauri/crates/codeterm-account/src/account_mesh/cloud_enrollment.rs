@@ -30,17 +30,10 @@ pub struct EnrollmentBody {
     pub channel_binding: String,
     pub provider: String,
     pub size: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cloud_mode: Option<CloudMode>,
     pub request_id: String,
     pub timestamp: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "lowercase")]
-pub enum CloudMode {
-    Byo,
-    Managed,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_machine_id: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -55,6 +48,8 @@ pub struct EnrollmentRequest {
 pub struct EnrollmentReply {
     pub membership: DetachedGrant,
     pub binding: DetachedGrant,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -75,6 +70,8 @@ struct Binding {
     controller_key: String,
     body: EnrollmentBody,
     membership_sha256: String,
+    #[serde(default)]
+    signed_registry_sha256: Option<String>,
     issued_at: u64,
     expires_at: u64,
 }
@@ -175,6 +172,18 @@ pub fn verify_apply(
         || now.abs_diff(body.timestamp) > 300
         || grant.controller_key != URL_SAFE_NO_PAD.encode(expected.controller)
         || grant.membership_sha256 != jcs_sha256_hex(&apply.reply.membership)?
+        || grant
+            .signed_registry_sha256
+            .as_ref()
+            .is_some_and(|expected| {
+                apply
+                    .reply
+                    .signed_registry
+                    .as_ref()
+                    .and_then(jcs_sha256_hex)
+                    .as_deref()
+                    != Some(expected.as_str())
+            })
         || body.cloud_installation_id != expected.local.cloud_installation_id
         || body.cloud_installation_key != expected.local.cloud_installation_key
         || body.mesh_instance_id != expected.local.mesh_instance_id
@@ -208,8 +217,8 @@ pub fn verify_apply(
 }
 
 pub struct CloudController<'a> {
-    mesh: &'a super::AccountMesh,
-    signed: super::operations::Signed,
+    pub(super) mesh: &'a super::AccountMesh,
+    pub(super) signed: super::operations::Signed,
 }
 
 impl super::AccountMesh {

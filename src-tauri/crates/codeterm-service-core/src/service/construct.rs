@@ -348,7 +348,6 @@ pub fn build_service_context(
         secrets,
         supporter_models: decision_model_registry,
         chatbackend_registry: chatbackend_registry.clone(),
-        cloud_machine_provider: cap_registries.cloud_machine_provider.clone(),
         provider_registry,
         local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
         services_store: Arc::new(services_store),

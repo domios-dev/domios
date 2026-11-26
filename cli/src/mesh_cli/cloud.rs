@@ -5,11 +5,8 @@ use crate::{build_local_api, local_api::LocalApiClient, read_api_config};
 
 #[derive(Subcommand, Debug)]
 pub enum MeshCloudAction {
-    /// Create and enroll a new cloud machine through a configured cloud provider plugin
+    /// Create and enroll a new managed cloud machine
     Create {
-        /// Cloud provider plugin ID (default: the sole installed cloud provider)
-        #[arg(long)]
-        provider: Option<String>,
         /// Machine size profile (default: small)
         #[arg(long)]
         size: Option<String>,
@@ -37,7 +34,7 @@ pub enum MeshCloudAction {
         #[arg(long)]
         confirm: bool,
     },
-    /// Show cloud usage summary (managed credit accounting reserved for Tally)
+    /// Show managed cloud credit usage, allowance, remaining balance, cap, and burn per size
     Usage,
 }
 
@@ -64,8 +61,12 @@ pub(crate) fn format_rate(rate: Option<&Value>) -> String {
     };
     let amount = rate["amount"].as_f64().unwrap_or(0.0);
     let currency = rate["currency"].as_str().unwrap_or("USD");
-    let basis = rate["basis"].as_str().unwrap_or("estimate");
-    format!("{amount:.2} {currency}/h ({basis})")
+    match rate["credits_per_hour"].as_f64() {
+        Some(credits) if credits.is_finite() && credits > 0.0 => {
+            format!("{amount:.2} {currency}/h ({credits:.2} cr/h)")
+        }
+        _ => format!("{amount:.2} {currency}/h"),
+    }
 }
 
 pub(crate) fn format_cloud_cost_badge(cloud: &Value) -> String {
@@ -90,6 +91,30 @@ pub(crate) fn format_receipt_human(val: &Value) -> String {
     ];
     if let Some(warning) = val["warning"].as_str().filter(|w| !w.is_empty()) {
         lines.push(format!("WARNING: {warning}"));
+    }
+    lines.join("\n")
+}
+
+pub(crate) fn format_usage_human(val: &Value) -> String {
+    let used = val["used"].as_f64().unwrap_or(0.0);
+    let allowance = val["allowance"].as_f64().unwrap_or(0.0);
+    let purchased = val["purchased"].as_f64().unwrap_or(0.0);
+    let remaining = val["remaining"].as_f64().unwrap_or(0.0);
+    let cap = val["cap"].as_f64().unwrap_or(0.0);
+    let mut lines = vec![
+        format!(
+            "Cloud credits: used={used:.2}h remaining={remaining:.2}h (allowance={allowance:.2}h purchased={purchased:.2}h cap={cap:.2})"
+        ),
+    ];
+    if let Some(burn) = val["burn_per_size"].as_object().filter(|m| !m.is_empty()) {
+        let mut entries: Vec<String> = burn
+            .iter()
+            .filter_map(|(size, rate)| rate.as_f64().map(|r| format!("{size}={r:.2} cr/h")))
+            .collect();
+        entries.sort();
+        if !entries.is_empty() {
+            lines.push(format!("Burn per size: {}", entries.join(", ")));
+        }
     }
     lines.join("\n")
 }
@@ -125,16 +150,10 @@ pub fn handle_cloud(
     json: bool,
     action: MeshCloudAction,
 ) {
+    let is_usage = matches!(action, MeshCloudAction::Usage);
     let response = match action {
-        MeshCloudAction::Create {
-            provider,
-            size,
-            name,
-        } => {
+        MeshCloudAction::Create { size, name } => {
             let mut body = serde_json::json!({});
-            if let Some(provider) = provider {
-                body["provider"] = serde_json::json!(provider);
-            }
             if let Some(size) = size {
                 body["size"] = serde_json::json!(size);
             }
@@ -188,6 +207,8 @@ pub fn handle_cloud(
             };
             if json {
                 crate::cmd::print::print_json(&val);
+            } else if is_usage {
+                println!("{}", format_usage_human(&val));
             } else if let Some(machines) = val["machines"].as_array() {
                 if machines.is_empty() {
                     println!("No cloud machines.");
@@ -195,12 +216,6 @@ pub fn handle_cloud(
                     for machine in machines {
                         println!("{}", format_receipt_human(machine));
                     }
-                }
-                if let Some(limit) = val["limit"].as_u64() {
-                    println!("Cloud machine limit: {}/{}", machines.len(), limit);
-                }
-                if let Some(total) = val["total_uptime_secs"].as_u64() {
-                    println!("Total period uptime: {}", format_uptime(total));
                 }
             } else {
                 println!("{}", format_receipt_human(&val));
