@@ -532,6 +532,8 @@ fn remote_task_bound_runtime_launch_refuses_signed_out_provider_instead_of_login
             bound_at: 1,
         });
     }
+    // Resume persists the desk; without installed storage that barrier parks until its deadline.
+    fixture.install_seeded_storage_desk();
     let server = crate::async_runtime::spawn(async move {
         let mut peer = BufReader::new(peer);
         loop {

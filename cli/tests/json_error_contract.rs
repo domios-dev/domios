@@ -496,7 +496,7 @@ fn local_only_mesh_command_returns_typed_refused_code() {
     let env = CliEnv::new(None);
     let output = run_cli(
         &env,
-        &json_args(&["agent", "cli", "status", "--mesh", "peer-target"]),
+        &json_args(&["agent", "cli", "status", "claude", "--mesh", "peer-target"]),
     );
     assert!(
         !output.status.success(),

@@ -121,7 +121,9 @@ impl PlanDatabase {
             event_offset,
             include_events,
         };
-        if let Some(mut cached) = self.board_state_cache.lock().get(&cache_key) {
+        // Bind first: an `if let` scrutinee guard lives through the block, and the refresh re-locks.
+        let cached = self.board_state_cache.lock().get(&cache_key);
+        if let Some(mut cached) = cached {
             let counts_still_valid = now_ms >= cached.counts_now_ms
                 && cached
                     .counts_valid_until_ms
