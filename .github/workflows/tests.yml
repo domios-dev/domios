@@ -279,6 +279,7 @@ jobs:
       contents: write
       actions: write
       issues: write
+      packages: write
       pull-requests: write
     with:
       source_sha: ${{ needs.admission.outputs.source_sha }}

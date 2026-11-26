@@ -763,10 +763,97 @@ alias of the same version, resolves fully qualified tag refs, and still requires
 Associated PRs come from closed PRs sorted by update time, filtered by included merge SHA.
 The scan ends at history exhaustion or two days before the boundary commit date; hitting its page bound first refuses.
 
+## Cloud machine image
+
+Every cloud machine image used by QA or production is built by CI from an exact commit SHA, pushed
+to `ghcr.io/domios-dev/domios-cloud` with the workflow `GITHUB_TOKEN` (`packages: write`; no personal
+tokens), verified anonymously pullable by digest and within its compressed size budget, and pinned by
+`ghcr.io/domios-dev/domios-cloud@sha256:<64-hex>` (never by a floating tag).
+
+### Candidate image (QA / pre-release)
+
+`.github/workflows/cloud-image.yml` builds `docker/cloud.Dockerfile` with `ARCHIVE_SOURCE=ci-smoke`
+and `ALLOW_CI_SMOKE=1` (writing `qa` into `/etc/domios-cloud-profile`, using the QA debug archive from
+`scripts/docker/build-cloud-candidate-inputs.sh` with repo secrets `DOMIOS_QA_PROJECT_ID`,
+`DOMIOS_QA_FIREBASE_API_KEY` and `DOMIOS_QA_FIREBASE_APP_ID`). It pushes to
+`ghcr.io/domios-dev/domios-cloud:candidate-<sha12>`, checks anonymous GHCR manifest pullability,
+`org.opencontainers.image.revision`/`org.domios.environment=qa` annotations, tag digest equality and
+the 2048 MiB compressed size budget through `scripts/docker/verify-cloud-image.mjs`, and prints the
+pinned digest ref in `$GITHUB_STEP_SUMMARY`.
+
+Trigger paths (all owner-actor `rollacode` only):
+
+- **Immutable candidate tag (works on integration branches before `master` has the workflow):**
+  push a unique tag named exactly `cloud-candidate-<sha12>` pointing at the reviewed commit; never
+  move or reuse a candidate tag. Candidate tags run on hosted `ubuntu-24.04` because `domios-trusted`
+  permits self-hosted runners only on `release/next`.
+
+  ```bash
+  sha=$(git rev-parse <reviewed-commit>)
+  git tag "cloud-candidate-${sha:0:12}" "$sha"
+  git push origin "refs/tags/cloud-candidate-${sha:0:12}"
+  ```
+
+- **Release candidate branch:** pushes to `release/next` build automatically using
+  `vars.RELEASE_LINUX_X64_RUNNER` (falling back to `"ubuntu-24.04"`).
+- **Manual dispatch (once `cloud-image.yml` is on `master`):**
+  `gh workflow run cloud-image.yml --repo domios-dev/domios --ref release/next -f source_sha=<40-hex-sha>`.
+
+Hand the job summary's pinned `ghcr.io/domios-dev/domios-cloud@sha256:...` digest to live QA (Quill)
+for the QA backend (`domios-signin-qa`).
+
+### Signed release image (app publication)
+
+After `release-manifest` publishes `vX.Y.Z` on `master`, `release.yml` calls
+`.github/workflows/release-cloud-image.yml` in the protected `release` environment:
+
+1. Downloads `domios-headless-vX.Y.Z-linux-x86_64.tar.gz`, `.sha256` and `.manifest.json` from the
+   published release and verifies checksum, version and exact `source_sha`.
+2. Runs `scripts/docker/sign-headless-feed.mjs` with `TAURI_SIGNING_PRIVATE_KEY` to produce and verify
+   `domios-headless-linux-x86_64.json` against `packaging/docker/release.pub` (matching
+   `src-tauri/tauri.conf.json`), then uploads that signed feed to the release.
+3. Builds `docker/cloud.Dockerfile` with `ARCHIVE_SOURCE=signed-release` and `ALLOW_CI_SMOKE=0` so
+   `packaging/docker/verify.py` verifies the minisign signature inside the build stage, pushes tagged
+   `<version>` and `latest`, verifies anonymous pullability, `org.domios.environment=release`, tag
+   digests and the 1536 MiB compressed size budget, and uploads plus anonymously reads back
+   `domios-cloud-image.txt` (`ghcr.io/domios-dev/domios-cloud@sha256:...`) on the `vX.Y.Z` release.
+
+Docker Buildx cache placement (`buildcache-amd64` and self-hosted `/tmp/domios-ci/buildx-cache/domios-cloud`)
+lives in [the build skill](../build/SKILL.md#docker-smoke-inputs). Keep `cloud-image.yml` and
+`release-cloud-image.yml` in `.github/admin/runner-group-policy.json` for `release/next`.
+
+### Production pointer update (owner GO required)
+
+Publishing a release never mutates the production Firebase backend automatically. After an
+owner-approved app release publishes `domios-cloud-image.txt`:
+
+1. Read the release asset and confirm its digest matches the released `source_sha` and passes
+   anonymous GHCR pull:
+
+   ```bash
+   img=$(curl -fsSL "https://github.com/domios-dev/domios/releases/download/vX.Y.Z/domios-cloud-image.txt")
+   node scripts/docker/verify-cloud-image.mjs \
+     --repo ghcr.io/domios-dev/domios-cloud \
+     --digest "${img#*@}" \
+     --expected-sha <released-40-hex-sha> \
+     --expected-env release \
+     --tag X.Y.Z --tag latest \
+     --max-compressed-mib 1536
+   ```
+
+2. Obtain explicit **owner GO** (the same approval gate as a production Firebase deploy on
+   `domios-d9357`).
+3. Update `cloudProvisioning/config.ociImage` on `domios-d9357` to the exact pinned
+   `ghcr.io/domios-dev/domios-cloud@sha256:<64-hex>` value through the audited admin path in
+   `codeterm-firebase` (clearing any stale `flyOciImage` override so `ociImage` is authoritative),
+   recording the release version, digest, and audit entry. Never point production at a floating tag
+   (`latest` or `<version>`) or at a `candidate-*` (`qa` profile) digest.
+
 ## Handoff and closeout
 
-For release pipeline edits, run `node scripts/test-catalogue.mjs run --entry release-promotion`
-and inspect changed workflow YAML and runner-group coverage. These lightweight checks run in PR
+For release pipeline edits, run `node scripts/test-catalogue.mjs run --entry release-promotion`,
+`node --test scripts/docker/cloud-image.test.mjs`, and `actionlint .github/workflows/*.yml`, and
+inspect changed workflow YAML and runner-group coverage. These lightweight checks run in PR
 CI; live qualification and publication prove GitHub behavior and elapsed time.
 
 Keep a handoff file current with candidate and workflow SHAs, run URL/ID, inputs, actual per-job
