@@ -22,7 +22,7 @@ pub(super) enum PeerRelayAuthorization<'a> {
         peer_id: &'a str,
         team_id: &'a str,
         force: bool,
-        confirm: Option<&'a str>,
+        confirm: Option<String>,
         force_busy: bool,
     },
     MeshRpc {
@@ -84,7 +84,10 @@ pub(super) fn authorize_peer_relay<'a>(
             peer_id,
             team_id,
             force: relay_bool_field(body, "force"),
-            confirm: body.get("confirm").and_then(serde_json::Value::as_str),
+            confirm: body
+                .get("confirm")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
             force_busy: relay_bool_field(body, "force_busy"),
         };
     }
@@ -161,7 +164,7 @@ pub(super) async fn dispatch_peer_relay(
             peer_id,
             team_id,
             force,
-            confirm,
+            confirm.as_deref(),
             force_busy,
             grant.clone(),
         )

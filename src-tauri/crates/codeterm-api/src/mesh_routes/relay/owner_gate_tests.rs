@@ -548,7 +548,7 @@ async fn team_close_relay_authorizes_paired_owner_and_refuses_ungranted_or_uncon
                     peer_id: "signed-peer",
                     team_id: "team_remote",
                     force: true,
-                    confirm: Some("team_remote"),
+                    confirm: Some("team_remote".to_owned()),
                     force_busy: true,
                 },
                 "{access:?} {path}"
