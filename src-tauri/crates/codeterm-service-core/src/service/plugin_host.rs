@@ -619,6 +619,23 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         secret_bucket(plugin_id).get(name).ok()
     }
 
+    fn cloud_provider_key(&self, name: &str) -> Result<Option<String>, &'static str> {
+        crate::async_runtime::block_on(async {
+            let unavailable = "cloud provider key store unavailable";
+            let lookup = async {
+                let store = self.secrets.read().await.clone();
+                match store.get(name).await {
+                    Ok(secret) => Ok(Some(secret.value.into_inner())),
+                    Err(crate::secrets::SecretError::NotFound) => Ok(None),
+                    Err(_) => Err(unavailable),
+                }
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(10), lookup)
+                .await
+                .map_err(|_| unavailable)?
+        })
+    }
+
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool {
         secret_bucket(plugin_id).set(name, value).is_ok()
     }

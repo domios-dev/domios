@@ -47,6 +47,7 @@ impl PluginProviderRegistrar for TestRegistrar {
 
 pub(super) fn test_caps() -> CapabilityRegistries {
     let capabilities = CapabilityRegistries {
+        cloud_machine_provider: Default::default(),
         decision_model: Arc::new(crate::capability::CapabilityRegistry::new()),
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
         converter: Arc::new(crate::converter::ConverterRegistry::new()),
@@ -66,6 +67,55 @@ pub(super) fn test_caps() -> CapabilityRegistries {
     };
     let _ = capabilities.chatbackend.start_discovery();
     capabilities
+}
+
+#[tokio::test]
+async fn cloud_machine_provider_registers_and_projects_private_results() {
+    use crate::cloud_machine_provider::{CloudAccess, CloudProviderError, StopSemantics};
+
+    let caps = test_caps();
+    let manifest: PluginManifest = serde_json::from_value(serde_json::json!({
+        "id": "cloud-fixture",
+        "version": "0.1.0",
+        "displayName": "Cloud fixture",
+        "hostIoJobs": true,
+        "capabilities": { "cloudMachineProvider": true }
+    }))
+    .unwrap();
+    let vm = Arc::new(
+        crate::js_runtime::PluginVm::from_source(
+            "cloud-fixture",
+            r#"module.exports.default = {
+                cloudMachineProvider(operation, args) {
+                    if (operation === "access") {
+                        return { status: "ok", value: { kind: "direct", ip: "1.1.1.1" } };
+                    }
+                    if (operation === "stop" && args.id === "fixture-machine") {
+                        return { status: "ok", value: "pause" };
+                    }
+                    return { status: "error", error: { kind: "scope_missing", scope: "write:snapshots" } };
+                }
+            };"#
+            .into(),
+            None,
+        )
+        .unwrap(),
+    );
+    caps.register_plugin(&manifest, &vm);
+    let port = caps.cloud_machine_provider.get("cloud-fixture").unwrap();
+    assert_eq!(port.stop("fixture-machine").await, Ok(StopSemantics::Pause));
+    assert_eq!(
+        port.delete("fixture-machine").await,
+        Err(CloudProviderError::ScopeMissing {
+            scope: "write:snapshots".into()
+        })
+    );
+    assert!(matches!(
+        port.access("fixture-machine", 7687).await.unwrap(),
+        CloudAccess::Direct { address } if address.port() == 7687
+    ));
+    caps.deregister_plugin("cloud-fixture");
+    assert!(!caps.cloud_machine_provider.contains("cloud-fixture"));
 }
 
 // Poll tick() until `condition` holds instead of assuming one tick is enough;

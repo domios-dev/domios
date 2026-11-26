@@ -42,8 +42,8 @@ function writeJson(file, value) {
   fs.writeFileSync(file, original.includes("\r\n") ? text.replaceAll("\n", "\r\n") : text);
 }
 
-export function channelPlugins(root) {
-  const channel = readJson(path.join(root, "plugins/channel.json"));
+export function channelPlugins(root, directory = path.join(root, "plugins")) {
+  const channel = readJson(path.join(directory, "channel.json"));
   const seen = new Set();
   return channel.plugins.map((entry) => {
     if (!/^[a-z][a-z0-9-]*$/.test(entry.id) || seen.has(entry.id)) {
@@ -51,27 +51,27 @@ export function channelPlugins(root) {
     }
     seen.add(entry.id);
     if (!/^[a-z][a-z0-9-]*$/.test(entry.path)) throw new Error(`Invalid plugin path: ${entry.path}`);
-    const directory = path.join(root, "plugins", entry.path);
-    const manifest = readJson(path.join(directory, "plugin.json"));
-    const packageJson = readJson(path.join(directory, "package.json"));
+    const pluginDirectory = path.join(directory, entry.path);
+    const manifest = readJson(path.join(pluginDirectory, "plugin.json"));
+    const packageJson = readJson(path.join(pluginDirectory, "package.json"));
     parseVersion(manifest.version);
     parseVersion(manifest.minCodeterm);
     if (entry.id !== manifest.id || entry.version !== manifest.version ||
         entry.minCodeterm !== manifest.minCodeterm || packageJson.version !== manifest.version) {
       throw new Error(`Plugin metadata disagrees for ${entry.id}: manifest, package and channel must match`);
     }
-    return { ...entry, directory, manifest, packageJson };
+    return { ...entry, directory: pluginDirectory, manifest, packageJson };
   });
 }
 
-export function bumpPlugin(root, id, version, minimum) {
-  const plugins = channelPlugins(root);
+export function bumpPlugin(root, id, version, minimum, directory = path.join(root, "plugins")) {
+  const plugins = channelPlugins(root, directory);
   const plugin = plugins.find((entry) => entry.id === id);
   if (!plugin) throw new Error(`Plugin is not in the official channel: ${id}`);
   if (compareVersions(version, plugin.version) <= 0) throw new Error(`Plugin version must increase: ${plugin.version} -> ${version}`);
   if (minimum !== undefined) parseVersion(minimum);
   const minCodeterm = minimum ?? plugin.minCodeterm;
-  const channelPath = path.join(root, "plugins/channel.json");
+  const channelPath = path.join(directory, "channel.json");
   const channel = readJson(channelPath);
   const entry = channel.plugins.find((entry) => entry.id === id);
   Object.assign(entry, { version, minCodeterm });
@@ -80,10 +80,10 @@ export function bumpPlugin(root, id, version, minimum) {
   writeJson(channelPath, channel);
 }
 
-export function checkPluginTag(root, tag) {
+export function checkPluginTag(root, tag, directory) {
   const match = /^plugin-([a-z][a-z0-9-]*)-v(.+)$/.exec(tag);
   if (!match) throw new Error(`Invalid plugin release tag: ${tag}`);
-  const plugin = channelPlugins(root).find((entry) => entry.id === match[1]);
+  const plugin = channelPlugins(root, directory).find((entry) => entry.id === match[1]);
   if (!plugin || plugin.version !== match[2]) throw new Error(`Tag does not match the published plugin metadata: ${tag}`);
   return plugin;
 }

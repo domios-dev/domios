@@ -195,7 +195,8 @@ fn compute_sandbox(
 
     let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
 
-    let base = if manifest.permissions.project_files.is_empty()
+    let base = if !manifest.capabilities.cloud_machine_provider
+        && manifest.permissions.project_files.is_empty()
         && (dev || matches!(trust, ProviderTrust::System) || !is_user_dropin(bundle_dir))
     {
         PluginSandbox::unrestricted()
@@ -236,6 +237,7 @@ fn compute_sandbox(
     // onto every path, including unrestricted/dev.
     Ok(base
         .with_identity_and_perms(&manifest.id, &perms)
+        .with_cloud_machine_provider(manifest.capabilities.cloud_machine_provider)
         .with_extra_bin_dirs(manifest.cli_install_dirs(crate::provider::current_platform_tag()))
         .with_binary_transfer(
             manifest.capabilities.binary_transfer.clone(),
