@@ -60,8 +60,10 @@ use serde_json::{json, Value};
 use tokio::sync::Notify;
 use tower::ServiceExt;
 
-#[path = "../src/test_support.rs"]
+#[path = "../../src/test_support.rs"]
 mod test_support;
+
+mod security_fixes;
 
 #[derive(Clone)]
 struct RecordedChannelCall {
