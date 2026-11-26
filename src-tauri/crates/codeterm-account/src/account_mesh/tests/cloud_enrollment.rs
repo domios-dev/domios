@@ -33,16 +33,46 @@ async fn cloud_publication_keeps_newer_revocation_on_apply_and_restore() {
         .await
         .unwrap();
     assert!(harness.state().current_membership(START).is_some());
+    let state = harness.state();
+    let current = &state.current_membership(START).unwrap().verified;
+    let known = state.signed_registry.as_ref().unwrap();
+    let trust = issuer.trust();
+    let renewed = issuer.sign(&Issuer::membership_payload(
+        "owner",
+        &key.key_id(),
+        1,
+        1,
+        START + 1,
+    ));
+    let next = snapshot(2, true);
+    let verify = |membership, registry| {
+        verify_cloud_renewal(membership, registry, &trust, current, known, START + 1)
+    };
+    assert!(verify(&renewed, &next).is_some());
+    let other_slot = issuer.sign(&Issuer::membership_payload(
+        "owner",
+        &key.key_id(),
+        1,
+        2,
+        START + 1,
+    ));
+    assert!(verify(&other_slot, &next).is_none());
+    assert!(verify(&renewed, &snapshot(2, false)).is_none());
+    harness
+        .mesh
+        .publish_cloud_membership(&account, &renewed, &next)
+        .await
+        .unwrap();
     harness.restart().await;
     harness
         .mesh
-        .publish_cloud_membership(&account, &membership, &issued)
+        .publish_cloud_membership(&account, &renewed, &next)
         .await
         .unwrap();
     assert!(harness.state().current_membership(START).is_some());
     assert!(harness
         .mesh
-        .receive_registry_snapshot(&snapshot(2, false))
+        .receive_registry_snapshot(&snapshot(3, false))
         .await
         .unwrap());
     for restored in [false, true] {
@@ -57,7 +87,7 @@ async fn cloud_publication_keeps_newer_revocation_on_apply_and_restore() {
         let state = harness.state();
         assert!(state.current_membership(START).is_none());
         assert!(state.revoked_installations.contains(INSTALLATION));
-        assert_eq!(state.signed_registry.as_ref().unwrap().revision, 2);
+        assert_eq!(state.signed_registry.as_ref().unwrap().revision, 3);
     }
 }
 

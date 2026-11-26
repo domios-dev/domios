@@ -237,6 +237,37 @@ fn allows_member(
         })
 }
 
+pub fn verify_cloud_renewal(
+    membership: &DetachedGrant,
+    registry: &DetachedGrant,
+    trust: &MembershipTrust,
+    current: &VerifiedMembership,
+    known: &super::registry_snapshot::VerifiedRegistry,
+    now: u64,
+) -> Option<(VerifiedMembership, u64)> {
+    let expected = MembershipExpectation {
+        account_id: &current.account_id,
+        installation_id: Some(&current.installation_id),
+        key_id: Some(&current.key_id),
+        key_generation: Some(current.key_generation),
+        slot_revision: Some(current.slot_revision),
+    };
+    let renewed = verify_membership(membership, trust, &expected, now).ok()?;
+    let issued =
+        super::registry_snapshot::verify_registry(registry, trust, &current.account_id, now)
+            .ok()?;
+    if !allows_member(known, current)
+        || !allows_member(&issued, &renewed)
+        || renewed.issued_at < current.issued_at
+        || renewed.expires_at < current.expires_at
+        || issued.revision < known.revision
+        || (issued.revision == known.revision && *registry != known.grant)
+    {
+        return None;
+    }
+    Some((renewed, issued.revision))
+}
+
 pub struct CloudController<'a> {
     mesh: &'a super::AccountMesh,
     signed: super::operations::Signed,

@@ -1,5 +1,6 @@
 pub mod controller;
 mod creation;
+mod renewal;
 #[cfg(test)]
 mod tests;
 use super::account::credentials::MESH_INSTALLATION_KEY;
@@ -55,6 +56,7 @@ enum Phase {
 }
 
 struct Inner {
+    renewal: Arc<tokio::sync::Mutex<()>>,
     lifecycle: tokio::sync::watch::Sender<Option<Arc<AccountMesh>>>,
     phase: Mutex<Phase>,
     store: ProtectedCredentials,
@@ -140,6 +142,7 @@ impl CloudInstallation {
             Stored::Enrolled { .. } => return Err(unavailable()),
         };
         Ok(Self(Arc::new(Inner {
+            renewal: Default::default(),
             lifecycle: tokio::sync::watch::channel(None).0,
             phase: Mutex::new(phase),
             store,
