@@ -10,6 +10,7 @@ import {
 import { DEFAULT_THEME } from "../../lib/themeCss";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
+import { PairedWorkspaceInventoryContext } from "../../store/multiplexer/context";
 import { WebPeerPicker } from "./WebPeerPicker";
 
 const peersResponse = vi.fn<() => Promise<unknown>>();
@@ -257,5 +258,40 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
     window.removeEventListener("codeterm:open-panel", route);
     meshButton.remove();
     await chip.unmount();
+  }
+});
+
+it("shows a visible reconnecting state when switching to a reconnecting peer", async () => {
+  peersResponse.mockResolvedValue({
+    local_instance_name: "BLACKSTAR",
+    paired: [{ instance_id: "peer-ubunta", instance_name: "ubunta", addresses: [], api_port: 7685, online: true, relay_protocol_version: RELAY_PROTOCOL_VERSION }],
+  });
+  setSidebarMachineFilter({ id: "peer-ubunta", name: "ubunta" });
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(
+      <PairedWorkspaceInventoryContext.Provider value={{
+        generals: [{ peerId: "peer-ubunta", name: "ubunta", availability: "reconnecting", sessions: [] }],
+        browse: { target: { id: "peer-ubunta", name: "ubunta" }, availability: "reconnecting", workspaces: [], synced: false },
+      }}>
+        <WebPeerPicker compact />
+      </PairedWorkspaceInventoryContext.Provider>,
+    ));
+    const trigger = host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!;
+    expect(trigger.getAttribute("aria-label")).toBe("Machine: ubunta (reconnecting)");
+    expect(trigger.getAttribute("data-reconnecting")).toBe("true");
+    const status = host.querySelector('[data-testid="peer-picker-reconnecting"]');
+    expect(status?.getAttribute("role")).toBe("status");
+    expect(status?.textContent).toContain("Reconnecting");
+
+    await act(async () => trigger.click());
+    const option = document.querySelector<HTMLButtonElement>('[data-peer-id="peer-ubunta"]')!;
+    expect(option.getAttribute("aria-label")).toContain("reconnecting");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

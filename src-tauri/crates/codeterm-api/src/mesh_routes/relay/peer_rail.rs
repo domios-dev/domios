@@ -9,7 +9,8 @@ use axum::{
     http::{header, HeaderValue, StatusCode},
     response::Response,
 };
-use codeterm_service_core::{mesh::transport::PeerClient, MeshStateHandle};
+use codeterm_neighbors_service::prelude::NeighborsAccountMesh1Ext as _;
+use codeterm_service_core::{mesh::transport::PeerClient, service::ServiceState, MeshStateHandle};
 use futures_util::StreamExt;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, watch};
@@ -45,7 +46,9 @@ struct Rail {
 pub(super) async fn subscribe(
     client: PeerClient,
     mesh: MeshStateHandle,
+    svc: ServiceState,
     peer_id: String,
+    link_nonce: Option<String>,
     path: String,
 ) -> Result<Response, Refusal> {
     let (key, grant) = {
@@ -84,8 +87,10 @@ pub(super) async fn subscribe(
             tokio::spawn(drive_rail(
                 client,
                 mesh,
+                svc,
                 grant,
                 peer_id,
+                link_nonce,
                 path,
                 rail.clone(),
                 status_tx,
@@ -142,11 +147,14 @@ pub(super) async fn subscribe(
     Ok(response)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn drive_rail(
     client: PeerClient,
     mesh: MeshStateHandle,
+    svc: ServiceState,
     grant: PeerGrant,
     peer_id: String,
+    link_nonce: Option<String>,
     path: String,
     rail: Arc<Rail>,
     status: watch::Sender<Status>,
@@ -159,8 +167,21 @@ async fn drive_rail(
             })?
             .map_err(super::peer_stream::stream_unreachable)?;
         if !response.status().is_success() {
+            if response.status() == StatusCode::UNAUTHORIZED {
+                let outcome = super::peer_stream_backoff::record_refusal(
+                    &mesh,
+                    &peer_id,
+                    link_nonce.as_deref(),
+                );
+                if outcome.trigger_refresh {
+                    svc.spawn_account_mesh_refresh(
+                        codeterm_account::account_mesh::EnrollTrigger::Lease,
+                    );
+                }
+            }
             return Err(super::peer_stream::stream_refusal(response).await);
         }
+        super::peer_stream_backoff::record_success(&mesh, &peer_id);
         status.send_replace(Status::Open);
         let mut stream = std::pin::pin!(track(
             response.bytes_stream(),

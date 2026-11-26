@@ -1,7 +1,8 @@
 import type { Notification } from "../../lib/types";
 import type { StreamEnd } from "../../lib/transportClient";
 import type { AnswerUpdate } from "../../lib/notificationAnswer";
-import { createRemoteChannelRecovery, streamResponseFailureReason, type RemoteChannelRecovery, type StreamEndReason } from "../../lib/remoteChannelRecovery";
+import { createRemoteChannelRecovery, streamResponseFailureReason, type RemoteChannelRecovery, type SilenceDeadlineScheduler, type StreamEndReason } from "../../lib/remoteChannelRecovery";
+import { createPeerStreamBackoff, type PeerStreamBackoff, type PeerStreamBackoffOptions } from "../../lib/peerStreamBackoff";
 import { remoteNotificationFromPayload, remoteNotificationId } from "../../lib/remoteNotifications";
 import { pairedAvailability } from "./pairedWorkspaceProjection";
 import type { PairedRoster } from "./useMeshPeerProjection";
@@ -41,6 +42,8 @@ export interface RemoteNotificationSourcePorts {
   load(peerId: string, signal: AbortSignal): Promise<Notification[]>;
   subscribe(peerId: string, cursor: RemoteNotificationCursor | null, handlers: RemoteNotificationEventHandlers): () => void;
   arrival?(notification: Notification): void;
+  backoff?: PeerStreamBackoffOptions;
+  scheduler?: SilenceDeadlineScheduler;
 }
 
 interface PeerSource {
@@ -48,6 +51,8 @@ interface PeerSource {
   peerName: string;
   publicKey: string;
   recovery: RemoteChannelRecovery<RemoteNotificationCursor>;
+  backoff: PeerStreamBackoff;
+  retryTimer: unknown | null;
   generation: number;
   stop?: () => void;
   loadController?: AbortController;
@@ -204,15 +209,46 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
     applyActions(source, actions);
   };
 
+  const scheduler: SilenceDeadlineScheduler = ports.scheduler ?? {
+    schedule(callback, timeoutMs) {
+      const timer = setTimeout(callback, timeoutMs);
+      (timer as unknown as { unref?: () => void }).unref?.();
+      return timer;
+    },
+    cancel(handle) {
+      clearTimeout(handle as ReturnType<typeof setTimeout>);
+    },
+  };
+
+  const clearRetryTimer = (source: PeerSource) => {
+    if (source.retryTimer === null) return;
+    scheduler.cancel(source.retryTimer);
+    source.retryTimer = null;
+  };
+
+  const scheduleRetry = (source: PeerSource, delayMs: number) => {
+    if (!isCurrent(source) || source.retryTimer !== null) return;
+    source.retryTimer = scheduler.schedule(() => {
+      source.retryTimer = null;
+      if (!isCurrent(source) || source.stop || source.backoff.isBlocked()) return;
+      if (source.recovery.isAwaitingSignal()) source.recovery.signal();
+      connect(source);
+    }, Math.max(0, delayMs));
+  };
+
   const connect = (source: PeerSource) => {
     if (!isCurrent(source) || source.stop) return;
+    clearRetryTimer(source);
     const generation = source.recovery.beginConnection();
     source.generation = generation;
     try {
       const stop = ports.subscribe(source.peerId, source.recovery.currentCursor(), {
         frame: value => receiveFrame(source, generation, value),
         ready: () => {
-          if (isCurrent(source) && source.recovery.isCurrent(generation)) refreshHistory(source);
+          if (isCurrent(source) && source.recovery.isCurrent(generation)) {
+            source.backoff.reset();
+            refreshHistory(source);
+          }
         },
         end: end => {
           if (!isCurrent(source) || !source.recovery.isCurrent(generation)) return;
@@ -221,7 +257,15 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
           const reason: StreamEndReason = end.reason === "http"
             ? streamResponseFailureReason(end.status ?? 500)
             : end.reason === "eof" ? "eof" : "error";
-          if (source.recovery.handleStreamEnd(generation, reason) === "reconnect") connect(source);
+          const decision = source.recovery.handleStreamEnd(generation, reason);
+          if (decision === "reconnect") {
+            connect(source);
+            return;
+          }
+          if (decision === "wait" && end.reason === "http" && ((end.status ?? 0) >= 400 && (end.status ?? 0) < 500 || end.status === 503)) {
+            const step = source.backoff.recordRefusal();
+            scheduleRetry(source, step.delayMs);
+          }
         },
       });
       if (isCurrent(source) && source.recovery.isCurrent(generation)) source.stop = stop;
@@ -232,6 +276,7 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
   };
 
   const stopStream = (source: PeerSource) => {
+    clearRetryTimer(source);
     if (!source.stop) return;
     const stop = source.stop;
     source.stop = undefined;
@@ -240,6 +285,7 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
   };
 
   const disposeSource = (source: PeerSource) => {
+    clearRetryTimer(source);
     source.recovery.dispose();
     source.loadController?.abort();
     source.stop?.();
@@ -254,6 +300,8 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
       channel: "control",
       advanced: (previous, next) => previous === null || previous.boot !== next.boot || next.seq > previous.seq,
     }),
+    backoff: createPeerStreamBackoff(ports.backoff),
+    retryTimer: null,
     generation: 0,
     loading: false,
     bufferOverflowed: false,
@@ -290,8 +338,13 @@ export function createRemoteNotificationSource(dispatch: Dispatch, ports: Remote
         const available = pairedAvailability(peer, roster?.peers.installations ?? []) === "reconnecting";
         if (!available) stopStream(source);
         else if (!source.stop) {
-          if (source.recovery.isAwaitingSignal()) source.recovery.signal();
-          connect(source);
+          const remaining = source.backoff.remainingMs();
+          if (remaining > 0) {
+            scheduleRetry(source, remaining);
+          } else {
+            if (source.recovery.isAwaitingSignal()) source.recovery.signal();
+            connect(source);
+          }
         }
       }
       for (const peer of peers.values()) {

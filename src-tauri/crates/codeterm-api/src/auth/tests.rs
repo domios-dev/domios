@@ -800,3 +800,89 @@ fn only_agent_isolated_peers_narrow_the_tab_listing() {
         assert_eq!(isolated_peer_id(&identity), None);
     }
 }
+
+#[tokio::test]
+async fn refusal_storm_coalesces_logs_and_does_not_block_concurrent_requests() {
+    use axum::{body::Body, extract::ConnectInfo, http::Request, routing::get, Router};
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use std::net::SocketAddr;
+    use std::time::Duration;
+    use tower::ServiceExt;
+
+    refusal_log::reset_global_for_test();
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    state.config.lock().mesh.enabled = true;
+    state.config.lock().api.token = Some("local-owner-token".into());
+
+    let app = Router::new()
+        .route("/api/events/stream", get(|| async { StatusCode::OK }))
+        .route("/api/ok", get(|| async { StatusCode::OK }))
+        .route("/api/health", get(|| async { StatusCode::OK }))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+
+    let (rogue_key, _) = codeterm_service_core::mesh::crown::generate_peer_keypair();
+    let peer_addr: SocketAddr = "100.96.129.45:56834".parse().unwrap();
+    let local_addr: SocketAddr = "127.0.0.1:49000".parse().unwrap();
+
+    let mut storm = tokio::task::JoinSet::new();
+    for _ in 0..120 {
+        let token = codeterm_service_core::mesh::crown::sign_request(
+            &rogue_key,
+            "06531b5a-971a-4e7a-87c3-32fa76a83d96",
+        )
+        .unwrap();
+        let router = app.clone();
+        storm.spawn(async move {
+            let mut request = Request::get("/api/events/stream")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(peer_addr));
+            router.oneshot(request).await.unwrap().status()
+        });
+    }
+
+    let mut legitimate = tokio::task::JoinSet::new();
+    for idx in 0..12 {
+        let router = app.clone();
+        legitimate.spawn(async move {
+            let path = if idx % 2 == 0 {
+                "/api/ok"
+            } else {
+                "/api/health"
+            };
+            let mut request = Request::get(path)
+                .header("authorization", "Bearer local-owner-token")
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(local_addr));
+            router.oneshot(request).await.unwrap().status()
+        });
+    }
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(status) = legitimate.join_next().await {
+            assert_eq!(status.unwrap(), StatusCode::OK);
+        }
+        while let Some(status) = storm.join_next().await {
+            assert_eq!(status.unwrap(), StatusCode::UNAUTHORIZED);
+        }
+    })
+    .await
+    .expect("concurrent requests must complete promptly during a refusal storm");
+
+    assert_eq!(
+        refusal_log::snapshot_suppressed_for_test(
+            "100.96.129.45",
+            "/api/events/stream",
+            "mesh-signature",
+            "unknown_or_invalid_credential",
+        ),
+        119
+    );
+}

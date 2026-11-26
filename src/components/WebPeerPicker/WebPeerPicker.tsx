@@ -58,7 +58,9 @@ function MachineDot({ peerId, online }: { peerId?: string; online: boolean }) {
 
 const offlineClock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 
-function peerStatus(peer: PairedPeer) {
+function peerStatus(peer: PairedPeer, availability?: string) {
+  if (availability === "reconnecting") return "reconnecting";
+  if (availability === "unreachable") return "unreachable";
   if (peer.online) return peer.relay_protocol_version === RELAY_PROTOCOL_VERSION ? "online" : "update required";
   const seen = peer.last_seen ? Date.parse(peer.last_seen) : NaN;
   return Number.isFinite(seen) ? `offline since ${offlineClock.format(seen)}` : "offline";
@@ -180,16 +182,24 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const peerName = (peer: PairedPeer) => accountNames.peers.get(peer.instance_id)
     ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine";
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
+  const selectedGeneral = target ? generals.find(general => general.peerId === target.id) : undefined;
+  const selectedAvailability = target
+    ? (browse?.target.id === target.id ? browse.availability : selectedGeneral?.availability)
+    : undefined;
   const local = { name: accountNames.local ?? localName, identity: identities.local_machine_identity };
   const singleMachine = peers.length === 0;
   const all = !singleMachine && filter === "all";
   const localSelected = filter === "local" || (singleMachine && !target);
+  const selectedReconnecting = !all && Boolean(target) && (
+    selectedAvailability === "reconnecting"
+    || (browse?.target.id === target?.id && browse.synced === false)
+  );
   const label = all ? "All machines" : target
     ? selectedPeer ? peerName(selectedPeer) : cleanMachineName(target.name, target.id) ?? "Machine"
     : local.name;
   const identity = target ? identities.machine_identities?.[target.id] : local.identity;
   const viewer = useMachineViewerTheme();
-  const selectedOnline = !target || selectedPeer?.online === true;
+  const selectedOnline = !target || (selectedPeer?.online === true && selectedAvailability !== "unreachable");
   const selectedAppearance = useMachineChromeAppearance(target?.id, selectedOnline, !all);
   const selectedDoodle = useMachineDoodle(selectedAppearance, target?.id, selectedOnline);
   const selectedTone = !all && selectedAppearance ? machineGlyphColor(
@@ -213,11 +223,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Machine: ${label}`}
+        aria-label={selectedReconnecting ? `Machine: ${label} (reconnecting)` : `Machine: ${label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         data-offline={!all && !selectedOnline || undefined}
+        data-reconnecting={selectedReconnecting || undefined}
         style={{ "--ct-switcher-tone": selectedTone } as CSSProperties}
         onClick={() => open ? close() : setOpen(true)}
         onKeyDown={event => {
@@ -231,6 +242,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         {!all && <MachineDoodle doodle={selectedDoodle} />}
         {all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} tone={selectedTone ?? neutralTone} />}
         <span className="ct-machine-switcher__label min-w-0 truncate">{label}</span>
+        {selectedReconnecting && (
+          <span role="status" data-testid="peer-picker-reconnecting" className="inline-flex items-center gap-1 text-[10px] opacity-80 shrink-0">
+            <ActivityDots size="micro" active />
+            <span className="hidden min-[400px]:inline">Reconnecting</span>
+          </span>
+        )}
         {localSelected && <MachineThisBadge className="ct-machine-switcher__this hidden min-[400px]:inline-flex" />}
         <ChevronDown size={12} className="ct-machine-switcher__chevron shrink-0 opacity-60" aria-hidden="true" />
       </button>
@@ -261,9 +278,10 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
               onSelect={option => select("local", option)} />
             {peers.map(peer => {
               const name = peerName(peer);
-              const status = peerStatus(peer);
+              const general = generals.find(candidate => candidate.peerId === peer.instance_id);
+              const status = peerStatus(peer, general?.availability);
               const working = browse?.target.id === peer.instance_id && browse.availability === "online"
-                ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
+                ? observedWorkingCount(general?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
                 : 0;
               return <MachineOption key={peer.instance_id} name={name} identity={identities.machine_identities?.[peer.instance_id]}
                 peerId={peer.instance_id} status={status} working={working} online={peer.online} selected={target?.id === peer.instance_id}
