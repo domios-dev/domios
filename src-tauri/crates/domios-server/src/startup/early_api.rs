@@ -65,6 +65,11 @@ impl PreparedStartup {
         let config = super::init_config();
         let control = Arc::new(RestApiControl::new());
         let api_config = config.lock().api.clone();
+        if std::env::var_os("DOMIOS_CLOUD_MACHINE").is_some() && api_config.enabled {
+            return Err(
+                "Cloud installations require the normal HTTP listener to be disabled".into(),
+            );
+        }
         let mut api = EarlyApi::new(api_config.token.clone());
         api.diagnostics_port = diagnostics_port;
         api.frontend_identity = frontend_identity;

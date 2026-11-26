@@ -1,0 +1,9 @@
+[api]
+enabled = false
+
+[neighbors]
+enabled = true
+key_store = "file"
+
+[memory]
+backend = "sqlite"

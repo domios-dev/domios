@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+case "$(cat /etc/domios-cloud-profile)" in
+    qa) set -- --development --port 7686 ;;
+    release) set -- --production ;;
+    *) exit 1 ;;
+esac
+exec /opt/domios/domios-server/domios-server start "$@" --pid-file /run/domios/server.pid
