@@ -886,3 +886,80 @@ async fn refusal_storm_coalesces_logs_and_does_not_block_concurrent_requests() {
         119
     );
 }
+
+#[tokio::test]
+async fn mesh_signature_returns_retryable_503_while_account_admission_is_pending() {
+    use axum::{body::Body, extract::ConnectInfo, http::Request, routing::get, Router};
+    use codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use std::net::SocketAddr;
+    use tower::ServiceExt;
+
+    refusal_log::reset_global_for_test();
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    state.config.lock().mesh.enabled = true;
+    state.mesh.lock().await_account_state();
+
+    let app = Router::new()
+        .route("/api/events/stream", get(|| async { StatusCode::OK }))
+        .route("/api/config", get(|| async { StatusCode::OK }))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+
+    let (peer_key, _) = codeterm_service_core::mesh::crown::generate_peer_keypair();
+    let token = codeterm_service_core::mesh::crown::sign_request(&peer_key, "peer-rog").unwrap();
+    let peer_addr: SocketAddr = "100.96.129.45:56834".parse().unwrap();
+
+    for with_tailnet in [true, false] {
+        let mut req = Request::get("/api/events/stream")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(peer_addr));
+        if with_tailnet {
+            req.extensions_mut().insert(TailnetListener);
+        }
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "with_tailnet={with_tailnet}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok()),
+            Some("2")
+        );
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "mesh_not_ready");
+    }
+
+    assert_eq!(
+        refusal_log::snapshot_suppressed_for_test(
+            "100.96.129.45",
+            "/api/events/stream",
+            "mesh-signature",
+            "mesh_not_ready",
+        ),
+        1
+    );
+
+    let mut local_req = Request::get("/api/config")
+        .header("authorization", "Bearer preview-test-token")
+        .body(Body::empty())
+        .unwrap();
+    local_req.extensions_mut().insert(TailnetListener);
+    assert_eq!(
+        app.oneshot(local_req).await.unwrap().status(),
+        StatusCode::OK
+    );
+}

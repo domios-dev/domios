@@ -28,7 +28,10 @@ pub(crate) async fn middleware(
     {
         return next.run(req).await;
     }
-    let Some(fence) = RemoteFence::admit(state.mesh) else {
+    let Some(fence) = RemoteFence::admit(state.mesh.clone()) else {
+        if !state.mesh.lock().is_account_ready() {
+            return super::mesh_not_ready_response();
+        }
         return refused();
     };
     let response = tokio::select! {
