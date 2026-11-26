@@ -1,4 +1,5 @@
 import { remoteMachineName } from "../../lib/remoteChatState";
+import { tabActivity } from "../../lib/tabActivity";
 import { lockedView, type LockedView } from "../billing/freeLimitModel";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { isProviderSelectable } from "../../lib/providerAvailability";
@@ -70,6 +71,7 @@ export type TabMenuAction =
   | { type: "replaceOrchestrator"; view: OrchestratorRecoveryMenuView; providerId: string }
   | { type: "reconnect" }
   | { type: "restart" }
+  | { type: "stop" }
   | { type: "fork" }
   | { type: "copySessionId"; sessionId: string }
   | { type: "setAutoConfirm"; enabled: boolean }
@@ -87,6 +89,7 @@ export type TabMenuGlyph =
   | "provider"
   | "reconnect"
   | "restart"
+  | "stop"
   | "autoConfirm"
   | "plugins"
   | "liveTranscript"
@@ -303,6 +306,17 @@ function sessionItems(input: TabMenuInput, session: TabSessionActionView): TabMe
       action: { type: "restart" },
     });
   }
+  if (tabActivity(input.tab, input.status).canStop) {
+    items.push({
+      kind: "item",
+      id: "stop",
+      testId: "tab-menu-stop-agent",
+      label: TAB_SESSION_LABELS.stop,
+      icon: "stop",
+      disabled: busy,
+      action: { type: "stop" },
+    });
+  }
   return items;
 }
 
@@ -387,11 +401,12 @@ function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): T
 export function unavailableTabMenu(
   entries: readonly TabMenuEntry[],
   reason: string,
-  options: { allowClose?: boolean } = {},
+  options: { allowClose?: boolean; allowIds?: readonly string[] } = {},
 ): TabMenuEntry[] {
   const allowClose = options.allowClose ?? true;
+  const allowed = options.allowIds ? new Set(options.allowIds) : null;
   return entries.map(entry => {
-    if (entry.kind === "header" || entry.kind === "separator" || (allowClose && entry.id === "close")) return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || (allowClose && entry.id === "close") || allowed?.has(entry.id)) return entry;
     return {
       kind: "item", id: entry.id, testId: entry.testId, label: entry.label, icon: entry.icon,
       unavailable: true, hint: reason, danger: entry.kind === "item" ? entry.danger : undefined, action: null,

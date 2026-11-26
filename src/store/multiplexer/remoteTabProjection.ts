@@ -47,7 +47,13 @@ export function applyRemotePeerAgentStates(
           ...(tab.remote_channels.control === "reconnecting" ? { control: "available" as const } : {}),
         }
       : current.remote_channels;
-    tabs[id] = { ...current, workspace_id: tab.workspace_id, remote_channels: channels };
+    const remoteWorkspaceId = current.remote_workspace_id ?? tab.remote_workspace_id;
+    tabs[id] = {
+      ...current,
+      workspace_id: tab.workspace_id,
+      ...(remoteWorkspaceId ? { remote_workspace_id: remoteWorkspaceId } : {}),
+      remote_channels: channels,
+    };
   }
   return tabs;
 }

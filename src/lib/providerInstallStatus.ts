@@ -4,7 +4,7 @@ import type { ProviderDescriptor } from "./types";
 
 export async function probeProviderInstalled(
   provider: ProviderDescriptor,
-  options?: { refresh?: boolean },
+  options?: { refresh?: boolean; peerId?: string },
 ): Promise<boolean> {
   if (provider.transport === "chat_backend" && !provider.agent_runtime && !provider.cli_binary) {
     return true;
@@ -13,7 +13,11 @@ export async function probeProviderInstalled(
     return true;
   }
   try {
-    const args = options?.refresh ? { providerId: provider.id, refresh: true } : { providerId: provider.id };
+    const args = {
+      providerId: provider.id,
+      ...(options?.refresh ? { refresh: true } : {}),
+      ...(options?.peerId ? { peerId: options.peerId } : {}),
+    };
     const status = await invoke<ProviderCliStatus>("provider_cli_status", args);
     return !status.required || status.installed !== false;
   } catch {
@@ -23,7 +27,7 @@ export async function probeProviderInstalled(
 
 export async function probeProviderInstallMap(
   providers: ProviderDescriptor[],
-  options?: { refresh?: boolean },
+  options?: { refresh?: boolean; peerId?: string },
 ): Promise<Record<string, boolean>> {
   const entries = await Promise.all(
     providers.map(async (provider) => [provider.id, await probeProviderInstalled(provider, options)] as const),

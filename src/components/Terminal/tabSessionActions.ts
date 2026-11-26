@@ -7,6 +7,7 @@ export const TAB_SESSION_LABELS = {
   reconnecting: "Reconnecting…",
   restart: "Restart session",
   restarting: "Restarting…",
+  stop: "Stop agent",
   copy: "Copy session ID",
   autoConfirm: "Auto-confirm permissions",
   autoConfirmHint:
@@ -48,6 +49,10 @@ export async function reconnectTabSession(tabId: string): Promise<void> {
 
 export async function restartTabSession(tabId: string): Promise<void> {
   await invoke("restart_agent_tab", { tabId });
+}
+
+export async function stopTabSession(tabId: string): Promise<void> {
+  await invoke("interrupt_agent", { tabId });
 }
 
 export async function copyTabSessionId(sessionId: string): Promise<void> {
