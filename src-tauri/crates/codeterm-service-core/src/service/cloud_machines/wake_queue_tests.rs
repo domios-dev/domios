@@ -26,8 +26,8 @@ impl Clock for StepClock {
 }
 
 struct StubProvisioning {
-    create_addr: SocketAddrV4,
-    wake_addr: SocketAddrV4,
+    create_addr: CloudEndpoint,
+    wake_addr: CloudEndpoint,
 }
 
 #[async_trait]
@@ -39,7 +39,7 @@ impl CloudProvisioningPort for StubProvisioning {
         Ok(ProvisionedMachine {
             machine_id: "cm_stub_1".into(),
             provider: "timeweb".into(),
-            endpoint: self.create_addr,
+            endpoint: self.create_addr.clone(),
             size: request.size.clone(),
             rate: CloudRate {
                 amount: 0.20,
@@ -60,7 +60,7 @@ impl CloudProvisioningPort for StubProvisioning {
         Ok(ProvisionedMachine {
             machine_id: machine_id.to_owned(),
             provider: "timeweb".into(),
-            endpoint: self.wake_addr,
+            endpoint: self.wake_addr.clone(),
             size: "small".into(),
             rate: CloudRate {
                 amount: 0.20,
@@ -142,7 +142,7 @@ impl CloudEnrollmentPort for StubEnrollment {
 
 struct InstrumentedPeerControl {
     publish_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
-    published: Mutex<Vec<(String, SocketAddrV4)>>,
+    published: Mutex<Vec<(String, CloudEndpoint)>>,
     events: Mutex<Vec<String>>,
     flushed_ids: Mutex<Vec<String>>,
     flush_in_flight: AtomicUsize,
@@ -191,7 +191,7 @@ impl CloudPeerControlPort for InstrumentedPeerControl {
     async fn update_endpoint(
         &self,
         _record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
         self.events.lock().push(format!("update:{endpoint}"));
         Ok(())
@@ -200,15 +200,16 @@ impl CloudPeerControlPort for InstrumentedPeerControl {
     async fn publish_direct_endpoint(
         &self,
         record: &CloudMachineRecord,
-        endpoint: SocketAddrV4,
+        endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
         self.events.lock().push(format!("publish:{endpoint}"));
         if let Some(outcome) = self.publish_outcomes.lock().pop_front() {
             outcome?;
         }
-        self.published
-            .lock()
-            .push((record.installation_id.clone().unwrap_or_default(), endpoint));
+        self.published.lock().push((
+            record.installation_id.clone().unwrap_or_default(),
+            endpoint.clone(),
+        ));
         Ok(())
     }
 
@@ -254,8 +255,14 @@ async fn persisted_claimed_send_becomes_submit_unconfirmed_on_restart_and_never_
     let store_path = dir.path().join("cloud_machines.json");
     let clock = StepClock::new(10_000);
     let prov = StubProvisioning {
-        create_addr: SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 10), CLOUD_INGRESS_PORT),
-        wake_addr: SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 20), CLOUD_INGRESS_PORT),
+        create_addr: CloudEndpoint::Direct(SocketAddrV4::new(
+            Ipv4Addr::new(198, 51, 100, 10),
+            CLOUD_INGRESS_PORT,
+        )),
+        wake_addr: CloudEndpoint::Direct(SocketAddrV4::new(
+            Ipv4Addr::new(198, 51, 100, 20),
+            CLOUD_INGRESS_PORT,
+        )),
     };
     let peer_ctrl = InstrumentedPeerControl::new();
 
@@ -359,8 +366,14 @@ async fn flush_held_sends_serializes_concurrent_flushes_per_machine() {
     let dir = tempfile::tempdir().unwrap();
     let clock = StepClock::new(20_000);
     let prov = StubProvisioning {
-        create_addr: SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 10), CLOUD_INGRESS_PORT),
-        wake_addr: SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 20), CLOUD_INGRESS_PORT),
+        create_addr: CloudEndpoint::Direct(SocketAddrV4::new(
+            Ipv4Addr::new(198, 51, 100, 10),
+            CLOUD_INGRESS_PORT,
+        )),
+        wake_addr: CloudEndpoint::Direct(SocketAddrV4::new(
+            Ipv4Addr::new(198, 51, 100, 20),
+            CLOUD_INGRESS_PORT,
+        )),
     };
     let peer_ctrl = InstrumentedPeerControl::new();
     let ctrl = Arc::new(CloudMachineController::new(
@@ -438,11 +451,17 @@ async fn flush_held_sends_serializes_concurrent_flushes_per_machine() {
 async fn publish_direct_endpoint_failure_blocks_wake_readiness_and_releases_no_held_sends() {
     let dir = tempfile::tempdir().unwrap();
     let clock = StepClock::new(30_000);
-    let create_addr = SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 10), CLOUD_INGRESS_PORT);
-    let wake_addr = SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 99), CLOUD_INGRESS_PORT);
+    let create_addr = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 10),
+        CLOUD_INGRESS_PORT,
+    ));
+    let wake_addr = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 99),
+        CLOUD_INGRESS_PORT,
+    ));
     let prov = StubProvisioning {
-        create_addr,
-        wake_addr,
+        create_addr: create_addr.clone(),
+        wake_addr: wake_addr.clone(),
     };
     let peer_ctrl = InstrumentedPeerControl::new();
     let ctrl = CloudMachineController::new(

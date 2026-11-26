@@ -322,7 +322,7 @@ pub fn reconcile_provider_machines(
                 sleep_mode,
                 installation_id: None,
                 peer_instance_id: None,
-                endpoint_addr: None,
+                endpoint: None,
                 rate_per_hour: default_rate.clone(),
                 created_at_ms: now_ms,
                 last_awake_at_ms: (initial_state == CloudLifecycleState::Awake).then_some(now_ms),

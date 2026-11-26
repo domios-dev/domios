@@ -21,9 +21,9 @@ use codeterm_service_core::{
     service::{
         chat_send_transaction::ChatSendState,
         cloud_machines::{
-            CloudError, CloudLifecycleState, CloudMachineController, CloudMachineRecord,
-            CloudMachineStore, CloudOwnershipReceipt, CloudProvisioningPort, CloudRate,
-            CloudSleepMode, CloudUsageSummary, ProvisionedLease, ProvisionedMachine,
+            CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineController,
+            CloudMachineRecord, CloudMachineStore, CloudOwnershipReceipt, CloudProvisioningPort,
+            CloudRate, CloudSleepMode, CloudUsageSummary, ProvisionedLease, ProvisionedMachine,
             ProvisioningCreateRequest, SystemClock,
         },
         test_fixture::ServiceFixture,
@@ -179,7 +179,7 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
         Ok(ProvisionedMachine {
             machine_id: machine_id.to_owned(),
             provider: "managed".into(),
-            endpoint: self.endpoint,
+            endpoint: CloudEndpoint::Direct(self.endpoint),
             size: "small".into(),
             rate: CloudRate {
                 amount: 0.05,
@@ -277,7 +277,7 @@ fn setup_sleeping_cloud_peer(
             sleep_mode: CloudSleepMode::Stop,
             installation_id: Some("cloud-inst-wake".into()),
             peer_instance_id: Some("cloud-peer-wake".into()),
-            endpoint_addr: None,
+            endpoint: None,
             rate_per_hour: None,
             created_at_ms: 1_000,
             last_awake_at_ms: None,
@@ -428,8 +428,8 @@ async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failu
     let (home, _home_pub, _dir, controller, provisioning, channel) =
         setup_sleeping_cloud_peer(&fixture, "home-transient-wake", cloud_addr);
 
-    // Override endpoint publication to fail once, then succeed and record the published address.
-    let published = Arc::new(Mutex::new(Vec::<(SocketAddrV4, String)>::new()));
+    // Override endpoint publication to fail once, then succeed and record the published endpoint.
+    let published = Arc::new(Mutex::new(Vec::<(CloudEndpoint, String)>::new()));
     let fail_once = Arc::new(AtomicBool::new(true));
     let published_clone = Arc::clone(&published);
     let fail_once_clone = Arc::clone(&fail_once);
@@ -485,7 +485,10 @@ async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failu
         .unwrap();
     assert_eq!(
         published.lock().as_slice(),
-        &[(cloud_addr, "cloud-inst-wake".to_owned())]
+        &[(
+            CloudEndpoint::Direct(cloud_addr),
+            "cloud-inst-wake".to_owned()
+        )]
     );
     assert_eq!(channel.recorded().len(), 1);
     assert_eq!(

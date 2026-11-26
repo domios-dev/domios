@@ -193,7 +193,9 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::PromoExhausted => Self::PromoExhausted,
             RegistryRefusal::PromoSpendCapExceeded => Self::PromoSpendCapExceeded,
             RegistryRefusal::NotFound => Self::NotFound,
-            RegistryRefusal::ProviderRefused => Self::ProviderRefused,
+            RegistryRefusal::EndpointKindUnsupported | RegistryRefusal::ProviderRefused => {
+                Self::ProviderRefused
+            }
             RegistryRefusal::ProviderUnavailable => Self::ProviderUnavailable,
             RegistryRefusal::ProviderUnconfirmed => Self::ProviderUnconfirmed,
             RegistryRefusal::KeyConflict => Self::KeyConflict,

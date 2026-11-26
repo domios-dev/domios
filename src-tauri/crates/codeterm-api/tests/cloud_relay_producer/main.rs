@@ -47,9 +47,9 @@ use codeterm_service_core::{
     service::{
         chat_send_transaction::ChatSendState,
         cloud_machines::{
-            CloudError, CloudLifecycleState, CloudMachineController, CloudMachineRecord,
-            CloudMachineStore, CloudOwnershipReceipt, CloudProvisioningPort, CloudRate,
-            CloudSleepMode, CloudUsageSummary, ProvisionedLease, ProvisionedMachine,
+            CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineController,
+            CloudMachineRecord, CloudMachineStore, CloudOwnershipReceipt, CloudProvisioningPort,
+            CloudRate, CloudSleepMode, CloudUsageSummary, ProvisionedLease, ProvisionedMachine,
             ProvisioningCreateRequest, SystemClock,
         },
         test_fixture::ServiceFixture,
@@ -259,7 +259,7 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
         Ok(ProvisionedMachine {
             machine_id: machine_id.to_owned(),
             provider: "managed".into(),
-            endpoint: self.endpoint,
+            endpoint: CloudEndpoint::Direct(self.endpoint),
             size: "small".into(),
             rate: CloudRate {
                 amount: 0.05,
@@ -401,7 +401,7 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
             sleep_mode: CloudSleepMode::Stop,
             installation_id: Some("cloud-inst-managed".into()),
             peer_instance_id: Some("cloud-peer-managed".into()),
-            endpoint_addr: Some(managed_addr),
+            endpoint: Some(CloudEndpoint::Direct(managed_addr)),
             rate_per_hour: None,
             created_at_ms: 1_000,
             last_awake_at_ms: Some(1_000),
@@ -490,8 +490,7 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
 
     let recorded = channel.recorded();
     assert_eq!(recorded.len(), 1);
-    let CloudRoute::Direct(sent_addr) = recorded[0].route;
-    assert_eq!(sent_addr, cloud_addr);
+    assert_eq!(recorded[0].route, CloudRoute::Direct(cloud_addr));
     assert_eq!(recorded[0].installation_id, "cloud-inst-1");
     assert_eq!(recorded[0].command.method, "POST");
     assert_eq!(recorded[0].command.path, "/api/tabs/remote-tab/send");
@@ -622,8 +621,7 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
     assert_eq!(status, StatusCode::OK, "{managed_resp}");
     assert_eq!(managed_resp["ok"], true, "{managed_resp}");
     let managed_call = channel.recorded().pop().unwrap();
-    let CloudRoute::Direct(sent_managed) = managed_call.route;
-    assert_eq!(sent_managed, managed_addr);
+    assert_eq!(managed_call.route, CloudRoute::Direct(managed_addr));
     assert_eq!(managed_call.installation_id, "cloud-inst-managed");
 }
 
@@ -921,7 +919,7 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
             sleep_mode: CloudSleepMode::Stop,
             installation_id: Some("cloud-inst-wake".into()),
             peer_instance_id: Some("cloud-peer-wake".into()),
-            endpoint_addr: None,
+            endpoint: None,
             rate_per_hour: None,
             created_at_ms: 1_000,
             last_awake_at_ms: None,
@@ -992,13 +990,15 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
 
     let woken_record = controller.find_by_peer("cloud-sleeper-1").unwrap();
     assert_eq!(woken_record.state, CloudLifecycleState::Awake);
-    assert_eq!(woken_record.endpoint_addr, Some(cloud_addr));
+    assert_eq!(
+        woken_record.endpoint,
+        Some(CloudEndpoint::Direct(cloud_addr))
+    );
     assert_eq!(provisioning.wakes.load(Ordering::SeqCst), 1);
 
     let delivered = channel.recorded();
     assert_eq!(delivered.len(), 1, "held send delivered once after wake");
-    let CloudRoute::Direct(addr) = delivered[0].route;
-    assert_eq!(addr, cloud_addr);
+    assert_eq!(delivered[0].route, CloudRoute::Direct(cloud_addr));
     assert_eq!(delivered[0].installation_id, "cloud-inst-wake");
     assert_eq!(delivered[0].command.method, "POST");
     assert_eq!(delivered[0].command.path, "/api/tabs/cloud-tab-1/send");

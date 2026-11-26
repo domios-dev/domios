@@ -573,6 +573,8 @@ pub enum RegistryRefusal {
     PromoSpendCapExceeded,
     #[serde(rename = "not_found")]
     NotFound,
+    #[serde(rename = "endpoint_kind_unsupported")]
+    EndpointKindUnsupported,
     #[serde(rename = "provider_refused")]
     ProviderRefused,
     #[serde(rename = "provider_unavailable")]

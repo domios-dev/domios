@@ -1,5 +1,6 @@
 use crate::account_mesh::{AdmissionRefusal, LinkTarget, VerifiedMembership};
 use crate::MeshManager;
+use codeterm_util::cloud_endpoint::CloudEndpoint;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -11,17 +12,37 @@ pub const MAX_ENDPOINT_RECORDS: usize = 256;
 #[serde(tag = "transport", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EndpointAddress {
     DirectIngress { address: std::net::SocketAddrV4 },
+    ProviderProxy { host: String },
     Tailnet { tailnet_ip: String, api_port: u16 },
 }
 
+impl From<CloudEndpoint> for EndpointAddress {
+    fn from(endpoint: CloudEndpoint) -> Self {
+        match endpoint {
+            CloudEndpoint::Direct(address) => Self::DirectIngress { address },
+            CloudEndpoint::ProviderProxy { host } => Self::ProviderProxy { host },
+        }
+    }
+}
+
 impl EndpointAddress {
+    pub fn cloud_endpoint(&self) -> Option<CloudEndpoint> {
+        match self {
+            Self::DirectIngress { address } => Some(CloudEndpoint::Direct(*address)),
+            Self::ProviderProxy { host } => {
+                Some(CloudEndpoint::ProviderProxy { host: host.clone() })
+            }
+            Self::Tailnet { .. } => None,
+        }
+    }
+
     pub(crate) fn tailnet(&self) -> Option<(&str, u16)> {
         match self {
             Self::Tailnet {
                 tailnet_ip,
                 api_port,
             } => Some((tailnet_ip, *api_port)),
-            Self::DirectIngress { .. } => None,
+            Self::DirectIngress { .. } | Self::ProviderProxy { .. } => None,
         }
     }
 
@@ -30,6 +51,7 @@ impl EndpointAddress {
             Self::DirectIngress { address } => {
                 crate::cloud_ingress::direct_address_allowed(*address)
             }
+            Self::ProviderProxy { host } => crate::cloud_ingress::provider_proxy_host_allowed(host),
             Self::Tailnet {
                 tailnet_ip,
                 api_port,
@@ -229,16 +251,16 @@ impl MeshManager {
         self.verified_endpoint_record(installation_id).is_some()
     }
 
-    pub fn direct_ingress_address(&self, installation_id: &str) -> Option<std::net::SocketAddrV4> {
-        match self
-            .verified_endpoint_record(installation_id)?
+    pub fn cloud_ingress_endpoint(&self, installation_id: &str) -> Option<CloudEndpoint> {
+        self.verified_endpoint_record(installation_id)?
             .claim
             .endpoint
             .as_ref()?
-        {
-            EndpointAddress::DirectIngress { address } => Some(*address),
-            EndpointAddress::Tailnet { .. } => None,
-        }
+            .cloud_endpoint()
+    }
+
+    pub fn direct_ingress_address(&self, installation_id: &str) -> Option<std::net::SocketAddrV4> {
+        self.cloud_ingress_endpoint(installation_id)?.direct_addr()
     }
 
     pub fn endpoint_target(&self, installation_id: &str) -> Option<LinkTarget> {
@@ -271,6 +293,15 @@ impl MeshManager {
         &mut self,
         installation_id: String,
         address: std::net::SocketAddrV4,
+    ) {
+        self.insert_cloud_endpoint_for_test(installation_id, CloudEndpoint::Direct(address));
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn insert_cloud_endpoint_for_test(
+        &mut self,
+        installation_id: String,
+        endpoint: CloudEndpoint,
     ) {
         struct TestAuthority;
         impl crate::account_mesh::AccountMeshAuthority for TestAuthority {
@@ -357,7 +388,7 @@ impl MeshManager {
                 installation_id: installation_id.clone(),
                 sequence: 1,
                 membership: "test-membership".into(),
-                endpoint: Some(EndpointAddress::DirectIngress { address }),
+                endpoint: Some(EndpointAddress::from(endpoint)),
             },
             signature: "test-signature".into(),
         };

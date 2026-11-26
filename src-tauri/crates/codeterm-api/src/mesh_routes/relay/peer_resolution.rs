@@ -137,7 +137,7 @@ pub(super) enum RelayTargetRoute {
     },
     CloudIngress {
         installation_id: String,
-        address: Option<std::net::SocketAddrV4>,
+        endpoint: Option<codeterm_mesh::cloud_ingress::CloudRoute>,
     },
     CloudOutbox {
         account_id: String,
@@ -281,7 +281,7 @@ fn single_cloud_or_outbox_candidate<'a>(
     let installation_id = peer_installation_id(mesh, cloud_machines, &peer.instance_id);
     let is_cloud = installation_id
         .as_deref()
-        .is_some_and(|id| mesh.direct_ingress_address(id).is_some())
+        .is_some_and(|id| mesh.cloud_ingress_endpoint(id).is_some())
         || cloud_machines.find_by_peer(&peer.instance_id).is_some()
         || installation_id
             .as_deref()
@@ -337,11 +337,11 @@ fn relay_target_route(
     }
     let installation_id = peer_installation_id(mesh, cloud_machines, &instance_id);
     if let Some(inst_id) = &installation_id {
-        if let Some(address) = mesh.direct_ingress_address(inst_id) {
+        if let Some(endpoint) = mesh.cloud_ingress_endpoint(inst_id) {
             return Ok((
                 RelayTargetRoute::CloudIngress {
                     installation_id: inst_id.clone(),
-                    address: Some(address),
+                    endpoint: Some(endpoint),
                 },
                 instance_id,
                 name,
@@ -355,7 +355,7 @@ fn relay_target_route(
             return Ok((
                 RelayTargetRoute::CloudIngress {
                     installation_id: inst_id.clone(),
-                    address: record.endpoint_addr,
+                    endpoint: record.endpoint,
                 },
                 instance_id,
                 name,
