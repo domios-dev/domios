@@ -103,6 +103,12 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::NonceReused
         | AccountMeshRefusal::ApplyTooLarge
         | AccountMeshRefusal::CloudMachineLimit { .. }
+        | AccountMeshRefusal::LeaseRequired
+        | AccountMeshRefusal::CreditsExhausted
+        | AccountMeshRefusal::NotFound
+        | AccountMeshRefusal::ProviderRefused
+        | AccountMeshRefusal::ProviderUnavailable
+        | AccountMeshRefusal::ProviderUnconfirmed
         | AccountMeshRefusal::KeyConflict
         | AccountMeshRefusal::GenerationMismatch
         | AccountMeshRefusal::ChallengeInvalid

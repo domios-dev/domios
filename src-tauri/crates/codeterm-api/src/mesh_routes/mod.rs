@@ -106,8 +106,11 @@ pub async fn mesh_peers(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let mesh = state.mesh.lock();
-    Ok(Json(serde_json::to_value(mesh.peers_response()).unwrap()))
+    let raw = {
+        let mesh = state.mesh.lock();
+        serde_json::to_value(mesh.peers_response()).unwrap()
+    };
+    Ok(Json(state.svc.cloud_machines().enrich_peers_value(raw)))
 }
 
 #[derive(serde::Deserialize)]

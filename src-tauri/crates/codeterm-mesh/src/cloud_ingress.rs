@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
+pub mod admission;
 mod authentication;
 mod controller;
 mod dial;

@@ -115,9 +115,9 @@ pub async fn enroll(
         channel_binding: URL_SAFE_NO_PAD.encode(exporter),
         provider: provider.into(),
         size: size.into(),
-        cloud_mode: None,
         request_id: URL_SAFE_NO_PAD.encode(request_id),
         timestamp: codeterm_service_core::service::neighbor_account::now(),
+        provider_machine_id: None,
     };
     let apply = controller
         .delegate(body)

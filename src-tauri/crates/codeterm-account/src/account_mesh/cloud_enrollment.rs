@@ -32,17 +32,10 @@ pub struct EnrollmentBody {
     pub channel_binding: String,
     pub provider: String,
     pub size: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cloud_mode: Option<CloudMode>,
     pub request_id: String,
     pub timestamp: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "lowercase")]
-pub enum CloudMode {
-    Byo,
-    Managed,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_machine_id: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -271,8 +264,8 @@ pub fn verify_cloud_renewal(
 }
 
 pub struct CloudController<'a> {
-    mesh: &'a super::AccountMesh,
-    signed: super::operations::Signed,
+    pub(super) mesh: &'a super::AccountMesh,
+    pub(super) signed: super::operations::Signed,
 }
 
 impl super::AccountMesh {

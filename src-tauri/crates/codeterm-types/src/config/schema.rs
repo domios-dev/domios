@@ -1080,11 +1080,17 @@ impl Default for TextHooksConfig {
     }
 }
 
+fn default_cloud_idle_sleep_minutes() -> u32 {
+    15
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct MeshConfig {
     pub enabled: bool,
     pub instance_name: String,
+    #[serde(default = "default_cloud_idle_sleep_minutes")]
+    pub cloud_idle_sleep_minutes: u32,
 }
 
 impl Default for MeshConfig {
@@ -1092,6 +1098,7 @@ impl Default for MeshConfig {
         Self {
             enabled: true,
             instance_name: String::new(),
+            cloud_idle_sleep_minutes: default_cloud_idle_sleep_minutes(),
         }
     }
 }

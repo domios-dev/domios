@@ -118,11 +118,19 @@ pub enum AccountMeshRefusal {
     #[serde(rename = "apply_too_large")]
     ApplyTooLarge,
     #[serde(rename = "cloud.machines")]
-    CloudMachineLimit {
-        mode: super::cloud_enrollment::CloudMode,
-        limit: u32,
-        active_count: u32,
-    },
+    CloudMachineLimit { limit: u32, active_count: u32 },
+    #[serde(rename = "lease_required")]
+    LeaseRequired,
+    #[serde(rename = "credits_exhausted")]
+    CreditsExhausted,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "provider_refused")]
+    ProviderRefused,
+    #[serde(rename = "provider_unavailable")]
+    ProviderUnavailable,
+    #[serde(rename = "provider_unconfirmed")]
+    ProviderUnconfirmed,
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
     /// Local refusal of link traffic while this machine is outside the machine limit.
@@ -161,14 +169,18 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::NonceReused => Self::NonceReused,
             RegistryRefusal::ApplyTooLarge => Self::ApplyTooLarge,
             RegistryRefusal::CloudMachineLimit {
-                mode,
                 limit,
                 active_count,
             } => Self::CloudMachineLimit {
-                mode,
                 limit,
                 active_count,
             },
+            RegistryRefusal::LeaseRequired => Self::LeaseRequired,
+            RegistryRefusal::CreditsExhausted => Self::CreditsExhausted,
+            RegistryRefusal::NotFound => Self::NotFound,
+            RegistryRefusal::ProviderRefused => Self::ProviderRefused,
+            RegistryRefusal::ProviderUnavailable => Self::ProviderUnavailable,
+            RegistryRefusal::ProviderUnconfirmed => Self::ProviderUnconfirmed,
             RegistryRefusal::KeyConflict => Self::KeyConflict,
             RegistryRefusal::GenerationMismatch => Self::GenerationMismatch,
             RegistryRefusal::ChallengeInvalid => Self::ChallengeInvalid,

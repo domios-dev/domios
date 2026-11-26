@@ -7,27 +7,31 @@ use codeterm_entitlements::DetachedGrant;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize)]
-pub(super) struct RenewalBody {
-    schema_version: u8,
-    controller_installation_id: String,
-    cloud_installation_id: String,
-    key_generation: u64,
-    slot_revision: u64,
-    request_id: String,
-    timestamp: u64,
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenewalBody {
+    pub schema_version: u8,
+    pub controller_installation_id: String,
+    pub cloud_installation_id: String,
+    pub key_generation: u64,
+    pub slot_revision: u64,
+    pub request_id: String,
+    pub timestamp: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RenewalRequest {
-    body: RenewalBody,
-    controller_signature: String,
+    pub body: RenewalBody,
+    pub controller_signature: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RenewalReply {
     pub membership: DetachedGrant,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
 }
 
 fn eligible(state: &LifecycleState, target: &MeshTarget, now: u64) -> bool {

@@ -63,6 +63,26 @@ pub fn transcript(
     hasher.finalize().into()
 }
 
+pub(crate) fn ingress_transcript(
+    initiator: &Party,
+    responder: &Party,
+    account_id: &str,
+    channel_binding: &[u8; 32],
+    membership: &str,
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"domios-cloud-ingress-enrolled-v1\0");
+    hasher.update(channel_binding);
+    for party in [initiator, responder] {
+        absorb(&mut hasher, &party.instance_id);
+        absorb(&mut hasher, &party.mesh_public_key);
+        absorb(&mut hasher, &party.installation_id);
+    }
+    absorb(&mut hasher, account_id);
+    absorb(&mut hasher, membership);
+    hasher.finalize().into()
+}
+
 fn role_message(transcript: &[u8; 32], role: &[u8]) -> Vec<u8> {
     let mut message = Vec::with_capacity(transcript.len() + role.len());
     message.extend_from_slice(role);

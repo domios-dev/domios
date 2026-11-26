@@ -92,6 +92,10 @@ impl InstallationKey {
         URL_SAFE_NO_PAD.encode(self.signing.sign(message).to_bytes())
     }
 
+    pub(super) fn sign_cloud_provisioning(&self, message: &[u8]) -> String {
+        URL_SAFE_NO_PAD.encode(self.signing.sign(message).to_bytes())
+    }
+
     pub fn spki_der(&self) -> Vec<u8> {
         spki_der(&self.signing.verifying_key())
     }

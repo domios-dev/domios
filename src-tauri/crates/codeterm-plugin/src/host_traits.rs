@@ -158,9 +158,6 @@ pub trait PluginHostCtx: Send + Sync {
 
     // ── Secrets ─────────────────────────────────────────────────────────
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String>;
-    fn cloud_provider_key(&self, _name: &str) -> Result<Option<String>, &'static str> {
-        Err("cloud provider key store unavailable")
-    }
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool;
     /// The credential a plugin's own launch profile declares for its balance limits source;

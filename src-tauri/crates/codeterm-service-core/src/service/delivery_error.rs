@@ -93,6 +93,8 @@ pub enum DeliveryError {
     SubmitUnconfirmed { tab: String, detail: String },
     /// Tab, its workspace, or its Team is locked above the plan limit. Nothing was written.
     PlanLimitLocked { tab: String, detail: String },
+    /// Cloud peer is draining or sleeping before any byte was written.
+    MachineSleeping { tab: String, detail: String },
 }
 
 impl DeliveryError {
@@ -106,6 +108,7 @@ impl DeliveryError {
             Self::PtyUnavailable { .. } => "pty_unavailable",
             Self::SubmitUnconfirmed { .. } => "submit_unconfirmed",
             Self::PlanLimitLocked { .. } => crate::service::billing::PLAN_LIMIT_LOCKED,
+            Self::MachineSleeping { .. } => "machine_sleeping",
         }
     }
 
@@ -144,7 +147,8 @@ impl DeliveryError {
             Self::TabNotReachableOnPeer { .. }
             | Self::TabBusyRefused { .. }
             | Self::PtyUnavailable { .. }
-            | Self::PlanLimitLocked { .. } => PendingDeliveryState::Pending,
+            | Self::PlanLimitLocked { .. }
+            | Self::MachineSleeping { .. } => PendingDeliveryState::Pending,
         }
     }
 
@@ -152,7 +156,9 @@ impl DeliveryError {
         match self {
             Self::TabNotReachableOnPeer { .. } => StatusCode::NOT_FOUND,
             Self::TabBusyRefused { .. } => StatusCode::CONFLICT,
-            Self::PtyUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::PtyUnavailable { .. } | Self::MachineSleeping { .. } => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             Self::SubmitUnconfirmed { .. } => StatusCode::BAD_GATEWAY,
             Self::PlanLimitLocked { .. } => StatusCode::FORBIDDEN,
         }
@@ -164,7 +170,8 @@ impl DeliveryError {
             | Self::TabBusyRefused { tab, .. }
             | Self::PtyUnavailable { tab, .. }
             | Self::SubmitUnconfirmed { tab, .. }
-            | Self::PlanLimitLocked { tab, .. } => tab,
+            | Self::PlanLimitLocked { tab, .. }
+            | Self::MachineSleeping { tab, .. } => tab,
         }
     }
 
@@ -174,7 +181,8 @@ impl DeliveryError {
             Self::TabBusyRefused { detail, .. }
             | Self::PtyUnavailable { detail, .. }
             | Self::SubmitUnconfirmed { detail, .. }
-            | Self::PlanLimitLocked { detail, .. } => detail,
+            | Self::PlanLimitLocked { detail, .. }
+            | Self::MachineSleeping { detail, .. } => detail,
         }
     }
 
@@ -237,6 +245,12 @@ impl DeliveryError {
                 detail,
             };
         }
+        if detail.starts_with("machine_sleeping:") {
+            return Self::MachineSleeping {
+                tab: tab.to_string(),
+                detail,
+            };
+        }
         Self::SubmitUnconfirmed {
             tab: tab.to_string(),
             detail,
@@ -280,6 +294,12 @@ impl std::fmt::Display for DeliveryError {
                 )
             }
             Self::PlanLimitLocked { detail, .. } => f.write_str(detail),
+            Self::MachineSleeping { tab, detail } => {
+                write!(
+                    f,
+                    "Tab {tab} is on a draining or sleeping cloud machine (nothing written): {detail}"
+                )
+            }
         }
     }
 }

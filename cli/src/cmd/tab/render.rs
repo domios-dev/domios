@@ -21,9 +21,14 @@ pub fn format_tab_row(p: &serde_json::Value) -> String {
     } else {
         format!("  ws={}", ws)
     };
+    let cloud_part = p
+        .get("cloud")
+        .filter(|c| c.is_object())
+        .map(|c| format!("  [{}]", crate::mesh_cli::cloud::format_cloud_cost_badge(c)))
+        .unwrap_or_default();
     format!(
-        "{}  {}{} [{}]{}",
-        id, label, description_part, agent_label, ws_part
+        "{}  {}{} [{}]{}{}",
+        id, label, description_part, agent_label, ws_part, cloud_part
     )
 }
 
