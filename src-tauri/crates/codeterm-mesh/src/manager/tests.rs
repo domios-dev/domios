@@ -90,8 +90,8 @@ fn signed_machine_identity_interoperates_with_1_23_2_colored_announce_and_sync()
         })
     };
 
-    let mut target = make_mesh_with_peer("peer", vec![]);
-    target.paired_peers.get_mut("peer").unwrap().public_key = public_key.clone();
+    // Admit the peer with its real key: the identity sync is gated on the admitted key.
+    let mut target = make_mesh_with_keyed_peer("peer", vec![], &public_key);
 
     let announce_json = serde_json::json!({
         "machine_identity": sign_1_23_2("peer", "laptop", "teal", 2),
@@ -229,6 +229,10 @@ fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers
 }
 
 fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
+    make_mesh_with_keyed_peer(peer_id, addrs, "")
+}
+
+fn make_mesh_with_keyed_peer(peer_id: &str, addrs: Vec<&str>, public_key: &str) -> MeshManager {
     let mut m = MeshManager::new("test-host".into(), 7685);
     m.disk_persist = false;
     let peer = PairedPeer {
@@ -236,7 +240,7 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         instance_name: "TestPeer".into(),
         addresses: addrs.into_iter().map(PeerAddress::from_ip).collect(),
         api_port: 7685,
-        public_key: String::new(),
+        public_key: public_key.into(),
         paired_at: chrono::Utc::now().to_rfc3339(),
         last_seen: None,
         online: true,

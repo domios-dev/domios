@@ -247,10 +247,10 @@ fn paired_peer_fixture(
     }
 }
 
-/// codeterm#434: two paired records share an instance_name — one online at
-/// the current relay protocol, one dead at an old one. Name-based relay
-/// resolution must return the live record on every call, never flip with
-/// hashmap iteration order.
+/// codeterm#434: one machine left two paired records sharing an instance_name —
+/// one online at the current relay protocol, one dead at an old one. Name-based
+/// relay resolution must return the live record on every call, never flip with
+/// hashmap iteration order. Different machines sharing a name are ambiguous.
 #[test]
 fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("test-host".into(), 7685);
@@ -258,18 +258,24 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     // `MeshManager::new` loads real disk state — start from empty so this
     // test is never polluted by the running machine's own paired peers.
     mesh.paired_peers.clear();
-    mesh.insert_account_peer_for_test(paired_peer_fixture(
-        "a4db6f3d-dead",
-        "BLACKSTAR",
-        false,
-        codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1,
-    ));
-    mesh.insert_account_peer_for_test(paired_peer_fixture(
-        "2556b3f9-live",
-        "BLACKSTAR",
-        true,
-        codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
-    ));
+    mesh.insert_account_peer_with_installation_for_test(
+        "inst-blackstar".into(),
+        paired_peer_fixture(
+            "a4db6f3d-dead",
+            "BLACKSTAR",
+            false,
+            codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1,
+        ),
+    );
+    mesh.insert_account_peer_with_installation_for_test(
+        "inst-blackstar".into(),
+        paired_peer_fixture(
+            "2556b3f9-live",
+            "BLACKSTAR",
+            true,
+            codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
+        ),
+    );
 
     let (_, resolved_id, name, _) =
         resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
@@ -290,21 +296,22 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     }
 }
 
-/// When every record sharing a name is offline, the refusal is structured
-/// JSON naming both records and the id-routed form of the same call —
+/// When every record one machine left under a name is offline, the refusal is
+/// structured JSON naming both records and the id-routed form of the same call —
 /// never a prose sentence the caller must pattern-match.
 #[test]
 fn peer_relay_refusal_names_both_dead_records_and_the_id_route() {
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("test-host".into(), 7685);
     mesh.disk_persist = false;
     mesh.paired_peers.clear();
-    mesh.insert_account_peer_for_test(paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0));
-    mesh.insert_account_peer_for_test(paired_peer_fixture(
-        "c9112abc-alsodead",
-        "BLACKSTAR",
-        false,
-        1,
-    ));
+    mesh.insert_account_peer_with_installation_for_test(
+        "inst-blackstar".into(),
+        paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
+    );
+    mesh.insert_account_peer_with_installation_for_test(
+        "inst-blackstar".into(),
+        paired_peer_fixture("c9112abc-alsodead", "BLACKSTAR", false, 1),
+    );
 
     let (status, body) = match resolve_relay_peer(&mesh, "BLACKSTAR") {
         Ok(_) => panic!("no online record exists for this name — must not resolve"),
