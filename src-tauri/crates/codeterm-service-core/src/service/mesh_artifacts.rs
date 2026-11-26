@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::mesh::{transport::PeerClient, types::RelayCommand};
+use crate::mesh::{
+    transport::PeerClient,
+    types::{RelayCommand, RelayResponse},
+};
 use crate::service::mesh_attachment::{
     parse_ingest_response, AttachmentKind, IngestRequest, MESH_ATTACHMENT_MAX_BYTES,
 };
@@ -85,6 +88,28 @@ pub async fn transfer(
     path: &str,
     body: &mut serde_json::Value,
 ) -> Result<(), String> {
+    transfer_via(svc, source_tab, method, path, body, |command| async move {
+        client
+            .send_relay(&command)
+            .await
+            .map_err(|error| error.to_string())
+    })
+    .await
+}
+
+pub async fn transfer_via<F, Fut>(
+    svc: &super::ServiceContext,
+    source_tab: Result<Option<String>, String>,
+    method: &str,
+    path: &str,
+    body: &mut serde_json::Value,
+    send_relay: F,
+) -> Result<(), String>
+where
+    F: Fn(RelayCommand) -> Fut,
+    Fut: std::future::Future<Output = Result<RelayResponse, String>>,
+{
+    let send_relay = &send_relay;
     transfer_with(method, path, body, |source, ingest_path| {
         let svc = svc.clone();
         let source_tab = source_tab.clone();
@@ -113,10 +138,7 @@ pub async fn transfer(
                 body: serde_json::to_value(request).map_err(|error| error.to_string())?,
                 delivery_id: None,
             };
-            let response = client
-                .send_relay(&command)
-                .await
-                .map_err(|error| error.to_string())?;
+            let response = send_relay(command).await?;
             Ok(parse_ingest_response(&source, response)?.path)
         }
     })

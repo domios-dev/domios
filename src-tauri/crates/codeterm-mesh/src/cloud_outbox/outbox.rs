@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -40,6 +40,7 @@ impl Default for CloudOutboxConfig {
 struct OutboxRuntimeState {
     model: OutboxModel,
     notifies: HashMap<InstallationPair, Arc<Notify>>,
+    parked_pairs: HashSet<InstallationPair>,
     closed: bool,
 }
 
@@ -70,6 +71,7 @@ struct CloudOutboxInner {
     clock: Arc<dyn OutboxClock>,
     policy: Arc<dyn DrainAuthorizationPolicy>,
     observer: Arc<dyn DrainLifecycleObserver>,
+    settled_notify: Arc<Notify>,
 }
 
 pub struct CloudOutbox {
@@ -81,6 +83,8 @@ impl Drop for CloudOutbox {
         let mut state = self.inner.state.lock();
         state.closed = true;
         state.wake_all();
+        drop(state);
+        self.inner.settled_notify.notify_waiters();
     }
 }
 
@@ -113,12 +117,14 @@ impl CloudOutbox {
                 state: Mutex::new(OutboxRuntimeState {
                     model,
                     notifies: HashMap::new(),
+                    parked_pairs: HashSet::new(),
                     closed: false,
                 }),
                 store,
                 clock: config.clock,
                 policy: config.policy,
                 observer: config.observer,
+                settled_notify: Arc::new(Notify::new()),
             }),
         })
     }
@@ -204,6 +210,7 @@ impl CloudOutbox {
             let mut state = self.inner.state.lock();
             let receipts = state.model.commit_enqueue(reservation);
             for pair in &pairs {
+                state.parked_pairs.remove(pair);
                 state.wake_pair(pair);
             }
             receipts
@@ -231,6 +238,7 @@ impl CloudOutbox {
                 state
                     .model
                     .attach_stream(pair.clone(), account_id.clone(), stream_id);
+                state.parked_pairs.remove(&pair);
                 notify.notify_waiters();
                 (notify, true)
             }
@@ -283,17 +291,64 @@ impl CloudOutboxPort for CloudOutbox {
     fn detach_reverse_stream(&self, stream_id: u64) {
         let mut state = self.inner.state.lock();
         if let Some(pair) = state.model.detach_stream(stream_id) {
+            state.parked_pairs.remove(&pair);
             state.wake_pair(&pair);
         }
+        drop(state);
+        self.inner.settled_notify.notify_waiters();
     }
 
     fn notify_policy_changed(&self) {
-        let state = self.inner.state.lock();
+        let mut state = self.inner.state.lock();
+        state.parked_pairs.clear();
         state.wake_all();
+        drop(state);
+        self.inner.settled_notify.notify_waiters();
     }
 
     fn record_status(&self, id: &OutboxId) -> Option<OutboxRecordStatus> {
         self.inner.state.lock().model.record_status(id)
+    }
+
+    fn wait_for_settlement<'a>(
+        &'a self,
+        id: &'a OutboxId,
+        pair: &'a InstallationPair,
+    ) -> BoxFuture<'a, Option<OutboxRecordStatus>> {
+        Box::pin(async move {
+            loop {
+                let notified = self.inner.settled_notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                {
+                    let state = self.inner.state.lock();
+                    let status = state.model.record_status(id);
+                    match &status {
+                        None
+                        | Some(
+                            OutboxRecordStatus::Delivered { .. }
+                            | OutboxRecordStatus::DeliveryUnconfirmed { .. }
+                            | OutboxRecordStatus::RefusedBeforeWrite { .. },
+                        ) => return status,
+                        Some(OutboxRecordStatus::Queued { .. })
+                            if state.closed
+                                || !state.model.has_attached_stream(pair)
+                                || state.parked_pairs.contains(pair) =>
+                        {
+                            return status;
+                        }
+                        Some(
+                            OutboxRecordStatus::Queued { .. } | OutboxRecordStatus::InFlight { .. },
+                        ) => {
+                            if state.closed {
+                                return status;
+                            }
+                        }
+                    }
+                }
+                notified.await;
+            }
+        })
     }
 
     fn application_reply(&self, id: &OutboxId) -> Option<CompletedApplicationReply> {
@@ -381,11 +436,15 @@ async fn drain_one_step(
         DrainPolicyDecision::Defer { .. } => {
             let mut state = inner.state.lock();
             state.model.revert_evaluating(&frame.id, stream_id);
+            state.parked_pairs.insert(pair.clone());
+            drop(state);
+            inner.settled_notify.notify_waiters();
             return DrainStep::Wait;
         }
         DrainPolicyDecision::Refuse { reason } => {
             let (settled, retain) = {
                 let mut state = inner.state.lock();
+                state.parked_pairs.remove(pair);
                 let retain = state.model.limits().max_retained_settled > 0;
                 let res = state
                     .model
@@ -410,6 +469,7 @@ async fn drain_one_step(
                 }
                 inner.state.lock().wake_pair(pair);
                 inner.observer.on_settled(&frame.id, &receipt.status);
+                inner.settled_notify.notify_waiters();
             }
             return DrainStep::Continue;
         }
@@ -422,6 +482,7 @@ async fn drain_one_step(
             state.model.revert_evaluating(&frame.id, stream_id);
             return DrainStep::Exit;
         }
+        state.parked_pairs.remove(pair);
         state
             .model
             .prepare_claim(pair, &frame.id, stream_id, now_ms)
@@ -437,7 +498,10 @@ async fn drain_one_step(
         );
         let mut state = inner.state.lock();
         state.model.revert_unpersisted_claim(&frame.id, stream_id);
+        state.parked_pairs.insert(pair.clone());
         state.wake_pair(pair);
+        drop(state);
+        inner.settled_notify.notify_waiters();
         return DrainStep::Wait;
     }
 
@@ -475,6 +539,7 @@ async fn drain_one_step(
                 }
                 inner.state.lock().wake_pair(pair);
                 inner.observer.on_settled(&frame.id, &receipt.status);
+                inner.settled_notify.notify_waiters();
             }
             DrainStep::Continue
         }
@@ -488,7 +553,10 @@ async fn drain_one_step(
                 Ok(()) => {
                     let mut state = inner.state.lock();
                     state.model.settle_not_written(&frame.id, stream_id);
+                    state.parked_pairs.insert(pair.clone());
                     state.wake_pair(pair);
+                    drop(state);
+                    inner.settled_notify.notify_waiters();
                 }
                 Err(error) => {
                     log::error!(
@@ -512,6 +580,7 @@ async fn drain_one_step(
                             .await;
                         inner.state.lock().wake_pair(pair);
                         inner.observer.on_settled(&frame.id, &receipt.into_status());
+                        inner.settled_notify.notify_waiters();
                     }
                 }
             }
@@ -541,6 +610,7 @@ async fn drain_one_step(
                 }
                 inner.state.lock().wake_pair(pair);
                 inner.observer.on_settled(&frame.id, &receipt.into_status());
+                inner.settled_notify.notify_waiters();
             }
             if reason.stream_likely_broken() {
                 DrainStep::Wait

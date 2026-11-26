@@ -53,6 +53,9 @@ pub async fn mesh_announce_all(
     axum::extract::Query(q): axum::extract::Query<AnnounceQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     super::require_administrator(&state, &headers)?;
+    if let Some(report) = super::relay::cloud_outbox_announce(&state, q.to.as_deref()).await {
+        return Ok(Json(serde_json::json!({ "ok": true, "report": report })));
+    }
     let report =
         codeterm_service_core::mesh::broadcast_announce(&state.mesh, q.to.as_deref()).await;
     Ok(Json(serde_json::json!({ "ok": true, "report": report })))

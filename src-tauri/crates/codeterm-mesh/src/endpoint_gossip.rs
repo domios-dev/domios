@@ -265,6 +265,108 @@ impl MeshManager {
             .filter(|entry| self.endpoint_membership_current(&entry.membership))
             .map(|entry| &entry.record)
     }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn insert_direct_ingress_endpoint_for_test(
+        &mut self,
+        installation_id: String,
+        address: std::net::SocketAddrV4,
+    ) {
+        struct TestAuthority;
+        impl crate::account_mesh::AccountMeshAuthority for TestAuthority {
+            fn verify_membership(
+                &self,
+                _: &str,
+                _: u64,
+            ) -> Result<VerifiedMembership, AdmissionRefusal> {
+                Err(AdmissionRefusal::AuthRefused)
+            }
+            fn sign_possession(&self, _: &[u8; 32]) -> Result<String, AdmissionRefusal> {
+                Err(AdmissionRefusal::AuthRefused)
+            }
+            fn verify_possession(&self, _: &VerifiedMembership, _: &[u8; 32], _: &str) -> bool {
+                false
+            }
+            fn resolve_link_target(
+                &self,
+                _: &str,
+            ) -> crate::account_mesh::BoxFuture<'_, Result<LinkTarget, AdmissionRefusal>>
+            {
+                Box::pin(async { Err(AdmissionRefusal::PeerUnreachable) })
+            }
+        }
+        if self.account_authority().is_none() {
+            self.bind_account_authority(std::sync::Arc::new(TestAuthority));
+        }
+        let account_id = self
+            .account_state()
+            .signed_in_account()
+            .unwrap_or("test-account")
+            .to_owned();
+        let expires_at = self.now().saturating_add(3600);
+        let membership = VerifiedMembership {
+            account_id,
+            installation_id: installation_id.clone(),
+            key_id: "test-key".into(),
+            key_generation: 1,
+            slot_revision: 1,
+            issued_at: 0,
+            expires_at,
+        };
+        let mut next_state = self.account_state().clone();
+        let members = next_state
+            .registry_members
+            .get_or_insert_with(Default::default);
+        if let Some(own) = &next_state.membership {
+            members.insert(
+                own.verified.installation_id.clone(),
+                (
+                    own.verified.key_id.clone(),
+                    own.verified.key_generation,
+                    own.verified.slot_revision,
+                ),
+            );
+        }
+        for peer_id in self.paired_peers.keys() {
+            if let Some(remote) = self
+                .link_record(peer_id)
+                .and_then(|link| link.remote_membership.as_ref())
+            {
+                members.insert(
+                    remote.verified.installation_id.clone(),
+                    (
+                        remote.verified.key_id.clone(),
+                        remote.verified.key_generation,
+                        remote.verified.slot_revision,
+                    ),
+                );
+            }
+        }
+        members.insert(
+            installation_id.clone(),
+            (
+                membership.key_id.clone(),
+                membership.key_generation,
+                membership.slot_revision,
+            ),
+        );
+        self.apply_account_state(next_state);
+        let record = SignedEndpointRecord {
+            claim: EndpointClaim {
+                version: ENDPOINT_RECORD_VERSION,
+                installation_id: installation_id.clone(),
+                sequence: 1,
+                membership: "test-membership".into(),
+                endpoint: Some(EndpointAddress::DirectIngress { address }),
+            },
+            signature: "test-signature".into(),
+        };
+        self.endpoint_records.records.insert(
+            installation_id,
+            VerifiedEndpointRecord { record, membership },
+        );
+        self.bump_gate();
+    }
 }
 
 pub async fn receive_endpoint_records(

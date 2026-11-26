@@ -107,6 +107,11 @@ impl TransportError {
         }
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new_for_test(kind: TransportErrorKind, detail: impl Into<String>) -> Self {
+        Self::new(kind, detail)
+    }
+
     /// Classifies a `reqwest::Error` from `.send()`. Only a connect-phase
     /// failure (`is_connect()`) proves the request itself was never written —
     /// that is the sole nothing-sent case. Every other failure (a timeout, or

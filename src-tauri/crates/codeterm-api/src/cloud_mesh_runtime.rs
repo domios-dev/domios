@@ -2,7 +2,11 @@ use axum::body::{to_bytes, Body};
 use axum::http::{header, Request};
 use codeterm_mesh::account_mesh::BoxFuture;
 use codeterm_mesh::cloud_ingress::{connect_enrolled, CloudRoute, IngressError, ReverseDispatcher};
-use codeterm_mesh::cloud_outbox::{DedupeLimits, OuterWireRequest, ReceiverDedupe};
+use codeterm_mesh::cloud_outbox::{
+    DedupeLimits, DrainAuthorizationPolicy, DrainPolicyDecision, OutboundOperation, OutboxFrame,
+    OuterWireRequest, ReceiverDedupe, OUTER_RELAY_ROUTE,
+};
+use codeterm_mesh::crown::AuthenticatedOrigin;
 use codeterm_mesh::endpoint_gossip::EndpointAddress;
 use codeterm_mesh::MeshState;
 use codeterm_service_core::{
@@ -22,6 +26,108 @@ struct Dispatcher(Weak<ServiceContext>);
 pub fn dispatcher(service: &ServiceState) -> Arc<dyn ReverseDispatcher> {
     Arc::new(Dispatcher(Arc::downgrade(service)))
 }
+
+struct LiveDrainPolicy {
+    service: Weak<ServiceContext>,
+    mesh: MeshState,
+}
+
+/// Live caller authorization policy installed once at composition via
+/// `CloudIngressHandle::bind_drain_policy`.
+pub fn drain_policy(service: &ServiceState, mesh: MeshState) -> Arc<dyn DrainAuthorizationPolicy> {
+    Arc::new(LiveDrainPolicy {
+        service: Arc::downgrade(service),
+        mesh,
+    })
+}
+
+impl DrainAuthorizationPolicy for LiveDrainPolicy {
+    fn authorize_drain(&self, frame: &OutboxFrame, now_ms: u64) -> DrainPolicyDecision {
+        let Some(service) = self.service.upgrade() else {
+            return DrainPolicyDecision::Defer {
+                reason: "service_unavailable".into(),
+            };
+        };
+        if !service.configuration().mesh.enabled {
+            return DrainPolicyDecision::Defer {
+                reason: "mesh_disabled".into(),
+            };
+        }
+        if frame.request.operation == OutboundOperation::Notification {
+            return DrainPolicyDecision::Refuse {
+                reason: crate::mesh_routes::relay::CLOUD_NOTIFICATION_RELAY_REFUSED.into(),
+            };
+        }
+        if frame
+            .request
+            .caller_context
+            .expires_at_ms
+            .is_some_and(|expires_at_ms| now_ms >= expires_at_ms)
+        {
+            return DrainPolicyDecision::Refuse {
+                reason: "request_expired".into(),
+            };
+        }
+        if frame.request.validate().is_err() {
+            return DrainPolicyDecision::Refuse {
+                reason: "invalid_outbox_request".into(),
+            };
+        }
+        let mesh = self.mesh.lock();
+        let account = mesh.account_state();
+        if account.signed_in_account() != Some(frame.request.account_id.as_str()) {
+            return DrainPolicyDecision::Refuse {
+                reason: "account_changed".into(),
+            };
+        }
+        if account
+            .revoked_installations
+            .contains(&frame.request.target_installation_id)
+        {
+            return DrainPolicyDecision::Refuse {
+                reason: "target_revoked".into(),
+            };
+        }
+        if frame.request.caller_context.origin == AuthenticatedOrigin::Agent
+            && !frame
+                .request
+                .caller_context
+                .agent
+                .as_ref()
+                .is_some_and(|agent| agent.instance_id == mesh.ident.identity.instance_id)
+        {
+            return DrainPolicyDecision::Refuse {
+                reason: "caller_instance_mismatch".into(),
+            };
+        }
+        if let Some(peer_id) = mesh.paired_peers.keys().find(|peer_id| {
+            mesh.link_record(peer_id)
+                .and_then(|record| record.installation_id())
+                == Some(frame.request.target_installation_id.as_str())
+        }) {
+            if !mesh.traffic_open(peer_id) {
+                return DrainPolicyDecision::Defer {
+                    reason: "peer_traffic_closed".into(),
+                };
+            }
+        }
+        DrainPolicyDecision::Allow
+    }
+}
+
+fn is_relayed_notification(body: &serde_json::Value) -> bool {
+    let method = body
+        .get("method")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let path = body
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let bare = path.split('?').next().unwrap_or(path);
+    method.eq_ignore_ascii_case("POST") && bare == "/api/notifications"
+}
+
 impl ReverseDispatcher for Dispatcher {
     fn enabled(&self) -> bool {
         self.0
@@ -36,6 +142,10 @@ impl ReverseDispatcher for Dispatcher {
         Box::pin(async move {
             let service = self.0.upgrade().ok_or(IngressError::Unavailable)?;
             if !service.configuration().mesh.enabled {
+                return Err(IngressError::Rejected);
+            }
+            // Refused pending security review on cloud-relayed notification authority.
+            if request.route == OUTER_RELAY_ROUTE && is_relayed_notification(&request.body) {
                 return Err(IngressError::Rejected);
             }
             let router = service

@@ -46,10 +46,16 @@ pub(super) fn signed_peer_client(
     ))
 }
 
-fn signed_token_for_local_caller(
+pub(super) fn authenticated_local_caller(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(AuthenticatedOrigin, String), (StatusCode, String)> {
+) -> Result<
+    (
+        AuthenticatedOrigin,
+        Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    ),
+    (StatusCode, String),
+> {
     let (caller, origin) = crate::auth::authenticated_request(state, headers)?;
     if !matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_)) {
         return Err((
@@ -58,7 +64,31 @@ fn signed_token_for_local_caller(
         ));
     }
     let agent = crate::auth::authenticated_agent_for_origin(state, headers, origin)?;
-    Ok((origin, sign(state, origin, agent.as_ref())?))
+    Ok((origin, agent))
+}
+
+pub(super) fn signed_caller_token(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<
+    (
+        AuthenticatedOrigin,
+        Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+        String,
+    ),
+    (StatusCode, String),
+> {
+    let (origin, agent) = authenticated_local_caller(state, headers)?;
+    let token = sign(state, origin, agent.as_ref())?;
+    Ok((origin, agent, token))
+}
+
+fn signed_token_for_local_caller(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(AuthenticatedOrigin, String), (StatusCode, String)> {
+    let (origin, _, token) = signed_caller_token(state, headers)?;
+    Ok((origin, token))
 }
 
 /// Single-pass Ed25519 verification + nonce admission for inbound signed mesh requests.

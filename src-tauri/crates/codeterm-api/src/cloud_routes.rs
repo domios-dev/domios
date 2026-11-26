@@ -289,12 +289,17 @@ impl codeterm_service_core::service::cloud_machines::CloudEnrollmentPort
     }
 }
 
-pub(crate) struct MeshPeerControlAdapter {
+/// Optional host extension allowing registered-router tests to substitute a
+/// fake `CloudProvisioningPort` without opening a live account-mesh RPC channel.
+#[derive(Clone)]
+pub struct CloudProvisioningOverride(pub Arc<dyn CloudProvisioningPort>);
+
+pub struct MeshPeerControlAdapter {
     state: AppState,
 }
 
 impl MeshPeerControlAdapter {
-    pub(crate) fn new(state: AppState) -> Self {
+    pub fn new(state: AppState) -> Self {
         Self { state }
     }
 
@@ -316,6 +321,73 @@ impl MeshPeerControlAdapter {
             .ok_or_else(|| CloudError::ProviderUnavailable(format!("peer {target} has no route")))
     }
 
+    fn cloud_ingress_target(
+        &self,
+        record: &CloudMachineRecord,
+    ) -> Option<(String, String, Option<std::net::SocketAddrV4>, String)> {
+        let mesh = self.state.mesh.lock();
+        let mut resolved_peer_id = None;
+        for selector in [
+            record.peer_instance_id.as_deref(),
+            record.installation_id.as_deref(),
+            Some(record.machine_id.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Ok(peer) = mesh.resolve_peer_including_offline(selector) {
+                resolved_peer_id = Some(peer.instance_id.clone());
+                break;
+            }
+        }
+        let peer_id = resolved_peer_id?;
+        if !mesh.traffic_open(&peer_id) {
+            return None;
+        }
+        let installation_id = mesh
+            .link_record(&peer_id)
+            .and_then(|link| link.installation_id())
+            .map(str::to_owned)
+            .or_else(|| record.installation_id.clone())?;
+        let known_address = mesh
+            .direct_ingress_address(&installation_id)
+            .or(record.endpoint_addr);
+        if known_address.is_none() && mesh.peer_route_endpoints(&peer_id).is_some() {
+            return None;
+        }
+        let token = mesh.sign_request().ok()?;
+        Some((peer_id, installation_id, known_address, token))
+    }
+
+    async fn send_cloud_relay(
+        &self,
+        record: &CloudMachineRecord,
+        cmd: codeterm_service_core::mesh::types::RelayCommand,
+    ) -> Option<
+        Result<
+            codeterm_service_core::mesh::types::RelayResponse,
+            crate::mesh_routes::relay::CloudIngressSendError,
+        >,
+    > {
+        let (peer_id, installation_id, known, token) = self.cloud_ingress_target(record)?;
+        let address = crate::mesh_routes::relay::resolve_cloud_ingress_address(
+            &self.state,
+            &peer_id,
+            &installation_id,
+            known,
+        )?;
+        Some(
+            crate::mesh_routes::relay::send_via_cloud_ingress(
+                &self.state,
+                address,
+                &installation_id,
+                cmd,
+                token,
+            )
+            .await,
+        )
+    }
+
     fn peer_is_online(&self, record: &CloudMachineRecord) -> bool {
         let mesh = self.state.mesh.lock();
         let target = record
@@ -323,40 +395,127 @@ impl MeshPeerControlAdapter {
             .as_deref()
             .or(record.installation_id.as_deref())
             .unwrap_or(&record.machine_id);
-        mesh.resolve_peer(target).is_ok_and(|peer| peer.online)
+        if mesh.resolve_peer(target).is_ok_and(|peer| peer.online) {
+            return true;
+        }
+        let Ok(peer) = mesh.resolve_peer_including_offline(target) else {
+            return false;
+        };
+        if !mesh.traffic_open(&peer.instance_id) {
+            return false;
+        }
+        let installation_id = mesh
+            .link_record(&peer.instance_id)
+            .and_then(|link| link.installation_id())
+            .or(record.installation_id.as_deref());
+        installation_id.is_some_and(|id| mesh.direct_ingress_address(id).is_some())
     }
 }
 
 #[async_trait]
 impl CloudPeerControlPort for MeshPeerControlAdapter {
     async fn read_idle(&self, record: &CloudMachineRecord) -> Result<PeerBusySnapshot, CloudError> {
-        let client = self.peer_client(record)?;
-        let value = client
-            .auth_get_json("/api/mesh/cloud/peer/idle")
+        let value = if let Some(cloud_result) = self
+            .send_cloud_relay(
+                record,
+                codeterm_service_core::mesh::types::RelayCommand {
+                    method: "GET".into(),
+                    path: "/api/mesh/cloud/peer/idle".into(),
+                    body: serde_json::Value::Null,
+                    delivery_id: None,
+                },
+            )
             .await
-            .map_err(CloudError::ProviderUnavailable)?;
+        {
+            let resp =
+                cloud_result.map_err(|error| CloudError::ProviderUnavailable(error.to_string()))?;
+            if !resp.ok {
+                return Err(CloudError::ProviderUnavailable(resp.error.unwrap_or_else(
+                    || format!("cloud peer idle returned status {}", resp.status),
+                )));
+            }
+            resp.data.unwrap_or(serde_json::Value::Null)
+        } else {
+            let client = self.peer_client(record)?;
+            client
+                .auth_get_json("/api/mesh/cloud/peer/idle")
+                .await
+                .map_err(CloudError::ProviderUnavailable)?
+        };
         serde_json::from_value(value).map_err(|error| CloudError::Internal(error.to_string()))
     }
 
     async fn enter_drain(&self, record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
-        let client = self.peer_client(record)?;
-        let value = client
-            .auth_post_json("/api/mesh/cloud/peer/drain", &serde_json::json!({}))
+        let value = if let Some(cloud_result) = self
+            .send_cloud_relay(
+                record,
+                codeterm_service_core::mesh::types::RelayCommand {
+                    method: "POST".into(),
+                    path: "/api/mesh/cloud/peer/drain".into(),
+                    body: serde_json::json!({}),
+                    delivery_id: None,
+                },
+            )
             .await
-            .map_err(|error| {
-                if error.contains("machine_busy") || error.contains("409") {
+        {
+            let resp =
+                cloud_result.map_err(|error| CloudError::ProviderUnavailable(error.to_string()))?;
+            if !resp.ok {
+                let detail = resp
+                    .error
+                    .unwrap_or_else(|| format!("status {}", resp.status));
+                return Err(if resp.status == 409 || detail.contains("machine_busy") {
                     CloudError::MachineBusy {
                         machine_id: record.machine_id.clone(),
-                        reason: error,
+                        reason: detail,
                     }
                 } else {
-                    CloudError::ProviderUnavailable(error)
-                }
-            })?;
+                    CloudError::ProviderUnavailable(detail)
+                });
+            }
+            resp.data.unwrap_or(serde_json::Value::Null)
+        } else {
+            let client = self.peer_client(record)?;
+            client
+                .auth_post_json("/api/mesh/cloud/peer/drain", &serde_json::json!({}))
+                .await
+                .map_err(|error| {
+                    if error.contains("machine_busy") || error.contains("409") {
+                        CloudError::MachineBusy {
+                            machine_id: record.machine_id.clone(),
+                            reason: error,
+                        }
+                    } else {
+                        CloudError::ProviderUnavailable(error)
+                    }
+                })?
+        };
         serde_json::from_value(value).map_err(|error| CloudError::Internal(error.to_string()))
     }
 
     async fn reopen_drain(&self, record: &CloudMachineRecord) -> Result<(), CloudError> {
+        if let Some(cloud_result) = self
+            .send_cloud_relay(
+                record,
+                codeterm_service_core::mesh::types::RelayCommand {
+                    method: "POST".into(),
+                    path: "/api/mesh/cloud/peer/reopen".into(),
+                    body: serde_json::json!({}),
+                    delivery_id: None,
+                },
+            )
+            .await
+        {
+            let resp =
+                cloud_result.map_err(|error| CloudError::ProviderUnavailable(error.to_string()))?;
+            return if resp.ok {
+                Ok(())
+            } else {
+                Err(CloudError::ProviderUnavailable(resp.error.unwrap_or_else(
+                    || format!("cloud peer reopen returned status {}", resp.status),
+                )))
+            };
+        }
         let client = self.peer_client(record)?;
         client
             .auth_post_json("/api/mesh/cloud/peer/reopen", &serde_json::json!({}))
@@ -395,6 +554,7 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         deadline_ms: u64,
     ) -> Result<(), CloudError> {
         let mut rx = self.state.events.subscribe();
+        let mut gate = self.state.mesh.lock().gate_watch();
         loop {
             if self.peer_is_online(record) {
                 return Ok(());
@@ -406,14 +566,18 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
                 });
             }
             let remaining = Duration::from_millis(deadline_ms.saturating_sub(now_ms));
-            match tokio::time::timeout(remaining, rx.recv()).await {
-                Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => {}
-                Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {
-                    return Err(CloudError::WakeDeadlineExceeded {
-                        machine_id: record.machine_id.clone(),
-                    });
+            let wait = async {
+                tokio::select! {
+                    res = rx.recv() => match res {
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => false,
+                    },
+                    res = gate.changed() => res.is_ok(),
                 }
-                Err(_) => {
+            };
+            match tokio::time::timeout(remaining, wait).await {
+                Ok(true) => {}
+                Ok(false) | Err(_) => {
                     return Err(CloudError::WakeDeadlineExceeded {
                         machine_id: record.machine_id.clone(),
                     });
@@ -427,16 +591,24 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         record: &CloudMachineRecord,
         send: &HeldCloudSend,
     ) -> FlushWriteOutcome {
-        let Ok(client) = self.peer_client(record) else {
-            return FlushWriteOutcome::RefusedMachineSleeping;
-        };
         let cmd = codeterm_service_core::mesh::types::RelayCommand {
             method: send.method.clone(),
             path: send.path.clone(),
             body: send.body.clone(),
             delivery_id: Some(send.delivery_id.clone()),
         };
-        match client.send_relay(&cmd).await {
+        let result = if let Some(cloud_result) = self.send_cloud_relay(record, cmd.clone()).await {
+            cloud_result.map_err(|error| (error.bytes_written(), error.to_string()))
+        } else {
+            let Ok(client) = self.peer_client(record) else {
+                return FlushWriteOutcome::RefusedMachineSleeping;
+            };
+            client
+                .send_relay(&cmd)
+                .await
+                .map_err(|error| (error.bytes_written(), error.to_string()))
+        };
+        match result {
             Ok(resp) if resp.ok => {
                 let delivered = resp
                     .data
@@ -476,11 +648,11 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
                         .unwrap_or_else(|| format!("status {}", resp.status)),
                 )
             }
-            Err(error) => {
-                if error.bytes_written() == Some(false) {
-                    FlushWriteOutcome::RefusedPreWrite(error.to_string())
+            Err((bytes_written, detail)) => {
+                if bytes_written == Some(false) {
+                    FlushWriteOutcome::RefusedPreWrite(detail)
                 } else {
-                    FlushWriteOutcome::Uncertain(error.to_string())
+                    FlushWriteOutcome::Uncertain(detail)
                 }
             }
         }
@@ -554,13 +726,19 @@ pub(crate) async fn wake_machine_for_use(
     let record = ctrl
         .find_by_peer(machine_id)
         .ok_or_else(|| CloudError::MachineNotFound(machine_id.to_owned()))?;
-    let provisioning = AccountCloudProvisioningAdapter {
-        svc: state.svc.clone(),
-    };
+    let provisioning: Arc<dyn CloudProvisioningPort> = state
+        .svc
+        .try_ext::<CloudProvisioningOverride>()
+        .map(|ext| Arc::clone(&ext.0))
+        .unwrap_or_else(|| {
+            Arc::new(AccountCloudProvisioningAdapter {
+                svc: state.svc.clone(),
+            })
+        });
     let peer_ctrl = MeshPeerControlAdapter::new(state.clone());
     ctrl.wake(
         &record.machine_id,
-        &provisioning,
+        provisioning.as_ref(),
         &peer_ctrl,
         DEFAULT_WAKE_HOLD_DEADLINE_MS,
     )
