@@ -24,6 +24,11 @@ pub use cloud_producer::{
     CloudIngressConnector, CloudIngressConnectorOverride, CloudIngressSendError,
     CloudOutboxOverride, CLOUD_NOTIFICATION_RELAY_REFUSED, CLOUD_OUTBOUND_OPERATION_UNSUPPORTED,
 };
+
+pub(crate) fn register_extensions(builder: &mut codeterm_service_core::service::ExtensionsBuilder) {
+    builder.insert_late::<CloudIngressConnectorOverride>();
+    builder.insert_late::<CloudOutboxOverride>();
+}
 #[cfg(test)]
 use peer_asset::is_relay_asset_path;
 pub use peer_asset::mesh_relay_asset;

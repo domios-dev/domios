@@ -314,6 +314,11 @@ pub struct CloudEndpointPublisherOverride(
     >,
 );
 
+pub(crate) fn register_extensions(builder: &mut codeterm_service_core::service::ExtensionsBuilder) {
+    builder.insert_late::<CloudProvisioningOverride>();
+    builder.insert_late::<CloudEndpointPublisherOverride>();
+}
+
 pub struct MeshPeerControlAdapter {
     state: AppState,
 }
