@@ -32,7 +32,7 @@ export interface UseTerminalResizeReturn {
   ) => void;
   loseResizeOwnership: () => void;
   hasResizeOwnership: () => boolean;
-  refitAndCommitResize: () => void;
+  refitAndCommitResize: (force?: boolean) => void;
 }
 
 const nativeResizeCommit = Boolean(nativeBridge.resizeEvents)
@@ -160,10 +160,10 @@ export function useTerminalResize({
     if (authority.role === "follower") applyGeometry(true);
   }, [applyGeometry, connectedPtyRef, ptyId, resizeClientId]);
 
-  const refitAndCommitResize = useCallback(() => {
+  const refitAndCommitResize = useCallback((force = true) => {
     suppressCommitRef.current = true;
     try {
-      applyGeometry(true);
+      applyGeometry(force);
     } finally {
       suppressCommitRef.current = false;
     }
