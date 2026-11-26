@@ -104,7 +104,7 @@ impl CloudProvisioningPort for StubProvisioning {
             allowance: 10.0,
             purchased: 0.0,
             remaining: 10.0,
-            cap: None,
+            cap: 50.0,
             burn_per_size: BTreeMap::new(),
             currency: Some("USD".into()),
             period_end_at: None,
@@ -179,7 +179,6 @@ impl CloudPeerControlPort for InstrumentedPeerControl {
 
     async fn enter_drain(&self, record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
         Ok(DrainToken {
-            machine_id: record.machine_id.clone(),
             token: "drain-1".into(),
             entered_at_ms: 1_000,
         })
@@ -283,6 +282,7 @@ async fn persisted_claimed_send_becomes_submit_unconfirmed_on_restart_and_never_
     let agent = AuthenticatedAgent {
         instance_id: "controller-1".into(),
         tab_id: "tab-agent".into(),
+        can_spawn: false,
     };
     let s1 = ctrl1
         .hold_send_for_wake(

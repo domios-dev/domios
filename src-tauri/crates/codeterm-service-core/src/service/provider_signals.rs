@@ -42,6 +42,7 @@ pub(crate) fn classify_for(
     classify_health(auth.as_ref(), api_error, fallback)
 }
 
+#[cfg(test)]
 pub(crate) fn classify(
     signals: &ProviderSignals,
     fallback: Option<TabStateClassification>,
