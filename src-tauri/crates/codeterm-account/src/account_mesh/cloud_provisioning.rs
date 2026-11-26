@@ -14,6 +14,7 @@ pub const ROUTE_CLOUD_CREATE: &str = "createManagedCloudMachine";
 pub const ROUTE_CLOUD_WAKE: &str = "wakeManagedCloudMachine";
 pub const ROUTE_CLOUD_SLEEP: &str = "sleepManagedCloudMachine";
 pub const ROUTE_CLOUD_DELETE: &str = "deleteManagedCloudMachine";
+pub const ROUTE_CLOUD_WARM_PHASES: &str = "recordWarmBootstrapPhases";
 pub const ROUTE_CLOUD_LEASE_RENEW: &str = "renewManagedCloudLease";
 pub const ROUTE_CLOUD_USAGE: &str = "getManagedCloudUsage";
 pub const ROUTE_CLOUD_REDEEM_PROMO: &str = "redeemCloudCreditPromo";
@@ -23,6 +24,7 @@ pub const DOMAIN_CLOUD_CREATE: &str = "domios.cloud-create.v1";
 pub const DOMAIN_CLOUD_WAKE: &str = "domios.cloud-wake.v1";
 pub const DOMAIN_CLOUD_SLEEP: &str = "domios.cloud-sleep.v1";
 pub const DOMAIN_CLOUD_DELETE: &str = "domios.cloud-delete.v1";
+pub const DOMAIN_CLOUD_WARM_PHASES: &str = "domios.cloud-warm-bootstrap-phases.v1";
 pub const DOMAIN_CLOUD_LEASE_RENEW: &str = "domios.cloud-lease-renew.v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +194,61 @@ pub struct SleepMachineReply {
 pub struct DeleteMachineReply {
     pub machine_id: String,
     pub state: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WireWarmBootstrapPhase {
+    SeedStarted,
+    WarmConsoleReady,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCloudPhaseTimestamps {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allocated: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipv4_bound: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrolled: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_ready: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_started: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warm_console_ready: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordWarmBootstrapPhasesBody {
+    pub schema_version: u8,
+    pub controller_installation_id: String,
+    pub machine_id: String,
+    pub phase: WireWarmBootstrapPhase,
+    pub request_id: String,
+    pub timestamp: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordWarmBootstrapPhasesRequest {
+    pub body: RecordWarmBootstrapPhasesBody,
+    pub controller_signature: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordWarmBootstrapPhasesReply {
+    pub machine_id: String,
+    pub last_create_phases: WireCloudPhaseTimestamps,
+    #[serde(default)]
+    pub warm_bootstrap_delta_secs: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -620,6 +677,53 @@ impl CloudController<'_> {
             .await?;
         self.ensure_current()?;
         if reply.state != "deleted" || reply.machine_id != machine_id.trim() {
+            return Err(AccountMeshRefusal::Unavailable);
+        }
+        Ok(reply)
+    }
+
+    pub async fn record_warm_bootstrap_phases(
+        &self,
+        machine_id: &str,
+        phase: WireWarmBootstrapPhase,
+        request_id: &str,
+    ) -> Result<RecordWarmBootstrapPhasesReply, AccountMeshRefusal> {
+        self.ensure_current()?;
+        let trimmed_machine = machine_id.trim();
+        if trimmed_machine.is_empty() || fixed_bytes::<32>(request_id).is_none() {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        let body = RecordWarmBootstrapPhasesBody {
+            schema_version: 1,
+            controller_installation_id: self.mesh.installation(),
+            machine_id: trimmed_machine.to_owned(),
+            phase,
+            request_id: request_id.to_owned(),
+            timestamp: self.mesh.now(),
+        };
+        let message = provisioning_message(
+            DOMAIN_CLOUD_WARM_PHASES,
+            self.signed.trust.project(),
+            &self.signed.account,
+            &body,
+        )
+        .ok_or(AccountMeshRefusal::Invalid)?;
+        let controller_signature = self.signed.key.sign_cloud_provisioning(&message);
+        let request = RecordWarmBootstrapPhasesRequest {
+            body,
+            controller_signature,
+        };
+        let reply = self
+            .mesh
+            .call(
+                self.mesh
+                    .ports
+                    .registry
+                    .record_warm_bootstrap_phases(&self.signed.session, &request),
+            )
+            .await?;
+        self.ensure_current()?;
+        if reply.machine_id != trimmed_machine {
             return Err(AccountMeshRefusal::Unavailable);
         }
         Ok(reply)

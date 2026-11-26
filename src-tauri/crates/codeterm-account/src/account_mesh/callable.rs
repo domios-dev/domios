@@ -410,6 +410,18 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         )
         .await
     }
+    async fn record_warm_bootstrap_phases(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::RecordWarmBootstrapPhasesRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RecordWarmBootstrapPhasesReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_WARM_PHASES,
+            session,
+            request,
+        )
+        .await
+    }
     async fn renew_cloud_lease(
         &self,
         session: &Session,
@@ -620,6 +632,7 @@ impl CallableTransport for HttpCallable {
                 | super::cloud_provisioning::ROUTE_CLOUD_WAKE
                 | super::cloud_provisioning::ROUTE_CLOUD_SLEEP
                 | super::cloud_provisioning::ROUTE_CLOUD_DELETE
+                | super::cloud_provisioning::ROUTE_CLOUD_WARM_PHASES
                 | super::cloud_provisioning::ROUTE_CLOUD_LEASE_RENEW
                 | super::cloud_provisioning::ROUTE_CLOUD_USAGE
                 | super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO

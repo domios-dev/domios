@@ -109,6 +109,26 @@ pub(crate) fn format_receipt_human(val: &Value) -> String {
         format!("{name} ({id}) — {badge}"),
         format!("note: {notice}"),
     ];
+    if let Some(warm) = val.get("warm_bootstrap").filter(|v| v.is_object()) {
+        let status = warm["status"].as_str().unwrap_or("unknown");
+        let readable = warm["readable_owner_context"].as_bool().unwrap_or(false);
+        let delta = val
+            .pointer("/create_phases/warm_bootstrap_delta_secs")
+            .and_then(Value::as_f64)
+            .map(|secs| format!(" delta={secs:.2}s"))
+            .unwrap_or_default();
+        let signin_needed = warm["providers"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter(|p| p["state"].as_str() == Some("sign_in_required"))
+                    .count()
+            })
+            .unwrap_or(0);
+        lines.push(format!(
+            "warm_bootstrap={status} readable_context={readable}{delta} providers_needing_signin={signin_needed}"
+        ));
+    }
     if let Some(warning) = val["warning"].as_str().filter(|w| !w.is_empty()) {
         lines.push(format!("WARNING: {warning}"));
     }
