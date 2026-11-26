@@ -101,6 +101,8 @@ interface TeamMenuProps {
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: () => void;
+  closeTeamDisabledReason?: string | null;
+  canSaveTemplate?: boolean;
   teamName?: string;
 }
 
@@ -114,6 +116,8 @@ function TeamMenu({
   addableRoles,
   onAddMember,
   onCloseTeam,
+  closeTeamDisabledReason = null,
+  canSaveTemplate = true,
   teamName,
 }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
@@ -373,23 +377,38 @@ function TeamMenu({
             <>
               {onOpenPlan && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onOpenPlan)}><span className="ct-menu-row__icon"><ClipboardList size={14} /></span> Open Plan</button>}
               {onRename && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onRename)}><span className="ct-menu-row__icon"><Pencil size={14} /></span> Rename</button>}
-              {teamName && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(() => setSavingTemplate(true))}><span className="ct-menu-row__icon"><PackagePlus size={14} /></span> Save as template…</button>}
+              {canSaveTemplate && teamName && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(() => setSavingTemplate(true))}><span className="ct-menu-row__icon"><PackagePlus size={14} /></span> Save as template…</button>}
               {onAddMember && (addableRoles ?? (["orchestrator", "planner", "worker"] as const)).map((role) => (
                 <button className="ct-menu-row" type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
                   <span className="ct-menu-row__icon"><UserPlus size={14} /></span> Add {role} <ChevronRight size={14} className="ct-menu-row__chevron ml-auto" />
                 </button>
               ))}
-              {onCloseTeam && <>
+              {(onCloseTeam || closeTeamDisabledReason) && <>
                 <div role="separator" className="ct-menu-separator" />
-                <button type="button" role="menuitem" className="ct-menu-row" data-danger="true" onClick={() => run(onCloseTeam)}>
-                  <span className="ct-menu-row__icon"><LogOut size={14} /></span> Close Team
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="ct-menu-row"
+                  data-testid="team-menu-close"
+                  data-danger="true"
+                  aria-disabled={onCloseTeam ? undefined : "true"}
+                  title={onCloseTeam ? undefined : closeTeamDisabledReason ?? undefined}
+                  onClick={onCloseTeam ? () => run(onCloseTeam) : undefined}
+                >
+                  <span className="ct-menu-row__icon"><LogOut size={14} /></span>
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate">Close Team</span>
+                    {!onCloseTeam && closeTeamDisabledReason && (
+                      <span className="ct-menu-row__description">{closeTeamDisabledReason}</span>
+                    )}
+                  </span>
                 </button>
               </>}
             </>
           )}
         </div>
       </AnchoredPopover>
-      {savingTemplate && teamName && <SaveTemplateDialog teamId={teamId} teamName={teamName} onClose={() => setSavingTemplate(false)}
+      {canSaveTemplate && savingTemplate && teamName && <SaveTemplateDialog teamId={teamId} teamName={teamName} onClose={() => setSavingTemplate(false)}
         onSaved={(saved) => actions && createNoticePublisher(actions)({ kind: "toast", id: `team-template-saved-${teamId}`,
           title: `Saved ${templateTitle(saved)} to My templates`, severity: "Info", tabId: null, workspaceId: null,
           actions: [{ label: "Export…", run: () => setExportingTemplate(saved) }] })} />}
@@ -427,6 +446,7 @@ export interface TeamUnitProps {
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
+  closeTeamDisabledReason?: string | null;
   closing?: boolean;
   /** Member attention per section, surfaced on a header while its list is collapsed. */
   attention?: Partial<Record<TeamMemberSection, GroupAttention | null>>;
@@ -470,6 +490,7 @@ export function TeamUnit({
   onOpenEffort: openEffort,
   onAddMember,
   onCloseTeam,
+  closeTeamDisabledReason = null,
   closing = false,
   attention = {},
 }: TeamUnitProps) {
@@ -718,12 +739,12 @@ export function TeamUnit({
             >
               <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
             </button>}
-            {openEffort && <TeamMenu
+            {(onCloseTeam || closeTeamDisabledReason || (openEffort && (plan || onRenameTeam || !team.remote_peer_id || onAddMember))) && <TeamMenu
               teamId={team.id}
               providers={providers}
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}
-              onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id }) : undefined}
+              onOpenPlan={openEffort && plan ? () => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id }) : undefined}
               onRename={onRenameTeam ? () => {
                 setRenameError(null);
                 setName(displayTitle);
@@ -732,6 +753,8 @@ export function TeamUnit({
               addableRoles={addableRoles}
               onAddMember={onAddMember}
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
+              closeTeamDisabledReason={closeTeamDisabledReason}
+              canSaveTemplate={!team.remote_peer_id}
               teamName={displayTitle}
             />}
         </span>

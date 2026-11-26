@@ -22,6 +22,8 @@ interface DirListing {
 interface RemoteFolderPickerProps {
   title: string;
   initialPath?: string | null;
+  peerId?: string | null;
+  machineName?: string;
   onCancel: () => void;
   onSelect: (path: string) => void;
 }
@@ -34,6 +36,8 @@ function basename(path: string): string {
 export function RemoteFolderPicker({
   title,
   initialPath,
+  peerId = null,
+  machineName,
   onCancel,
   onSelect,
 }: RemoteFolderPickerProps) {
@@ -55,6 +59,7 @@ export function RemoteFolderPicker({
       const result = await invoke<DirListing>("fs_list_dir", {
         path: nextPath,
         showHidden,
+        ...(peerId ? { peerId } : {}),
       });
       setListing(result);
       setPath(result.path);
@@ -64,7 +69,7 @@ export function RemoteFolderPicker({
     } finally {
       setLoading(false);
     }
-  }, [showHidden]);
+  }, [peerId, showHidden]);
 
   useEffect(() => {
     void load(initialPath || "");
@@ -79,6 +84,7 @@ export function RemoteFolderPicker({
       const created = await invoke<{ path: string }>("fs_mkdir", {
         parent: path,
         name,
+        ...(peerId ? { peerId } : {}),
       });
       setNewFolderName(null);
       // Jump straight into the new folder — that's what you made it for.
@@ -88,7 +94,7 @@ export function RemoteFolderPicker({
     } finally {
       setCreating(false);
     }
-  }, [newFolderName, path, load]);
+  }, [newFolderName, path, peerId, load]);
 
   const rootItems = useMemo(() => {
     const items = listing?.roots ?? [];
@@ -228,7 +234,7 @@ export function RemoteFolderPicker({
             value={manualPath}
             onChange={(e) => setManualPath(e.target.value)}
             className="min-w-0 flex-1 rounded border border-[var(--ct-border)] bg-[var(--ct-bg)] px-2 py-1.5 text-xs outline-none"
-            placeholder="Path on target machine"
+            placeholder={machineName ? `Path on ${machineName}` : "Path on target machine"}
           />
           <button
             type="submit"

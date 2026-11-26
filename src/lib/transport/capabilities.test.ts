@@ -197,6 +197,24 @@ describe("capabilities HTTP transport", () => {
     ]);
   });
 
+  it("relays fs_list_dir and fs_mkdir to the exact peer when peerId is set", async () => {
+    const { transport, calls } = fixture({ ok: true, data: { path: "/srv/demo" }, peer: { instance_id: "r161" } });
+    await expect(transport.fs_list_dir({ path: "/srv", showHidden: true, peerId: "r161" })).resolves.toEqual({ path: "/srv/demo" });
+    await expect(transport.fs_mkdir({ parent: "/srv", name: "demo", peerId: "r161" })).resolves.toEqual({ path: "/srv/demo" });
+    await transport.fs_list_dir({ path: "/local", showHidden: false });
+    await transport.fs_mkdir({ parent: "/local", name: "dir", peerId: null });
+    expect(calls).toEqual([
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "r161", method: "GET", path: "/api/fs/list-dir?path=%2Fsrv&show_hidden=true", body: null,
+      }],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "r161", method: "POST", path: "/api/fs/mkdir", body: { parent: "/srv", name: "demo" },
+      }],
+      ["GET", "/api/fs/list-dir?path=%2Flocal&show_hidden=false", undefined],
+      ["local", "POST", "/api/fs/mkdir", { parent: "/local", name: "dir" }],
+    ]);
+  });
+
   it("uses host operations in either shell, with bare results preserved", async () => {
     const { transport, calls } = fixture("host-result");
     expect(await transport.get_default_cwd()).toBe("host-result");
