@@ -345,6 +345,30 @@ def drop_privileges(username=CLOUD_USER):
     return pw
 
 
+def stage_cloud_binding_pipe(env, *, strict=False):
+    controller = env.pop("DOMIOS_BOOTSTRAP_CONTROLLER_KEY", None)
+    nonce = env.pop("DOMIOS_BOOTSTRAP_NONCE", None)
+    env.pop("DOMIOS_CLOUD_BINDING_PIPE", None)
+    if controller is None and nonce is None:
+        return None
+    valid = all(
+        isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", value)
+        for value in (controller, nonce)
+    )
+    if not valid and strict:
+        raise SystemExit("Invalid cloud creation binding")
+    payload = (controller + "\n" + nonce + "\n").encode("ascii") if valid else b"invalid\n"
+    reader, writer = os.pipe()
+    with os.fdopen(writer, "wb") as stream:
+        stream.write(payload)
+    os.dup2(reader, 9, inheritable=True)
+    os.set_inheritable(9, True)
+    if reader != 9:
+        os.close(reader)
+    env["DOMIOS_CLOUD_BINDING_PIPE"] = "9"
+    return 9
+
+
 def run_fly_machines(args):
     if args:
         raise ValueError("Fly Machines entrypoint accepts no command arguments")
@@ -379,7 +403,9 @@ def run_fly_machines(args):
     if not data_dir.exists() and not data_dir.is_symlink():
         os.mkdir(data_dir, 0o700)
     prepare(postgres=False, data=data_dir)
-    os.execv(CLOUD_START, [CLOUD_START])
+    # Stage fd 9 and scrub secrets before execve so /proc/<pid>/environ never retains them.
+    stage_cloud_binding_pipe(os.environ, strict=False)
+    os.execve(CLOUD_START, [CLOUD_START], dict(os.environ))
 
 
 def command(args):
