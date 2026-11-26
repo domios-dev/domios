@@ -29,13 +29,28 @@ impl Clock for InjectedClock {
 }
 
 /// Deterministic waiter: advances the injected clock by each scheduled `delay_ms`
-/// once the test releases one step, with zero wall-clock sleeps.
+/// once the test releases one step and waits for the driver to complete that tick,
+/// with zero wall-clock sleeps.
+struct WaiterState {
+    parked_count: usize,
+    entered_seq: u64,
+    released_seq: u64,
+}
+
+struct ParkedGuard<'a>(&'a Mutex<WaiterState>);
+
+impl Drop for ParkedGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.0.lock();
+        state.parked_count = state.parked_count.saturating_sub(1);
+    }
+}
+
 struct SteppingWaiter {
     clock: Arc<InjectedClock>,
     recorded_delays: Mutex<Vec<u64>>,
-    pending_waits: AtomicUsize,
+    state: Mutex<WaiterState>,
     entered: Notify,
-    permits: Mutex<usize>,
     release: Notify,
 }
 
@@ -44,9 +59,12 @@ impl SteppingWaiter {
         Arc::new(Self {
             clock,
             recorded_delays: Mutex::new(Vec::new()),
-            pending_waits: AtomicUsize::new(0),
+            state: Mutex::new(WaiterState {
+                parked_count: 0,
+                entered_seq: 0,
+                released_seq: 0,
+            }),
             entered: Notify::new(),
-            permits: Mutex::new(0),
             release: Notify::new(),
         })
     }
@@ -57,7 +75,7 @@ impl SteppingWaiter {
                 let notified = self.entered.notified();
                 tokio::pin!(notified);
                 notified.as_mut().enable();
-                if self.pending_waits.load(Ordering::SeqCst) >= expected_count {
+                if self.state.lock().parked_count >= expected_count {
                     return;
                 }
                 notified.await;
@@ -67,14 +85,58 @@ impl SteppingWaiter {
         .expect("timed out waiting for idle driver to park on waiter");
     }
 
-    fn step_one(&self) {
-        *self.permits.lock() += 1;
-        self.release.notify_one();
+    /// Release one parked tick, advance the injected clock, and wait until the driver finishes
+    /// the resulting tick (either parking for the next cadence or satisfying `done`).
+    async fn advance_step_until(&self, done: impl Fn() -> bool) {
+        let target_seq = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let notified = self.entered.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if done() {
+                    return None;
+                }
+                let state = self.state.lock();
+                if state.entered_seq > state.released_seq && state.parked_count >= 1 {
+                    return Some(state.entered_seq);
+                }
+                drop(state);
+                notified.await;
+            }
+        })
+        .await
+        .expect("timed out waiting for driver to park before step");
+
+        let Some(target_seq) = target_seq else {
+            return;
+        };
+
+        {
+            let mut state = self.state.lock();
+            state.released_seq = state.released_seq.max(target_seq);
+        }
+        self.release.notify_waiters();
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let notified = self.entered.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if done() || self.state.lock().entered_seq > target_seq {
+                    return;
+                }
+                tokio::select! {
+                    _ = notified => {}
+                    _ = tokio::task::yield_now() => {}
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for driver to finish stepped tick");
     }
 
     async fn advance_step(&self) {
-        self.wait_until_parked(1).await;
-        self.step_one();
+        self.advance_step_until(|| false).await;
     }
 }
 
@@ -82,22 +144,23 @@ impl SteppingWaiter {
 impl IdleTickWaiter for SteppingWaiter {
     async fn wait_ms(&self, delay_ms: u64) {
         self.recorded_delays.lock().push(delay_ms);
-        self.pending_waits.fetch_add(1, Ordering::SeqCst);
+        let my_seq = {
+            let mut state = self.state.lock();
+            state.entered_seq += 1;
+            state.parked_count += 1;
+            state.entered_seq
+        };
+        let _parked_guard = ParkedGuard(&self.state);
         self.entered.notify_waiters();
         loop {
             let notified = self.release.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            {
-                let mut permits = self.permits.lock();
-                if *permits > 0 {
-                    *permits -= 1;
-                    break;
-                }
+            if self.state.lock().released_seq >= my_seq {
+                break;
             }
             notified.await;
         }
-        self.pending_waits.fetch_sub(1, Ordering::SeqCst);
         self.clock.advance_ms(delay_ms);
     }
 }
@@ -391,11 +454,15 @@ async fn idle_driver_renews_while_busy_across_all_signals_then_sleeps_after_idle
 
     // Switch to idle: after 15 virtual minutes of idle ticks, driver drains, sleeps, and stops.
     *peer.busy.lock() = PeerBusySnapshot::default();
-    for _ in 0..16 {
+    for _ in 0..17 {
         if ctrl.find_by_peer("cloud-1").unwrap().state == CloudLifecycleState::Asleep {
             break;
         }
-        waiter.advance_step().await;
+        waiter
+            .advance_step_until(|| {
+                ctrl.find_by_peer("cloud-1").unwrap().state == CloudLifecycleState::Asleep
+            })
+            .await;
     }
     wait_for_active_ids(&handle, &[]).await;
 
