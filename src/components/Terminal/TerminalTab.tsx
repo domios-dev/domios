@@ -28,6 +28,8 @@ import {
   useTouchScroll,
 } from "../../hooks/terminal";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
+import { writeViewerClipboardText } from "../../lib/clipboardWrite";
+import { openTerminalLink } from "../../hooks/terminal/terminalLinks";
 import { registerTabClipboard } from "../../lib/tabClipboardRegistry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
@@ -148,7 +150,7 @@ export const TerminalTab = memo(function TerminalTab({
   const [framePtyId, setFramePtyId] = useState<string | null>(null);
   const frameReady = framePtyId !== null && framePtyId === (ptyId ?? connectedPtyRef.current);
   const [terminalIoReady, setTerminalIoReady] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; linkUrl: string | null } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const isChatBackend = tab?.backing?.kind === "chat_backend";
   const terminalVisible = !isChatBackend && (uiMode === "terminal" || terminalFallbackOpen);
@@ -164,7 +166,7 @@ export const TerminalTab = memo(function TerminalTab({
     terminalVisible,
     tabVisible: isVisible,
   });
-  const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
+  const { termRef, fitAddonRef, searchAddonRef, hoveredLinkRef, bellFlash, termReady } = useXterm({
     containerRef, theme, fontConfig, terminalConfig,
     priority: isVisible || isFocused,
     renderEnabled: renderTerminal,
@@ -351,6 +353,8 @@ export const TerminalTab = memo(function TerminalTab({
 
   const { copySelection, pasteFromClipboard } = useTerminalInput({
     tabId, termRef, connectedPtyRef, containerRef, termReady, readOnly,
+    isRemote: viewerLocalGeometry,
+    replayingHistory: !frameReady,
     terminalActive: terminalVisible && isVisible,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
@@ -425,8 +429,8 @@ export const TerminalTab = memo(function TerminalTab({
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY });
-  }, []);
+    setContextMenu({ x: e.clientX, y: e.clientY, linkUrl: hoveredLinkRef?.current ?? null });
+  }, [hoveredLinkRef]);
 
   const openTerminalFallback = useCallback(() => {
     fallbackOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -439,8 +443,21 @@ export const TerminalTab = memo(function TerminalTab({
     if (fallbackOpenerRef.current?.isConnected) fallbackOpenerRef.current.focus();
   }, []);
 
+  const contextMenuLink = contextMenu?.linkUrl ?? null;
   const contextMenuActions: ContextMenuAction[] = [
-    { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
+    ...(contextMenuLink
+      ? [
+          {
+            label: "Open link",
+            onClick: () => void openTerminalLink(contextMenuLink, { isRemoteTab: viewerLocalGeometry }),
+          },
+          {
+            label: "Copy link",
+            onClick: () => void writeViewerClipboardText(contextMenuLink),
+          },
+        ]
+      : []),
+    { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection, separator: Boolean(contextMenuLink) },
     ...(!readOnly ? [{ label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard }] : []),
   ];
 
@@ -484,6 +501,9 @@ export const TerminalTab = memo(function TerminalTab({
         if (managedView.locked && event.code === "Escape") {
           event.preventDefault(); event.stopPropagation(); stopManagedGeneration();
         }
+      }}
+      onMouseDownCapture={() => {
+        if (!isFocused) onFocus?.(tabId);
       }}
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
