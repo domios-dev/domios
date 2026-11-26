@@ -320,8 +320,10 @@ async fn every_outbound_operation_maps_to_registered_outer_and_inner_router_entr
                 let notifs = notif.list(false);
                 assert!(
                     notifs.iter().any(|n| n.title == "Cloud worker status"
-                        && n.peer_name.as_deref() == Some("source")),
-                    "expected relayed notification tagged with peer_name=source"
+                        && n.peer_name.as_deref() == Some("source")
+                        && n.tab_id.is_none()
+                        && n.workspace_id.is_none()),
+                    "expected relayed notification tagged with peer_name=source and no local tab"
                 );
             }
             OutboundOperation::PlanRpc => {
@@ -387,6 +389,20 @@ async fn every_outbound_operation_maps_to_registered_outer_and_inner_router_entr
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(refused["error"]["code"], -32003, "{refused}");
+
+    // Verify a local non-agent caller cannot spoof source_peer to bypass live-agent admission.
+    let (spoof_status, _) = send_signed(
+        target_app.clone(),
+        "owner-secret",
+        "POST",
+        "/api/notifications",
+        &json!({
+            "title": "Spoofed peer notice",
+            "source_peer": "source"
+        }),
+    )
+    .await;
+    assert_eq!(spoof_status, StatusCode::BAD_REQUEST);
 
     let _ = stop.send(());
     let _ = server.await;

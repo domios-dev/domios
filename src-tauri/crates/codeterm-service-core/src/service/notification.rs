@@ -165,8 +165,8 @@ impl ServiceContext {
                 }
             }
         }
-        let live_agent_caller = origin.peer_name.is_none()
-            && origin.caller_tab_id.as_deref().is_some_and(|id| {
+        let live_agent_caller = origin.peer_name.is_some()
+            || origin.caller_tab_id.as_deref().is_some_and(|id| {
                 self.mux
                     .read()
                     .get_tab(id)
