@@ -33,14 +33,15 @@ export function CloudMachineSlot({
   const activeSize = sizes.find((option) => option.id === selectedSize) ?? sizes[0];
   const smallOption = sizes.find((option) => option.id === "small") ?? sizes[0];
   const remaining = usage?.remaining ?? 0;
+  const freeLocked = isFree && remaining <= 0;
 
-  const cloudSubline = isFree && smallOption?.rateLabel
+  const cloudSubline = freeLocked && smallOption?.rateLabel
     ? `${smallOption.rateLabel} ${smallOption.label} · runs while your computers sleep`
     : "Keeps working while your computers sleep";
 
-  const sizeHint = activeSize ? sizeMultiplierHint(activeSize, sizes, isFree) : null;
+  const sizeHint = activeSize ? sizeMultiplierHint(activeSize, sizes, freeLocked) : null;
   const footerStatus =
-    isFree || (usage !== null && remaining <= 0)
+    freeLocked || (usage !== null && remaining <= 0)
       ? "No cloud hours yet"
       : usage !== null
         ? `${formatCreditHours(remaining)} of cloud time left`
@@ -97,7 +98,7 @@ export function CloudMachineSlot({
           <span className="ct-machine-option__copy">
             <span className="ct-machine-option__name">
               <span>Cloud machine</span>
-              {isFree && <LockBadge view={{ locked: true, label: "Cloud machines require hours or a paid plan" }} />}
+              {freeLocked && <LockBadge view={{ locked: true, label: "Cloud machines require hours or a paid plan" }} />}
             </span>
             <span className="ct-machine-option__status">{cloudSubline}</span>
           </span>

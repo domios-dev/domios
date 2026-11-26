@@ -381,11 +381,11 @@ export function CloudTopUpDialog({
 
           {evaluation.error && (
             <div id={customErrorId}>
-              <InlineErrorNotice role="alert" description={{ title: evaluation.error }} />
+              <InlineErrorNotice role="alert" description={{ title: evaluation.error, cause: "", actions: [], raw: "" }} />
             </div>
           )}
           {submitError && (
-            <InlineErrorNotice role="alert" description={{ title: submitError }} />
+            <InlineErrorNotice role="alert" description={{ title: submitError, cause: "", actions: [], raw: "" }} />
           )}
 
           <div className="rounded-[10px] border border-[var(--ct-border-subtle)] bg-[color-mix(in_srgb,var(--ct-fg)_2%,var(--ct-bg))] px-3 py-2.5">

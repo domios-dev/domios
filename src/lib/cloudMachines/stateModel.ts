@@ -334,7 +334,7 @@ export function cloudCreateDecision(input: {
   fullAccess?: boolean;
 }): CloudCreateDecision {
   if (!input.fullAccess && (!input.planId || input.planId === "free")) {
-    return "free_paywall";
+    return input.remaining !== null && input.remaining > 0 ? "create" : "free_paywall";
   }
   if (input.remaining !== null && input.remaining <= 0) {
     return "top_up";

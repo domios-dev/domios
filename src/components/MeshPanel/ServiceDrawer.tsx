@@ -205,6 +205,8 @@ export function ServiceDrawer({
     );
   }
 
+  if (state.kind !== "service") return null;
+
   const service = services.find(
     (s) =>
       s.id === state.id &&

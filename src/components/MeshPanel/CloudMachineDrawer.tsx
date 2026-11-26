@@ -170,7 +170,7 @@ export function CloudMachineDrawer({
           )}
         </dl>
 
-        {actionError && <InlineErrorNotice role="alert" description={{ title: actionError }} />}
+        {actionError && <InlineErrorNotice role="alert" description={{ title: actionError, cause: "", actions: [], raw: "" }} />}
 
         <div className="mt-auto flex flex-col gap-2.5 pt-3">
           {confirmDelete ? (

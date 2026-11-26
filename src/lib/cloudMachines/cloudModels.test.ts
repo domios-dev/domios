@@ -92,6 +92,7 @@ describe("cloudMachineCardView", () => {
 
   it("routes Create machine by plan and balance, and maps typed create failures to one action", () => {
     expect(cloudCreateDecision({ planId: "free", remaining: 0 })).toBe("free_paywall");
+    expect(cloudCreateDecision({ planId: "free", remaining: 25 })).toBe("create");
     expect(cloudCreateDecision({ planId: "free", remaining: 0, fullAccess: true })).toBe("top_up");
     expect(cloudCreateDecision({ planId: "pro", remaining: 0 })).toBe("top_up");
     expect(cloudCreateDecision({ planId: "pro", remaining: 3.8 })).toBe("create");

@@ -226,7 +226,7 @@ export function CloudUsageMeter({
           </div>
           {redeemError && (
             <div id={errorId}>
-              <InlineErrorNotice role="alert" description={{ title: redeemError }} />
+              <InlineErrorNotice role="alert" description={{ title: redeemError, cause: "", actions: [], raw: "" }} />
             </div>
           )}
         </form>

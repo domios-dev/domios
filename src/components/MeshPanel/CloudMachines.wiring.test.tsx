@@ -74,7 +74,7 @@ it("CloudMachineSlot offers Cloud machine and One of your computers with zero pr
     await act(async () =>
       root.render(
         <CloudMachineSlot
-          usage={USAGE}
+          usage={{ ...USAGE, allowance: 0, purchased: 0, remaining: 0, used: 0, plan: "free" }}
           isFree
           onCreateCloud={onCreate}
           onPairComputer={onPair}
@@ -266,7 +266,7 @@ it("CloudMachineDrawer wires inline Redeem code states, config idle sleep, and d
     await act(async () => deleteLink.click());
     expect(onDelete).not.toHaveBeenCalled();
     expect(host.textContent).toContain("unpushed work");
-    const confirmDelete = Array.from(host.querySelectorAll('[role="group"] button')).find((b) => b.textContent?.trim() === "Delete machine")!;
+    const confirmDelete = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="group"] button')).find((b) => b.textContent?.trim() === "Delete machine")!;
     await act(async () => confirmDelete.click());
     expect(onDelete).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
