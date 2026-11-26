@@ -263,6 +263,10 @@ pub struct CloudReceipt {
     pub billing_notice: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_phases: Option<super::warm_bootstrap::CloudCreatePhases>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warm_bootstrap: Option<super::warm_bootstrap::CloudWarmBootstrapSummary>,
 }
 
 impl CloudMachineRecord {
@@ -300,6 +304,16 @@ impl CloudMachineRecord {
     }
 
     pub fn receipt(&self, now_ms: u64, warning: Option<String>) -> CloudReceipt {
+        self.receipt_with_warm(now_ms, warning, None, None)
+    }
+
+    pub fn receipt_with_warm(
+        &self,
+        now_ms: u64,
+        warning: Option<String>,
+        create_phases: Option<super::warm_bootstrap::CloudCreatePhases>,
+        warm_bootstrap: Option<super::warm_bootstrap::CloudWarmBootstrapSummary>,
+    ) -> CloudReceipt {
         CloudReceipt {
             kind: "cloud".into(),
             machine_id: self.machine_id.clone(),
@@ -316,6 +330,8 @@ impl CloudMachineRecord {
             lease_expires_at_ms: self.lease_expires_at_ms,
             billing_notice: COST_WARNING_TEXT.into(),
             warning,
+            create_phases,
+            warm_bootstrap,
         }
     }
 

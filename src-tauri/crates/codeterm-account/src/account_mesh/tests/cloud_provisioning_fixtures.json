@@ -17,6 +17,7 @@
     "wake": "wakeManagedCloudMachine",
     "sleep": "sleepManagedCloudMachine",
     "delete": "deleteManagedCloudMachine",
+    "record_warm_bootstrap_phases": "recordWarmBootstrapPhases",
     "enroll": "enrollDelegatedCloudInstallation",
     "renew": "renewDelegatedCloudInstallation",
     "usage": "getManagedCloudUsage",
@@ -27,6 +28,7 @@
     "wake": "domios.cloud-wake.v1",
     "sleep": "domios.cloud-sleep.v1",
     "delete": "domios.cloud-delete.v1",
+    "record_warm_bootstrap_phases": "domios.cloud-warm-bootstrap-phases.v1",
     "enroll": "domios.cloud-enroll.v1",
     "renew": "domios.cloud-renew.v1"
   },
@@ -291,6 +293,20 @@
         "max": 40,
         "sponsor": 120
       }
+    },
+    "record_warm_bootstrap_phases": {
+      "machine_id": "cm_fixture0000000000000001",
+      "last_create_phases": {
+        "requested": 1795700000,
+        "allocated": 1795700005,
+        "ipv4_bound": 1795700008,
+        "running": 1795700020,
+        "enrolled": 1795700028,
+        "peer_ready": 1795700032,
+        "seed_started": 1795700033,
+        "warm_console_ready": 1795700039
+      },
+      "warm_bootstrap_delta_secs": 6
     }
   },
   "refusals": {

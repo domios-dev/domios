@@ -90,6 +90,16 @@ pub trait CloudProvisioningPort: Send + Sync {
             "cloud credit checkout unavailable".into(),
         ))
     }
+    /// Authoritative backend timestamp-only write for `seed_started` / `warm_console_ready`
+    /// alongside `last_create_phases`. Returns `Ok(Some(phases))` when backed by Firebase.
+    async fn record_warm_bootstrap_phases(
+        &self,
+        _machine_id: &str,
+        _phase: super::warm_bootstrap::WarmBootstrapPhaseEvent,
+        _request_id: &str,
+    ) -> Result<Option<super::warm_bootstrap::BackendCreatePhases>, CloudError> {
+        Ok(None)
+    }
 }
 
 pub struct EnrollmentBinding {
@@ -146,4 +156,23 @@ pub trait CloudPeerControlPort: Send + Sync {
         record: &CloudMachineRecord,
         send: &HeldCloudSend,
     ) -> FlushWriteOutcome;
+
+    /// Post-enrollment warm first-console bootstrap over the authenticated same-account peer channel.
+    /// Returns `Ok(None)` when the adapter does not perform warm seeding (e.g. unit-test stubs).
+    async fn apply_warm_bootstrap(
+        &self,
+        _record: &CloudMachineRecord,
+        _creation_generation: &str,
+    ) -> Result<Option<super::warm_bootstrap::WarmBootstrapApplyResult>, CloudError> {
+        Ok(None)
+    }
+
+    /// Queries or prepares per-provider owner sign-in card bindings on the target machine.
+    async fn prepare_provider_signin(
+        &self,
+        _record: &CloudMachineRecord,
+        _request: &super::warm_bootstrap::PrepareProviderSignInRequest,
+    ) -> Result<super::warm_bootstrap::PrepareProviderSignInResponse, CloudError> {
+        Ok(super::warm_bootstrap::PrepareProviderSignInResponse::default())
+    }
 }

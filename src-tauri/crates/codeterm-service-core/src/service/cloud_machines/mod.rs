@@ -1,5 +1,6 @@
 pub mod controller;
 mod controller_idle;
+mod controller_warm;
 mod enrichment;
 pub mod held_sends;
 pub mod idle_drain;
@@ -9,6 +10,7 @@ pub mod ports;
 pub mod state;
 pub mod store;
 pub mod types;
+pub mod warm_bootstrap;
 
 use std::sync::Arc;
 
@@ -46,6 +48,7 @@ pub use types::{
     COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
     PROVIDER_PROXY_PORT,
 };
+pub use warm_bootstrap::{BackendCreatePhases, WarmBootstrapPhaseEvent};
 
 #[derive(Clone)]
 pub(crate) struct CloudMachinesHandle(Arc<CloudMachineController>);
