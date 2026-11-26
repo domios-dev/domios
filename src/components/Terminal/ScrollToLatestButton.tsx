@@ -1,4 +1,4 @@
-import { useRef, type MutableRefObject } from "react";
+import { memo, useRef, type MutableRefObject } from "react";
 import { jumpTapAccepted } from "./chatJumpIntent";
 import { ChevronDown } from "lucide-react";
 
@@ -12,7 +12,7 @@ interface Props {
   userScrollingRef?: MutableRefObject<boolean>;
 }
 
-export function ScrollToLatestButton({
+export const ScrollToLatestButton = memo(function ScrollToLatestButton({
   compact = false,
   className = "",
   testId,
@@ -42,4 +42,4 @@ export function ScrollToLatestButton({
       <ChevronDown size={compact ? 13 : 16} strokeWidth={2.2} />
     </button>
   );
-}
+});

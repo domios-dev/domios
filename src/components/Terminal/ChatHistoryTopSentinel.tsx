@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { ActivityDots } from "../shared/ActivityDots";
@@ -76,7 +76,7 @@ function useChatHistorySentinel({
   return controllerRef;
 }
 
-export function ChatHistoryTopSentinel({
+export const ChatHistoryTopSentinel = memo(function ChatHistoryTopSentinel({
   scrollRef,
   active,
   railsVisible,
@@ -202,4 +202,4 @@ export function ChatHistoryTopSentinel({
       )}
     </div>
   );
-}
+});

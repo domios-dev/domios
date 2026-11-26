@@ -79,12 +79,12 @@ export function useComposerBackgroundWork(tabId: string, subagentsVisible: boole
   const askStop = useCallback((item: ComposerBackgroundWorkItem) =>
     providerAction<BackgroundStopRequestStatus>("agent_provider_ask_stop_background_work", item), [providerAction]);
 
-  const computed = withProviderBackgroundWork(
+  const computed = useMemo(() => withProviderBackgroundWork(
     composerBackgroundWorkItems(messages, terminals, Date.now(), {
       subagentsVisible, rootThreadId, authority: authority ?? undefined,
     }),
     providerWork, rootThreadId, messages,
-  );
+  ), [messages, terminals, subagentsVisible, rootThreadId, authority, providerWork]);
   // The composer header consumes this through context; unchanged work must keep its identity across transcript renders.
   const itemsRef = useRef(computed);
   if (!sameJson(itemsRef.current, computed)) itemsRef.current = computed;

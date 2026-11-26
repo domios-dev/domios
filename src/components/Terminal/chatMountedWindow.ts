@@ -155,7 +155,9 @@ export function mountedChatWindowCoversViewport(
 ): boolean {
   const count = geometry.count;
   const total = geometry.offset(count);
-  if (count === 0 || current.total !== total || current.end <= current.start) return false;
+  if (count === 0 || current.end <= current.start || current.start < 0 || current.start >= count || current.end > count) {
+    return false;
+  }
   const height = Math.max(1, viewportHeight);
   const top = Math.max(0, Math.min(scrollTop, Math.max(0, total - height)));
   const baseMargin = Math.floor(height * 0.5);
@@ -163,7 +165,29 @@ export function mountedChatWindowCoversViewport(
   const leadingMargin = Math.max(baseMargin, Math.ceil(Math.abs(signedVelocity) * 1.5));
   const topMargin = signedVelocity < 0 ? leadingMargin : baseMargin;
   const bottomMargin = signedVelocity > 0 ? leadingMargin : baseMargin;
-  const coversTop = current.start === 0 || current.top <= Math.max(0, top - topMargin);
-  const coversBottom = current.end >= count || total - current.bottom >= Math.min(total, top + height + bottomMargin);
+  const mountedTop = geometry.offset(current.start);
+  const mountedBottom = geometry.offset(current.end);
+  const coversTop = current.start === 0 || mountedTop <= Math.max(0, top - topMargin);
+  const coversBottom = current.end >= count || mountedBottom >= Math.min(total, top + height + bottomMargin);
+  return coversTop && coversBottom;
+}
+
+/** Whether the currently mounted rows still cover the visible viewport at this scroll offset (no blank imminent). */
+export function mountedChatWindowCoversVisibleViewport(
+  current: MountedChatWindow,
+  geometry: ChatRowGeometry,
+  scrollTop: number,
+  viewportHeight: number,
+): boolean {
+  const count = geometry.count;
+  const total = geometry.offset(count);
+  if (count === 0) return true;
+  if (current.end <= current.start || current.start < 0 || current.start >= count || current.end > count) return false;
+  const height = Math.max(1, viewportHeight);
+  const top = Math.max(0, Math.min(scrollTop, Math.max(0, total - height)));
+  const mountedTop = geometry.offset(current.start);
+  const mountedBottom = geometry.offset(current.end);
+  const coversTop = current.start === 0 || mountedTop <= top;
+  const coversBottom = current.end >= count || mountedBottom >= Math.min(total, top + height);
   return coversTop && coversBottom;
 }

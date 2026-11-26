@@ -10,6 +10,7 @@ import { ChatBlockHostProvider, type ChatMentionValue } from "@codeterm/chat-ui"
 import { LinkedText } from "../../../packages/chat-ui/src/codeterm/LinkedText";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 import { ChatTranscriptRow, type ChatTranscriptRowContext } from "./ChatTranscriptRow";
+import { MountedChatRows } from "./MountedChatRows";
 import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { recordDroppedUploads } from "./DroppedUploadNotice";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
@@ -21,8 +22,11 @@ vi.mock("@codeterm/chat-ui", async (original) => {
   const actual = await original<typeof import("@codeterm/chat-ui")>();
   return {
     ...actual,
-    MessageBubble: ({ message, userFooter }: { message: NormalizedChatMessage; userFooter?: ReactNode }) =>
-      <div>{message.content}{userFooter}</div>,
+    MessageBubble: ({ message, userFooter }: { message: NormalizedChatMessage; userFooter?: ReactNode }) => {
+      const counts = (window as { __bubbleRenderCounts?: Record<string, number> }).__bubbleRenderCounts;
+      if (counts) counts[message.id] = (counts[message.id] ?? 0) + 1;
+      return <div>{message.content}{userFooter}</div>;
+    },
   };
 });
 
@@ -216,4 +220,64 @@ it("shows a refusal with an explicit Retry and removes it when delivery wins", a
     await act(async () => root.render(render("delivered", { ...send, status: { ...send.status!, state: "delivered", error: null } })));
     expect(host.querySelector('[role="status"]')).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); removeChatSend("busy-retry", send.id); }
+});
+
+it("shifting the mounted row range renders only entering rows and skips retained rows", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const counts: Record<string, number> = {};
+  (window as { __bubbleRenderCounts?: Record<string, number> }).__bubbleRenderCounts = counts;
+  const rows: EnrichedChatEntry[] = Array.from({ length: 40 }, (_, index) => {
+    const msg: NormalizedChatMessage = { id: `row-${index}`, type: "assistant", content: `message ${index}` };
+    return { msg, item: { kind: "message", message: msg }, origin: undefined };
+  });
+  const identities = rows.map(({ msg }) => ({ id: msg.id, key: msg.id, ordinal: 0 }));
+  const emptyMap = new Map();
+  const emptySet = new Set<string>();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const renderRange = (start: number, end: number) => (
+    <MountedChatRows
+      visible
+      rows={rows}
+      start={start}
+      end={end}
+      identities={identities}
+      liveToolId={null}
+      daySeparators={emptyMap}
+      originPropsById={emptyMap}
+      reportRowsByRow={emptyMap}
+      reportAfterIndex={emptyMap}
+      outboundReports={[]}
+      askAfterIndex={emptyMap}
+      asks={[]}
+      deliverySends={[]}
+      claimedSendIds={[]}
+      agentActivityKind="idle"
+      agentActive={false}
+      selected={emptySet}
+      selecting={false}
+      cursor={null}
+      streamingId={null}
+      latestFailedToolCallId={null}
+      latestStopNoticeId={null}
+      readOnly={false}
+      forkableMessages={emptySet}
+      canRevertTurns={false}
+      rowContext={context}
+    />
+  );
+  try {
+    await act(async () => root.render(renderRange(15, 30)));
+    for (let i = 15; i < 30; i++) expect(counts[`row-${i}`]).toBe(1);
+    await act(async () => root.render(renderRange(10, 25)));
+    // Retained rows 15..24 must not re-render; only entering rows 10..14 render once.
+    for (let i = 10; i < 15; i++) expect(counts[`row-${i}`]).toBe(1);
+    for (let i = 15; i < 25; i++) expect(counts[`row-${i}`], `retained row-${i} re-rendered`).toBe(1);
+    for (let i = 25; i < 30; i++) expect(host.querySelector(`[data-message-id="row-${i}"]`)).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    delete (window as { __bubbleRenderCounts?: Record<string, number> }).__bubbleRenderCounts;
+  }
 });

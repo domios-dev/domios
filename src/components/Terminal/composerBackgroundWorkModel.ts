@@ -280,12 +280,12 @@ export function composerBackgroundWorkItems(
   options: { subagentsVisible?: boolean; rootThreadId?: string; authority?: ChildTranscriptAuthority } = {},
 ): ComposerBackgroundWorkItem[] {
   const { subagentsVisible = false, rootThreadId } = options;
-  const messagesById = new Map(messages.map((message) => [message.id, message]));
-  const groups = groupBackgroundProcesses(terminals);
+  const groups = terminals.length > 0 ? groupBackgroundProcesses(terminals) : [];
+  const messagesById = groups.length > 0 ? new Map(messages.map((message) => [message.id, message])) : null;
   const terminalItems = groups.map((group): ComposerBackgroundWorkItem => {
     const terminal = group.primary;
     const sourceMessage = group.itemIds
-      .map((itemId) => messagesById.get(itemId))
+      .map((itemId) => messagesById?.get(itemId))
       .find((message) => message && (!message.sourceSessionId || message.sourceSessionId === terminal.threadId));
     const startedAtMs = timestampMs(sourceMessage?.timestamp);
     return {

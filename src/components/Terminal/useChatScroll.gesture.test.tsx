@@ -350,7 +350,31 @@ async function main() {
     assert.equal(jumpLatestCalls, 2, "End from an older page bottom reaches latest in one press");
     assert.equal(followTail.current, true);
 
-    console.log("14 chat gesture wiring checks passed");
+    // 6. First wheel step after returning to bottom: folding positive drift larger than the wheel step must not
+    // double-subtract the browser's scrollHeight-reduction clamp (247 px overshoot regression).
+    height = 11537;
+    nativeTop = height - 400; // 11137, resting at bottom
+    await act(async () => root.render(<Fixture active revision={21} firstId="latest-1" />));
+    writes = 0;
+    const step = 800;
+    const positiveDrift = 1047;
+    await act(async () => scroll.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: -step })));
+    nativeTop -= step; // 10337
+    await act(async () => fire("scroll"));
+    assert.equal(followTail.current, false, "first upward wheel detaches from bottom");
+    // Folding positiveDrift shrinks top spacer by 1047 (height 11537 -> 10490), so the browser immediately clamps
+    // nativeTop from 10337 to 10490 - 400 = 10090 (-247 px) before gestureEnd writes the fold delta (-1047).
+    drift = -positiveDrift;
+    foldLayout = () => {
+      height -= positiveDrift;
+      nativeTop = Math.min(nativeTop, height - 400);
+    };
+    await act(async () => fire("scrollend"));
+    // Exact visual movement = (11137 - nativeTop) - (11537 - 10490) = (11137 - 9290) - 1047 = 800 px.
+    assert.equal(nativeTop, 11137 - step - positiveDrift, "first wheel step after End folds drift without browser-clamp overshoot");
+    foldLayout = () => {};
+
+    console.log("15 chat gesture wiring checks passed");
   } finally {
     await act(async () => root.unmount());
     host.remove();

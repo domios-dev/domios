@@ -517,8 +517,11 @@ export function useChatScroll({
     const reachedBottom = gestureReachedBottomRef.current;
     gestureReachedBottomRef.current = false;
     if (el) {
+      // Capture scrollTop before folding drift: shrinking the top spacer lowers scrollHeight and lets the browser
+      // clamp el.scrollTop immediately, which would otherwise double-subtract the clamp from scrollBy.
+      const scrollTopBeforeFold = el.scrollTop;
       const scrollBy = foldLayoutDrift?.() ?? 0;
-      if (scrollBy !== 0) writeScrollTop(el, el.scrollTop + scrollBy);
+      if (scrollBy !== 0) writeScrollTop(el, scrollTopBeforeFold + scrollBy);
       el.style.overflowAnchor = chatOverflowAnchorFor(modeRef.current, false);
       const computed = chatViewportModeAfterScroll(
         modeRef.current,

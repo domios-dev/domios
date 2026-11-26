@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import { reduceToolEvents } from "@codeterm/chat-core";
 import { AgentInspectionProvider, MessageBubble } from "@codeterm/chat-ui";
@@ -75,10 +75,15 @@ export function ChildTranscriptScope({ tabId, authority, children }: { tabId: st
     return () => document.removeEventListener("keydown", close);
   }, [active]);
   useEffect(() => { setSelection(null); }, [key]);
-  return <AgentInspectionProvider onInspect={authority ? thread => {
-    if (!active) returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setSelection({ key: key!, thread });
-  } : undefined}>
+  const inspectStateRef = useRef({ active, key });
+  inspectStateRef.current = { active, key };
+  const handleInspect = useCallback((thread: string) => {
+    const current = inspectStateRef.current;
+    if (!current.key) return;
+    if (!current.active) returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSelection({ key: current.key, thread });
+  }, []);
+  return <AgentInspectionProvider onInspect={authority ? handleInspect : undefined}>
     <div className="h-full min-h-0">
       <div hidden={Boolean(active)} inert={Boolean(active)} className="h-full min-h-0">{children}</div>
       {active && authority && <ChildTranscript key={JSON.stringify([active.key, active.thread])} tabId={tabId} threadId={active.thread} authority={authority} onClose={() => setSelection(null)} />}

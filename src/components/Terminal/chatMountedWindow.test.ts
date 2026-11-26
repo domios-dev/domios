@@ -5,6 +5,7 @@ import {
   chatRowOffsets,
   mountedChatWindow,
   mountedChatWindowCoversViewport,
+  mountedChatWindowCoversVisibleViewport,
   nextChatScrollVelocity,
 } from "./chatMountedWindow";
 import { IndexedChatRowGeometry } from "./chatRowGeometry";
@@ -119,5 +120,21 @@ describe("measured chat mounting", () => {
     // Stationary frame resets velocity to zero.
     state = nextChatScrollVelocity(state, 4300, 572);
     expect(state.velocity).toBe(0);
+  });
+  it("distinguishes visible-viewport coverage (blank imminent) from proactive overscan coverage", () => {
+    const geometry = new IndexedChatRowGeometry();
+    for (let index = 0; index < 300; index++) geometry.append(100);
+    // Mounted slice at scrollTop=15000, viewport=500 -> start=145 (14500), end=160 (16000).
+    const window = mountedChatWindow({ heights: Array(300).fill(100), scrollTop: 15000, viewportHeight: 500 });
+    // Moving to 14600 crosses the 50% proactive margin (14600 - 250 < 14500) so proactive coverage is false,
+    // yet visible viewport [14600, 15100] is still fully covered by [14500, 16000] (no blank imminent).
+    expect(mountedChatWindowCoversViewport(window, geometry, 14600, 500)).toBe(false);
+    expect(mountedChatWindowCoversVisibleViewport(window, geometry, 14600, 500)).toBe(true);
+    // Moving past the mounted edge leaves blank imminent at top or bottom.
+    expect(mountedChatWindowCoversVisibleViewport(window, geometry, 14400, 500)).toBe(false);
+    expect(mountedChatWindowCoversVisibleViewport(window, geometry, 15600, 500)).toBe(false);
+    // Updating a mounted row height in geometry preserves accurate visible coverage without spurious misses.
+    geometry.update(150, 60);
+    expect(mountedChatWindowCoversVisibleViewport(window, geometry, 14600, 500)).toBe(true);
   });
 });
