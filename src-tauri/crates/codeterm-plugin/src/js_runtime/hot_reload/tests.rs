@@ -97,7 +97,6 @@ async fn cloud_machine_provider_registers_and_projects_private_results() {
                 }
             };"#
             .into(),
-            None,
         )
         .unwrap(),
     );
