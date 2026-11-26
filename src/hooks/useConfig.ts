@@ -137,6 +137,7 @@ export function defaultConfig(): AppConfig {
     mesh: {
       enabled: false,
       instance_name: "",
+      cloud_idle_sleep_minutes: 15,
     },
     ui: {
       memory_tab_enabled: true,
