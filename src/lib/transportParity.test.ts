@@ -12,6 +12,7 @@ const peerScopedCommands = [
 ] as const;
 const localScopedCommands = new Set<string>([
   ...peerScopedCommands, "usage_refresh", "update_config", "restart_general_agent", "shell_profiles",
+  "fs_list_dir", "fs_mkdir",
 ]);
 
 const result = { ok: true, status: 200, data: [], peer: { instance_id: "peer", instance_name: "Peer" }, paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
