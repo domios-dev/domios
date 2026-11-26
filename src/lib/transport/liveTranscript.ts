@@ -27,6 +27,7 @@ export interface TranscriptRouterProviderOption {
 export interface TranscriptReadiness {
   asr: Asr;
   scout: Scout;
+  scoutReason?: string | null;
   concierge: Concierge;
   configured?: boolean;
   defaultMicTap?: boolean;
@@ -60,6 +61,7 @@ export interface TranscriptOverview {
     binding: Binding;
     trigger: Trigger;
     scout: Scout;
+    scoutReason?: string | null;
     awaitingDelivery?: boolean;
     reviewingThroughSeq?: number | null;
     concierge: Concierge;

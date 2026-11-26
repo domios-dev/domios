@@ -27,11 +27,11 @@ const MODES: Record<Trigger, string> = {
 
 const VIEW_OPTIONS: SegmentedOption<"text" | "log">[] = [{ value: "text", label: "Text" }, { value: "log", label: "Log" }];
 
-function modeOptions(scoutUnavailable: boolean): DropdownSelectOption[] {
+function modeOptions(scoutUnavailable: boolean, scoutReason?: string): DropdownSelectOption[] {
   return (Object.keys(MODES) as Trigger[]).map(id => ({
     value: id,
     label: MODES[id],
-    description: id === "scout_then_concierge" && scoutUnavailable ? "Scout is unavailable" : undefined,
+    description: id === "scout_then_concierge" && scoutUnavailable ? (scoutReason ?? "Scout is unavailable") : undefined,
     disabled: id === "scout_then_concierge" && scoutUnavailable,
   }));
 }
@@ -126,15 +126,20 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
   const chosen = page?.rows.filter(row => row.content.kind === "speech" && selected.has(row.seq)) ?? [];
   const selectedText = chosen.flatMap(row => row.content.kind === "speech" ? [row.content.text] : []).join("\n\n");
   const ownEpoch = status?.binding.target.kind === "attached" ? status.binding.target.epochId : undefined;
-  const scoutUnavailable = (view.readiness?.scout ?? status?.scout) === "unavailable";
+  const scoutUnavailableForMode = view.readiness?.scout === "unavailable" || status?.scout === "unavailable";
+  const scoutUnavailable = status?.scout === "unavailable" || (!status && view.readiness?.scout === "unavailable");
+  const scoutReason = (status?.scoutReason ?? view.readiness?.scoutReason) || undefined;
   const isConfigured = view.readiness?.configured ?? status?.configured ?? true;
-  const defaultTrigger = view.readiness?.defaultTrigger ?? (scoutUnavailable ? "direct_batch" : "scout_then_concierge");
+  const defaultTrigger = view.readiness?.defaultTrigger ?? (scoutUnavailableForMode ? "direct_batch" : "scout_then_concierge");
   const defaultMicTap = status?.defaultMicTap ?? view.readiness?.defaultMicTap ?? false;
   const needsSetup = phase === "setup" || view.readiness?.asr.state === "unavailable" ||
     (view.readiness?.concierge ?? status?.concierge) === "unavailable";
   const conciergeAttached = Boolean(status && status.binding.target.kind !== "detached");
   const conciergeReady = Boolean(view.loaded && isConfigured && !needsSetup && conciergeAttached && status?.concierge === "ready");
   const needsConcierge = Boolean(view.loaded && !active && (!isConfigured || !conciergeReady));
+  const conciergeNeedsAttachment = Boolean(view.loaded && status?.concierge === "needs_attachment" && !needsSetup);
+  const attachTrigger = status?.trigger && !(scoutUnavailableForMode && status.trigger === "scout_then_concierge")
+    ? status.trigger : defaultTrigger;
   const routeRange = contiguousSpeechRange(chosen);
 
   function toggleSettings() {
@@ -258,15 +263,21 @@ export function LiveTranscriptPanel({ api, owner, openCount, autoStartCount = 0,
         switchView(true);
         if (!log || thoughts?.epoch !== ownEpoch) setThoughts({ epoch: ownEpoch });
       } : undefined} />}
-    {(settings || needsConcierge || scoutUnavailable || captureError) && <div className="ct-live-controls">
+    {(settings || needsConcierge || conciergeNeedsAttachment || scoutUnavailable || captureError) && <div className="ct-live-controls">
       {needsConcierge && !settings && <ConciergeSetupGate view={view} api={api} needsSetup={needsSetup}
-        isConfigured={isConfigured} defaultTrigger={defaultTrigger} scoutUnavailable={scoutUnavailable}
-        onSetup={setUpWithGeneral} onConnected={() => { setPendingAutoStart(true); setFeedback(undefined); }} />}
+        isConfigured={isConfigured} defaultTrigger={defaultTrigger} scoutUnavailable={scoutUnavailableForMode}
+        scoutReason={scoutReason} onSetup={setUpWithGeneral} onConnected={() => { setPendingAutoStart(true); setFeedback(undefined); }} />}
       {settings && <RoutingSettings owner={owner.id} view={view} api={api} autoResume={autoResume}
-        onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailable} defaultTrigger={defaultTrigger}
-        defaultMicTap={defaultMicTap} isConfigured={isConfigured} needsSetup={needsSetup} />}
+        onAutoResume={onAutoResume} scoutUnavailable={scoutUnavailableForMode} scoutReason={scoutReason}
+        defaultTrigger={defaultTrigger} defaultMicTap={defaultMicTap} isConfigured={isConfigured} needsSetup={needsSetup} />}
+      {conciergeNeedsAttachment && !needsConcierge && !settings && <div className="ct-live-callout" role="status" data-testid="live-transcript-needs-attachment">
+        Concierge needs attachment before speech can be routed.
+        <button type="button" disabled={view.busy} onClick={() => {
+          void view.mutate(signal => api.attach({ trigger: attachTrigger }, signal));
+        }}>Attach Concierge</button>
+      </div>}
       {scoutUnavailable && !needsConcierge && <div className="ct-live-callout" role="status">
-        Scout is unavailable. Choose Wake word, Direct batch, or Manual to route speech.
+        {scoutReason ? `Scout is unavailable: ${scoutReason}` : "Scout is unavailable."} Choose Wake word, Direct batch, or Manual to route speech.
         {!settings && <button type="button" onClick={() => setSettings(true)}>Choose routing mode</button>}
       </div>}
       {captureError && <p role="alert" className="ct-live-callout">{captureError}</p>}
@@ -632,11 +643,12 @@ function conciergeSummary(router: TranscriptReadiness["router"], trigger: Trigge
   return [identity, MODES[trigger]].filter(Boolean).join(" · ");
 }
 
-const ACTIVITY: Record<RouterActivity, string> = {
+const ACTIVITY: Record<RouterActivity | "needs_attachment", string> = {
   idle: "Watching",
   reviewing: "Reviewing…",
   stuck: "Stalled",
   unavailable: "Unavailable",
+  needs_attachment: "Needs attachment",
 };
 
 function ConciergeStatusBar({ status, settings, onSettings, thoughtsOpen, onThoughts }: {
@@ -651,7 +663,9 @@ function ConciergeStatusBar({ status, settings, onSettings, thoughtsOpen, onThou
   const identity = target.kind === "external"
     ? `${external && isSidebarTabVisible(external) ? displayTitleForTab(external) : "External tab"} · ${MODES[status.trigger]}`
     : `Concierge · ${conciergeSummary(status.router, status.trigger)}`;
-  const activity = status.router?.activity ?? (status.concierge === "unavailable" ? "unavailable" : "idle");
+  const activity = status.concierge === "needs_attachment"
+    ? "needs_attachment"
+    : status.router?.activity ?? (status.concierge === "unavailable" ? "unavailable" : "idle");
   const visibleActivity = status.awaitingDelivery && activity === "idle" ? "reviewing" : activity;
   return <div className="ct-live-concierge-bar" data-testid="live-transcript-concierge-bar" data-activity={visibleActivity}>
     <button type="button" className="ct-live-concierge-identity" title={identity} aria-expanded={settings} onClick={onSettings}>
@@ -663,13 +677,14 @@ function ConciergeStatusBar({ status, settings, onSettings, thoughtsOpen, onThou
   </div>;
 }
 
-function ConciergeSetupGate({ view, api, needsSetup, isConfigured, defaultTrigger, scoutUnavailable, onSetup, onConnected }: {
+function ConciergeSetupGate({ view, api, needsSetup, isConfigured, defaultTrigger, scoutUnavailable, scoutReason, onSetup, onConnected }: {
   view: ReturnType<typeof useLiveTranscriptPanel>;
   api: LiveTranscriptApi;
   needsSetup: boolean;
   isConfigured: boolean;
   defaultTrigger: Trigger;
   scoutUnavailable: boolean;
+  scoutReason?: string;
   onSetup: () => void;
   onConnected: () => void;
 }) {
@@ -680,9 +695,10 @@ function ConciergeSetupGate({ view, api, needsSetup, isConfigured, defaultTrigge
   const [choice, setChoice] = useState<ConciergeChoice>({});
   const selection = conciergeSelection(view.readiness, router, choice);
   const needsGeneral = needsSetup || !isConfigured;
+  const needsAttachment = view.overview?.status.concierge === "needs_attachment";
   return <section className="ct-live-gate" aria-label="Live Transcript setup" data-testid="live-transcript-concierge-gate">
     <span className="ct-live-gate-mark" aria-hidden><AudioLines size={20} /></span>
-    <h2 className="ct-live-gate-title">{needsGeneral ? "Set up Live Transcript" : "Concierge ready"}</h2>
+    <h2 className="ct-live-gate-title">{needsGeneral ? "Set up Live Transcript" : needsAttachment ? "Attach Concierge" : "Concierge ready"}</h2>
     <p className="ct-live-gate-lead">
       {needsSetup
         ? "General helps install Parakeet speech recognition and connect Scout and Concierge."
@@ -702,7 +718,7 @@ function ConciergeSetupGate({ view, api, needsSetup, isConfigured, defaultTrigge
       {manual && <div className="ct-live-manual">
         <div className="ct-live-fields">
           <ConciergePickers selection={selection} onChange={setChoice} />
-          <RoutingModePicker trigger={trigger} scoutUnavailable={scoutUnavailable} onChange={setMode} />
+          <RoutingModePicker trigger={trigger} scoutUnavailable={scoutUnavailable} scoutReason={scoutReason} onChange={setMode} />
         </div>
         <button type="button" className="ct-live-ghost" disabled={view.busy || !selection.provider || (scoutUnavailable && trigger === "scout_then_concierge")}
           onClick={async () => {
@@ -754,24 +770,26 @@ function ConciergePickers({ selection, onChange }: {
   </>;
 }
 
-function RoutingModePicker({ trigger, scoutUnavailable, onChange }: {
+function RoutingModePicker({ trigger, scoutUnavailable, scoutReason, onChange }: {
   trigger: Trigger;
   scoutUnavailable: boolean;
+  scoutReason?: string;
   onChange: (trigger: Trigger) => void;
 }) {
   return <div className="ct-live-field"><span aria-hidden>Routing mode</span>
     <DropdownSelect aria-label="Routing mode" data-testid="live-transcript-routing-mode" selectionIndicator="highlight"
-      options={modeOptions(scoutUnavailable)} value={trigger} onChange={value => onChange(value as Trigger)} />
+      options={modeOptions(scoutUnavailable, scoutReason)} value={trigger} onChange={value => onChange(value as Trigger)} />
   </div>;
 }
 
-function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnavailable, defaultTrigger, defaultMicTap, isConfigured, needsSetup }: {
+function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnavailable, scoutReason, defaultTrigger, defaultMicTap, isConfigured, needsSetup }: {
   owner: string;
   view: ReturnType<typeof useLiveTranscriptPanel>;
   api: LiveTranscriptApi;
   autoResume: boolean;
   onAutoResume: (value: boolean) => void;
   scoutUnavailable: boolean;
+  scoutReason?: string;
   defaultTrigger: Trigger;
   defaultMicTap: boolean;
   isConfigured: boolean;
@@ -803,7 +821,7 @@ function RoutingSettings({ owner, view, api, autoResume, onAutoResume, scoutUnav
   ];
   return <section className="ct-live-settings" aria-label="Routing settings">
     <div className="ct-live-fields">
-      <RoutingModePicker trigger={trigger} scoutUnavailable={scoutUnavailable}
+      <RoutingModePicker trigger={trigger} scoutUnavailable={scoutUnavailable} scoutReason={scoutReason}
         onChange={value => setChoice(choice => ({ ...choice, trigger: value }))} />
       <div className="ct-live-field"><span aria-hidden>Route to</span>
         <DropdownSelect aria-label="Route to" data-testid="live-transcript-route-to" selectionIndicator="highlight"

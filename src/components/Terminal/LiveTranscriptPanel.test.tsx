@@ -603,6 +603,50 @@ describe("Live Transcript panel", () => {
     }, expect.any(AbortSignal));
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
+
+  it("shows the specific Scout unavailability reason and never shows an unavailable callout when readiness says ready", async () => {
+    const { readiness, status, emitChange } = await mount();
+    readiness.scout = "unavailable";
+    readiness.scoutReason = "Supporter adapter 'cli-fixture' is cooling down after a recent failure.";
+    status.scout = "unavailable";
+    status.scoutReason = readiness.scoutReason;
+
+    await click("Open active Transcript");
+    expect(panel()?.textContent).toContain("Scout is unavailable: Supporter adapter 'cli-fixture' is cooling down after a recent failure.");
+
+    await click("Choose routing mode");
+    await openSelect("Routing mode");
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Supporter adapter 'cli-fixture' is cooling down after a recent failure.");
+    await act(async () => { document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+
+    readiness.scout = "ready";
+    readiness.scoutReason = null;
+    status.scout = "ready";
+    status.scoutReason = null;
+    await emitChange();
+    expect(panel()?.textContent).not.toContain("Scout is unavailable");
+  });
+
+  it("shows a visible owner Attach Concierge action when Concierge is left at needs_attachment during an active session", async () => {
+    const { api, readiness, status, emitChange } = await mount();
+    readiness.scout = "ready";
+    status.scout = "ready";
+    await click("Autostart active Transcript");
+    expect(panel()?.textContent).toContain("Listening");
+
+    status.concierge = "needs_attachment";
+    status.binding = { ...status.binding, target: { kind: "detached" } };
+    await emitChange();
+
+    const bar = panel()?.querySelector('[data-testid="live-transcript-concierge-bar"]');
+    expect(bar?.textContent).toContain("Needs attachment");
+    const callout = panel()?.querySelector('[data-testid="live-transcript-needs-attachment"]');
+    expect(callout?.textContent).toContain("Concierge needs attachment");
+    await click("Attach Concierge");
+    expect(api.attach).toHaveBeenCalledExactlyOnceWith({ trigger: "scout_then_concierge" }, expect.any(AbortSignal));
+    expect(panel()?.querySelector('[data-testid="live-transcript-needs-attachment"]')).toBeNull();
+    expect(bar?.textContent).toContain("Watching");
+  });
 });
 
 it("filters bridge changes by owner and disposes a late subscription", async () => {

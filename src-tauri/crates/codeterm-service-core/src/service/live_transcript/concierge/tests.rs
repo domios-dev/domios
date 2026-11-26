@@ -19,11 +19,11 @@ use crate::{
 
 #[test]
 fn scout_segments_preserve_any_language_without_keyword_filter_and_redact_secrets() {
-    assert!(scout_segment(1, "   \n\t  ").is_none());
-    let ru = scout_segment(2, "Отправь это в Main прямо сейчас").unwrap();
+    assert!(scout::scout_segment(1, "   \n\t  ").is_none());
+    let ru = scout::scout_segment(2, "Отправь это в Main прямо сейчас").unwrap();
     assert_eq!(ru["seq"], 2);
     assert_eq!(ru["text"], "Отправь это в Main прямо сейчас");
-    let with_secret = scout_segment(3, "Bearer sk-1234567890abcdefghijklmnop").unwrap();
+    let with_secret = scout::scout_segment(3, "Bearer sk-1234567890abcdefghijklmnop").unwrap();
     assert!(!with_secret["text"]
         .as_str()
         .unwrap()
@@ -693,4 +693,259 @@ fn long_inline_monologue_carries_complete_context_and_new_speech() {
     assert!(chunks[..16].iter().all(|chunk| context.contains(chunk)));
     assert!(unread.contains(&chunks[16]));
     assert!((1_600..=5_000).contains(&body.chars().count()));
+}
+
+struct RecordingScoutAdapter {
+    model: String,
+    calls: std::sync::atomic::AtomicUsize,
+    seen_texts: parking_lot::Mutex<Vec<String>>,
+    outcome: parking_lot::Mutex<Result<String, codeterm_decision::DecisionError>>,
+}
+
+impl RecordingScoutAdapter {
+    fn new(model: &str, outcome: Result<&str, codeterm_decision::DecisionError>) -> Self {
+        Self {
+            model: model.into(),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            seen_texts: parking_lot::Mutex::new(Vec::new()),
+            outcome: parking_lot::Mutex::new(outcome.map(str::to_owned)),
+        }
+    }
+}
+
+impl codeterm_decision::DecisionModel for RecordingScoutAdapter {
+    fn id(&self) -> &str {
+        "cli-fixture"
+    }
+
+    fn token_mode(&self) -> codeterm_decision::TokenMode {
+        codeterm_decision::TokenMode::None
+    }
+
+    fn model_id(&self) -> Option<String> {
+        Some(self.model.clone())
+    }
+
+    fn primitives(&self) -> codeterm_decision::DecisionPrimitives {
+        codeterm_decision::DecisionPrimitives {
+            choice: true,
+            ..Default::default()
+        }
+    }
+
+    fn models(&self) -> Vec<codeterm_decision::DecisionModelInfo> {
+        vec![codeterm_decision::DecisionModelInfo {
+            id: self.model.clone(),
+            display_name: self.model.clone(),
+        }]
+    }
+
+    fn decide(
+        &self,
+        request: &codeterm_decision::DecisionRequest,
+        _deadline: std::time::Instant,
+    ) -> Result<codeterm_decision::DecisionAnswer, codeterm_decision::DecisionError> {
+        codeterm_decision::physical::before_request()?;
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if let Some(segments) = request.state["segments"].as_array() {
+            let mut seen = self.seen_texts.lock();
+            for segment in segments {
+                if let Some(text) = segment["text"].as_str() {
+                    seen.push(text.to_owned());
+                }
+            }
+        }
+        let choice = self.outcome.lock().clone()?;
+        Ok(codeterm_decision::DecisionAnswer::Choice {
+            probabilities: std::collections::BTreeMap::from([
+                (choice.clone(), 0.9),
+                (
+                    if choice == "wake" {
+                        "ignore".into()
+                    } else {
+                        "wake".into()
+                    },
+                    0.1,
+                ),
+            ]),
+            choice,
+            confidence: Some(0.9),
+        })
+    }
+}
+
+fn fixture_supporter_config(model_id: &str) -> codeterm_types::config::SupporterConfig {
+    codeterm_types::config::SupporterConfig {
+        adapter: Some("cli-fixture".into()),
+        deadline_ms: 3000,
+        calls_per_hour: Some(60),
+        connections: std::collections::BTreeMap::from([(
+            "cli-fixture".into(),
+            codeterm_types::config::SupporterConnection {
+                model: Some(model_id.into()),
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn active_supporter_matches_readiness_and_calls_adapter_on_committed_utterance() {
+    let (_fixture, svc, owner, _) = fixture();
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(codeterm_supporter::SupporterRuntime::new(
+        dir.path().to_path_buf(),
+    ));
+    let model_id = "cli-fixture/fast-free";
+    let adapter = Arc::new(RecordingScoutAdapter::new(model_id, Ok("ignore")));
+    svc.supporter_models
+        .register("cli-fixture", adapter.clone());
+    let _override = svc
+        .override_supporter_decision_for_test(fixture_supporter_config(model_id), runtime.clone());
+
+    let setup = svc.live_transcript_setup();
+    assert_eq!(setup["scout"], "ready");
+    assert!(setup["scoutReason"].is_null());
+
+    let status = svc.live_transcript_status(&owner).unwrap();
+    assert_eq!(status.trigger, TranscriptTrigger::ScoutThenConcierge);
+    assert_eq!(status.scout, ScoutStatus::Ready);
+    assert_eq!(status.scout_reason, None);
+
+    let store = svc.open_live_transcript(&owner).unwrap();
+    store
+        .append(
+            &owner,
+            TranscriptInput {
+                at_ms: 1,
+                content: TranscriptContent::Speech {
+                    text: "opaque utterance for scout".into(),
+                },
+            },
+        )
+        .unwrap();
+
+    let routed = process(
+        &svc,
+        &store,
+        &owner,
+        TranscriptRange {
+            from_seq: 1,
+            to_seq: 1,
+        },
+    )
+    .unwrap();
+    assert!(!routed);
+    assert_eq!(adapter.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        *adapter.seen_texts.lock(),
+        vec!["opaque utterance for scout".to_string()]
+    );
+    assert_eq!(runtime.status(60).calls_last_hour, 1);
+}
+
+#[test]
+fn scout_failure_propagates_specific_reason_and_backoff_aligns_readiness_and_status() {
+    let (_fixture, svc, owner, _) = fixture();
+    let store = svc.open_live_transcript(&owner).unwrap();
+    store
+        .append(
+            &owner,
+            TranscriptInput {
+                at_ms: 1,
+                content: TranscriptContent::Speech {
+                    text: "opaque utterance".into(),
+                },
+            },
+        )
+        .unwrap();
+
+    let unconfigured_setup = svc.live_transcript_setup();
+    let unconfigured_status = svc.live_transcript_status(&owner).unwrap();
+    assert_eq!(unconfigured_setup["scout"], "unavailable");
+    assert_eq!(unconfigured_status.scout, ScoutStatus::Unavailable);
+    let expected_reason = unconfigured_setup["scoutReason"]
+        .as_str()
+        .expect("readiness should explain unavailability")
+        .to_owned();
+    assert_ne!(expected_reason, "Scout unavailable");
+    assert_eq!(
+        unconfigured_status.scout_reason.as_deref(),
+        Some(expected_reason.as_str())
+    );
+    let route_error = process(
+        &svc,
+        &store,
+        &owner,
+        TranscriptRange {
+            from_seq: 1,
+            to_seq: 1,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(route_error, expected_reason);
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(codeterm_supporter::SupporterRuntime::new(
+        dir.path().to_path_buf(),
+    ));
+    let model_id = "cli-fixture/fast-free";
+    let adapter = Arc::new(RecordingScoutAdapter::new(
+        model_id,
+        Err(codeterm_decision::DecisionError::Deadline),
+    ));
+    svc.supporter_models
+        .register("cli-fixture", adapter.clone());
+    let _override =
+        svc.override_supporter_decision_for_test(fixture_supporter_config(model_id), runtime);
+
+    let timeout_error = process(
+        &svc,
+        &store,
+        &owner,
+        TranscriptRange {
+            from_seq: 1,
+            to_seq: 1,
+        },
+    )
+    .unwrap_err();
+    assert!(timeout_error.contains("timed out"), "{timeout_error}");
+    assert_ne!(timeout_error, "Scout unavailable");
+    assert_eq!(svc.live_transcript_setup()["scout"], "ready");
+    assert_eq!(
+        svc.live_transcript_status(&owner).unwrap().scout,
+        ScoutStatus::Ready
+    );
+
+    *adapter.outcome.lock() = Err(codeterm_decision::DecisionError::Unavailable(
+        "plugin_unavailable".into(),
+    ));
+    let outage_error = process(
+        &svc,
+        &store,
+        &owner,
+        TranscriptRange {
+            from_seq: 1,
+            to_seq: 1,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        outage_error.contains("plugin_unavailable"),
+        "{outage_error}"
+    );
+
+    let backed_off_setup = svc.live_transcript_setup();
+    let backed_off_status = svc.live_transcript_status(&owner).unwrap();
+    assert_eq!(backed_off_setup["scout"], "unavailable");
+    assert_eq!(backed_off_status.scout, ScoutStatus::Unavailable);
+    assert_eq!(
+        backed_off_setup["scoutReason"].as_str(),
+        backed_off_status.scout_reason.as_deref()
+    );
+    assert!(backed_off_status
+        .scout_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("cooling down")));
 }
