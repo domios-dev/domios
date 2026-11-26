@@ -41,8 +41,33 @@ pub async fn list_notifications(
     })?
 }
 
+/// Rejects remote mesh peers on direct `POST /api/notifications` before JSON
+/// deserialization or body vetting; remote peers must use `/api/mesh/relay`.
+pub struct LocalNotificationRouteGuard;
+
+impl axum::extract::FromRequestParts<AppState> for LocalNotificationRouteGuard {
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        if matches!(
+            parts.extensions.get::<crate::auth::CallerIdentity>(),
+            Some(crate::auth::CallerIdentity::Peer { .. })
+        ) {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Direct POST /api/notifications is local-only; remote peers must use /api/mesh/relay",
+            ));
+        }
+        Ok(Self)
+    }
+}
+
 pub async fn create_notification(
     AxumState(state): AxumState<AppState>,
+    _local_only: LocalNotificationRouteGuard,
     headers: crate::auth::ActorHeaders,
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
