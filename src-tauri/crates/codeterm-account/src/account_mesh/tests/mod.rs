@@ -2,6 +2,7 @@ mod admission_recovery;
 mod admission_reuse;
 mod callable;
 mod cloud_enrollment;
+mod cloud_provisioning;
 mod credential_rearm;
 mod dropout;
 mod dropout_review;

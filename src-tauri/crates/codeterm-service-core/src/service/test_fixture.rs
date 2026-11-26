@@ -711,7 +711,6 @@ impl ServiceFixture {
                 crate::service::supporter::registry::SupporterRegistry::new(),
             ),
             chatbackend_registry,
-            cloud_machine_provider: Default::default(),
             provider_registry,
             local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
             services_store,

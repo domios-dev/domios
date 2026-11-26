@@ -26,6 +26,47 @@ pub trait MeshRegistry: Send + Sync {
     ) -> RegistryResult<super::delegated_renewal::RenewalReply> {
         Err(RegistryRefusal::Unavailable)
     }
+    async fn create_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::CreateCloudMachineRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ProvisionedMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn wake_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ProvisionedMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn sleep_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::SleepMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn delete_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::DeleteMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn renew_cloud_lease(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::RenewLeaseRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RenewLeaseReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn cloud_usage(
+        &self,
+        _session: &Session,
+    ) -> RegistryResult<super::cloud_provisioning::CloudUsageReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     fn handles_call_deadline(&self) -> bool {
         false
     }
