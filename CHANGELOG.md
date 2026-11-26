@@ -35,6 +35,7 @@ lives in `git log` with no aggregated narrative.
 - Live model switches work on Claude terminal tabs, and the chat snapshot survives switching General to a Claude terminal session.
 - Switching General's provider completes its install check without repeating onboarding.
 - The Codex CLI version check no longer stays pending. On Windows, CLI version checks wait on process completion instead of polling.
+- On Windows, version checks for agent CLIs installed as `.cmd` scripts work again and no longer create a stray `--version` folder. You can delete any `--version` folder left in the Domios install folder.
 - OpenCode without its CLI installed shows how to install it and offers a plain terminal.
 - Dreams writes complete, verified diaries with links into the Memory graph.
 - Cron runs report their real result instead of completing as failed.
