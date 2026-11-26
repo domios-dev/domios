@@ -167,7 +167,7 @@ describe("ProviderNotInstalledNotice via TabLaunchFailure", () => {
       await act(async () => { host.querySelector<HTMLButtonElement>('[data-testid="provider-install-action"]')!.click(); });
       expect(identify).toHaveBeenCalledExactlyOnceWith("POST", "/api/mesh/relay-to", {
         target_instance_id: peerId, method: "GET", path: "/api/identify", body: null,
-      });
+      }, expect.objectContaining({ timeoutMs: expect.any(Number) }));
       expect(invoke).toHaveBeenCalledWith("install_provider_in_tab", { providerId, peerId });
       const manualRetry = host.querySelector<HTMLButtonElement>('[data-testid="provider-retry-action"]')!;
       expect(manualRetry.textContent).toBe("Retry once installed");
