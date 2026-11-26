@@ -134,6 +134,12 @@ impl AccountMesh {
         })
         .await
         .map_err(|_| AccountMeshRefusal::Invalid)??;
+        // Keep revision selection and every observable publication in the same order.
+        let revision = verified.revision;
+        let mut published = self.registry_publication.lock().await;
+        if published.get(account).is_some_and(|last| *last > revision) {
+            return Ok(false);
+        }
         let accepted = self.with(|inner| {
             if !inner.is_current(state.account_epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
@@ -254,7 +260,10 @@ impl AccountMesh {
         if accepted {
             self.push().await;
             self.persist().await;
-            self.ports.transport.registry_changed(grant).await;
+            if published.get(account).is_none_or(|last| *last < revision) {
+                published.insert(account.to_owned(), revision);
+                self.ports.transport.registry_changed(grant).await;
+            }
         }
         Ok(accepted)
     }
@@ -275,10 +284,19 @@ impl AccountMesh {
             let trust = trust.clone();
             let account = account.to_owned();
             let now = self.now();
-            tokio::task::spawn_blocking(move || verify_registry(&received, &trust, &account, now))
-                .await
-                .map_err(|_| AccountMeshRefusal::Invalid)??;
-            self.ports.transport.registry_changed(grant).await;
+            let verified = tokio::task::spawn_blocking(move || {
+                verify_registry(&received, &trust, &account, now)
+            })
+            .await
+            .map_err(|_| AccountMeshRefusal::Invalid)??;
+            let mut published = self.registry_publication.lock().await;
+            if published
+                .get(&verified.account_id)
+                .is_none_or(|last| *last < verified.revision)
+            {
+                published.insert(verified.account_id, verified.revision);
+                self.ports.transport.registry_changed(grant).await;
+            }
         } else {
             if !self.with(|inner| inner.is_current(epoch)) {
                 return Err(AccountMeshRefusal::Cancelled);

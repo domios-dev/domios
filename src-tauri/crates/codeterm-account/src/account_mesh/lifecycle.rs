@@ -242,6 +242,7 @@ pub struct AccountMesh {
     pub(super) closed: watch::Sender<()>,
     pub(super) persist_lock: tokio::sync::Mutex<()>,
     push_lock: tokio::sync::Mutex<()>,
+    pub(super) registry_publication: tokio::sync::Mutex<HashMap<String, u64>>,
     pub(super) key_lock: tokio::sync::Mutex<()>,
     pub(super) admission_lock: tokio::sync::Mutex<()>,
 }
@@ -301,6 +302,7 @@ impl AccountMesh {
             closed: watch::channel(()).0,
             persist_lock: tokio::sync::Mutex::new(()),
             push_lock: tokio::sync::Mutex::new(()),
+            registry_publication: Default::default(),
             key_lock: tokio::sync::Mutex::new(()),
             admission_lock: tokio::sync::Mutex::new(()),
         })

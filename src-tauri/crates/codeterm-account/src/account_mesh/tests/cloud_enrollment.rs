@@ -4,6 +4,68 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::json;
 
 #[tokio::test]
+async fn expired_cloud_receipt_restores_only_evidence_for_same_slot_renewal() {
+    let mut h = super::support::Harness::new().await;
+    let key = InstallationKey::generate();
+    *h.keys.0.lock().unwrap() = Some(key.to_secret());
+    let issuer = Issuer::new();
+    let account = account_id("owner");
+    let now = START + 3600;
+    h.clock.set(now);
+    let sign = |slot, time| {
+        issuer.sign(&Issuer::membership_payload(
+            "owner",
+            &key.key_id(),
+            1,
+            slot,
+            time,
+        ))
+    };
+    let old = sign(1, START);
+    let mut row = super::support::row(INSTALLATION, 1, None);
+    row.key_id = key.key_id();
+    let registry = issuer.sign(&json!({"schema_version":1,"iss":"domios-mesh-registry",
+        "aud":{"project":PROJECT,"env":"test"},"policy_epoch":EPOCH,"account_id":account,
+        "revision":1,"issued_at":START,"members":[row],"revoked_installations":[]}));
+    assert!(h
+        .mesh
+        .publish_cloud_membership(&account, &old, &registry)
+        .await
+        .is_err());
+    let mut forged = old.clone();
+    forged.signature = URL_SAFE_NO_PAD.encode([0; 64]);
+    assert!(h
+        .mesh
+        .restore_cloud_membership(&account, &forged, &registry)
+        .await
+        .is_err());
+    assert!(h
+        .mesh
+        .restore_cloud_membership(&account, &sign(2, START), &registry)
+        .await
+        .is_err());
+    h.restart().await;
+    h.mesh
+        .restore_cloud_membership(&account, &old, &registry)
+        .await
+        .unwrap();
+    let state = h.state();
+    assert!(state.current_membership(now).is_none());
+    let previous = &state.membership.as_ref().unwrap().verified;
+    let known = state.signed_registry.as_ref().unwrap();
+    let trust = issuer.trust();
+    assert!(verify_cloud_renewal(&old, &registry, &trust, previous, known, now).is_none());
+    assert!(verify_cloud_renewal(&sign(2, now), &registry, &trust, previous, known, now).is_none());
+    let replacement = sign(1, now);
+    assert!(verify_cloud_renewal(&replacement, &registry, &trust, previous, known, now).is_some());
+    h.mesh
+        .publish_cloud_membership(&account, &replacement, &registry)
+        .await
+        .unwrap();
+    assert!(h.state().current_membership(now).is_some());
+}
+
+#[tokio::test]
 async fn cloud_publication_keeps_newer_revocation_on_apply_and_restore() {
     let mut harness = super::support::Harness::new().await;
     let key = InstallationKey::generate();
