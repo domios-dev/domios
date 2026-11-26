@@ -625,7 +625,10 @@ async fn team_close_relay_authorizes_paired_owner_and_refuses_ungranted_or_uncon
     readonly_peer.instance_id = "peer-readonly".into();
     readonly_peer.instance_name = "ReadOnly".into();
     readonly_peer.access_level = AccessLevel::ReadOnly;
-    state.mesh.lock().insert_account_peer_for_test(readonly_peer);
+    state
+        .mesh
+        .lock()
+        .insert_account_peer_for_test(readonly_peer);
 
     let close_cmd = RelayCommand {
         method: "POST".into(),
@@ -646,7 +649,11 @@ async fn team_close_relay_authorizes_paired_owner_and_refuses_ungranted_or_uncon
         .await
         .expect("unpaired or ungranted refusal is a relay response");
         assert!(!refused.ok, "{caller_peer}");
-        assert_eq!(refused.status, StatusCode::FORBIDDEN.as_u16(), "{caller_peer}");
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN.as_u16(),
+            "{caller_peer}"
+        );
     }
 
     for origin in [
@@ -704,9 +711,18 @@ async fn team_close_relay_authorizes_paired_owner_and_refuses_ungranted_or_uncon
         .await
         .expect("protected Team close returns structured relay 403");
         assert!(!refused.ok, "{protected_team}");
-        assert_eq!(refused.status, StatusCode::FORBIDDEN.as_u16(), "{protected_team}");
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN.as_u16(),
+            "{protected_team}"
+        );
         assert!(
-            fixture.service.mux.read().get_team(protected_team).is_some(),
+            fixture
+                .service
+                .mux
+                .read()
+                .get_team(protected_team)
+                .is_some(),
             "protected Team {protected_team} stays open"
         );
     }
@@ -754,6 +770,12 @@ async fn team_close_relay_authorizes_paired_owner_and_refuses_ungranted_or_uncon
     assert_eq!(data["team"]["id"], serde_json::json!(target_team));
     assert!(data.get("inventory").is_some(), "payload carries inventory");
     let mux = fixture.service.mux.read();
-    assert!(mux.get_team(&target_team).is_none(), "closed Team is removed");
-    assert!(mux.get_tab(&member_tab).is_none(), "closed Team member tab is removed");
+    assert!(
+        mux.get_team(&target_team).is_none(),
+        "closed Team is removed"
+    );
+    assert!(
+        mux.get_tab(&member_tab).is_none(),
+        "closed Team member tab is removed"
+    );
 }

@@ -172,11 +172,17 @@ pub(super) async fn dispatch_peer_relay(
                 .await
                 .map(|response| Some((response, false)))
         }
-        PeerRelayAuthorization::TabClose { peer_id, tab_id } => {
-            close_tab_from_mesh_peer(state, peer_id, tab_id, &cmd.path, origin, agent, grant.clone())
-                .await
-                .map(|response| Some((response, false)))
-        }
+        PeerRelayAuthorization::TabClose { peer_id, tab_id } => close_tab_from_mesh_peer(
+            state,
+            peer_id,
+            tab_id,
+            &cmd.path,
+            origin,
+            agent,
+            grant.clone(),
+        )
+        .await
+        .map(|response| Some((response, false))),
         PeerRelayAuthorization::OwnerTabClose { tab_id } => {
             close_tab_from_mesh_owner(state, tab_id, &cmd.path, grant.clone())
                 .await
