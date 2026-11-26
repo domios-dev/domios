@@ -254,7 +254,7 @@ fn validate_worker_report(caller: &CallerContext, body: &[u8]) -> Result<Value, 
 }
 
 fn validate_notification(caller: &CallerContext, body: &[u8]) -> Result<Value, OutboxError> {
-    require_owner_or_agent(caller, "notification")?;
+    require_owner_trusted_only(caller, "notification")?;
     let raw = parse_json_object(body, "notification")?;
     let Some(obj) = raw.as_object() else {
         return Err(OutboxError::InvalidRequest {
@@ -262,7 +262,16 @@ fn validate_notification(caller: &CallerContext, body: &[u8]) -> Result<Value, O
         });
     };
     require_nonempty_str_field(obj, "title", "notification")?;
-    for forbidden in ["source_peer", "tab_id", "workspace_id"] {
+    for forbidden in [
+        "source_peer",
+        "tab_id",
+        "workspace_id",
+        "target_tab_id",
+        "chat_message_id",
+        "offer",
+        "offer_accept",
+        "actions",
+    ] {
         if obj.get(forbidden).is_some_and(|value| !value.is_null()) {
             return Err(OutboxError::InvalidRequest {
                 reason: format!("notification body must not supply '{forbidden}'"),

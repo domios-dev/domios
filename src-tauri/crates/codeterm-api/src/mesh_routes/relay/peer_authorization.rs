@@ -28,6 +28,9 @@ pub(super) enum PeerRelayAuthorization<'a> {
     MeshRpc {
         peer_id: &'a str,
     },
+    RemoteNotification {
+        peer_id: &'a str,
+    },
     TabClose {
         peer_id: &'a str,
         tab_id: &'a str,
@@ -55,6 +58,13 @@ pub(super) fn authorize_peer_relay<'a>(
     let path = request_path(path);
     if *method == Method::POST && path == "/api/mesh/rpc" {
         return PeerRelayAuthorization::MeshRpc { peer_id };
+    }
+    if *method == Method::POST && path == "/api/notifications" {
+        return if matches!(access, AccessLevel::Full) {
+            PeerRelayAuthorization::RemoteNotification { peer_id }
+        } else {
+            PeerRelayAuthorization::Rejected
+        };
     }
     if *method == Method::POST {
         if let Some(tab_id) = path
@@ -174,6 +184,13 @@ pub(super) async fn dispatch_peer_relay(
             mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body, origin, agent)
                 .await
                 .map(|response| Some((response, false)))
+        }
+        PeerRelayAuthorization::RemoteNotification { peer_id } => {
+            super::remote_notification::dispatch_remote_notification(
+                state, peer_id, &cmd.body, origin, agent, grant,
+            )
+            .await
+            .map(Some)
         }
         PeerRelayAuthorization::TabClose { peer_id, tab_id } => close_tab_from_mesh_peer(
             state,

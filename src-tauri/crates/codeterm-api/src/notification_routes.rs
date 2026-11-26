@@ -43,50 +43,26 @@ pub async fn list_notifications(
 
 pub async fn create_notification(
     AxumState(state): AxumState<AppState>,
-    caller: Option<Extension<crate::auth::CallerIdentity>>,
-    headers: crate::auth::AgentHeaders,
+    headers: crate::auth::ActorHeaders,
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-        let remote_peer_name = match caller.as_ref().map(|caller| &caller.0) {
-            Some(crate::auth::CallerIdentity::Peer { instance_id, .. }) => {
-                let mesh = state.mesh.lock();
-                Some(
-                    mesh.paired_peers
-                        .get(instance_id)
-                        .map(|peer| peer.instance_name.clone())
-                        .unwrap_or_else(|| instance_id.clone()),
-                )
-            }
-            Some(crate::auth::CallerIdentity::Relayed) => body.source_peer.clone(),
-            _ => None,
-        };
         // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
-        if remote_peer_name.is_none() {
+        if body.source_peer.is_none() {
             vet_target_tab(body.target_tab_id.as_deref(), |tab| {
                 state.svc.mux.read().resolve_tab_id(tab).is_some()
             })
             .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
         }
-        let origin = if let Some(peer_name) = remote_peer_name {
-            codeterm_service_core::service::notification::NotificationOrigin {
-                caller_tab_id: None,
-                claimed_tab_id: None,
-                peer_name: Some(peer_name),
-                target: Default::default(),
-            }
-        } else {
-            codeterm_service_core::service::notification::NotificationOrigin {
-                caller_tab_id: headers.local_tab_id(),
-                claimed_tab_id: body.tab_id,
-                peer_name: None,
-                target:
-                    codeterm_service_core::notification::deep_link::NotificationTarget::from_hints(
-                        body.target_tab_id.as_deref(),
-                        body.chat_message_id.as_deref(),
-                    ),
-            }
+        let origin = codeterm_service_core::service::notification::NotificationOrigin {
+            caller_tab_id: crate::tab_routes::caller_tab_header(&headers),
+            claimed_tab_id: body.tab_id,
+            peer_name: body.source_peer,
+            target: codeterm_service_core::notification::deep_link::NotificationTarget::from_hints(
+                body.target_tab_id.as_deref(),
+                body.chat_message_id.as_deref(),
+            ),
         };
         let intent = parse_push_intent(body.level.as_deref(), body.event_key)
             .map_err(|message| (StatusCode::BAD_REQUEST, message))?;

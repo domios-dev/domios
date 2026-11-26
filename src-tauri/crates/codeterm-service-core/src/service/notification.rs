@@ -165,8 +165,8 @@ impl ServiceContext {
                 }
             }
         }
-        let live_agent_caller = origin.peer_name.is_some()
-            || origin.caller_tab_id.as_deref().is_some_and(|id| {
+        let live_agent_caller = origin.peer_name.is_none()
+            && origin.caller_tab_id.as_deref().is_some_and(|id| {
                 self.mux
                     .read()
                     .get_tab(id)
@@ -192,6 +192,39 @@ impl ServiceContext {
             },
             sticky,
             origin,
+            intent,
+            None,
+        ))
+    }
+
+    /// Dedicated display-only notification admission for verified account-mesh
+    /// peers with `AccessLevel::Full`. Never accepts caller actions, offers, or
+    /// local navigation targets.
+    pub fn create_remote_peer_notification_reported(
+        &self,
+        title: String,
+        body: Option<String>,
+        severity: Option<&str>,
+        sticky: Option<bool>,
+        peer_name: String,
+        intent: PushIntent,
+    ) -> Result<(String, Option<Unseen>), String> {
+        let peer_name = peer_name.trim().to_string();
+        if peer_name.is_empty() {
+            return Err("Authenticated remote peer name is required".into());
+        }
+        Ok(self.create_notification_actions_reported(
+            title,
+            body,
+            severity,
+            Ask::default(),
+            sticky,
+            NotificationOrigin {
+                caller_tab_id: None,
+                claimed_tab_id: None,
+                peer_name: Some(peer_name),
+                target: Default::default(),
+            },
             intent,
             None,
         ))
