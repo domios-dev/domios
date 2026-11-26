@@ -39,6 +39,10 @@ async function main() {
         reference: voice ? `[voice ${peerVoice}: peer transcript]` : null,
       }, { status: 200 });
     }
+    if (url.endsWith("/api/attachments/path-kinds")) {
+      const paths = Array.isArray(body?.paths) ? body.paths as string[] : [];
+      return Response.json(paths.map((path) => (path === sourceImage ? "file" : "missing")), { status: 200 });
+    }
     if (url.endsWith("/api/transcribe-voice")) {
       return Response.json({ line: `[voice ${String(body?.path)}: origin transcript]` }, { status: 200 });
     }
@@ -64,6 +68,28 @@ async function main() {
   );
   assert.equal(relayed.composed, `look ${formatAttachmentMarker(peerImage)} [voice ${peerVoice}: peer transcript]`);
   assert.ok(!relayed.composed.includes("source-user"));
+
+  calls.length = 0;
+  const relayedInline = await composeAttachmentDraft(
+    "tab-7",
+    `check ${formatAttachmentMarker(sourceImage, "image", "image1")} and ${formatAttachmentMarker(peerImage, "image")}`,
+    [],
+    [],
+    composerAttachmentHandoff,
+  );
+  assert.deepEqual(
+    calls.map(({ url, body }) => [url, body]),
+    [
+      [`${selfHost()}/api/attachments/path-kinds`, { paths: [sourceImage, peerImage] }],
+      [`${selfHost()}/api/mesh/attachments/transfer`, { ordinary_tab_id: "mesh:air/tab-7", peer_id: "air", path: sourceImage, kind: "file" }],
+    ],
+    "inline attachment path classification stays on the local serving daemon rather than riding relay-to",
+  );
+  assert.equal(
+    relayedInline.composed,
+    `check ${formatAttachmentMarker(peerImage, "image", "image1")} and ${formatAttachmentMarker(peerImage, "image")}`,
+  );
+  assert.ok(!relayedInline.composed.includes("source-user"));
 
   calls.length = 0;
   clearRelayTarget();

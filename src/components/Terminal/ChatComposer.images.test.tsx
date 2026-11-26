@@ -196,10 +196,15 @@ it("transfers remote pasted attachment tags once and keeps viewer-local paths ou
   const localPath = "/var/folders/viewer/codeterm-chat/local-shot.png";
   const remotePath = "C:\\Users\\User\\.domios\\uploads\\abcd1234-local-shot.png";
   const optimisticContents: string[] = [];
+  const pathKindsCalls: unknown[] = [];
   const transferred: unknown[] = [];
   const sent: string[] = [];
   uploads.store = async () => localPath;
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "attachment_path_kinds") {
+      pathKindsCalls.push(args);
+      return ["file"] as T;
+    }
     if (command === "mesh_transfer_attachment") {
       transferred.push(args);
       return { path: remotePath, kind: "file", size: 5, reference: null } as T;
@@ -249,6 +254,7 @@ it("transfers remote pasted attachment tags once and keeps viewer-local paths ou
     });
     await act(async () => { editor.dispatchEvent(pasteEvent); });
     await act(async () => { editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })); });
+    expect(pathKindsCalls).toEqual([{ paths: [localPath], local: true }]);
     expect(transferred).toHaveLength(1);
     expect(sent).toHaveLength(1);
     expect(optimisticContents[0]).not.toContain(localPath);
