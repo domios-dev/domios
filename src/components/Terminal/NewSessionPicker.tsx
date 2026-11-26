@@ -99,7 +99,7 @@ export function NewSessionPicker({
   const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders();
   const { createTab, spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
   const state = useMuxState();
-  const machineInventory = useMachinePlacementInventory();
+  const machineInventory = useMachinePlacementInventory(section !== "general");
   const [machineId, setMachineId] = useState(LOCAL_MACHINE_ID);
   const selectedMachine = machineInventory.choices?.find((machine) => machine.id === machineId);
   const remoteMachineId = machineId === LOCAL_MACHINE_ID ? undefined : machineId;
@@ -374,11 +374,6 @@ export function NewSessionPicker({
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
     if (accountProviderId && (accounts.loading || !accounts.snapshot || !accounts.selectedAccountId)) return;
-    if (section === "general" && remoteMachineId) {
-      await finishSpawn(() => spawnAgentTab(workspaceId, choice.providerId, undefined, undefined, undefined, undefined,
-        "fresh_general", undefined, undefined, undefined, remoteMachineId, undefined, () => setSidebarMachineFilter("all")));
-      return;
-    }
     if (location === "cloud") {
       const target = remoteSpawnSelection(menuProviders, choice.providerId, environmentId);
       await runProviderSpawn(target.providerId, undefined, undefined, target.preset, target.executionMode);
@@ -390,7 +385,7 @@ export function NewSessionPicker({
       return;
     }
     await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, undefined, accounts.explicitAccountId ?? undefined);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId, accounts.explicitAccountId, section, remoteMachineId, finishSpawn, spawnAgentTab, workspaceId]);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId, accounts.explicitAccountId]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")
@@ -511,7 +506,6 @@ export function NewSessionPicker({
 
   const remoteCanStart = location === "cloud" && remote?.remote_task?.availability.status === "available"
     && remote.remote_task.environments.some(environment => environment.id === environmentId);
-  const peerGeneral = section === "general" && Boolean(remoteMachineId);
   const selectedTeamMachine = templates.remotePeer
     ? templates.placement.machines?.find((machine) => machine.id === templates.remotePeer?.id)
     : undefined;
@@ -519,7 +513,7 @@ export function NewSessionPicker({
   const canStart = choice.mode === "terminal"
     ? true
     : choice.mode === "single"
-      ? machineAvailable && (peerGeneral || (location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady))
+      ? machineAvailable && (location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady)
         && (!accountProviderId || (!accounts.loading && Boolean(accounts.snapshot && accounts.selectedAccountId)))
       : choice.orchestratorProviderId.length > 0
         && choice.plannerProviderId.length > 0
@@ -542,7 +536,7 @@ export function NewSessionPicker({
     : choice.mode === "pair"
       ? templates.remotePeer ? `Start Team on ${templates.remotePeer.name}` : "Start team"
       : remoteMachineId
-        ? section === "general" ? `Start General session on ${selectedMachine?.name ?? "the selected machine"}` : `Start agent on ${selectedMachine?.name ?? "the selected machine"}`
+        ? `Start agent on ${selectedMachine?.name ?? "the selected machine"}`
         : "Start session";
 
   return createPortal(
@@ -592,9 +586,6 @@ export function NewSessionPicker({
           style={teamForm ? { minHeight: 0, flexShrink: 1, overflowY: "auto", overflowX: "hidden" } : undefined}>
           <div ref={modeContentRef} className={teamForm ? "pb-4" : undefined}>
             <div key={choice.mode} className="picker-mode-panel">
-              {choice.mode === "single" && section === "general" && remoteMachineId && <p role="status" className="mt-2 text-[11px] text-[var(--ct-muted-fg)]">
-                Uses {selectedMachine?.name ?? "the selected machine"}'s General defaults.
-              </p>}
               {choice.mode === "single" && !remoteMachineId && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
                 Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
                   const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
@@ -605,11 +596,11 @@ export function NewSessionPicker({
                   {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
                 </select>
               </label>}
-              {choice.mode === "single" && !(section === "general" && remoteMachineId) && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
+              {choice.mode === "single" && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
                 onLocation={next => setExecution({providerId: localId, location: next, environmentId})}
                 onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}
                 onRefresh={() => { void refreshRemoteProviders(); }} />}
-              {choice.mode === "single" && !(section === "general" && remoteMachineId) ? (
+              {choice.mode === "single" ? (
                 <><OrchestrationRoleRow
                   label="Agent"
                   modelControls={location === "local" && !selectedProvider?.agent_runtime?.launchProfiles}

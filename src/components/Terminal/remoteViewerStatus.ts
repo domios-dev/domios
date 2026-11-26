@@ -48,13 +48,6 @@ export function remoteViewerConnectionState(
   return null;
 }
 
-export function remoteViewerStatusLabel(state: RemoteViewerConnectionState | null, status?: TabStatus | null): string | null {
-  if (state === "reconnecting") return state;
-  if (state) return REMOTE_CHAT_COPY[state].label;
-  if (status === "Waiting") return "waiting for you";
-  return status?.toLowerCase() ?? null;
-}
-
 export function remoteViewerSendUnavailableReason(state: RemoteViewerConnectionState | null, machine: string): string | null {
   if (state === "reconnecting") return `${machine} is reconnecting`;
   return state ? REMOTE_CHAT_COPY[state].sendReason(machine) : null;
