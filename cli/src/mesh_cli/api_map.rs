@@ -762,6 +762,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             MeshAction::Remove { .. } => unsupported(
                 "Removing a machine from the account mesh is local-only and cannot be relayed via --mesh",
             ),
+            MeshAction::Cloud { .. } => unsupported(
+                "Cloud machine lifecycle commands run on the local controller and cannot be relayed via --mesh",
+            ),
             _ => ("GET".into(), "/api/mesh/status".into(), None),
         },
         Commands::Bridge { action } => match action {

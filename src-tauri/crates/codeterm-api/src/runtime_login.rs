@@ -156,10 +156,10 @@ pub(super) async fn login(
             "API keys must be entered on the provider's own machine".into(),
         ));
     }
-    if request.code.is_some() && !super::auth::is_local_caller(&state, &headers) {
+    if request.code.is_some() && require_permission_authority(&state, &headers).is_err() {
         return Err((
             StatusCode::FORBIDDEN,
-            "Sign-in codes must be entered on the provider's own machine".into(),
+            "Sign-in codes require owner or authenticated account-peer authority".into(),
         ));
     }
     operate(&state.svc, &tab, request)

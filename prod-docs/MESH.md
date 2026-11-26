@@ -171,4 +171,21 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 83 -->
+## Cloud machines
+
+Cloud machines cost money while awake. Domios manages their lifecycle on the local controller and never creates a cloud machine implicitly.
+
+- `domios mesh cloud create` creates and enrolls a new cloud machine through the configured cloud provider plugin, subject to the per-account cloud machine limit (`limit_reached` when full; BYO default 3, configurable via `mesh.cloud_machine_limit`).
+- `domios mesh cloud list` shows each cloud machine with provider, size, hourly rate estimate, lifecycle state, and period uptime.
+- `domios mesh cloud sleep` drains an idle cloud machine and stops it; active agent turns, running background jobs, held sends, or attached viewers refuse sleep (`machine_busy`).
+- `domios mesh cloud wake` wakes a sleeping cloud machine; concurrent wakes join one wake.
+- `domios mesh cloud delete` warns about unpushed work unless `--confirm` is passed.
+- `domios mesh cloud usage` reports period uptime (managed credits reserved for Tally).
+
+Reuse-first placement: `domios agent spawn --cloud auto` and `domios plan task dispatch --cloud auto` pick an awake cloud machine first, then wake a sleeping one, and refuse implicit creation when none exist. Pass `--cloud new` (or run `domios mesh cloud create`) to create explicitly.
+
+Idle sleep and wake-on-use: after the idle window (`mesh.cloud_idle_sleep_minutes`, default 15) with no active agent turn, background job, held send, or attached viewer, the controller runs a two-phase drain on the cloud peer (`machine_sleeping` with `bytes_written=false` before stop). While work runs, the controller refreshes provider activity before the provider auto-stop deadline. Sends to a sleeping or draining cloud machine are held on the origin (`domios tab send-status`, `domios tab send-cancel`) with release condition `peer_ready` and a bounded deadline, wake the machine once, and flush in admission order at most once (`submit_unconfirmed` outcomes are never replayed).
+
+Cost visibility: `domios mesh peers`, `domios tab list`, and cloud spawn/dispatch receipts surface `kind=cloud`, provider, size, rate per hour, state, uptime, and a cost notice.
+
+<!-- revision: 84 -->

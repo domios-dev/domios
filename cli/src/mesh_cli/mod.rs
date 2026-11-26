@@ -6,6 +6,7 @@ use clap::Subcommand;
 use super::{Commands, TabAction, UpdateAction};
 
 pub(crate) mod api_map;
+pub(crate) mod cloud;
 mod parse;
 mod relay;
 mod rpc;
@@ -17,6 +18,7 @@ mod workspace_topology;
 #[cfg(test)]
 mod tests;
 
+pub use cloud::MeshCloudAction;
 pub use parse::parse_ip_port;
 pub use relay::mesh_relay_cmd;
 pub(crate) use relay::{mesh_relay_fetch_json, mesh_relay_invoke_result};
@@ -78,6 +80,11 @@ pub enum MeshAction {
     Remove {
         /// Target machine (installation ID, display name, or disambiguated label)
         machine: String,
+    },
+    /// Create, list, sleep, wake, or delete cloud machines on this controller. Local-only.
+    Cloud {
+        #[command(subcommand)]
+        action: MeshCloudAction,
     },
 }
 
@@ -171,7 +178,8 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             MeshAction::Peer { .. }
             | MeshAction::Offline
             | MeshAction::Online
-            | MeshAction::Remove { .. },
+            | MeshAction::Remove { .. }
+            | MeshAction::Cloud { .. },
     } = &cli.command
     {
         crate::cmd::print::fail_refused(

@@ -187,6 +187,12 @@ fn chat_send_allowed(state: &AppState, tab_id: &str) -> Result<(), DeliveryError
 }
 
 fn surface_send_refusal(state: &AppState, tab_id: &str) -> Result<(), DeliveryError> {
+    if state.svc.cloud_machines().local_drain_gate().is_draining() {
+        return Err(DeliveryError::MachineSleeping {
+            tab: tab_id.to_string(),
+            detail: "cloud peer entered drain for sleep".into(),
+        });
+    }
     state.svc.tab_write_lock_delivery(tab_id)?;
     match state.svc.tab_surface_input_refusal(tab_id) {
         Some(detail) => Err(DeliveryError::TabBusyRefused {

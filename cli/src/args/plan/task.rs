@@ -458,6 +458,14 @@ pub enum PlanTaskAction {
             help = "Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)"
         )]
         provider_reserve_pct: f32,
+        #[arg(
+            long,
+            value_name = "TARGET",
+            num_args = 0..=1,
+            default_missing_value = "auto",
+            help = "Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicit create subject to limit), or a cloud machine ID/name"
+        )]
+        cloud: Option<String>,
     },
     /// Acknowledge a remote Worker attempt on the origin plan
     RemoteAck {

@@ -380,11 +380,14 @@ pub(super) fn dispatch(
         "mesh.peers" => {
             let mesh = svc.ext::<codeterm_service_core::MeshStateHandle>();
             let manager = mesh.lock();
-            return serde_json::to_value(manager.peers_response()).map_err(|error| JsonRpcError {
-                code: -32603,
-                message: error.to_string(),
-                data: None,
-            });
+            let raw =
+                serde_json::to_value(manager.peers_response()).map_err(|error| JsonRpcError {
+                    code: -32603,
+                    message: error.to_string(),
+                    data: None,
+                })?;
+            drop(manager);
+            return Ok(svc.cloud_machines().enrich_peers_value(raw));
         }
         #[cfg(debug_assertions)]
         "debug.crash" => {
