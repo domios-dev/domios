@@ -553,6 +553,8 @@ pub enum RegistryRefusal {
     Replay,
     #[serde(rename = "nonce_reused")]
     NonceReused,
+    #[serde(rename = "apply_too_large")]
+    ApplyTooLarge,
     #[serde(rename = "cloud.machines")]
     CloudMachineLimit {
         mode: super::cloud_enrollment::CloudMode,

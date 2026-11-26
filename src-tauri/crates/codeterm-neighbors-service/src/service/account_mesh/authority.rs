@@ -101,6 +101,7 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::Conflict
         | AccountMeshRefusal::Replay
         | AccountMeshRefusal::NonceReused
+        | AccountMeshRefusal::ApplyTooLarge
         | AccountMeshRefusal::CloudMachineLimit { .. }
         | AccountMeshRefusal::KeyConflict
         | AccountMeshRefusal::GenerationMismatch

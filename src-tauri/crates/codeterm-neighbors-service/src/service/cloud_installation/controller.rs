@@ -3,7 +3,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use codeterm_account::account_mesh::{
     cloud_enrollment::{
         fixed_bytes, installation_key_id, nonce_commitment, Discovery, EnrollmentBody,
-        ExpectedApply,
+        ExpectedApply, MAX_ENROLL_APPLY_BYTES,
     },
     AccountMeshRefusal,
 };
@@ -137,6 +137,9 @@ pub async fn enroll(
         return Err(ControllerError::InvalidEvidence);
     }
     let bytes = serde_json::to_vec(&apply).map_err(|_| ControllerError::InvalidEvidence)?;
+    if bytes.len() > MAX_ENROLL_APPLY_BYTES {
+        return Err(ControllerError::InvalidEvidence);
+    }
     let uncertain = || ControllerError::ApplyUnconfirmed {
         installation_id: local.cloud_installation_id.clone(),
     };

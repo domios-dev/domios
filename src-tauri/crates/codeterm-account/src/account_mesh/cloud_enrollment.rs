@@ -8,6 +8,8 @@ use codeterm_entitlements::DetachedGrant;
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
+pub const MAX_ENROLL_APPLY_BYTES: usize = 60 * 1024;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Discovery {
