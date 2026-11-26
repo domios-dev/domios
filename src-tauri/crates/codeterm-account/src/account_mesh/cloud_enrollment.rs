@@ -8,6 +8,8 @@ use codeterm_entitlements::DetachedGrant;
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
+pub const MAX_ENROLL_APPLY_BYTES: usize = 60 * 1024;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Discovery {
@@ -48,8 +50,7 @@ pub struct EnrollmentRequest {
 pub struct EnrollmentReply {
     pub membership: DetachedGrant,
     pub binding: DetachedGrant,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_registry: Option<DetachedGrant>,
+    pub signed_registry: DetachedGrant,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -70,8 +71,7 @@ struct Binding {
     controller_key: String,
     body: EnrollmentBody,
     membership_sha256: String,
-    #[serde(default)]
-    signed_registry_sha256: Option<String>,
+    signed_registry_sha256: String,
     issued_at: u64,
     expires_at: u64,
 }
@@ -172,18 +172,7 @@ pub fn verify_apply(
         || now.abs_diff(body.timestamp) > 300
         || grant.controller_key != URL_SAFE_NO_PAD.encode(expected.controller)
         || grant.membership_sha256 != jcs_sha256_hex(&apply.reply.membership)?
-        || grant
-            .signed_registry_sha256
-            .as_ref()
-            .is_some_and(|expected| {
-                apply
-                    .reply
-                    .signed_registry
-                    .as_ref()
-                    .and_then(jcs_sha256_hex)
-                    .as_deref()
-                    != Some(expected.as_str())
-            })
+        || grant.signed_registry_sha256 != jcs_sha256_hex(&apply.reply.signed_registry)?
         || body.cloud_installation_id != expected.local.cloud_installation_id
         || body.cloud_installation_key != expected.local.cloud_installation_key
         || body.mesh_instance_id != expected.local.mesh_instance_id
@@ -201,7 +190,7 @@ pub fn verify_apply(
         .ok()?
         .verify_strict(&message, &signature)
         .ok()?;
-    verify_membership(
+    let membership = verify_membership(
         &apply.reply.membership,
         trust,
         &MembershipExpectation {
@@ -213,7 +202,65 @@ pub fn verify_apply(
         now,
     )
     .ok()
-    .filter(|membership| grant.expires_at <= membership.expires_at)
+    .filter(|membership| grant.expires_at <= membership.expires_at)?;
+    let registry = super::registry_snapshot::verify_registry(
+        &apply.reply.signed_registry,
+        trust,
+        &grant.account_id,
+        now,
+    )
+    .ok()?;
+    allows_member(&registry, &membership).then_some(membership)
+}
+
+fn allows_member(
+    registry: &super::registry_snapshot::VerifiedRegistry,
+    member: &VerifiedMembership,
+) -> bool {
+    registry.account_id == member.account_id
+        && !registry
+            .revoked_installations
+            .contains(&member.installation_id)
+        && registry.rows.iter().any(|row| {
+            row.installation_id == member.installation_id
+                && row.active
+                && row.presence == super::wire::RegistryPresence::Present
+                && row.eligibility == super::wire::Eligibility::Eligible
+                && row.key_id == member.key_id
+                && row.key_generation == member.key_generation
+                && row.slot_revision == member.slot_revision
+        })
+}
+
+pub fn verify_cloud_renewal(
+    membership: &DetachedGrant,
+    registry: &DetachedGrant,
+    trust: &MembershipTrust,
+    current: &VerifiedMembership,
+    known: &super::registry_snapshot::VerifiedRegistry,
+    now: u64,
+) -> Option<(VerifiedMembership, u64)> {
+    let expected = MembershipExpectation {
+        account_id: &current.account_id,
+        installation_id: Some(&current.installation_id),
+        key_id: Some(&current.key_id),
+        key_generation: Some(current.key_generation),
+        slot_revision: Some(current.slot_revision),
+    };
+    let renewed = verify_membership(membership, trust, &expected, now).ok()?;
+    let issued =
+        super::registry_snapshot::verify_registry(registry, trust, &current.account_id, now)
+            .ok()?;
+    if !allows_member(known, current)
+        || !allows_member(&issued, &renewed)
+        || renewed.issued_at < current.issued_at
+        || renewed.expires_at < current.expires_at
+        || issued.revision < known.revision
+        || (issued.revision == known.revision && *registry != known.grant)
+    {
+        return None;
+    }
+    Some((renewed, issued.revision))
 }
 
 pub struct CloudController<'a> {
@@ -222,6 +269,100 @@ pub struct CloudController<'a> {
 }
 
 impl super::AccountMesh {
+    pub async fn publish_cloud_membership(
+        &self,
+        account: &str,
+        grant: &DetachedGrant,
+        issued_registry: &DetachedGrant,
+    ) -> Result<(), super::AccountMeshRefusal> {
+        use super::{AccountMeshRefusal as R, Enrollment, Presence, SignedMembership};
+        let trust = self
+            .config
+            .trust
+            .as_ref()
+            .ok_or(R::VerificationUnavailable)?;
+        let installation = self.installation();
+        let key_id = self.key().await?.key_id();
+        let member = verify_membership(
+            grant,
+            trust,
+            &MembershipExpectation {
+                account_id: account,
+                installation_id: Some(&installation),
+                key_id: Some(&key_id),
+                ..Default::default()
+            },
+            self.now(),
+        )
+        .map_err(|_| R::ProofInvalid)?;
+        let issued =
+            super::registry_snapshot::verify_registry(issued_registry, trust, account, self.now())?;
+        if !allows_member(&issued, &member) {
+            return Err(R::Revoked);
+        }
+        let cached = self.with(|inner| {
+            if inner.store_unreadable
+                || inner.record.signed_out
+                || inner
+                    .record
+                    .owner
+                    .as_deref()
+                    .is_some_and(|owner| owner != account)
+                || inner.record.terminal_refusals.contains_key(account)
+            {
+                return Err(R::Forbidden);
+            }
+            match &inner.state.presence {
+                Presence::NeverSignedIn => {
+                    inner.record.owner = Some(account.into());
+                    inner.update(&self.watch, |next| {
+                        next.account_epoch += 1;
+                        next.owner = Some(account.into());
+                        next.presence = Presence::SignedIn {
+                            account_id: account.into(),
+                        };
+                    });
+                }
+                Presence::SignedIn { account_id } if account_id == account => {}
+                _ => return Err(R::Forbidden),
+            }
+            Ok(inner.record.signed_registries.get(account).cloned())
+        })?;
+        if let Some(cached) = cached {
+            self.receive_registry_snapshot(&cached).await?;
+        }
+        self.receive_registry_snapshot(issued_registry).await?;
+        self.with(|inner| {
+            let state = &inner.state;
+            if state.signed_in_account() != Some(account)
+                || state.revoked_installations.contains(&installation)
+                || state.signed_registry.as_ref().is_none_or(|r| {
+                    !allows_member(r, &member)
+                        || r.revision < issued.revision
+                        || (r.revision == issued.revision && r.grant != issued.grant)
+                })
+            {
+                return Err(R::Revoked);
+            }
+            if state
+                .membership
+                .as_ref()
+                .is_some_and(|known| known.verified.issued_at > member.issued_at)
+            {
+                return Ok(());
+            }
+            inner.update(&self.watch, |next| {
+                next.membership = Some(SignedMembership {
+                    token: super::membership_token(grant),
+                    verified: member,
+                });
+                next.enrollment = Enrollment::Enrolled;
+            });
+            Ok(())
+        })?;
+        self.push().await;
+        Ok(())
+    }
     pub async fn cloud_controller(&self) -> Result<CloudController<'_>, super::AccountMeshRefusal> {
         let signed = self.signed(None).await?;
         if self.state().current_membership(self.now()).is_none() {

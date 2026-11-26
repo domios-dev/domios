@@ -1,5 +1,4 @@
 use super::authentication::BootstrapResponder;
-use super::valid_endpoint;
 
 #[test]
 fn bootstrap_requires_the_creation_secret_and_a_fresh_session_binding() {
@@ -56,30 +55,16 @@ fn bootstrap_requires_the_creation_secret_and_a_fresh_session_binding() {
 }
 
 #[test]
-fn provider_origin_is_canonical_https_metadata() {
-    let header = "x-preview-token";
-    assert!(valid_endpoint("https://cloud.example.com:8443", header));
-    for origin in [
-        "http://cloud.example.com",
-        "https://127.0.0.1",
-        "https://10.0.0.1",
-        "https://[::1]",
-        "https://host.ts.net",
-        "https://service.localhost",
-        "https://localhost",
-        "https://example.com/other",
-        "https://user@example.com",
-        "https://example.com?token=x",
-        "https://example.com#fragment",
+fn direct_ingress_requires_public_ipv4_on_the_dedicated_port() {
+    for address in [
+        "127.0.0.1:7687",
+        "10.0.0.1:7687",
+        "100.64.1.2:7687",
+        "8.8.8.8:443",
     ] {
-        assert!(!valid_endpoint(origin, header));
+        assert!(!super::direct_address_allowed(address.parse().unwrap()));
     }
-    for header in [
-        "authorization",
-        "host",
-        "x-preview\r\nvalue",
-        "x-forwarded-for",
-    ] {
-        assert!(!valid_endpoint("https://cloud.example.com", header));
-    }
+    assert!(super::direct_address_allowed(
+        "8.8.8.8:7687".parse().unwrap()
+    ));
 }

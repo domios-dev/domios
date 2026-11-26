@@ -100,7 +100,7 @@ pub struct TransportError {
 }
 
 impl TransportError {
-    fn new(kind: TransportErrorKind, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: TransportErrorKind, detail: impl Into<String>) -> Self {
         Self {
             kind,
             detail: detail.into(),

@@ -553,6 +553,8 @@ pub enum RegistryRefusal {
     Replay,
     #[serde(rename = "nonce_reused")]
     NonceReused,
+    #[serde(rename = "apply_too_large")]
+    ApplyTooLarge,
     #[serde(rename = "cloud.machines")]
     CloudMachineLimit { limit: u32, active_count: u32 },
     #[serde(rename = "lease_required")]

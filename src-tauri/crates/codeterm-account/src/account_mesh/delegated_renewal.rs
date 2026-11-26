@@ -30,8 +30,7 @@ pub struct RenewalRequest {
 #[serde(deny_unknown_fields)]
 pub struct RenewalReply {
     pub membership: DetachedGrant,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_registry: Option<DetachedGrant>,
+    pub signed_registry: DetachedGrant,
 }
 
 fn eligible(state: &LifecycleState, target: &MeshTarget, now: u64) -> bool {
@@ -47,6 +46,8 @@ fn eligible(state: &LifecycleState, target: &MeshTarget, now: u64) -> bool {
         && state.signed_registry.as_ref().is_some_and(|registry| {
             registry.rows.iter().any(|row| {
                 row.active
+                    && row.presence == super::wire::RegistryPresence::Present
+                    && row.eligibility == super::wire::Eligibility::Eligible
                     && row.installation_id == target.installation_id
                     && row.key_id == target.key_id
                     && row.key_generation == target.key_generation
@@ -59,7 +60,7 @@ impl AccountMesh {
     pub async fn renew_cloud_membership(
         &self,
         target: &MeshTarget,
-    ) -> Result<DetachedGrant, AccountMeshRefusal> {
+    ) -> Result<RenewalReply, AccountMeshRefusal> {
         let signed = self.signed(None).await?;
         let now = self.now();
         if !eligible(&self.state(), target, now) {
@@ -91,7 +92,7 @@ impl AccountMesh {
         if state.account_epoch != signed.epoch || !eligible(&state, target, self.now()) {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        verify_membership(
+        let membership = verify_membership(
             &reply.membership,
             &signed.trust,
             &MembershipExpectation {
@@ -104,6 +105,20 @@ impl AccountMesh {
             self.now(),
         )
         .map_err(|_| AccountMeshRefusal::Invalid)?;
-        Ok(reply.membership)
+        self.receive_registry_snapshot(&reply.signed_registry)
+            .await?;
+        let state = self.state();
+        let now = self.now();
+        if state.account_epoch != signed.epoch || !eligible(&state, target, now) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        let matches_issued_slot = state
+            .signed_registry
+            .as_ref()
+            .is_some_and(|registry| registry.grant == reply.signed_registry);
+        if !matches_issued_slot || !membership.is_current(now) {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        Ok(reply)
     }
 }

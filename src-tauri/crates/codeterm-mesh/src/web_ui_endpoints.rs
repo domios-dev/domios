@@ -135,10 +135,6 @@ fn parse_lan_ip(value: &str) -> Option<IpAddr> {
 
 fn is_valid(endpoint: &WebUiEndpoint) -> bool {
     match endpoint {
-        WebUiEndpoint::ProviderHttps {
-            origin,
-            header_name,
-        } => crate::cloud_ingress::valid_endpoint(origin, header_name),
         WebUiEndpoint::TailscaleHttps { host, port } => {
             *port != 0
                 && host.len() <= 253
@@ -161,13 +157,11 @@ fn rank(endpoint: &WebUiEndpoint) -> u8 {
         WebUiEndpoint::TailscaleHttps { .. } => 0,
         WebUiEndpoint::TailscaleHttp { .. } => 1,
         WebUiEndpoint::LanHttp { .. } => 2,
-        WebUiEndpoint::ProviderHttps { .. } => 3,
     }
 }
 
 pub(crate) fn endpoint_base_url(endpoint: &WebUiEndpoint) -> String {
     match endpoint {
-        WebUiEndpoint::ProviderHttps { origin, .. } => origin.clone(),
         WebUiEndpoint::TailscaleHttps { host, port } if *port == 443 => {
             format!("https://{host}")
         }

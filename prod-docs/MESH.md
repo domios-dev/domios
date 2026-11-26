@@ -33,9 +33,13 @@ Windows Defender may ask to allow incoming connections for Domios on first use; 
 
 On Timeweb the system service starts at boot. Its public ingress listens on TCP 7687. Use the local command socket to inspect account status on the VPS. After enrollment the creation secret cannot authorize another Apply. If the controller loses the Apply reply, the result is unconfirmed until the enrolled installation confirms its identity.
 
-Cloud enrollment uses a dedicated ingress. A direct Timeweb endpoint carries a public IPv4 address and TCP port 7687. A preview endpoint carries an HTTPS origin and the name of its access header. The signed endpoint record contains only that metadata. Neither endpoint is a browser URL for opening the Domios UI.
+Cloud enrollment uses a dedicated listener on public IPv4 port 7687. The address in a signed endpoint record locates the installation. Peers discard older address records when a newer signed record arrives.
 
-The controller and cloud installation protect enrollment messages inside the connection with a Noise session bound to the one-time creation secret and installation proofs. A preview front that refuses its access header produces `provider_access_stale`. Cloud ingress does not serve the ordinary API, health or ping routes.
+After enrollment, each connection requires current account membership and signatures from both the installation key and the mesh key, bound to the encrypted session. A home peer can deliver an issuer-signed registry update or renew the cloud installation’s membership. Revocation and membership expiry close admission.
+
+An inbound-only machine is reachable only while one of your machines is online. An attached home peer receives queued announcements, Worker acknowledgements and reports, notifications and plan RPCs. A full queue returns `outbox_full`. If a write may have reached the peer and its receipt is lost, the record stays `delivery_unconfirmed` and is never replayed automatically.
+
+The controller and cloud installation protect enrollment messages with Noise and prove possession of their installation keys. Applying enrollment consumes the creation secret. The ordinary API, health and ping routes stay off the public listener.
 
 ## Admission and sign-out
 
@@ -196,4 +200,4 @@ Idle sleep, lease renewal, and wake-on-use: after the idle window (`mesh.cloud_i
 
 Cost visibility: `domios mesh peers`, `domios tab list`, and cloud spawn/dispatch receipts surface `kind=cloud`, provider, size, rate per hour, state, uptime, and a cost notice.
 
-<!-- revision: 87 -->
+<!-- revision: 88 -->

@@ -19,7 +19,11 @@ const REFUSALS: &[(&str, RegistryRefusal)] = &[
 
 #[test]
 fn enrollment_callable_details_preserve_each_typed_refusal() {
-    for &(reason, expected) in REFUSALS {
+    for (reason, expected) in REFUSALS
+        .iter()
+        .copied()
+        .chain([("apply_too_large", RegistryRefusal::ApplyTooLarge)])
+    {
         let failure = CallableFailure::Status {
             status: if reason == "enrollment_budget" {
                 429

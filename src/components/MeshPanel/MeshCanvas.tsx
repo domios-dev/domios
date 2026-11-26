@@ -254,14 +254,14 @@ export const MeshCanvas = memo(function MeshCanvas({
     if (!account || !footer) {
       const peer = peers.find((candidate) => candidate.instance_id === id);
       return peer ? <MachineFooter label={peer.pending ? "Waiting to pair" : peer.online ? "Connected" : "Unreachable"}
-        secondary={peer.pending ? "pairs when online" : peer.online ? ACCESS_LABELS[peer.access_level] : undefined}
+        secondary={peer.reachabilityHint ?? (peer.pending ? "pairs when online" : peer.online ? ACCESS_LABELS[peer.access_level] : undefined)}
         tone={peer.online ? "ok" : "warning"} version={peer.domios_version} build={peer.domios_build} /> : undefined;
     }
     const peer = peers.find((candidate) => candidate.instance_id === id);
     const name = footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
     return <PeerAccountFooterView peer={peer} footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
-      busy={account.busy === footer.key} actions={account.actions} hint={!offersTailscaleSetup(footer.row.status) ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
+      busy={account.busy === footer.key} actions={account.actions} hint={peer?.reachabilityHint ?? (!offersTailscaleSetup(footer.row.status) ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport))} />;
   };
 
   const machineCard = (p: PeerLayout) => {

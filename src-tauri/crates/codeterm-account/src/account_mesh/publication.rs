@@ -4,6 +4,27 @@ use super::state::{AccountMeshRefusal, Publication};
 use super::wire::{MeshEndpoint, MeshOperation, MeshResult};
 
 impl AccountMesh {
+    pub async fn reserve_endpoint_sequence(&self, epoch: u64) -> Result<u64, AccountMeshRefusal> {
+        let sequence = self.with(|inner| {
+            if !inner.is_current(epoch) || inner.store_unreadable {
+                return Err(AccountMeshRefusal::Cancelled);
+            }
+            let sequence = inner
+                .record
+                .endpoint_sequence
+                .checked_add(1)
+                .ok_or(AccountMeshRefusal::Unavailable)?;
+            inner.record.endpoint_sequence = sequence;
+            Ok(sequence)
+        })?;
+        self.persist_checked()
+            .await
+            .map_err(|_| AccountMeshRefusal::Unavailable)?;
+        if self.state().account_epoch != epoch {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        Ok(sequence)
+    }
     pub(super) async fn publish(
         &self,
         signed: &Signed,
@@ -72,21 +93,7 @@ impl AccountMesh {
             inner.gossiped_endpoint.as_ref() != Some(&(ready.clone(), membership.clone()))
         });
         if changed {
-            let sequence = self.with(|inner| {
-                if !inner.is_current(signed.epoch) {
-                    return Err(AccountMeshRefusal::Cancelled);
-                }
-                let sequence = inner
-                    .record
-                    .endpoint_sequence
-                    .checked_add(1)
-                    .ok_or(AccountMeshRefusal::Unavailable)?;
-                inner.record.endpoint_sequence = sequence;
-                Ok(sequence)
-            })?;
-            self.persist_checked()
-                .await
-                .map_err(|_| AccountMeshRefusal::Unavailable)?;
+            let sequence = self.reserve_endpoint_sequence(signed.epoch).await?;
             self.push().await;
             let installed = self
                 .ports

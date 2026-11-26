@@ -1,5 +1,6 @@
 pub mod controller;
 mod creation;
+mod renewal;
 #[cfg(test)]
 mod tests;
 use super::account::credentials::MESH_INSTALLATION_KEY;
@@ -8,8 +9,9 @@ use codeterm_account::{
     account_mesh::{
         cloud_enrollment::{
             fixed_bytes, member_identity, verify_apply, Apply, Discovery, ExpectedApply,
+            MAX_ENROLL_APPLY_BYTES,
         },
-        InstallationKey, MembershipTrust,
+        AccountMesh, InstallationKey, MembershipTrust,
     },
     protected_credentials::ProtectedCredentials,
     Account, FileInstallationStore, Identity, Secret,
@@ -37,6 +39,7 @@ enum Stored {
         account_id: String,
         discovery: Discovery,
         membership: DetachedGrant,
+        signed_registry: DetachedGrant,
     },
 }
 
@@ -48,11 +51,14 @@ enum Phase {
     Enrolled {
         account_id: String,
         membership: DetachedGrant,
+        signed_registry: DetachedGrant,
     },
     Unavailable,
 }
 
 struct Inner {
+    renewal: Arc<tokio::sync::Mutex<()>>,
+    lifecycle: tokio::sync::watch::Sender<Option<Arc<AccountMesh>>>,
     phase: Mutex<Phase>,
     store: ProtectedCredentials,
     root: std::path::PathBuf,
@@ -128,13 +134,17 @@ impl CloudInstallation {
                 account_id,
                 discovery: recorded,
                 membership,
+                signed_registry,
             } if recorded == discovery => Phase::Enrolled {
                 account_id,
                 membership,
+                signed_registry,
             },
             Stored::Enrolled { .. } => return Err(unavailable()),
         };
         Ok(Self(Arc::new(Inner {
+            renewal: Default::default(),
+            lifecycle: tokio::sync::watch::channel(None).0,
             phase: Mutex::new(phase),
             store,
             root: root.into(),
@@ -167,21 +177,64 @@ impl CloudInstallation {
     }
 
     pub fn identity(&self) -> Option<Identity> {
-        let phase = self.0.phase.lock();
-        let Phase::Enrolled {
-            account_id,
-            membership,
-        } = &*phase
-        else {
+        let now = codeterm_service_core::service::neighbor_account::now();
+        let live = self.0.lifecycle.borrow().as_ref()?.state();
+        let current = live.current_membership(now)?;
+        if live.revoked_installations.contains(self.installation_id())
+            || !matches!(&*self.0.phase.lock(), Phase::Enrolled { account_id, .. } if account_id == &current.verified.account_id)
+        {
             return None;
-        };
+        }
+        let membership =
+            codeterm_account::account_mesh::parse_membership_token(&current.token).ok()?;
         member_identity(
-            membership,
+            &membership,
             &self.0.trust,
-            account_id,
+            &current.verified.account_id,
             &self.0.discovery,
-            codeterm_service_core::service::neighbor_account::now(),
+            now,
         )
+    }
+
+    pub(super) async fn bind_lifecycle(
+        &self,
+        mesh: Arc<AccountMesh>,
+    ) -> Result<(), EnrollmentError> {
+        if !self.0.lifecycle.send_if_modified(|current| {
+            if current.is_some() {
+                return false;
+            }
+            *current = Some(mesh);
+            true
+        }) {
+            return Err(EnrollmentError::Unavailable);
+        }
+        self.publish().await
+    }
+
+    async fn publish(&self) -> Result<(), EnrollmentError> {
+        let (account, membership, registry) = match &*self.0.phase.lock() {
+            Phase::Bound { .. } => return Ok(()),
+            Phase::Unavailable => return Err(EnrollmentError::Unavailable),
+            Phase::Enrolled {
+                account_id,
+                membership,
+                signed_registry,
+            } => (
+                account_id.clone(),
+                membership.clone(),
+                signed_registry.clone(),
+            ),
+        };
+        let mesh = self
+            .0
+            .lifecycle
+            .borrow()
+            .clone()
+            .ok_or(EnrollmentError::Unavailable)?;
+        mesh.publish_cloud_membership(&account, &membership, &registry)
+            .await
+            .map_err(|_| EnrollmentError::Rejected)
     }
 
     fn apply(
@@ -219,6 +272,7 @@ impl CloudInstallation {
             account_id: membership.account_id.clone(),
             discovery: self.0.discovery.clone(),
             membership: apply.reply.membership.clone(),
+            signed_registry: apply.reply.signed_registry.clone(),
         };
         *state = Phase::Unavailable;
         drop(state);
@@ -226,6 +280,7 @@ impl CloudInstallation {
         *self.0.phase.lock() = Phase::Enrolled {
             account_id: membership.account_id,
             membership: apply.reply.membership,
+            signed_registry: apply.reply.signed_registry,
         };
         serde_json::to_vec(&serde_json::json!({"signed_in":true,"installation_id":self.0.discovery.cloud_installation_id})).map_err(|_|EnrollmentError::Unavailable)
     }
@@ -257,13 +312,6 @@ impl CloudIngressAuthority for CloudInstallation {
             _ => Err(IngressError::Rejected),
         }
     }
-    fn authorize_enrolled_peer(
-        &self,
-        _: &codeterm_mesh::account_mesh::transcript::Party,
-        _: &[u8; 32],
-    ) -> Result<(), IngressError> {
-        Err(IngressError::Rejected)
-    }
 }
 
 impl EnrollmentHandler for CloudInstallation {
@@ -277,15 +325,36 @@ impl EnrollmentHandler for CloudInstallation {
             if session.local_installation_key() != &self.0.signer.public_bytes() {
                 return Err(EnrollmentError::Rejected);
             }
+            let mut lifecycle = self.0.lifecycle.subscribe();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                lifecycle.wait_for(Option::is_some),
+            )
+            .await
+            .map_err(|_| EnrollmentError::Unavailable)?
+            .map_err(|_| EnrollmentError::Unavailable)?;
             let remote = *session.remote_installation_key();
             let binding = *session.channel_binding();
             match op {
                 EnrollmentOperation::Apply => {
+                    if payload.len() > MAX_ENROLL_APPLY_BYTES {
+                        return Err(EnrollmentError::InvalidFrame);
+                    }
                     let owner = self.clone();
                     let bytes = payload.to_vec();
-                    tokio::task::spawn_blocking(move || owner.apply(remote, binding, &bytes))
+                    let publisher = self.clone();
+                    // Once Apply starts, finish publication even if its connection closes.
+                    tokio::spawn(async move {
+                        let ack = tokio::task::spawn_blocking(move || {
+                            owner.apply(remote, binding, &bytes)
+                        })
                         .await
-                        .map_err(|_| EnrollmentError::Unavailable)?
+                        .map_err(|_| EnrollmentError::Unavailable)??;
+                        publisher.publish().await?;
+                        Ok(ack)
+                    })
+                    .await
+                    .map_err(|_| EnrollmentError::Unavailable)?
                 }
                 _ if !payload.is_empty() => Err(EnrollmentError::InvalidFrame),
                 op => {

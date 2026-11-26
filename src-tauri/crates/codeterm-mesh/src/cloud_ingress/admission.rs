@@ -45,6 +45,15 @@ pub struct EnrolledProof {
     mesh_signature: String,
 }
 
+impl EnrolledProof {
+    pub(super) fn presents(&self, grant: &codeterm_entitlements::DetachedGrant) -> bool {
+        serde_json::from_str::<codeterm_entitlements::DetachedGrant>(&self.membership)
+            .ok()
+            .as_ref()
+            == Some(grant)
+    }
+}
+
 pub struct VerifiedIngressPeer {
     local: Party,
     remote: Party,
@@ -142,6 +151,69 @@ impl MeshManager {
 }
 
 impl VerifiedIngressPeer {
+    pub(super) fn link(
+        &self,
+        mesh: &mut MeshManager,
+        proof: &EnrolledProof,
+    ) -> Result<(), AdmissionRefusal> {
+        self.check_memberships(mesh)?;
+        if let Some(record) = mesh.link_record(&self.remote.instance_id) {
+            if record.installation_id() != Some(self.remote.installation_id.as_str()) {
+                return Err(AdmissionRefusal::AuthRefused);
+            }
+            mesh.refresh_peer_membership(&self.remote.instance_id, &proof.membership);
+            return self.peer_for_dispatch(mesh, &self.binding).map(|_| ());
+        }
+        let descriptor = crate::account_mesh::protocol::PartyDescriptor {
+            party: self.remote.clone(),
+            instance_name: self.remote.instance_id.clone(),
+            api_port: 0,
+            addresses: Vec::new(),
+        };
+        mesh.admit_new_link(
+            &descriptor,
+            &[],
+            crate::account_mesh::SignedMembership {
+                token: proof.membership.clone(),
+                verified: self.remote_membership.clone(),
+            },
+            &self.local_membership.account_id,
+            &uuid::Uuid::new_v4().to_string(),
+        )?;
+        self.peer_for_dispatch(mesh, &self.binding).map(|_| ())
+    }
+
+    pub(super) fn remote_membership(&self) -> &VerifiedMembership {
+        &self.remote_membership
+    }
+
+    pub(super) fn local_id(&self) -> &str {
+        &self.local.installation_id
+    }
+
+    pub(super) fn same_admission(&self, next: &Self) -> bool {
+        self.local == next.local
+            && self.remote == next.remote
+            && self.binding == next.binding
+            && self.epoch == next.epoch
+            && self.access_epoch == next.access_epoch
+            && self.peer_grant_epoch == next.peer_grant_epoch
+            && Arc::ptr_eq(&self.authority, &next.authority)
+    }
+
+    pub async fn receive_registry_snapshot(
+        &self,
+        mesh: &crate::MeshState,
+        binding: &[u8; 32],
+        snapshot: &codeterm_entitlements::DetachedGrant,
+    ) -> Result<bool, AdmissionRefusal> {
+        self.peer_for_dispatch(&mesh.lock(), binding)?;
+        let applied = self.authority.receive_registry_snapshot(snapshot).await?;
+        // Applying the issuer's snapshot can revoke the sender or this installation.
+        self.peer_for_dispatch(&mesh.lock(), binding)?;
+        Ok(applied)
+    }
+
     fn check_memberships(&self, mesh: &MeshManager) -> Result<(), AdmissionRefusal> {
         let state = mesh.account_state();
         if state.account_epoch != self.epoch

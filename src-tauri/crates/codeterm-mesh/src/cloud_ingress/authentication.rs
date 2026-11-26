@@ -18,7 +18,6 @@ impl IngressReady {
 pub enum IngressError {
     Rejected,
     InvalidFrame,
-    ProviderAccessStale,
     Unavailable,
 }
 
@@ -27,7 +26,6 @@ impl IngressError {
         match self {
             Self::Rejected => "ingress_rejected",
             Self::InvalidFrame => "invalid_frame",
-            Self::ProviderAccessStale => "provider_access_stale",
             Self::Unavailable => "ingress_unavailable",
         }
     }
@@ -165,11 +163,6 @@ pub trait CloudIngressAuthority: Send + Sync {
     fn authorize_bootstrap_controller(
         &self,
         key: &[u8; 32],
-        binding: &[u8; 32],
-    ) -> Result<(), IngressError>;
-    fn authorize_enrolled_peer(
-        &self,
-        peer: &crate::account_mesh::transcript::Party,
         binding: &[u8; 32],
     ) -> Result<(), IngressError>;
 }

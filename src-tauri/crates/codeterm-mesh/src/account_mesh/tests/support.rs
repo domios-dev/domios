@@ -107,6 +107,11 @@ impl AccountMeshAuthority for FakeAuthority {
         Ok(format!("p|{}|{}", self.installation_id, hex(transcript)))
     }
 
+    fn verify_key_possession(&self, key: &str, digest: &[u8; 32], signature: &str) -> bool {
+        key.strip_prefix("key-")
+            .is_some_and(|id| signature == format!("p|{id}|{}", hex(digest)))
+    }
+
     fn verify_possession(
         &self,
         membership: &VerifiedMembership,

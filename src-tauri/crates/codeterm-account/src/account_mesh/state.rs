@@ -115,6 +115,8 @@ pub enum AccountMeshRefusal {
     Replay,
     #[serde(rename = "nonce_reused")]
     NonceReused,
+    #[serde(rename = "apply_too_large")]
+    ApplyTooLarge,
     #[serde(rename = "cloud.machines")]
     CloudMachineLimit { limit: u32, active_count: u32 },
     #[serde(rename = "lease_required")]
@@ -165,6 +167,7 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::Conflict => Self::Conflict,
             RegistryRefusal::Replay => Self::Replay,
             RegistryRefusal::NonceReused => Self::NonceReused,
+            RegistryRefusal::ApplyTooLarge => Self::ApplyTooLarge,
             RegistryRefusal::CloudMachineLimit {
                 limit,
                 active_count,
