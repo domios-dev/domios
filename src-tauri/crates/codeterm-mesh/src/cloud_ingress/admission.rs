@@ -142,6 +142,19 @@ impl MeshManager {
 }
 
 impl VerifiedIngressPeer {
+    pub async fn receive_registry_snapshot(
+        &self,
+        mesh: &crate::MeshState,
+        binding: &[u8; 32],
+        snapshot: &codeterm_entitlements::DetachedGrant,
+    ) -> Result<bool, AdmissionRefusal> {
+        self.peer_for_dispatch(&mesh.lock(), binding)?;
+        let applied = self.authority.receive_registry_snapshot(snapshot).await?;
+        // Applying the issuer's snapshot can revoke the sender or this installation.
+        self.peer_for_dispatch(&mesh.lock(), binding)?;
+        Ok(applied)
+    }
+
     fn check_memberships(&self, mesh: &MeshManager) -> Result<(), AdmissionRefusal> {
         let state = mesh.account_state();
         if state.account_epoch != self.epoch

@@ -125,7 +125,6 @@ pub const fn is_supported_relay_protocol(version: u16) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(tag = "transport", rename_all = "snake_case")]
 pub enum WebUiEndpoint {
-    ProviderHttps { origin: String, header_name: String },
     TailscaleHttps { host: String, port: u16 },
     TailscaleHttp { ip: IpAddr, port: u16 },
     LanHttp { ip: IpAddr, port: u16 },

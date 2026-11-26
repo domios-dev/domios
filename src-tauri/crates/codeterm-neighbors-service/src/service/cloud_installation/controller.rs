@@ -63,7 +63,7 @@ struct Applied {
 
 pub async fn enroll(
     service: &ServiceContext,
-    route: CloudRoute<'_>,
+    route: CloudRoute,
     binding: &CreationBinding,
     provider: &str,
     size: &str,

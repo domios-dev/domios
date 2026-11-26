@@ -24,10 +24,11 @@ pub struct RenewalRequest {
     controller_signature: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RenewalReply {
     pub membership: DetachedGrant,
+    pub signed_registry: DetachedGrant,
 }
 
 fn eligible(state: &LifecycleState, target: &MeshTarget, now: u64) -> bool {
@@ -55,7 +56,7 @@ impl AccountMesh {
     pub async fn renew_cloud_membership(
         &self,
         target: &MeshTarget,
-    ) -> Result<DetachedGrant, AccountMeshRefusal> {
+    ) -> Result<RenewalReply, AccountMeshRefusal> {
         let signed = self.signed(None).await?;
         let now = self.now();
         if !eligible(&self.state(), target, now) {
@@ -87,7 +88,7 @@ impl AccountMesh {
         if state.account_epoch != signed.epoch || !eligible(&state, target, self.now()) {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        verify_membership(
+        let membership = verify_membership(
             &reply.membership,
             &signed.trust,
             &MembershipExpectation {
@@ -100,6 +101,23 @@ impl AccountMesh {
             self.now(),
         )
         .map_err(|_| AccountMeshRefusal::Invalid)?;
-        Ok(reply.membership)
+        self.receive_registry_snapshot(&reply.signed_registry)
+            .await?;
+        let state = self.state();
+        let now = self.now();
+        if state.account_epoch != signed.epoch || !eligible(&state, target, now) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        let matches_issued_slot = state.signed_registry.as_ref().is_some_and(|registry| {
+            registry.grant == reply.signed_registry
+                && registry.rows.iter().any(|row| {
+                    row.target() == *target
+                        && row.membership_expires_at == Some(membership.expires_at)
+                })
+        });
+        if !matches_issued_slot || !membership.is_current(now) {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        Ok(reply)
     }
 }

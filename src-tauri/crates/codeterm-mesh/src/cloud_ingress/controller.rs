@@ -21,7 +21,7 @@ async fn read(socket: &mut ClientSocket) -> Result<Vec<u8>, IngressError> {
 }
 
 pub async fn connect_enrollment(
-    route: CloudRoute<'_>,
+    route: CloudRoute,
     creation_psk: &[u8; 32],
     controller_key: [u8; 32],
     sign: impl FnOnce(&ChannelProof) -> Result<[u8; 64], IngressError>,

@@ -44,6 +44,24 @@ async fn enrolled_ingress_requires_both_proofs_on_the_same_live_channel() {
     assert!(evidence
         .peer_for_dispatch(&b.mesh.lock(), &[18; 32])
         .is_err());
+    let snapshot = codeterm_entitlements::DetachedGrant {
+        payload: "registry".into(),
+        signature: "signature".into(),
+        key_id: "issuer".into(),
+        alg: "Ed25519".into(),
+    };
+    assert!(evidence
+        .receive_registry_snapshot(&b.mesh, &[18; 32], &snapshot)
+        .await
+        .is_err());
+    assert!(b.authority.snapshots.lock().is_empty());
+    assert_eq!(
+        evidence
+            .receive_registry_snapshot(&b.mesh, &binding, &snapshot)
+            .await,
+        Ok(true)
+    );
+    assert_eq!(b.authority.snapshots.lock().as_slice(), &[snapshot]);
     clock.store(START + MEMBERSHIP_TTL, Ordering::SeqCst);
     assert!(evidence
         .peer_for_dispatch(&b.mesh.lock(), &binding)

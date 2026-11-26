@@ -18,7 +18,6 @@ impl IngressReady {
 pub enum IngressError {
     Rejected,
     InvalidFrame,
-    ProviderAccessStale,
     Unavailable,
 }
 
@@ -27,7 +26,6 @@ impl IngressError {
         match self {
             Self::Rejected => "ingress_rejected",
             Self::InvalidFrame => "invalid_frame",
-            Self::ProviderAccessStale => "provider_access_stale",
             Self::Unavailable => "ingress_unavailable",
         }
     }

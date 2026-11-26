@@ -12,7 +12,6 @@ pub const MAX_ENDPOINT_RECORDS: usize = 256;
 pub enum EndpointAddress {
     DirectIngress { address: std::net::SocketAddrV4 },
     Tailnet { tailnet_ip: String, api_port: u16 },
-    ProviderHttps { origin: String, header_name: String },
 }
 
 impl EndpointAddress {
@@ -22,24 +21,19 @@ impl EndpointAddress {
                 tailnet_ip,
                 api_port,
             } => Some((tailnet_ip, *api_port)),
-            Self::ProviderHttps { .. } | Self::DirectIngress { .. } => None,
+            Self::DirectIngress { .. } => None,
         }
     }
 
     fn valid(&self) -> bool {
         match self {
             Self::DirectIngress { address } => {
-                address.port() == 7687
-                    && codeterm_util::network_host::public_ip((*address.ip()).into())
+                crate::cloud_ingress::direct_address_allowed(*address)
             }
             Self::Tailnet {
                 tailnet_ip,
                 api_port,
             } => *api_port != 0 && crate::types::is_tailscale_ip(tailnet_ip),
-            Self::ProviderHttps {
-                origin,
-                header_name,
-            } => crate::cloud_ingress::valid_endpoint(origin, header_name),
         }
     }
 }
@@ -233,6 +227,18 @@ impl MeshManager {
 
     pub fn has_endpoint_record(&self, installation_id: &str) -> bool {
         self.verified_endpoint_record(installation_id).is_some()
+    }
+
+    pub fn direct_ingress_address(&self, installation_id: &str) -> Option<std::net::SocketAddrV4> {
+        match self
+            .verified_endpoint_record(installation_id)?
+            .claim
+            .endpoint
+            .as_ref()?
+        {
+            EndpointAddress::DirectIngress { address } => Some(*address),
+            EndpointAddress::Tailnet { .. } => None,
+        }
     }
 
     pub fn endpoint_target(&self, installation_id: &str) -> Option<LinkTarget> {
