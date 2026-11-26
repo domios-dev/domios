@@ -312,6 +312,11 @@ impl MeshManager {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    pub fn set_inbound_only_for_test(&mut self, inbound_only: bool) {
+        self.inbound_only = inbound_only;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     pub fn insert_account_peer_with_installation_for_test(
         &mut self,
         installation_id: String,

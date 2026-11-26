@@ -412,6 +412,7 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
         Some(AuthenticatedAgent {
             instance_id: "home-agent-wake".into(),
             tab_id: agent_tab,
+            can_spawn: false,
         })
     );
 }

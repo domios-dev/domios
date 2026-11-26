@@ -177,7 +177,7 @@ impl CloudPeerControlPort for InstrumentedPeerControl {
         Ok(PeerBusySnapshot::default())
     }
 
-    async fn enter_drain(&self, record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
+    async fn enter_drain(&self, _record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
         Ok(DrainToken {
             token: "drain-1".into(),
             entered_at_ms: 1_000,

@@ -44,7 +44,7 @@ async fn cloud_mode_router_without_listener_serves_forwarded_tabs_and_send() {
     let (home_key, home_pub) = crown::generate_peer_keypair();
     {
         let mut mesh = cloud.mesh.lock();
-        mesh.inbound_only = true;
+        mesh.set_inbound_only_for_test(true);
         let mut home_peer = test_paired_peer("home-peer", "HomeMac");
         home_peer.public_key = home_pub;
         mesh.insert_account_peer_with_installation_for_test("home-inst".into(), home_peer);
