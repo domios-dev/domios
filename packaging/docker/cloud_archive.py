@@ -765,12 +765,17 @@ def restore_essentials_archive(
 
 
 def _cli_export_and_upload() -> int:
+    # Never accept export keys from environment or argv; read strictly from stdin JSON.
+    os.environ.pop("DOMIOS_EXPORT_ARCHIVE_KEY_HEX", None)
     raw = sys.stdin.read(65536)
     req = json.loads(raw) if raw.strip() else {}
-    key_hex = os.environ.pop("DOMIOS_EXPORT_ARCHIVE_KEY_HEX", None)
-    if not key_hex or len(key_hex.strip()) != 64:
-        raise ArchiveError("missing_key", "DOMIOS_EXPORT_ARCHIVE_KEY_HEX must be 64 hex chars")
-    owner_key = bytes.fromhex(key_hex.strip())
+    key_hex = req.pop("owner_key_hex", None)
+    if not isinstance(key_hex, str) or len(key_hex.strip()) != 64:
+        raise ArchiveError("missing_key", "owner_key_hex (64 hex chars) must be supplied on stdin")
+    try:
+        owner_key = bytes.fromhex(key_hex.strip())
+    except ValueError as exc:
+        raise ArchiveError("missing_key", "owner_key_hex is not valid hex") from exc
     home_dir = Path(req.get("home_dir") or os.environ.get("HOME") or "/var/lib/domios-cloud")
     archive_id = str(req["archive_id"])
     with tempfile.TemporaryDirectory(prefix="domios-export-run-") as tmp:

@@ -20,6 +20,8 @@ import urllib.parse
 DATA = pathlib.Path.home() / ".domios"
 SERVER = "/opt/domios/domios-server/domios-server"
 CLOUD_HOME = pathlib.Path("/var/lib/domios-cloud")
+CLOUD_RUNTIME_DIR = pathlib.Path("/run/domios-cloud")
+EXPORT_KEY_FILENAME = "export-archive.key"
 CLOUD_START = "/usr/local/bin/domios-cloud-start"
 CLOUD_PROFILE = pathlib.Path("/etc/domios-cloud-profile")
 CLOUD_USER = "node"
@@ -369,6 +371,42 @@ def stage_cloud_binding_pipe(env, *, strict=False):
     return 9
 
 
+def stage_export_archive_key(env, runtime_dir=None):
+    """Pops DOMIOS_EXPORT_* secrets from `env` before execve and stages a valid 64-hex export key
+    in a 0600 one-shot file inside `runtime_dir` (tmpfs /run/domios-cloud, owned by CLOUD_USER)."""
+    key_hex = env.pop("DOMIOS_EXPORT_ARCHIVE_KEY_HEX", None)
+    for var_name in list(env.keys()):
+        if var_name.startswith("DOMIOS_EXPORT_"):
+            env.pop(var_name, None)
+    target_dir = CLOUD_RUNTIME_DIR if runtime_dir is None else pathlib.Path(runtime_dir)
+    key_path = target_dir / EXPORT_KEY_FILENAME
+    if key_hex is None:
+        key_path.unlink(missing_ok=True)
+        return None
+    cleaned = key_hex.strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", cleaned):
+        key_path.unlink(missing_ok=True)
+        return None
+    target_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(target_dir, 0o700)
+    tmp_path = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(prefix=".export-key-", dir=target_dir)
+        tmp_path = pathlib.Path(tmp_name)
+        os.chmod(tmp_path, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(cleaned.encode("ascii"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp_path, key_path)
+        os.chmod(key_path, 0o600)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+    return key_path
+
+
 def run_fly_machines(args):
     if args:
         raise ValueError("Fly Machines entrypoint accepts no command arguments")
@@ -381,6 +419,9 @@ def run_fly_machines(args):
     if os.geteuid() == 0:
         os.chown(CLOUD_HOME, pw.pw_uid, pw.pw_gid)
         os.chmod(CLOUD_HOME, 0o700)
+        CLOUD_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        os.chown(CLOUD_RUNTIME_DIR, pw.pw_uid, pw.pw_gid)
+        os.chmod(CLOUD_RUNTIME_DIR, 0o700)
         drop_privileges(CLOUD_USER)
     os.umask(0o077)
     private(CLOUD_HOME, 0o700, directory=True)
@@ -449,6 +490,10 @@ def run_fly_machines(args):
         finally:
             if _downloaded_tmp is not None:
                 _downloaded_tmp.unlink(missing_ok=True)
+    # Stage one-shot export key into private 0600 tmpfs file and scrub all DOMIOS_EXPORT_* / DOMIOS_RESTORE_* vars.
+    stage_export_archive_key(os.environ)
+    for _stray in [k for k in os.environ if k.startswith(("DOMIOS_RESTORE_", "DOMIOS_EXPORT_"))]:
+        os.environ.pop(_stray, None)
     data_dir = CLOUD_HOME / data_name
     if not data_dir.exists() and not data_dir.is_symlink():
         os.mkdir(data_dir, 0o700)

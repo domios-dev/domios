@@ -297,7 +297,7 @@ class CloudArchiveTests(unittest.TestCase):
                 cloud_home, _, expected_head, _ = make_fixture_home(root)
                 upload_url = f"http://127.0.0.1:{port}/cloud-archives/u1/cm_http/gen-1/arc_http.enc?token={expected_token}"
                 env = dict(os.environ)
-                env["DOMIOS_EXPORT_ARCHIVE_KEY_HEX"] = key.hex()
+                env.pop("DOMIOS_EXPORT_ARCHIVE_KEY_HEX", None)
                 proc = subprocess.run(
                     [sys.executable, str(REPO / "packaging/docker/cloud_archive.py"), "export-and-upload"],
                     input=json.dumps({
@@ -307,6 +307,7 @@ class CloudArchiveTests(unittest.TestCase):
                         "machine_id": "cm_http",
                         "generation": 1,
                         "upload_url": upload_url,
+                        "owner_key_hex": key.hex(),
                     }),
                     text=True,
                     capture_output=True,

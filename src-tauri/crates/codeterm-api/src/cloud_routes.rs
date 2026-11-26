@@ -606,10 +606,51 @@ struct PeerExportArchiveBody {
     max_archive_bytes: Option<u64>,
 }
 
+struct ZeroizedBytes(Vec<u8>);
+
+impl Drop for ZeroizedBytes {
+    fn drop(&mut self) {
+        for byte in &mut self.0 {
+            // SAFETY: byte is a valid mutable reference to owned memory in `self.0`.
+            unsafe {
+                std::ptr::write_volatile(byte, 0);
+            }
+        }
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Reads the one-shot 0600 export key staged by `container.py` in `/run/domios-cloud/export-archive.key`,
+/// immediately unlinks the file so a second export without a new delivery refuses with `missing_key`,
+/// validates it is 64 hex chars, and wraps it in `ZeroizedBytes`.
+fn consume_one_shot_export_key(runtime_dir: &std::path::Path) -> Result<ZeroizedBytes, CloudError> {
+    let key_path = runtime_dir.join("export-archive.key");
+    let raw = std::fs::read(&key_path).map_err(|_| {
+        CloudError::ProviderUnavailable("missing_key: one-shot export key not staged".into())
+    })?;
+    // Unlink immediately after reading so the key is strictly single-use even if validation or export fails.
+    let _ = std::fs::remove_file(&key_path);
+    let mut raw_guard = ZeroizedBytes(raw);
+    let trimmed = std::str::from_utf8(&raw_guard.0)
+        .map(str::trim)
+        .unwrap_or("");
+    let valid_hex = trimmed.len() == 64 && trimmed.bytes().all(|b| b.is_ascii_hexdigit());
+    if !valid_hex {
+        drop(raw_guard);
+        return Err(CloudError::ProviderUnavailable(
+            "missing_key: invalid one-shot export key format".into(),
+        ));
+    }
+    let cleaned = ZeroizedBytes(trimmed.as_bytes().to_vec());
+    raw_guard.0.iter_mut().for_each(|b| *b = 0);
+    drop(raw_guard);
+    Ok(cleaned)
+}
+
 /// Authenticated controller/Noise peer endpoint invoked during hot->cold archival.
-/// Enters drain first (refusing while work runs), runs `cloud_archive.py export-and-upload`
-/// passing request metadata on stdin (never argv) and reading the ephemeral encryption key
-/// solely from the Fly secret environment (`DOMIOS_EXPORT_ARCHIVE_KEY_HEX`).
+/// Enters drain first (refusing while work runs), consumes the one-shot 0600 export key from
+/// tmpfs (`/run/domios-cloud/export-archive.key`), unlinks and zeroizes it, and passes request
+/// metadata + key strictly on stdin (never in env or argv) to `cloud_archive.py export-and-upload`.
 async fn peer_export_archive(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -627,25 +668,43 @@ async fn peer_export_archive(
         .try_enter_drain(&local_id, snapshot, now_ms)
         .map_err(error_response)?;
 
+    let runtime_dir = std::path::PathBuf::from(
+        std::env::var("DOMIOS_CLOUD_RUNTIME_DIR").unwrap_or_else(|_| "/run/domios-cloud".into()),
+    );
+    let key_guard = match consume_one_shot_export_key(&runtime_dir) {
+        Ok(key) => key,
+        Err(error) => {
+            state.svc.cloud_machines().local_drain_gate().reopen();
+            return Err(error_response(error));
+        }
+    };
+
     let script_path = std::env::var("DOMIOS_CLOUD_ARCHIVE_SCRIPT")
         .unwrap_or_else(|_| "/usr/local/lib/domios-cloud-archive.py".into());
     let python_bin = std::env::var("DOMIOS_CLOUD_PYTHON").unwrap_or_else(|_| "python3".into());
-    let stdin_payload = serde_json::json!({
-        "archive_id": body.archive_id,
-        "owner_uid": body.owner_uid,
-        "machine_id": body.machine_id,
-        "generation": body.generation,
-        "revision": body.revision.unwrap_or(1),
-        "upload_url": body.upload_url,
-        "max_archive_bytes": body.max_archive_bytes.unwrap_or(512 * 1024 * 1024),
-    })
-    .to_string();
+    let key_str = std::str::from_utf8(&key_guard.0).unwrap_or("");
+    let stdin_payload = ZeroizedBytes(
+        serde_json::json!({
+            "archive_id": body.archive_id,
+            "owner_uid": body.owner_uid,
+            "machine_id": body.machine_id,
+            "generation": body.generation,
+            "revision": body.revision.unwrap_or(1),
+            "upload_url": body.upload_url,
+            "max_archive_bytes": body.max_archive_bytes.unwrap_or(512 * 1024 * 1024),
+            "owner_key_hex": key_str,
+        })
+        .to_string()
+        .into_bytes(),
+    );
+    drop(key_guard);
 
     let run_result = async {
         use tokio::io::AsyncWriteExt;
         let mut child = tokio::process::Command::new(&python_bin)
             .arg(&script_path)
             .arg("export-and-upload")
+            .env_remove("DOMIOS_EXPORT_ARCHIVE_KEY_HEX")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -653,10 +712,11 @@ async fn peer_export_archive(
             .map_err(|e| CloudError::Internal(format!("spawn archive helper: {e}")))?;
         if let Some(mut stdin) = child.stdin.take() {
             stdin
-                .write_all(stdin_payload.as_bytes())
+                .write_all(&stdin_payload.0)
                 .await
                 .map_err(|e| CloudError::Internal(format!("write archive stdin: {e}")))?;
         }
+        drop(stdin_payload);
         let output = child
             .wait_with_output()
             .await
