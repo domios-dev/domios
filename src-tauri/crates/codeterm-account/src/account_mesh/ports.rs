@@ -12,6 +12,13 @@ pub type RegistryResult<T> = std::result::Result<T, RegistryRefusal>;
 /// Server registry seam; the HTTP adapter binds the reviewed callable names.
 #[async_trait]
 pub trait MeshRegistry: Send + Sync {
+    async fn renew_cloud(
+        &self,
+        _session: &Session,
+        _request: &super::delegated_renewal::RenewalRequest,
+    ) -> RegistryResult<super::delegated_renewal::RenewalReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     fn handles_call_deadline(&self) -> bool {
         false
     }

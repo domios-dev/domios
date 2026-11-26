@@ -3,6 +3,7 @@ pub mod mem_backend;
 pub mod startup;
 pub use composition::ComposedService;
 pub mod bootstrap;
+pub use codeterm_service_core::mesh::cloud_ingress;
 mod bundle;
 pub mod headless_update;
 pub mod launch;

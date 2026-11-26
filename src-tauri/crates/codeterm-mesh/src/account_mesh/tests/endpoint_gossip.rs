@@ -33,7 +33,7 @@ fn record(machine: &Machine, sequence: u64) -> SignedEndpointRecord {
         .clone();
     manager
         .sign_endpoint_record(
-            Some(EndpointAddress {
+            Some(EndpointAddress::Tailnet {
                 tailnet_ip: machine.ip.clone(),
                 api_port: machine.port,
             }),
@@ -221,4 +221,30 @@ fn endpoint_gossip_membership_revocation_and_key_changes_invalidate_cached_targe
     b.mesh.lock().apply_account_state(state);
     assert!(b.mesh.lock().endpoint_target(&a.installation_id).is_none());
     assert!(b.mesh.lock().receive_endpoint_record(signed).is_err());
+}
+
+#[test]
+fn provider_endpoint_requires_signed_metadata_and_stays_out_of_legacy_http_dialing() {
+    let clock = clock();
+    let (a, b) = (machine(1, &clock), machine(2, &clock));
+    admit(&[&a, &b]);
+    let token = record(&a, 1).claim.membership;
+    let endpoint = EndpointAddress::ProviderHttps {
+        origin: "https://preview.example.com".into(),
+        header_name: "x-preview-token".into(),
+    };
+    let record = a
+        .mesh
+        .lock()
+        .sign_endpoint_record(Some(endpoint), 2, &token)
+        .unwrap();
+    assert!(b
+        .mesh
+        .lock()
+        .receive_endpoint_record(record.clone())
+        .unwrap());
+    assert!(b.mesh.lock().endpoint_target(&a.installation_id).is_none());
+    let mut forged = record;
+    forged.claim.endpoint = None;
+    assert!(b.mesh.lock().verify_endpoint_record(&forged).is_err());
 }
