@@ -198,6 +198,10 @@ pub struct CloudUsageReply {
     pub currency: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub period_end_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_min_cents: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_max_cents: Option<u64>,
 }
 
 /// Typed refusal detail matching `shared/cloud-provisioning.ts::CloudProvisioningRefusal`.

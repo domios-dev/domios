@@ -67,6 +67,22 @@ pub(super) fn authenticated_local_caller(
     Ok((origin, agent))
 }
 
+pub(super) fn signed_caller_token(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<
+    (
+        AuthenticatedOrigin,
+        Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+        String,
+    ),
+    (StatusCode, String),
+> {
+    let (origin, agent) = authenticated_local_caller(state, headers)?;
+    let token = sign(state, origin, agent.as_ref())?;
+    Ok((origin, agent, token))
+}
+
 fn signed_token_for_local_caller(
     state: &AppState,
     headers: &HeaderMap,

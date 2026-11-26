@@ -320,14 +320,6 @@ fn spawn_registration_from_relay(
     ))
 }
 
-pub(crate) fn sign_caller(
-    state: &AppState,
-    origin: crate::auth::AuthenticatedOrigin,
-    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
-) -> Result<String, (StatusCode, String)> {
-    origin::sign(state, origin, agent)
-}
-
 pub async fn mesh_relay_to_peer(
     AxumState(state): AxumState<AppState>,
     Extension(identity): Extension<crate::auth::CallerIdentity>,

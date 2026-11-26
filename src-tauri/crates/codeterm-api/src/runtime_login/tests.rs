@@ -288,6 +288,7 @@ async fn runtime_login_get_and_all_post_actions_require_owner_or_full_peer_autho
     let full_agent = AuthenticatedAgent {
         instance_id: "peer-full".into(),
         tab_id: "remote-agent-tab".into(),
+        can_spawn: false,
     };
     let full_agent_get = sign_request_with_agent(
         &full_priv,
