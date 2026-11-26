@@ -1,44 +1,51 @@
-import { useCallback } from "react";
-import { MonitorUp } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { createNoticePublisher } from "../../lib/notices";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
-import { LOCAL_MACHINE_ID } from "../../lib/machinePlacement";
-import { useMachinePlacementInventory } from "../shared/useMachinePlacementInventory";
-import { MachinePlacementMenu } from "../shared/MachinePlacement";
+import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { useMultiplexer } from "../../store/multiplexer/hooks";
-import type { PairedGeneral } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { remotePeerActionEligibility } from "./remoteSidebarActionsModel";
 import { SidebarWorkspaceTabs, type SidebarWorkspaceTabsProps } from "./SidebarWorkspaceTabs";
-import { setSidebarMachineFilter, useSidebarMachineFilter } from "./sidebarMachineFilter";
+import { useSidebarMachineFilter } from "./sidebarMachineFilter";
 
-interface GeneralWorkspaceTabsProps extends Omit<SidebarWorkspaceTabsProps, "onNewSession" | "onOpenRemoteTab" | "newGeneralSessionMenu"> {
+interface GeneralWorkspaceTabsProps extends Omit<
+  SidebarWorkspaceTabsProps,
+  "onNewSession" | "newSessionTitle" | "newSessionDisabledReason"
+> {
   providerId?: string;
   generalCwd: string | null;
-  viewedPeer?: PairedGeneral | null;
 }
 
 export function GeneralWorkspaceTabs({
   providerId,
   generalCwd,
-  viewedPeer = null,
   newSessionDisabled,
   ...props
 }: GeneralWorkspaceTabsProps) {
-  const inventory = useMachinePlacementInventory();
   const machineFilter = useSidebarMachineFilter();
-  const { spawnAgentTab, selectTabByTab, upsertToast } = useMultiplexer();
-  const createOnMachine = useCallback(async (machineId: string) => {
-    const machine = inventory.choices?.find((choice) => choice.id === machineId);
-    if (!machine || machine.unavailableReason || newSessionDisabled || (machine.local && !generalCwd)) return;
-    const stayOnPeer = typeof machineFilter === "object" && machineFilter.peerId === machine.id;
+  const browseTarget = useWorkspaceBrowseTarget();
+  const { generals, refreshPeerInventory } = usePairedWorkspaceInventory();
+  const { spawnAgentTab, upsertToast } = useMultiplexer();
+  const [spawningRemote, setSpawningRemote] = useState(false);
+  const spawningRemoteRef = useRef(false);
+
+  const remotePeerId = typeof machineFilter === "object" ? machineFilter.peerId : null;
+  const remotePeer = remotePeerId ? generals.find((peer) => peer.peerId === remotePeerId) : undefined;
+  const remotePeerName = remotePeer?.name ?? (browseTarget?.id === remotePeerId ? browseTarget.name : undefined) ?? "Machine";
+  const remoteEligibility = remotePeerId ? remotePeerActionEligibility(remotePeer?.availability) : null;
+
+  const createOnRemotePeer = useCallback(async () => {
+    if (!remotePeerId || !remoteEligibility?.allowed || newSessionDisabled || spawningRemoteRef.current) return;
+    spawningRemoteRef.current = true;
+    setSpawningRemote(true);
     try {
       const created = await spawnAgentTab(
         props.workspace.id,
         providerId ?? defaultSpawnProviderId(),
-        machine.local ? generalCwd ?? undefined : undefined,
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -46,11 +53,9 @@ export function GeneralWorkspaceTabs({
         undefined,
         undefined,
         undefined,
-        machine.local ? undefined : machine.id,
-        undefined,
-        machine.local || stayOnPeer ? undefined : () => setSidebarMachineFilter("all"),
+        remotePeerId,
       );
-      if (created && machine.local) await selectTabByTab(created.workspaceId, created.tabId).catch(() => {});
+      if (created) refreshPeerInventory?.(remotePeerId);
     } catch (error) {
       if (isWorkspaceCwdRefusal(error) || isFreeLimitRefusal(error)) return;
       createNoticePublisher({ upsertToast })({
@@ -62,46 +67,43 @@ export function GeneralWorkspaceTabs({
         detail: spawnErrorMessage(error),
         severity: "Error",
       });
+    } finally {
+      spawningRemoteRef.current = false;
+      setSpawningRemote(false);
     }
-  }, [generalCwd, inventory.choices, machineFilter, newSessionDisabled, props.workspace.id, providerId, selectTabByTab, spawnAgentTab, upsertToast]);
+  }, [
+    newSessionDisabled,
+    props.workspace.id,
+    providerId,
+    refreshPeerInventory,
+    remoteEligibility?.allowed,
+    remotePeerId,
+    spawnAgentTab,
+    upsertToast,
+  ]);
 
-  const machineMenu = <MachinePlacementMenu
-    choices={inventory.choices}
-    value={LOCAL_MACHINE_ID}
-    onChange={(machineId) => { void createOnMachine(machineId); }}
-    menuLabel="New General session on"
-    header={<div className="ct-menu-head"><div className="truncate px-2 pt-1.5 pb-1 text-[13px] font-semibold text-[var(--ct-fg)]">New General session on</div></div>}
-    disabled={newSessionDisabled}
-    disabledLocal={!generalCwd}
-    testId="new-general-session-machine"
-    trigger={<button type="button" aria-label="New session on another machine" title="New session on another machine"
-      disabled={newSessionDisabled}
-      className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] disabled:opacity-40 ${props.touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
-      <MonitorUp size={12} strokeWidth={1.5} />
-    </button>}
-  />;
-  const viewedPeerEligibility = viewedPeer ? remotePeerActionEligibility(viewedPeer.availability) : null;
+  const effectiveDisabled = remotePeerId
+    ? Boolean(newSessionDisabled) || !remoteEligibility?.allowed || spawningRemote
+    : Boolean(newSessionDisabled) || !generalCwd;
+
+  const newSessionDisabledReason = remotePeerId && !newSessionDisabled && remoteEligibility && !remoteEligibility.allowed
+    ? `${remotePeerName} is ${remoteEligibility.reason}`
+    : undefined;
+
+  const newSessionTitle = remotePeerId
+    ? remoteEligibility && !remoteEligibility.allowed
+      ? `New session unavailable while ${remotePeerName} is ${remoteEligibility.reason}`
+      : `New session on ${remotePeerName}`
+    : undefined;
 
   return <SidebarWorkspaceTabs
     {...props}
-    showNewSessionWhenFiltered={Boolean(viewedPeer)}
-    newSessionDisabled={newSessionDisabled || (viewedPeer ? !viewedPeerEligibility?.allowed : !generalCwd)}
-    newSessionTitle={viewedPeer
-      ? viewedPeerEligibility?.allowed
-        ? `New General session on ${viewedPeer.name}`
-        : `New session unavailable: ${viewedPeerEligibility?.reason ?? "offline"}`
-      : undefined}
-    newGeneralSessionMenu={viewedPeer ? undefined : machineMenu}
+    newSessionDisabled={effectiveDisabled}
+    newSessionTitle={newSessionTitle}
+    newSessionDisabledReason={newSessionDisabledReason}
     onNewSession={() => {
-      if (viewedPeer) {
-        if (newSessionDisabled || !viewedPeerEligibility?.allowed) return;
-        openNewSessionPicker({
-          workspaceId: props.workspace.id,
-          workspaceCwd: null,
-          section: "general",
-          remotePeerId: viewedPeer.peerId,
-          remoteMachineName: viewedPeer.name,
-        });
+      if (remotePeerId) {
+        void createOnRemotePeer();
         return;
       }
       if (newSessionDisabled || !generalCwd) return;

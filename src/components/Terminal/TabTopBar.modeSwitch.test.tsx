@@ -159,6 +159,10 @@ it.each([
     const identity = bar?.querySelector<HTMLElement>(".ct-tab-top-bar__identity");
     const switcher = identity?.querySelector<HTMLElement>('[data-testid="tab-mode-switch"]');
     expect(switcher).not.toBeNull();
+    expect(bar?.querySelector('[data-testid="remote-viewer-pill"]')).toBeNull();
+    if (tab.remote_peer_id) {
+      expect(identity?.querySelector(".ct-tab-header-title__subtitle")?.textContent).toContain("·");
+    }
 
     const switcherStyle = getComputedStyle(switcher!);
     const switcherWidth = resolvePxLength(switcherStyle.width, switcher!);

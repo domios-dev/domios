@@ -76,9 +76,6 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
   if (typeof machineFilter === "object" && !viewers.some(({ peer }) => peer.peerId === machineFilter.peerId)
     && !sessionTabs.some(tab => tab.remote_peer_id === machineFilter.peerId && isSidebarTabVisible(tab))) return null;
 
-  const viewedPeer = typeof machineFilter === "object"
-    ? pairedGenerals.find((peer) => peer.peerId === machineFilter.peerId) ?? null
-    : null;
   const closeObserved = actions.closeObservedTab ?? actions.closeTab;
 
   return (
@@ -93,7 +90,6 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         workspace={workspace}
         providerId={providerId}
         generalCwd={generalCwd}
-        viewedPeer={viewedPeer}
         observedRows={viewers.map(({ peer, session, attached }, index) => (
           <TabItem
             key={session.viewerId}

@@ -17,8 +17,9 @@ use codeterm_service_core::{
     multiplexer::state::MultiplexerState,
     service::{
         cloud_machines::{
-            CloudError, CloudPromoRedemption, CloudProvisioningPort, CloudSleepMode,
-            CloudUsageSummary, ProvisionedLease, ProvisionedMachine, ProvisioningCreateRequest,
+            CloudError, CloudMachineController, CloudMachineStore, CloudPromoRedemption,
+            CloudProvisioningPort, CloudSleepMode, CloudUsageSummary, ProvisionedLease,
+            ProvisionedMachine, ProvisioningCreateRequest, SystemClock,
         },
         test_fixture::ServiceFixture,
     },
@@ -284,6 +285,13 @@ async fn cloud_peer_control_routes_enforce_owner_and_full_peer_authority_only() 
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
+    state
+        .svc
+        .install_cloud_machines_for_test(Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(fixture.temp.path().join("cloud_machines.json")),
+            "test-peer-auth".into(),
+            Arc::new(SystemClock),
+        )));
     state.config.lock().api.token = Some("owner-secret".into());
 
     let agent_token = state
@@ -472,6 +480,13 @@ async fn cloud_peer_idle_counts_only_local_owner_and_full_peer_viewers() {
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let state = crate::test_support::app_state(&fixture);
+    state
+        .svc
+        .install_cloud_machines_for_test(Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(fixture.temp.path().join("cloud_machines.json")),
+            "test-peer-viewers".into(),
+            Arc::new(SystemClock),
+        )));
     state.config.lock().api.token = Some("owner-secret".into());
 
     let (full_priv, full_pub) = generate_peer_keypair();
