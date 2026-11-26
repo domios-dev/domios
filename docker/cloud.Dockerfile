@@ -40,7 +40,9 @@ LABEL org.opencontainers.image.revision=$SOURCE_SHA org.domios.archive-source=$A
 RUN case "$ARCHIVE_SOURCE" in ci-smoke) echo qa ;; signed-release) echo release ;; *) exit 1 ;; esac > /etc/domios-cloud-profile
 LABEL org.domios.minimum-memory-bytes="2147483648"
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git python3 libssl3t64 libdbus-1-3 libgomp1 libatomic1 \
+    ca-certificates git python3 python3-pip libssl3t64 libdbus-1-3 libgomp1 libatomic1 \
+    && pip3 install --no-cache-dir --break-system-packages cryptography==44.0.0 \
+    && apt-get purge -y --auto-remove python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global @openai/codex@0.172.0 @anthropic-ai/claude-code@2.1.332 opencode-ai@1.19.6 \
     && npm cache clean --force \
@@ -48,6 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=assets /verified/ /opt/domios/
 COPY --from=assets /models/ /opt/domios-models/
 COPY packaging/docker/container.py /usr/local/lib/domios-container.py
+COPY packaging/docker/cloud_archive_crypto.py /usr/local/lib/cloud_archive_crypto.py
 COPY packaging/docker/cloud_archive.py /usr/local/lib/domios-cloud-archive.py
 COPY docker/cloud-config.toml /usr/local/share/domios-container.toml
 COPY --chmod=0755 docker/domios-cloud-start /usr/local/bin/domios-cloud-start

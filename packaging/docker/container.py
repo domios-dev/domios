@@ -400,12 +400,15 @@ def run_fly_machines(args):
     if data_name is None:
         raise RuntimeError(f"Unknown cloud profile: {profile}")
     # Safe cold-wake / recoverable-recreate restore BEFORE starting daemon or publishing peer-ready.
+    # Scrub ALL ephemeral restore/export secrets from env before execve so /proc/<pid>/environ never retains them.
     restore_archive = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_PATH", None)
+    restore_url = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_URL", None)
+    restore_sha256 = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_SHA256", None)
     restore_key_hex = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_KEY_HEX", None)
     restore_uid = os.environ.pop("DOMIOS_RESTORE_OWNER_UID", None)
     restore_machine = os.environ.pop("DOMIOS_RESTORE_MACHINE_ID", None)
     restore_gen_raw = os.environ.pop("DOMIOS_RESTORE_GENERATION", None)
-    if restore_archive:
+    if restore_archive or restore_url:
         if not (restore_key_hex and restore_uid and restore_machine):
             raise RuntimeError("Incomplete cold-restore archive binding environment")
         import importlib.util as _ilu
@@ -417,16 +420,35 @@ def run_fly_machines(args):
         sys.modules[_spec.name] = _arc
         _spec.loader.exec_module(_arc)
         _gen = int(restore_gen_raw) if restore_gen_raw else None
-        _res = _arc.restore_essentials_archive(
-            pathlib.Path(restore_archive),
-            CLOUD_HOME,
-            owner_key=bytes.fromhex(restore_key_hex),
-            requester_uid=restore_uid,
-            target_machine_id=restore_machine,
-            expected_generation=_gen,
-        )
-        if not _res.recovery_ready:
-            raise RuntimeError(f"Cold restore incomplete: {_res.missing_or_partial}")
+        _downloaded_tmp = None
+        try:
+            if restore_url and not restore_archive:
+                _fd, _tmp_name = tempfile.mkstemp(prefix=".domios-restore-", suffix=".enc", dir=CLOUD_HOME)
+                os.close(_fd)
+                _downloaded_tmp = pathlib.Path(_tmp_name)
+                os.chmod(_downloaded_tmp, 0o600)
+                _arc.download_encrypted_archive(
+                    restore_url,
+                    _downloaded_tmp,
+                    expected_sha256=restore_sha256 or None,
+                )
+                _src_archive = _downloaded_tmp
+            else:
+                _src_archive = pathlib.Path(restore_archive)
+            _res = _arc.restore_essentials_archive(
+                _src_archive,
+                CLOUD_HOME,
+                owner_key=bytes.fromhex(restore_key_hex),
+                requester_uid=restore_uid,
+                target_machine_id=restore_machine,
+                expected_generation=_gen,
+                expected_ciphertext_sha256=restore_sha256 or None,
+            )
+            if not _res.recovery_ready:
+                raise RuntimeError(f"Cold restore incomplete: {_res.missing_or_partial}")
+        finally:
+            if _downloaded_tmp is not None:
+                _downloaded_tmp.unlink(missing_ok=True)
     data_dir = CLOUD_HOME / data_name
     if not data_dir.exists() and not data_dir.is_symlink():
         os.mkdir(data_dir, 0o700)

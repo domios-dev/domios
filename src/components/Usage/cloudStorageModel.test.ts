@@ -7,14 +7,14 @@ import {
 
 describe("cloudStorageModel", () => {
   const sampleSummary: CloudStorageUsageSummaryWire = {
-    hot_gb_month_rate_cents: 15,
+    hot_gb_month_rate_cents: 30,
     hot_days: 14,
     purge_days: 90,
     purge_warning_days: [7, 1],
     cold_archive_included: true,
     total_allocated_gb: 10,
     total_used_bytes: Math.round(9.9 * 1024 ** 3),
-    total_hot_monthly_cost_cents: 150,
+    total_hot_monthly_cost_cents: 300,
     machines: [
       {
         machine_id: "cm_hot_1",
@@ -22,8 +22,8 @@ describe("cloudStorageModel", () => {
         allocated_gb: 10,
         used_bytes: Math.round(9.9 * 1024 ** 3),
         used_gb: 9.9,
-        hot_monthly_cost_cents: 150,
-        hot_accrued_cents: 70,
+        hot_monthly_cost_cents: 300,
+        hot_accrued_cents: 140,
         cold_included: true,
         stopped_at: 1_795_700_000,
         hot_until_at: 1_795_700_000 + 14 * 86_400,
@@ -71,8 +71,8 @@ describe("cloudStorageModel", () => {
   it("projects per-machine disk usage, retention tier/deadlines, hot cost, cold inclusion, and local disk-full", () => {
     const view = projectCloudStorageMeter(sampleSummary, "USD");
     expect(view.totalAllocatedGb).toBe(10);
-    expect(view.totalHotMonthlyCostLabel).toBe("$1.50/mo");
-    expect(view.hotRateLabel).toBe("$0.15/GB-month");
+    expect(view.totalHotMonthlyCostLabel).toBe("$3.00/mo");
+    expect(view.hotRateLabel).toBe("$0.30/GB-month");
     expect(view.coldPolicyLabel).toBe("14d hot -> 90d cold (included)");
     expect(view.anyMachineDiskFull).toBe(true);
 
@@ -80,7 +80,7 @@ describe("cloudStorageModel", () => {
     expect(hotRow.tierLabel).toBe("Hot volume");
     expect(hotRow.usedLabel).toBe("9.90 GB / 10 GB");
     expect(hotRow.utilizationPct).toBe(99);
-    expect(hotRow.hotMonthlyCostLabel).toBe("$1.50/mo");
+    expect(hotRow.hotMonthlyCostLabel).toBe("$3.00/mo");
     expect(hotRow.diskFullLocal).toBe(true);
     expect(hotRow.canUpgradeVolume).toBe(true);
     expect(hotRow.retentionDeadlineLabel).toBe("Moves to cold archive");

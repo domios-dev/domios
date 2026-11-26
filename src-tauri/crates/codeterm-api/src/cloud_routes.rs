@@ -592,6 +592,97 @@ async fn peer_reopen(
     Ok(Json(serde_json::json!({ "ok": true, "draining": false })))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeerExportArchiveBody {
+    archive_id: String,
+    owner_uid: String,
+    machine_id: String,
+    generation: u32,
+    #[serde(default)]
+    revision: Option<u32>,
+    upload_url: String,
+    #[serde(default)]
+    max_archive_bytes: Option<u64>,
+}
+
+/// Authenticated controller/Noise peer endpoint invoked during hot->cold archival.
+/// Enters drain first (refusing while work runs), runs `cloud_archive.py export-and-upload`
+/// passing request metadata on stdin (never argv) and reading the ephemeral encryption key
+/// solely from the Fly secret environment (`DOMIOS_EXPORT_ARCHIVE_KEY_HEX`).
+async fn peer_export_archive(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PeerExportArchiveBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_peer_control_authority(&state, &headers)?;
+    let viewers = authorized_viewer_count(&state);
+    let snapshot = state.svc.cloud_peer_busy_snapshot(viewers);
+    let now_ms = state.svc.cloud_machines().now_ms();
+    let local_id = state.mesh.lock().status().instance_id;
+    state
+        .svc
+        .cloud_machines()
+        .local_drain_gate()
+        .try_enter_drain(&local_id, snapshot, now_ms)
+        .map_err(error_response)?;
+
+    let script_path = std::env::var("DOMIOS_CLOUD_ARCHIVE_SCRIPT")
+        .unwrap_or_else(|_| "/usr/local/lib/domios-cloud-archive.py".into());
+    let python_bin = std::env::var("DOMIOS_CLOUD_PYTHON").unwrap_or_else(|_| "python3".into());
+    let stdin_payload = serde_json::json!({
+        "archive_id": body.archive_id,
+        "owner_uid": body.owner_uid,
+        "machine_id": body.machine_id,
+        "generation": body.generation,
+        "revision": body.revision.unwrap_or(1),
+        "upload_url": body.upload_url,
+        "max_archive_bytes": body.max_archive_bytes.unwrap_or(512 * 1024 * 1024),
+    })
+    .to_string();
+
+    let run_result = async {
+        use tokio::io::AsyncWriteExt;
+        let mut child = tokio::process::Command::new(&python_bin)
+            .arg(&script_path)
+            .arg("export-and-upload")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| CloudError::Internal(format!("spawn archive helper: {e}")))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(stdin_payload.as_bytes())
+                .await
+                .map_err(|e| CloudError::Internal(format!("write archive stdin: {e}")))?;
+        }
+        let output = child
+            .wait_with_output()
+            .await
+            .map_err(|e| CloudError::Internal(format!("wait archive helper: {e}")))?;
+        if !output.status.success() {
+            let err_text = String::from_utf8_lossy(&output.stderr);
+            return Err(CloudError::ProviderUnavailable(format!(
+                "guest archive export refused: {}",
+                err_text.trim()
+            )));
+        }
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .map_err(|e| CloudError::Internal(format!("parse archive receipt: {e}")))
+    }
+    .await;
+
+    match run_result {
+        Ok(receipt) => Ok(Json(receipt)),
+        Err(error) => {
+            // Export failed: reopen drain so hot machine remains usable and live volume stays intact.
+            state.svc.cloud_machines().local_drain_gate().reopen();
+            Err(error_response(error))
+        }
+    }
+}
+
 pub(super) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/mesh/cloud/create", post(create_machine))
@@ -608,6 +699,10 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/mesh/cloud/peer/idle", get(peer_idle))
         .route("/api/mesh/cloud/peer/drain", post(peer_drain))
         .route("/api/mesh/cloud/peer/reopen", post(peer_reopen))
+        .route(
+            "/api/mesh/cloud/peer/export-archive",
+            post(peer_export_archive),
+        )
 }
 
 #[cfg(test)]

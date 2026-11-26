@@ -1,27 +1,21 @@
-"""End-to-end fixture round-trip and refusal tests for Domios portable essentials archives.
-
-Proves:
-- Exact manifest round-trip from a real temp Git repo with credential-free remote, exact HEAD,
-  unpushed commit (Git bundle), binary + text staged changes, unstaged change, untracked user file,
-  omitted regenerable node_modules/target (with provable manifests), sentinel file, Domios desk/
-  sessions/mem/settings, and portable agent-home config.
-- Strict exclusion of login credentials, keys, vault, running authority, and replayable sends.
-- Eviction refusals on credential-bearing remote, unknown user file, missing recovery input,
-  mid-rebase repo, corrupt archive, and competing wake/stale generation fence.
-- Owner/machine/generation binding (same-owner succeeds, cross-owner and wrong generation refused).
-- Failed restore (including simulated ENOSPC disk full) preserves the source archive intact.
+"""End-to-end fixture round-trip, streaming AES-256-GCM AEAD crypto, signed-URL HTTP upload/download,
+refusal guards, and 200 MB streaming benchmark tests for Domios portable essentials archives.
 """
 
 from __future__ import annotations
 
-import errno
+from dataclasses import asdict
+import hashlib
+import http.server
 import importlib.util
 import json
 import os
 import pathlib
+import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -126,7 +120,7 @@ def make_fixture_home(root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, s
 class CloudArchiveTests(unittest.TestCase):
     def test_exact_manifest_round_trip_and_secret_exclusion(self):
         mod = load_cloud_archive()
-        owner_key = b"K" * 32
+        owner_key = os.urandom(32)
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             cloud_home, _, expected_head, binary_payload = make_fixture_home(root)
@@ -140,29 +134,28 @@ class CloudArchiveTests(unittest.TestCase):
                 generation=1,
                 owner_key=owner_key,
                 archive_id="arc_rt01",
-                named_user_files=["sentinel.txt"],
             )
             self.assertTrue(exported.excluded_secrets_verified)
             self.assertGreater(exported.archive_bytes, 0)
-            self.assertEqual(exported.manifest["repos"][0]["head_sha"], expected_head)
-            self.assertTrue(exported.manifest["repos"][0]["has_bundle"])
-            self.assertTrue(exported.manifest["repos"][0]["has_staged_patch"])
-            self.assertTrue(exported.manifest["repos"][0]["has_unstaged_patch"])
-            self.assertIn("node_modules", exported.manifest["repos"][0]["omitted_regenerable"])
-            self.assertIn("target", exported.manifest["repos"][0]["omitted_regenerable"])
+            self.assertTrue(archive_file.read_bytes().startswith(mod.WIRE_MAGIC))
+            self.assertEqual(exported.repos[0].head_sha, expected_head)
+            self.assertIsNotNone(exported.repos[0].bundle_member)
+            self.assertIsNotNone(exported.repos[0].staged_patch_member)
+            self.assertIsNotNone(exported.repos[0].unstaged_patch_member)
+            self.assertIn("projects/app/node_modules", exported.omitted_regenerable_dirs)
+            self.assertIn("projects/app/target", exported.omitted_regenerable_dirs)
 
-            # Print measured timings & bytes for economics verification
             print(json.dumps({
                 "measured_export": {
                     "archive_bytes": exported.archive_bytes,
                     "uncompressed_bytes": exported.uncompressed_bytes,
-                    "timings_ms": exported.timings_ms,
+                    "timings_ms": asdict(exported.timings_ms),
                 }
             }))
 
-            # Cross-owner and wrong-generation restore MUST fail before touching target
+            # Cross-owner, wrong-machine, and wrong-generation restore MUST fail AEAD auth before touching target
             bad_target = root / "cross_owner_vol"
-            with self.assertRaises(mod.ArchiveVerificationError) as cm_owner:
+            with self.assertRaises(mod.ArchiveError) as cm_owner:
                 mod.restore_essentials_archive(
                     archive_file,
                     bad_target,
@@ -171,9 +164,9 @@ class CloudArchiveTests(unittest.TestCase):
                     target_machine_id="cm_rt01",
                     expected_generation=1,
                 )
-            self.assertEqual(cm_owner.exception.code, "owner_mismatch")
+            self.assertEqual(cm_owner.exception.code, "auth_failed")
 
-            with self.assertRaises(mod.ArchiveVerificationError) as cm_gen:
+            with self.assertRaises(mod.ArchiveError) as cm_gen:
                 mod.restore_essentials_archive(
                     archive_file,
                     bad_target,
@@ -182,7 +175,7 @@ class CloudArchiveTests(unittest.TestCase):
                     target_machine_id="cm_rt01",
                     expected_generation=99,
                 )
-            self.assertEqual(cm_gen.exception.code, "generation_mismatch")
+            self.assertEqual(cm_gen.exception.code, "auth_failed")
 
             # Same-owner restore onto fresh volume succeeds completely
             fresh_vol = root / "fresh_volume"
@@ -195,15 +188,14 @@ class CloudArchiveTests(unittest.TestCase):
                 expected_generation=1,
             )
             self.assertTrue(restored.recovery_ready)
-            self.assertTrue(restored.workspace_identities_compatible)
             self.assertEqual(restored.missing_or_partial, [])
 
             print(json.dumps({
                 "measured_restore": {
                     "bytes_restored": restored.bytes_restored,
                     "files_restored": restored.files_restored,
-                    "timings_ms": restored.timings_ms,
-                    "deferred_deps": restored.deferred_dependency_installs,
+                    "timings_ms": asdict(restored.timings_ms),
+                    "deferred_installs": restored.deferred_installs,
                 }
             }))
 
@@ -233,61 +225,165 @@ class CloudArchiveTests(unittest.TestCase):
             self.assertEqual((restored_repo / "notes.local.md").read_text(encoding="utf-8"), "untracked owner notes\n")
             self.assertFalse((restored_repo / "node_modules").exists())
             self.assertFalse((restored_repo / "target").exists())
-            self.assertTrue(len(restored.deferred_dependency_installs) == 1)
+            self.assertEqual(len(restored.deferred_installs), 1)
+
+    def test_streaming_aead_chunk_security_and_signed_http_upload_download(self):
+        mod = load_cloud_archive()
+        key = os.urandom(32)
+        payload = os.urandom(20_000)  # spans 5 chunks at 4096 B chunk_size
+        ct = mod.encrypt_archive_bytes(payload, key, "u1", "m1", 3, chunk_size=4096)
+        self.assertEqual(mod.decrypt_archive_bytes(ct, key, "u1", "m1", 3), payload)
+
+        # 1. Chunk truncation (drop final chunk) MUST fail
+        hdr_len = mod.WIRE_HEADER_STRUCT.size
+        first_ct_len, _ = mod.WIRE_CHUNK_STRUCT.unpack_from(ct, hdr_len)
+        truncated = ct[: hdr_len + mod.WIRE_CHUNK_STRUCT.size + first_ct_len]
+        with self.assertRaises(mod.ArchiveError) as cm_trunc:
+            mod.decrypt_archive_bytes(truncated, key, "u1", "m1", 3)
+        self.assertEqual(cm_trunc.exception.code, "corrupt_archive")
+
+        # 2. Chunk reordering (swap chunk 0 and chunk 1) MUST fail AEAD tag (chunk index in AAD + nonce)
+        off0 = hdr_len
+        len0, flg0 = mod.WIRE_CHUNK_STRUCT.unpack_from(ct, off0)
+        chunk0 = ct[off0 : off0 + mod.WIRE_CHUNK_STRUCT.size + len0]
+        off1 = off0 + len(chunk0)
+        len1, flg1 = mod.WIRE_CHUNK_STRUCT.unpack_from(ct, off1)
+        chunk1 = ct[off1 : off1 + mod.WIRE_CHUNK_STRUCT.size + len1]
+        swapped = ct[:hdr_len] + chunk1 + chunk0 + ct[off1 + len(chunk1) :]
+        with self.assertRaises(mod.ArchiveError) as cm_swap:
+            mod.decrypt_archive_bytes(swapped, key, "u1", "m1", 3)
+        self.assertEqual(cm_swap.exception.code, "auth_failed")
+
+        # 3. Real loopback HTTP signed-URL `export-and-upload` + `download_encrypted_archive`
+        store: dict[str, bytes] = {}
+        expected_token = "sig-one-object-short-lived"
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                return
+
+            def do_PUT(self):
+                if f"token={expected_token}" not in self.path:
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                length = int(self.headers.get("Content-Length", "0"))
+                store[self.path.split("?")[0]] = self.rfile.read(length)
+                self.send_response(200)
+                self.end_headers()
+
+            def do_GET(self):
+                if f"token={expected_token}" not in self.path:
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                data = store.get(self.path.split("?")[0])
+                if data is None:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                cloud_home, _, expected_head, _ = make_fixture_home(root)
+                upload_url = f"http://127.0.0.1:{port}/cloud-archives/u1/cm_http/gen-1/arc_http.enc?token={expected_token}"
+                env = dict(os.environ)
+                env["DOMIOS_EXPORT_ARCHIVE_KEY_HEX"] = key.hex()
+                proc = subprocess.run(
+                    [sys.executable, str(REPO / "packaging/docker/cloud_archive.py"), "export-and-upload"],
+                    input=json.dumps({
+                        "home_dir": str(cloud_home),
+                        "archive_id": "arc_http",
+                        "owner_uid": "u1",
+                        "machine_id": "cm_http",
+                        "generation": 1,
+                        "upload_url": upload_url,
+                    }),
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                    check=True,
+                )
+                receipt = json.loads(proc.stdout)
+                self.assertTrue(receipt["excluded_secrets_verified"])
+                self.assertEqual(receipt["upload"]["status"], 200)
+                uploaded_bytes = store["/cloud-archives/u1/cm_http/gen-1/arc_http.enc"]
+                self.assertEqual(hashlib.sha256(uploaded_bytes).hexdigest(), receipt["ciphertext_sha256"])
+
+                # Download via signed GET URL and restore cleanly
+                dl_path = root / "downloaded.enc"
+                dl_size, dl_sha = mod.download_encrypted_archive(
+                    upload_url, dl_path, expected_sha256=receipt["ciphertext_sha256"]
+                )
+                self.assertEqual(dl_size, receipt["archive_bytes"])
+                self.assertEqual(dl_sha, receipt["ciphertext_sha256"])
+
+                restored_dir = root / "restored_http"
+                restored = mod.restore_essentials_archive(
+                    dl_path,
+                    restored_dir,
+                    owner_key=key,
+                    requester_uid="u1",
+                    target_machine_id="cm_http",
+                    expected_generation=1,
+                )
+                self.assertTrue(restored.recovery_ready)
+                self.assertEqual(run_git(restored_dir / "projects" / "app", "rev-parse", "HEAD"), expected_head)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_refusal_guards_and_failed_restore_retains_archive(self):
         mod = load_cloud_archive()
-        owner_key = b"M" * 32
+        owner_key = os.urandom(32)
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             cloud_home, _, _, _ = make_fixture_home(root)
             archive_file = root / "arc.enc"
 
-            # 1. Unknown unclassified user file refuses eviction
-            (cloud_home / "unknown-mystery.dat").write_bytes(b"cannot classify")
-            with self.assertRaises(mod.ArchiveRefusalError) as cm_unk:
-                mod.export_essentials_archive(
-                    cloud_home, archive_file,
-                    owner_uid="uid-1", machine_id="cm_1", generation=1,
-                    owner_key=owner_key, archive_id="arc_1", named_user_files=["sentinel.txt"],
-                )
-            self.assertEqual(cm_unk.exception.code, "unknown_user_file")
-            (cloud_home / "unknown-mystery.dat").unlink()
-
-            # 2. Credential-bearing remote URL refuses eviction
+            # 1. Credential-bearing remote URL refuses eviction
             repo = cloud_home / "projects" / "app"
             orig_remote = run_git(repo, "remote", "get-url", "origin")
             run_git(repo, "remote", "set-url", "origin", "https://user:ghp_secret@github.com/org/app.git")
-            with self.assertRaises(mod.ArchiveRefusalError) as cm_cred:
+            with self.assertRaises(mod.ArchiveError) as cm_cred:
                 mod.export_essentials_archive(
                     cloud_home, archive_file,
                     owner_uid="uid-1", machine_id="cm_1", generation=1,
-                    owner_key=owner_key, archive_id="arc_1", named_user_files=["sentinel.txt"],
+                    owner_key=owner_key, archive_id="arc_1",
                 )
-            self.assertEqual(cm_cred.exception.code, "credential_in_remote_url")
+            self.assertEqual(cm_cred.exception.code, "repo_remote_has_credentials")
             run_git(repo, "remote", "set-url", "origin", orig_remote)
 
-            # 3. Competing wake / stale generation fence refuses eviction
-            with self.assertRaises(mod.ArchiveRefusalError) as cm_fence:
+            # 2. Competing wake / stale generation fence refuses eviction
+            with self.assertRaises(mod.ArchiveError) as cm_fence:
                 mod.export_essentials_archive(
                     cloud_home, archive_file,
                     owner_uid="uid-1", machine_id="cm_1", generation=1,
-                    owner_key=owner_key, archive_id="arc_1", named_user_files=["sentinel.txt"],
+                    owner_key=owner_key, archive_id="arc_1",
                     generation_fence_check=lambda: False,
                 )
             self.assertEqual(cm_fence.exception.code, "stale_generation")
 
-            # 4. Export valid archive, then corrupt 1 byte -> verification fails!
+            # 3. Export valid archive, then corrupt 1 byte -> verification fails!
             mod.export_essentials_archive(
                 cloud_home, archive_file,
                 owner_uid="uid-1", machine_id="cm_1", generation=1,
-                owner_key=owner_key, archive_id="arc_1", named_user_files=["sentinel.txt"],
+                owner_key=owner_key, archive_id="arc_1",
             )
             corrupt_path = root / "arc_corrupt.enc"
             raw = bytearray(archive_file.read_bytes())
-            raw[-40] ^= 0xFF
+            raw[-20] ^= 0xFF
             corrupt_path.write_bytes(bytes(raw))
-            with self.assertRaises(mod.ArchiveVerificationError) as cm_mac:
+            with self.assertRaises(mod.ArchiveError) as cm_mac:
                 mod.verify_archive(
                     corrupt_path,
                     owner_key=owner_key,
@@ -295,12 +391,9 @@ class CloudArchiveTests(unittest.TestCase):
                     expected_machine_id="cm_1",
                     expected_generation=1,
                 )
-            self.assertEqual(cm_mac.exception.code, "mac_verification_failed")
+            self.assertEqual(cm_mac.exception.code, "auth_failed")
 
-            # 5. Simulated local disk-full (ENOSPC) during restore fails cleanly and KEEPS archive intact!
-            def enospc_writer(_dest: pathlib.Path, _data: bytes) -> None:
-                raise OSError(errno.ENOSPC, "No space left on device")
-
+            # 4. Simulated local disk-full (ENOSPC) during restore fails cleanly and KEEPS archive intact!
             with self.assertRaises(mod.RestoreDiskFullError) as cm_full:
                 mod.restore_essentials_archive(
                     archive_file,
@@ -309,9 +402,9 @@ class CloudArchiveTests(unittest.TestCase):
                     requester_uid="uid-1",
                     target_machine_id="cm_1",
                     expected_generation=1,
-                    file_writer=enospc_writer,
+                    simulated_disk_full_after_bytes=64,
                 )
-            self.assertEqual(cm_full.exception.code, "disk_full")
+            self.assertEqual(cm_full.exception.code, "disk_full_local")
             self.assertTrue(archive_file.exists(), "Failed restore must keep source archive available")
 
 

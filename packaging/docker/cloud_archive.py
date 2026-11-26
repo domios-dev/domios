@@ -1,1034 +1,807 @@
-"""Portable essentials archive export, verify-before-evict, and safe restore engine
-for Domios managed cloud machines (`domios.cloud-archive/1`).
+"""Portable essentials archive (`domios.cloud-archive/1`) for managed cloud machines.
 
-Invariants:
-- Never archive or restore login credentials, keys, vault, running authority, or replayable sends.
-- Refuse eviction on inaccessible/corrupt repo state, credential-bearing remotes, missing baseline
-  commits, unknown/ambiguous user files, failed capture/checksum, stale generation, or size overflow.
-- Bind authenticated encryption strictly to (owner_uid, machine_id, generation).
-- Never delete or mutate an archive on restore failure; report phases, bytes, and timings honestly.
+Owns one manifest from verified export through storage release and safe restore:
+- Captures Domios desk/sessions/memory/settings, portable agent-home config/history,
+  owner data, and repository state (credential-free remote URL + bundle of unpushed commits +
+  binary-safe staged/unstaged patches + explicit untracked files + regenerable omission list).
+- Strictly excludes provider credentials/OAuth tokens/API keys, SSH/GPG private keys,
+  vault/secret stores, running daemon authority/locks, and replayable sends.
+- Delegates streaming chunked AES-256-GCM AEAD and signed-URL HTTP transfer to `cloud_archive_crypto`.
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, dataclass
 import errno
+import gzip
 import hashlib
-import hmac
-import io
+import importlib.util
 import json
 import os
-import pathlib
-import posixpath
-import re
-import secrets
+from pathlib import Path
 import shutil
-import struct
+import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
-import urllib.parse
-from dataclasses import dataclass, field
 from typing import Any, Callable
+import urllib.parse
 
-ARCHIVE_FORMAT = "domios.cloud-archive/1"
-ARCHIVE_MAGIC = b"DMCA0001"
-ARCHIVE_ALG = "hkdf-sha256-ctr-hmac-sha256"
-DEFAULT_MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
-DEFAULT_MAX_AGENT_CONFIG_FILE_BYTES = 2 * 1024 * 1024
-DEFAULT_MAX_PARALLEL_CLONES = 4
 
-# Strict secret, authority, and replayable-send exclusion patterns (matched against POSIX relative paths).
-EXCLUDED_EXACT_NAMES = frozenset({
-    ".secrets",
-    ".netrc",
-    "auth.json",
-    "credentials.json",
-    ".credentials.json",
-    "cloud_wake_queue.json",
-    "chat_send_ledger.json",
-    "server.pid",
-    "domios.pid",
-})
+def _load_crypto_module():
+    sibling = Path(__file__).with_name("cloud_archive_crypto.py")
+    if not sibling.exists():
+        sibling = Path("/usr/local/lib/cloud_archive_crypto.py")
+    spec = importlib.util.spec_from_file_location("domios_cloud_archive_crypto", sibling)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
-EXCLUDED_PATH_PREFIXES = (
-    ".ssh/",
-    ".aws/",
-    ".gnupg/",
-    ".kube/",
-    ".domios/neighbor-keys/",
-    ".domios-dev/neighbor-keys/",
-    ".domios/runtime/",
-    ".domios-dev/runtime/",
-    ".domios/vault/",
-    ".domios-dev/vault/",
-    ".domios/outbox/",
-    ".domios-dev/outbox/",
-    ".domios-dev/outbox/",
-    ".claude/.credentials",
-    ".claude/credentials",
-    ".codex/auth",
-    ".config/opencode/auth",
-)
 
-EXCLUDED_SUBSTRINGS = (
-    "/neighbor-keys/",
-    "/.secrets",
-    "/chat_send_ledger",
-    "/cloud_wake_queue",
-    "/outbox/",
-    "/vault/",
-)
+_crypto = _load_crypto_module()
+WIRE_MAGIC = _crypto.WIRE_MAGIC
+WIRE_FLAGS_AES_256_GCM = _crypto.WIRE_FLAGS_AES_256_GCM
+WIRE_HEADER_STRUCT = _crypto.WIRE_HEADER_STRUCT
+WIRE_CHUNK_STRUCT = _crypto.WIRE_CHUNK_STRUCT
+DEFAULT_CHUNK_SIZE = _crypto.DEFAULT_CHUNK_SIZE
+DEFAULT_MAX_ARCHIVE_BYTES = _crypto.DEFAULT_MAX_ARCHIVE_BYTES
+ArchiveError = _crypto.ArchiveError
+RestoreDiskFullError = _crypto.RestoreDiskFullError
+encrypt_stream_file = _crypto.encrypt_stream_file
+decrypt_stream_file = _crypto.decrypt_stream_file
+encrypt_archive_bytes = _crypto.encrypt_archive_bytes
+decrypt_archive_bytes = _crypto.decrypt_archive_bytes
+upload_encrypted_archive = _crypto.upload_encrypted_archive
+download_encrypted_archive = _crypto.download_encrypted_archive
+_validate_owner_key = _crypto.validate_owner_key
 
-# Eligible small portable agent-home configuration paths (explicit allowlist).
-ELIGIBLE_AGENT_HOME_FILES = frozenset({
-    ".gitconfig",
-    ".claude/settings.json",
-    ".claude/CLAUDE.md",
-    ".codex/config.toml",
-    ".config/opencode/config.json",
-    ".config/git/ignore",
-})
+ARCHIVE_FORMAT_VERSION = "domios.cloud-archive/1"
+MAX_UNTRACKED_FILE_BYTES = 64 * 1024 * 1024  # 64 MiB single untracked file guard
 
-# Known regenerable directories omitted ONLY when a provable recovery input exists in the same repo.
-REGENERABLE_DIR_RECOVERY_INPUTS: dict[str, tuple[str, ...]] = {
-    "node_modules": ("package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"),
-    "target": ("Cargo.toml",),
-    ".venv": ("pyproject.toml", "requirements.txt", "uv.lock", "poetry.lock"),
-    "venv": ("pyproject.toml", "requirements.txt"),
-    "__pycache__": ("pyproject.toml", "requirements.txt", "setup.py"),
-    ".pytest_cache": ("pyproject.toml", "pytest.ini"),
-    ".mypy_cache": ("pyproject.toml", "mypy.ini"),
-    ".cache": ("package.json", "Cargo.toml", "pyproject.toml"),
-    "dist": ("package.json", "Cargo.toml", "pyproject.toml"),
-    "build": ("package.json", "Cargo.toml", "pyproject.toml", "Makefile"),
+REGENERABLE_DIR_RULES: dict[str, tuple[str, ...]] = {
+    "node_modules": ("package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"),
+    "target": ("Cargo.toml", "Cargo.lock"),
+    ".venv": ("pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock", "Pipfile"),
+    "venv": ("pyproject.toml", "requirements.txt", "poetry.lock", "uv.lock", "Pipfile"),
+    "__pycache__": (),
+    ".pytest_cache": (),
+    ".mypy_cache": (),
+    ".ruff_cache": (),
+    ".next": ("package.json",),
+    ".nuxt": ("package.json",),
+    ".turbo": ("package.json",),
+    ".gradle": ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"),
+    ".cargo": ("Cargo.toml",),
 }
 
+EXCLUDED_EXACT_NAMES = frozenset({
+    ".secrets", "secrets.json", "credentials.json", ".credentials.json",
+    "auth.json", "oauth.json", "oauth_creds.json", "tokens.json", "token.json",
+    "api_keys.json", "vault.json", "vault.enc", "vault.db", "keychain.json",
+    "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+    ".netrc", ".npmrc", ".pypirc", ".git-credentials",
+    ".env", ".env.local", ".env.production",
+    "daemon.pid", "daemon.lock", "server.lock",
+    "mesh-authority.json", "installation-key.json", "installation-key.pem",
+    "cloud-binding.json", "held-sends.json", "pending-sends.json",
+    "send-ledger.json", "wake-queue.json", "cloud_wake_queue.json",
+})
 
-class ArchiveError(RuntimeError):
-    def __init__(self, code: str, message: str):
-        super().__init__(f"{code}: {message}")
-        self.code = code
-        self.detail = message
+EXCLUDED_PATH_SEGMENTS = frozenset({
+    ".ssh", ".gnupg", ".aws", ".azure", ".kube", "neighbor-keys",
+    "vault", "credentials", "oauth", "held_sends", "pending_sends",
+    "replay_sends", "runtime-locks", "sockets", ".Trash", "cache", ".cache",
+})
 
-
-class ArchiveRefusalError(ArchiveError):
-    """Raised when eviction MUST be refused and live storage preserved."""
-
-
-class ArchiveVerificationError(ArchiveError):
-    """Raised when encrypted archive verification or binding fails."""
-
-
-class RestoreDiskFullError(ArchiveError):
-    """Raised on local ENOSPC during restore without deleting the source archive."""
-
-
-@dataclass
-class ExportResult:
-    archive_path: pathlib.Path
-    manifest: dict[str, Any]
-    manifest_sha256: str
-    ciphertext_sha256: str
-    archive_bytes: int
-    uncompressed_bytes: int
-    timings_ms: dict[str, int]
-    excluded_secrets_verified: bool = True
+EXCLUDED_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".kdbx", ".sock", ".pid", ".lock")
 
 
-@dataclass
-class RestoreResult:
-    recovery_ready: bool
+@dataclass(frozen=True)
+class RepoArchiveEntry:
+    rel_path: str
+    remote_name: str | None
+    remote_url: str | None
+    branch: str | None
+    head_sha: str | None
+    bundle_member: str | None
+    unpushed_commits: int
+    staged_patch_member: str | None
+    unstaged_patch_member: str | None
+    untracked_files: list[str]
+    omitted_regenerable_dirs: list[str]
+    reinstall_manifests: list[str]
+
+
+@dataclass(frozen=True)
+class ArchivePhaseTimingsMs:
+    inventory_ms: int
+    repos_ms: int
+    pack_ms: int
+    encrypt_ms: int
+    verify_ms: int
+    total_ms: int
+
+
+@dataclass(frozen=True)
+class RestorePhaseTimingsMs:
+    verify_ms: int
+    extract_ms: int
+    repos_ms: int
+    apply_ms: int
+    total_ms: int
+
+
+@dataclass(frozen=True)
+class ArchiveExportResult:
+    format_version: str
     archive_id: str
     owner_uid: str
     machine_id: str
     generation: int
-    bytes_restored: int
+    revision: int
+    created_at: int
+    archive_path: str
+    archive_bytes: int
+    uncompressed_bytes: int
+    manifest_sha256: str
+    ciphertext_sha256: str
+    excluded_secrets_verified: bool
+    files_archived: int
+    excluded_secret_paths: list[str]
+    omitted_regenerable_dirs: list[str]
+    repos: list[RepoArchiveEntry]
+    timings_ms: ArchivePhaseTimingsMs
+
+
+@dataclass(frozen=True)
+class ArchiveRestoreResult:
+    archive_id: str
+    owner_uid: str
+    machine_id: str
+    generation: int
     files_restored: int
-    repos_restored: list[dict[str, Any]]
-    deferred_dependency_installs: list[dict[str, Any]]
+    bytes_restored: int
+    repos_restored: int
+    deferred_installs: list[dict[str, Any]]
     missing_or_partial: list[str]
-    timings_ms: dict[str, int]
-    workspace_identities_compatible: bool
+    recovery_ready: bool
+    timings_ms: RestorePhaseTimingsMs
 
 
-def _now_ms() -> int:
-    return int(time.monotonic() * 1000)
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _sha256_file(path: pathlib.Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _to_posix_rel(path: pathlib.Path, root: pathlib.Path) -> str:
-    rel = path.relative_to(root).as_posix()
-    norm = posixpath.normpath(rel)
-    if norm in (".", "") or norm.startswith("../") or norm.startswith("/"):
-        raise ArchiveRefusalError("unsafe_path", f"Path escapes root: {rel}")
-    return norm
-
-
-def is_excluded_secret_or_runtime_path(rel_posix: str) -> bool:
-    norm = posixpath.normpath(rel_posix).lstrip("./")
-    base = posixpath.basename(norm)
-    if base in EXCLUDED_EXACT_NAMES or base.endswith(".lock") or base.endswith(".pid") or base.endswith(".key"):
+def is_excluded_secret_path(rel_posix: str) -> bool:
+    parts = [p for p in rel_posix.split("/") if p and p != "."]
+    if not parts:
+        return False
+    name = parts[-1]
+    if name in EXCLUDED_EXACT_NAMES:
         return True
-    if any(norm == p.rstrip("/") or norm.startswith(p) for p in EXCLUDED_PATH_PREFIXES):
+    if any(seg in EXCLUDED_PATH_SEGMENTS for seg in parts):
         return True
-    wrapped = f"/{norm}"
-    if any(sub in wrapped for sub in EXCLUDED_SUBSTRINGS):
+    lower = name.lower()
+    if any(lower.endswith(suf) for suf in EXCLUDED_SUFFIXES):
         return True
-    if re.search(r"(^|/)\.env(\.|$)", norm) and not norm.endswith(".env.example"):
-        return True
+    if any(tok in lower for tok in ("oauth", "credential", "secret", "auth_token")):
+        if lower.endswith((".json", ".toml", ".yaml", ".yml", ".txt", ".db", ".sqlite", ".enc")):
+            return True
     return False
 
 
-def validate_credential_free_remote_url(url: str) -> str:
-    """Validates a repository remote URL and strictly refuses embedded credentials."""
-    trimmed = url.strip()
-    if not trimmed:
-        raise ArchiveRefusalError("missing_remote_url", "Managed repo has an empty remote URL")
-    if "://" in trimmed:
-        parsed = urllib.parse.urlsplit(trimmed)
-        if parsed.username or parsed.password:
-            raise ArchiveRefusalError("credential_in_remote_url", "Remote URL contains embedded credentials")
-        if parsed.scheme not in ("https", "http", "ssh", "git", "file"):
-            raise ArchiveRefusalError("unsupported_remote_scheme", f"Unsupported remote scheme: {parsed.scheme}")
-        return trimmed
-    # SCP-style SSH URL (git@github.com:org/repo.git) or absolute local path (for test fixtures).
-    if re.match(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:.+", trimmed):
-        # Refuse token-like user@host where user contains ':' (user:pass@host)
-        if ":" in trimmed.split("@", 1)[0]:
-            raise ArchiveRefusalError("credential_in_remote_url", "SSH remote URL contains embedded password")
-        return trimmed
-    if os.path.isabs(trimmed) or re.match(r"^[A-Za-z]:[/\\]", trimmed):
-        return trimmed
-    raise ArchiveRefusalError("unsupported_remote_url", f"Unrecognized remote URL format: {trimmed}")
+def _has_embedded_credentials(remote_url: str) -> bool:
+    if not remote_url or "://" not in remote_url:
+        return False
+    parsed = urllib.parse.urlsplit(remote_url)
+    return bool(parsed.username or parsed.password)
 
 
-def _hkdf_sha256(ikm: bytes, salt: bytes, info: bytes, length: int) -> bytes:
-    prk = hmac.new(salt, ikm, hashlib.sha256).digest()
-    out = bytearray()
-    t = b""
-    counter = 1
-    while len(out) < length:
-        t = hmac.new(prk, t + info + bytes([counter]), hashlib.sha256).digest()
-        out.extend(t)
-        counter += 1
-    return bytes(out[:length])
+def _is_regenerable_dir(dir_path: Path) -> bool:
+    name = dir_path.name
+    if name not in REGENERABLE_DIR_RULES:
+        return False
+    markers = REGENERABLE_DIR_RULES[name]
+    if not markers:
+        return True
+    return any((dir_path.parent / marker).exists() for marker in markers)
 
 
-def _ctr_xor(key: bytes, nonce: bytes, data: bytes) -> bytes:
-    """Pure-stdlib SHA-256-CTR keystream XOR (authenticated via Encrypt-then-MAC HMAC-SHA256)."""
-    out = bytearray(len(data))
-    mv = memoryview(data)
-    block_idx = 0
-    pos = 0
-    total = len(data)
-    while pos < total:
-        stream = hmac.new(key, nonce + struct.pack(">Q", block_idx), hashlib.sha256).digest()
-        end = min(pos + 32, total)
-        chunk_len = end - pos
-        for i in range(chunk_len):
-            out[pos + i] = mv[pos + i] ^ stream[i]
-        pos = end
-        block_idx += 1
-    return bytes(out)
-
-
-def encrypt_archive_payload(
-    plaintext: bytes,
-    *,
-    owner_key: bytes,
-    owner_uid: str,
-    machine_id: str,
-    generation: int,
-    archive_id: str,
-    revision: int,
-    manifest_sha256: str,
-) -> bytes:
-    if not owner_key or len(owner_key) < 16:
-        raise ArchiveRefusalError("invalid_owner_key", "Owner archive key must be at least 16 bytes")
-    nonce = secrets.token_bytes(16)
-    aad_info = f"{ARCHIVE_FORMAT}|{owner_uid}|{machine_id}|{generation}|{archive_id}".encode("utf-8")
-    derived = _hkdf_sha256(owner_key, nonce, aad_info, 64)
-    enc_key, mac_key = derived[:32], derived[32:]
-    ciphertext = _ctr_xor(enc_key, nonce, plaintext)
-    header = json.dumps({
-        "format": ARCHIVE_FORMAT,
-        "alg": ARCHIVE_ALG,
-        "archive_id": archive_id,
-        "owner_uid": owner_uid,
-        "machine_id": machine_id,
-        "generation": generation,
-        "revision": revision,
-        "manifest_sha256": manifest_sha256,
-        "plaintext_bytes": len(plaintext),
-        "nonce_hex": nonce.hex(),
-    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    frame = ARCHIVE_MAGIC + struct.pack(">I", len(header)) + header + ciphertext
-    tag = hmac.new(mac_key, frame + aad_info, hashlib.sha256).digest()
-    return frame + tag
-
-
-def decrypt_archive_payload(
-    blob: bytes,
-    *,
-    owner_key: bytes,
-    expected_owner_uid: str,
-    expected_machine_id: str,
-    expected_generation: int | None = None,
-) -> tuple[dict[str, Any], bytes]:
-    if len(blob) < len(ARCHIVE_MAGIC) + 4 + 32 or not blob.startswith(ARCHIVE_MAGIC):
-        raise ArchiveVerificationError("corrupt_archive", "Invalid archive magic or truncated envelope")
-    header_len = struct.unpack(">I", blob[len(ARCHIVE_MAGIC):len(ARCHIVE_MAGIC) + 4])[0]
-    header_start = len(ARCHIVE_MAGIC) + 4
-    header_end = header_start + header_len
-    if header_end + 32 > len(blob):
-        raise ArchiveVerificationError("corrupt_archive", "Truncated archive header")
-    try:
-        header = json.loads(blob[header_start:header_end].decode("utf-8"))
-    except Exception as exc:
-        raise ArchiveVerificationError("corrupt_archive", f"Malformed archive header: {exc}") from exc
-    if header.get("format") != ARCHIVE_FORMAT or header.get("alg") != ARCHIVE_ALG:
-        raise ArchiveVerificationError("unsupported_format", "Unsupported archive format or algorithm")
-    if header.get("owner_uid") != expected_owner_uid:
-        raise ArchiveVerificationError("owner_mismatch", "Archive owner does not match requester")
-    if header.get("machine_id") != expected_machine_id:
-        raise ArchiveVerificationError("machine_mismatch", "Archive machine_id does not match target")
-    if expected_generation is not None and header.get("generation") != expected_generation:
-        raise ArchiveVerificationError("generation_mismatch", "Archive generation does not match expected")
-
-    nonce = bytes.fromhex(header["nonce_hex"])
-    aad_info = (
-        f"{ARCHIVE_FORMAT}|{header['owner_uid']}|{header['machine_id']}"
-        f"|{header['generation']}|{header['archive_id']}"
-    ).encode("utf-8")
-    derived = _hkdf_sha256(owner_key, nonce, aad_info, 64)
-    enc_key, mac_key = derived[:32], derived[32:]
-    frame = blob[:-32]
-    tag = blob[-32:]
-    expected_tag = hmac.new(mac_key, frame + aad_info, hashlib.sha256).digest()
-    if not hmac.compare_digest(tag, expected_tag):
-        raise ArchiveVerificationError("mac_verification_failed", "Archive authentication tag mismatch")
-    ciphertext = blob[header_end:-32]
-    plaintext = _ctr_xor(enc_key, nonce, ciphertext)
-    if len(plaintext) != header.get("plaintext_bytes"):
-        raise ArchiveVerificationError("plaintext_length_mismatch", "Decrypted payload length mismatch")
-    return header, plaintext
-
-
-def _run_git(repo_dir: pathlib.Path, args: list[str], *, check: bool = True, binary: bool = False) -> subprocess.CompletedProcess:
-    env = dict(os.environ)
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    proc = subprocess.run(
-        ["git", "-C", str(repo_dir), *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        check=False,
-    )
+def _run_git(repo_dir: Path, args: list[str], *, check: bool = True, binary: bool = False) -> subprocess.CompletedProcess:
+    proc = subprocess.run(["git", *args], cwd=str(repo_dir), capture_output=True, check=False)
     if check and proc.returncode != 0:
         err = proc.stderr.decode("utf-8", errors="replace").strip()
-        raise ArchiveRefusalError("git_command_failed", f"git {' '.join(args)} failed in {repo_dir}: {err}")
+        raise ArchiveError("git_failed", f"git {' '.join(args)} failed in {repo_dir.name}: {err}")
     if not binary:
         proc.stdout = proc.stdout.decode("utf-8", errors="replace")
         proc.stderr = proc.stderr.decode("utf-8", errors="replace")
     return proc
 
 
-def _check_repo_state_supported(repo_dir: pathlib.Path) -> None:
-    git_dir_proc = _run_git(repo_dir, ["rev-parse", "--git-dir"], check=False)
-    if git_dir_proc.returncode != 0:
-        raise ArchiveRefusalError("repo_inaccessible", f"Repository is inaccessible or corrupt: {repo_dir}")
-    git_dir = (repo_dir / git_dir_proc.stdout.strip()).resolve()
-    for sentinel in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "BISECT_LOG"):
-        if (git_dir / sentinel).exists():
-            raise ArchiveRefusalError("repo_mid_operation", f"Repository has in-progress {sentinel}: {repo_dir}")
-
-
-def _capture_repo(
-    repo_dir: pathlib.Path,
-    cloud_home: pathlib.Path,
-    staging_dir: pathlib.Path,
-    repo_index: int,
-) -> tuple[dict[str, Any], list[tuple[str, bytes]]]:
-    _check_repo_state_supported(repo_dir)
-    rel_repo = _to_posix_rel(repo_dir, cloud_home)
-    repo_id = f"repo_{repo_index:03d}"
-
-    remotes_out = _run_git(repo_dir, ["remote"], check=True).stdout.splitlines()
-    remote_name = "origin" if "origin" in remotes_out else (remotes_out[0] if remotes_out else "")
-    if not remote_name:
-        raise ArchiveRefusalError("repo_missing_remote", f"Repository {rel_repo} has no configured remote")
-    raw_remote_url = _run_git(repo_dir, ["remote", "get-url", remote_name], check=True).stdout.strip()
-    remote_url = validate_credential_free_remote_url(raw_remote_url)
-
-    head_proc = _run_git(repo_dir, ["rev-parse", "--verify", "HEAD"], check=False)
-    if head_proc.returncode != 0:
-        raise ArchiveRefusalError("repo_missing_head", f"Repository {rel_repo} has no valid HEAD commit")
-    head_sha = head_proc.stdout.strip()
-
-    branch_proc = _run_git(repo_dir, ["symbolic-ref", "--short", "-q", "HEAD"], check=False)
-    branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 and branch_proc.stdout.strip() else None
-
-    # Verify whether ignored/regenerable directories have provable recovery inputs.
-    omitted_regenerable: list[str] = []
-    for child in sorted(repo_dir.iterdir()):
-        if child.name == ".git":
+def _discover_git_repos(home_dir: Path) -> list[Path]:
+    repos: list[Path] = []
+    for root, dirs, _files in os.walk(home_dir, followlinks=False):
+        root_path = Path(root)
+        rel = root_path.relative_to(home_dir).as_posix()
+        if rel != "." and is_excluded_secret_path(rel):
+            dirs[:] = []
             continue
-        if child.is_dir() and child.name in REGENERABLE_DIR_RECOVERY_INPUTS:
-            recovery_inputs = REGENERABLE_DIR_RECOVERY_INPUTS[child.name]
-            if any((repo_dir / req).exists() for req in recovery_inputs):
-                omitted_regenerable.append(child.name)
-            else:
-                raise ArchiveRefusalError(
-                    "ambiguous_regenerable_dir",
-                    f"Directory {rel_repo}/{child.name} lacks provable recovery inputs ({', '.join(recovery_inputs)})",
+        if ".git" in dirs:
+            repos.append(root_path)
+            dirs[:] = []
+            continue
+        dirs[:] = [
+            d for d in sorted(dirs)
+            if not is_excluded_secret_path(f"{rel}/{d}" if rel != "." else d)
+            and not _is_regenerable_dir(root_path / d)
+        ]
+    return sorted(repos)
+
+
+def _export_one_repo(repo_dir: Path, home_dir: Path, staging_dir: Path, index: int) -> RepoArchiveEntry:
+    rel_path = repo_dir.relative_to(home_dir).as_posix()
+    repo_stage = staging_dir / f"repo-{index:03d}"
+    repo_stage.mkdir(parents=True, exist_ok=True)
+
+    head_proc = _run_git(repo_dir, ["rev-parse", "HEAD"], check=False)
+    head_sha = head_proc.stdout.strip() if head_proc.returncode == 0 else None
+    branch_proc = _run_git(repo_dir, ["symbolic-ref", "--short", "HEAD"], check=False)
+    branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else None
+
+    remotes_proc = _run_git(repo_dir, ["remote"], check=False)
+    remote_names = [r.strip() for r in remotes_proc.stdout.splitlines() if r.strip()]
+    remote_name = "origin" if "origin" in remote_names else (remote_names[0] if remote_names else None)
+    remote_url: str | None = None
+    if remote_name:
+        url_proc = _run_git(repo_dir, ["remote", "get-url", remote_name], check=False)
+        if url_proc.returncode == 0:
+            candidate = url_proc.stdout.strip()
+            if _has_embedded_credentials(candidate):
+                raise ArchiveError(
+                    "repo_remote_has_credentials",
+                    f"Refusing export: repository {rel_path} remote {remote_name} embeds credentials",
                 )
+            remote_url = candidate
 
-    artifacts: list[tuple[str, bytes]] = []
+    bundle_member: str | None = None
+    unpushed_commits = 0
+    if head_sha:
+        upstream_proc = _run_git(repo_dir, ["rev-parse", "--abbrev-ref", "@{upstream}"], check=False)
+        if upstream_proc.returncode == 0 and upstream_proc.stdout.strip():
+            upstream = upstream_proc.stdout.strip()
+            count_proc = _run_git(repo_dir, ["rev-list", "--count", f"{upstream}..HEAD"], check=False)
+            unpushed_commits = int(count_proc.stdout.strip() or "0") if count_proc.returncode == 0 else 0
+            if unpushed_commits > 0:
+                bundle_file = repo_stage / "unpushed.bundle"
+                _run_git(repo_dir, ["bundle", "create", str(bundle_file), f"{upstream}..HEAD"], binary=True)
+                bundle_member = f"repos/repo-{index:03d}/unpushed.bundle"
+        else:
+            count_proc = _run_git(repo_dir, ["rev-list", "--count", "HEAD"], check=False)
+            unpushed_commits = int(count_proc.stdout.strip() or "0") if count_proc.returncode == 0 else 0
+            if unpushed_commits > 0:
+                bundle_file = repo_stage / "full.bundle"
+                _run_git(repo_dir, ["bundle", "create", str(bundle_file), "--all"], binary=True)
+                bundle_member = f"repos/repo-{index:03d}/full.bundle"
 
-    # Determine unpushed commits via upstream tracking ref or remote-tracking branch.
-    upstream_proc = _run_git(repo_dir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], check=False)
-    baseline_ref: str | None = None
-    if upstream_proc.returncode == 0 and upstream_proc.stdout.strip():
-        baseline_ref = upstream_proc.stdout.strip()
-    elif branch:
-        candidate = f"refs/remotes/{remote_name}/{branch}"
-        chk = _run_git(repo_dir, ["rev-parse", "--verify", candidate], check=False)
-        if chk.returncode == 0:
-            baseline_ref = candidate
+    staged_proc = _run_git(repo_dir, ["diff", "--cached", "--binary"], binary=True)
+    staged_patch_member: str | None = None
+    if staged_proc.stdout:
+        (repo_stage / "staged.patch").write_bytes(staged_proc.stdout)
+        staged_patch_member = f"repos/repo-{index:03d}/staged.patch"
 
-    has_bundle = False
-    bundle_arc_name: str | None = None
-    bundle_ref = f"refs/heads/{branch}" if branch else "HEAD"
-    if baseline_ref:
-        baseline_sha = _run_git(repo_dir, ["rev-parse", "--verify", baseline_ref], check=True).stdout.strip()
-        # Verify baseline is an ancestor or reachable commit.
-        ahead_count = int(_run_git(repo_dir, ["rev-list", "--count", f"{baseline_ref}..HEAD"], check=True).stdout.strip() or "0")
-        if ahead_count > 0:
-            bundle_file = staging_dir / f"{repo_id}.bundle"
-            _run_git(repo_dir, ["bundle", "create", str(bundle_file), f"{baseline_sha}..HEAD", bundle_ref], check=True)
-            bundle_bytes = bundle_file.read_bytes()
-            bundle_arc_name = f"repos/{repo_id}/unpushed.bundle"
-            artifacts.append((bundle_arc_name, bundle_bytes))
-            has_bundle = True
-    else:
-        # No remote tracking ref locally: bundle full HEAD history so restore never loses commits.
-        bundle_file = staging_dir / f"{repo_id}.bundle"
-        _run_git(repo_dir, ["bundle", "create", str(bundle_file), bundle_ref], check=True)
-        bundle_bytes = bundle_file.read_bytes()
-        bundle_arc_name = f"repos/{repo_id}/unpushed.bundle"
-        artifacts.append((bundle_arc_name, bundle_bytes))
-        has_bundle = True
+    unstaged_proc = _run_git(repo_dir, ["diff", "--binary"], binary=True)
+    unstaged_patch_member: str | None = None
+    if unstaged_proc.stdout:
+        (repo_stage / "unstaged.patch").write_bytes(unstaged_proc.stdout)
+        unstaged_patch_member = f"repos/repo-{index:03d}/unstaged.patch"
 
-    # Staged and unstaged patches (binary-safe).
-    staged_bytes = _run_git(repo_dir, ["diff", "--cached", "--binary"], check=True, binary=True).stdout
-    unstaged_bytes = _run_git(repo_dir, ["diff", "--binary"], check=True, binary=True).stdout
-    staged_arc_name: str | None = None
-    unstaged_arc_name: str | None = None
-    if staged_bytes:
-        staged_arc_name = f"repos/{repo_id}/staged.patch"
-        artifacts.append((staged_arc_name, staged_bytes))
-    if unstaged_bytes:
-        unstaged_arc_name = f"repos/{repo_id}/unstaged.patch"
-        artifacts.append((unstaged_arc_name, unstaged_bytes))
-
-    # Explicit untracked user files (non-ignored, excluding secrets).
-    untracked_raw = _run_git(repo_dir, ["ls-files", "--others", "--exclude-standard", "-z"], check=True, binary=True).stdout
-    untracked_entries: list[dict[str, Any]] = []
-    for raw_item in untracked_raw.split(b"\x00"):
-        if not raw_item:
+    untracked_proc = _run_git(repo_dir, ["ls-files", "--others", "--exclude-standard", "-z"], binary=True)
+    untracked_raw = [p.decode("utf-8", errors="surrogateescape") for p in untracked_proc.stdout.split(b"\x00") if p]
+    untracked_files: list[str] = []
+    untracked_dir = repo_stage / "untracked"
+    for rel_u in sorted(untracked_raw):
+        if is_excluded_secret_path(rel_u):
             continue
-        item_rel = raw_item.decode("utf-8")
-        first_seg = item_rel.split("/", 1)[0]
-        if first_seg in omitted_regenerable:
+        src = repo_dir / rel_u
+        if any(_is_regenerable_dir(parent) for parent in src.parents if parent != repo_dir and repo_dir in parent.parents):
             continue
-        full_rel = f"{rel_repo}/{item_rel}"
-        if is_excluded_secret_or_runtime_path(full_rel):
+        if not src.exists() or src.is_symlink() or not src.is_file():
             continue
-        src = repo_dir / item_rel
-        if src.is_symlink() or not src.is_file():
-            raise ArchiveRefusalError("unsupported_untracked_entry", f"Unsupported untracked entry: {full_rel}")
-        data = src.read_bytes()
-        arc_path = f"repos/{repo_id}/untracked/{item_rel}"
-        artifacts.append((arc_path, data))
-        untracked_entries.append({
-            "relative_path": item_rel,
-            "archive_path": arc_path,
-            "sha256": _sha256_bytes(data),
-            "bytes": len(data),
-        })
+        if src.lstat().st_size > MAX_UNTRACKED_FILE_BYTES:
+            raise ArchiveError("untracked_file_too_large", f"Untracked file exceeds cap: {rel_path}/{rel_u}")
+        dst = untracked_dir / rel_u
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        untracked_files.append(rel_u)
 
-    deferred_deps = [
-        req
-        for d in omitted_regenerable
-        for req in REGENERABLE_DIR_RECOVERY_INPUTS[d]
-        if (repo_dir / req).exists()
-    ]
-
-    meta = {
-        "repo_id": repo_id,
-        "relative_path": rel_repo,
-        "remote_name": remote_name,
-        "remote_url": remote_url,
-        "branch": branch,
-        "head_sha": head_sha,
-        "has_bundle": has_bundle,
-        "bundle_archive_path": bundle_arc_name,
-        "has_staged_patch": staged_arc_name is not None,
-        "staged_patch_archive_path": staged_arc_name,
-        "has_unstaged_patch": unstaged_arc_name is not None,
-        "unstaged_patch_archive_path": unstaged_arc_name,
-        "untracked_files": untracked_entries,
-        "omitted_regenerable": sorted(set(omitted_regenerable)),
-        "deferred_dependency_manifests": sorted(set(deferred_deps)),
-    }
-    return meta, artifacts
-
-
-def export_essentials_archive(
-    cloud_home: pathlib.Path,
-    output_path: pathlib.Path,
-    *,
-    owner_uid: str,
-    machine_id: str,
-    generation: int,
-    owner_key: bytes,
-    archive_id: str,
-    revision: int = 1,
-    data_dir_name: str = ".domios",
-    named_user_files: list[str] | None = None,
-    managed_repo_paths: list[str] | None = None,
-    max_archive_bytes: int = DEFAULT_MAX_ARCHIVE_BYTES,
-    generation_fence_check: Callable[[], bool] | None = None,
-) -> ExportResult:
-    """Exports, encrypts, and durably verifies an owner-bound portable essentials archive."""
-    t_start = _now_ms()
-    cloud_home = cloud_home.resolve()
-    if not cloud_home.is_dir():
-        raise ArchiveRefusalError("missing_cloud_home", f"Cloud home not found: {cloud_home}")
-
-    if generation_fence_check and not generation_fence_check():
-        raise ArchiveRefusalError("stale_generation", "Generation fence failed before export")
-
-    named_set = {posixpath.normpath(p).lstrip("./") for p in (named_user_files or [])}
-    repo_rel_set = {posixpath.normpath(p).lstrip("./") for p in (managed_repo_paths or [])}
-
-    # Auto-discover managed git repos under cloud_home if not explicitly passed.
-    discovered_repos: list[pathlib.Path] = []
-    if managed_repo_paths is not None:
-        for rel in sorted(repo_rel_set):
-            repo_p = (cloud_home / rel).resolve()
-            if not repo_p.is_dir():
-                raise ArchiveRefusalError("repo_inaccessible", f"Managed repo missing: {rel}")
-            discovered_repos.append(repo_p)
-    else:
-        for dirpath, dirnames, _ in os.walk(cloud_home):
-            cur = pathlib.Path(dirpath)
-            rel_cur = "" if cur == cloud_home else _to_posix_rel(cur, cloud_home)
-            if rel_cur.startswith(data_dir_name):
-                dirnames[:] = []
-                continue
-            if ".git" in dirnames or (cur / ".git").is_file():
-                discovered_repos.append(cur)
-                repo_rel_set.add(_to_posix_rel(cur, cloud_home))
-                dirnames[:] = []
-                continue
-            dirnames[:] = [d for d in sorted(dirnames) if d not in (".cache", ".local")]
-
-    domios_entries: list[dict[str, Any]] = []
-    agent_home_entries: list[dict[str, Any]] = []
-    user_file_entries: list[dict[str, Any]] = []
-    payload_blobs: list[tuple[str, bytes]] = []
-    omitted_excluded: list[str] = []
-
-    # 1. Inventory portable Domios data, eligible agent-home config, and named user files;
-    #    refuse on unknown/ambiguous files outside known managed roots!
-    for dirpath, dirnames, filenames in os.walk(cloud_home):
-        cur = pathlib.Path(dirpath)
-        rel_dir = "" if cur == cloud_home else _to_posix_rel(cur, cloud_home)
-        # Skip inside managed repos (handled by _capture_repo)
-        if rel_dir and any(rel_dir == r or rel_dir.startswith(f"{r}/") for r in repo_rel_set):
-            dirnames[:] = []
-            continue
-        # Skip known OS XDG cache directories
-        if rel_dir in (".cache", ".local/share", ".local/state") or rel_dir.startswith(".cache/"):
-            dirnames[:] = []
-            continue
-
-        dirnames.sort()
-        for fname in sorted(filenames):
-            fpath = cur / fname
-            rel = _to_posix_rel(fpath, cloud_home)
-            if is_excluded_secret_or_runtime_path(rel):
-                omitted_excluded.append(rel)
-                continue
-            if fpath.is_symlink():
-                raise ArchiveRefusalError("unsupported_symlink", f"Refusing symlink in essentials: {rel}")
-
-            if rel.startswith(f"{data_dir_name}/"):
-                data = fpath.read_bytes()
-                arc_path = f"domios/{rel}"
-                payload_blobs.append((arc_path, data))
-                domios_entries.append({"relative_path": rel, "archive_path": arc_path, "sha256": _sha256_bytes(data), "bytes": len(data)})
-            elif rel in ELIGIBLE_AGENT_HOME_FILES:
-                size = fpath.stat().st_size
-                if size > DEFAULT_MAX_AGENT_CONFIG_FILE_BYTES:
-                    raise ArchiveRefusalError("agent_config_too_large", f"Agent config exceeds cap: {rel}")
-                data = fpath.read_bytes()
-                arc_path = f"agent_home/{rel}"
-                payload_blobs.append((arc_path, data))
-                agent_home_entries.append({"relative_path": rel, "archive_path": arc_path, "sha256": _sha256_bytes(data), "bytes": len(data)})
-            elif rel in named_set:
-                data = fpath.read_bytes()
-                arc_path = f"user_files/{rel}"
-                payload_blobs.append((arc_path, data))
-                user_file_entries.append({"relative_path": rel, "archive_path": arc_path, "sha256": _sha256_bytes(data), "bytes": len(data)})
+    omitted_dirs: list[str] = []
+    for root, dirs, _files in os.walk(repo_dir, followlinks=False):
+        root_p = Path(root)
+        if ".git" in dirs:
+            dirs.remove(".git")
+        kept: list[str] = []
+        for d in sorted(dirs):
+            cand = root_p / d
+            if _is_regenerable_dir(cand):
+                omitted_dirs.append(cand.relative_to(home_dir).as_posix())
             else:
-                raise ArchiveRefusalError("unknown_user_file", f"Refusing eviction: unclassified user file {rel}")
+                kept.append(d)
+        dirs[:] = kept
 
-    # Ensure every explicitly named user file was captured.
-    captured_named = {e["relative_path"] for e in user_file_entries}
-    missing_named = sorted(named_set - captured_named)
-    if missing_named:
-        raise ArchiveRefusalError("missing_named_user_file", f"Named user file missing: {', '.join(missing_named)}")
-
-    t_inv = _now_ms()
-
-    # 2. Capture managed Git repositories.
-    repo_metas: list[dict[str, Any]] = []
-    with tempfile.TemporaryDirectory(prefix="domios-arc-stage-") as stage_tmp:
-        stage_dir = pathlib.Path(stage_tmp)
-        for idx, repo_dir in enumerate(discovered_repos):
-            meta, repo_blobs = _capture_repo(repo_dir, cloud_home, stage_dir, idx)
-            repo_metas.append(meta)
-            payload_blobs.extend(repo_blobs)
-
-    t_repos = _now_ms()
-
-    # Re-check fence before packing/sealing (catches competing wake or write).
-    if generation_fence_check and not generation_fence_check():
-        raise ArchiveRefusalError("competing_wake_or_write", "Generation fence tripped during archive export")
-
-    # Assert strict secret exclusion across every staged entry.
-    for arc_path, _ in payload_blobs:
-        candidate = arc_path.split("/", 1)[1] if "/" in arc_path else arc_path
-        if is_excluded_secret_or_runtime_path(candidate):
-            raise ArchiveRefusalError("secret_leak_detected", f"Refusing archive containing excluded path: {arc_path}")
-
-    uncompressed_bytes = sum(len(b) for _, b in payload_blobs)
-    manifest: dict[str, Any] = {
-        "schema_version": 1,
-        "format": ARCHIVE_FORMAT,
-        "archive_id": archive_id,
-        "uid": owner_uid,
-        "machine_id": machine_id,
-        "generation": generation,
-        "revision": revision,
-        "data_dir_name": data_dir_name,
-        "domios_files": domios_entries,
-        "agent_home_files": agent_home_entries,
-        "user_files": user_file_entries,
-        "repos": repo_metas,
-        "omitted_excluded_count": len(omitted_excluded),
-        "excluded_secrets_verified": True,
-        "uncompressed_bytes": uncompressed_bytes,
-        "created_at": int(time.time()),
-    }
-    manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    manifest_sha256 = _sha256_bytes(manifest_bytes)
-
-    # 3. Pack deterministic compressed tar.gz in memory.
-    tar_buf = io.BytesIO()
-    with tarfile.open(fileobj=tar_buf, mode="w:gz", compresslevel=6) as tf:
-        def _add_bytes(name: str, content: bytes) -> None:
-            ti = tarfile.TarInfo(name=name)
-            ti.size = len(content)
-            ti.mtime = 0
-            ti.mode = 0o600
-            tf.addfile(ti, io.BytesIO(content))
-
-        _add_bytes("manifest.json", manifest_bytes)
-        for arc_path, content in sorted(payload_blobs, key=lambda x: x[0]):
-            _add_bytes(arc_path, content)
-    plaintext_tar = tar_buf.getvalue()
-    t_pack = _now_ms()
-
-    # 4. Encrypt & authenticate bound to (owner_uid, machine_id, generation).
-    encrypted = encrypt_archive_payload(
-        plaintext_tar,
-        owner_key=owner_key,
-        owner_uid=owner_uid,
-        machine_id=machine_id,
-        generation=generation,
-        archive_id=archive_id,
-        revision=revision,
-        manifest_sha256=manifest_sha256,
+    manifests = [
+        marker for marker in ("package.json", "pnpm-lock.yaml", "package-lock.json", "Cargo.toml", "pyproject.toml", "requirements.txt")
+        if (repo_dir / marker).exists()
+    ]
+    return RepoArchiveEntry(
+        rel_path=rel_path, remote_name=remote_name, remote_url=remote_url,
+        branch=branch, head_sha=head_sha, bundle_member=bundle_member,
+        unpushed_commits=unpushed_commits, staged_patch_member=staged_patch_member,
+        unstaged_patch_member=unstaged_patch_member, untracked_files=untracked_files,
+        omitted_regenerable_dirs=sorted(omitted_dirs), reinstall_manifests=sorted(manifests),
     )
-    if len(encrypted) > max_archive_bytes:
-        raise ArchiveRefusalError(
-            "archive_size_exceeded",
-            f"Archive size {len(encrypted)} exceeds max {max_archive_bytes} bytes",
-        )
-    t_enc = _now_ms()
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_out = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        with tmp_out.open("wb") as f:
-            f.write(encrypted)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_out, output_path)
-    finally:
-        tmp_out.unlink(missing_ok=True)
 
-    # 5. Durably re-read & verify the exact written archive before returning success!
-    verified = verify_archive(
-        output_path,
-        owner_key=owner_key,
-        expected_owner_uid=owner_uid,
-        expected_machine_id=machine_id,
-        expected_generation=generation,
-        expected_ciphertext_sha256=_sha256_bytes(encrypted),
-        max_archive_bytes=max_archive_bytes,
-    )
-    t_verify = _now_ms()
+def _collect_essential_files(home_dir: Path, repo_paths: set[Path]) -> tuple[list[tuple[Path, str, int]], list[str], list[str]]:
+    files: list[tuple[Path, str, int]] = []
+    excluded_secrets: list[str] = []
+    omitted_regen: list[str] = []
 
-    return ExportResult(
-        archive_path=output_path,
-        manifest=verified["manifest"],
-        manifest_sha256=verified["manifest_sha256"],
-        ciphertext_sha256=verified["ciphertext_sha256"],
-        archive_bytes=verified["archive_bytes"],
-        uncompressed_bytes=uncompressed_bytes,
-        timings_ms={
-            "inventory_ms": t_inv - t_start,
-            "repos_ms": t_repos - t_inv,
-            "pack_ms": t_pack - t_repos,
-            "encrypt_ms": t_enc - t_pack,
-            "verify_ms": t_verify - t_enc,
-            "total_ms": t_verify - t_start,
-        },
-        excluded_secrets_verified=True,
-    )
+    for root, dirs, filenames in os.walk(home_dir, followlinks=False):
+        root_p = Path(root)
+        if root_p in repo_paths:
+            dirs[:] = []
+            continue
+        rel_root = root_p.relative_to(home_dir).as_posix()
+        kept_dirs: list[str] = []
+        for d in sorted(dirs):
+            cand = root_p / d
+            cand_rel = f"{rel_root}/{d}" if rel_root != "." else d
+            if cand in repo_paths:
+                continue
+            if is_excluded_secret_path(cand_rel):
+                excluded_secrets.append(cand_rel)
+                continue
+            if _is_regenerable_dir(cand):
+                omitted_regen.append(cand_rel)
+                continue
+            kept_dirs.append(d)
+        dirs[:] = kept_dirs
+
+        for fname in sorted(filenames):
+            fpath = root_p / fname
+            rel_posix = f"{rel_root}/{fname}" if rel_root != "." else fname
+            if is_excluded_secret_path(rel_posix):
+                excluded_secrets.append(rel_posix)
+                continue
+            try:
+                st = fpath.lstat()
+            except OSError as exc:
+                raise ArchiveError("unreadable_path", f"Cannot stat {rel_posix}: {exc}") from exc
+            if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+                continue
+            if not os.access(fpath, os.R_OK):
+                raise ArchiveError("unreadable_path", f"Path is unreadable: {rel_posix}")
+            files.append((fpath, rel_posix, st.st_size))
+
+    return files, sorted(set(excluded_secrets)), sorted(set(omitted_regen))
 
 
 def verify_archive(
-    archive_path: pathlib.Path,
+    archive_path: Path,
     *,
     owner_key: bytes,
     expected_owner_uid: str,
     expected_machine_id: str,
-    expected_generation: int | None = None,
+    expected_generation: int,
     expected_ciphertext_sha256: str | None = None,
-    max_archive_bytes: int = DEFAULT_MAX_ARCHIVE_BYTES,
 ) -> dict[str, Any]:
-    """Durably reads and verifies ciphertext hash, AEAD tag, owner/machine/generation binding,
-    manifest integrity, file digests, and strict secret exclusion."""
-    if not archive_path.is_file():
-        raise ArchiveVerificationError("archive_missing", f"Archive file missing: {archive_path}")
-    blob = archive_path.read_bytes()
-    if len(blob) == 0 or len(blob) > max_archive_bytes:
-        raise ArchiveVerificationError("archive_size_invalid", f"Invalid archive size: {len(blob)}")
-    actual_cipher_sha = _sha256_bytes(blob)
-    if expected_ciphertext_sha256 and actual_cipher_sha != expected_ciphertext_sha256:
-        raise ArchiveVerificationError("ciphertext_hash_mismatch", "Archive ciphertext SHA-256 mismatch")
+    ct_bytes, pt_bytes, digest = decrypt_stream_file(
+        Path(archive_path), None,
+        owner_key=owner_key, owner_uid=expected_owner_uid,
+        machine_id=expected_machine_id, generation=expected_generation,
+        expected_sha256=expected_ciphertext_sha256,
+    )
+    return {"verified": True, "archive_bytes": ct_bytes, "compressed_payload_bytes": pt_bytes, "ciphertext_sha256": digest}
 
-    header, plaintext = decrypt_archive_payload(
-        blob,
-        owner_key=owner_key,
-        expected_owner_uid=expected_owner_uid,
-        expected_machine_id=expected_machine_id,
-        expected_generation=expected_generation,
+
+def export_essentials_archive(
+    home_dir: Path,
+    output_archive_path: Path,
+    *,
+    archive_id: str,
+    owner_uid: str,
+    machine_id: str,
+    generation: int,
+    owner_key: bytes,
+    revision: int = 1,
+    max_archive_bytes: int = DEFAULT_MAX_ARCHIVE_BYTES,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    generation_fence_check: Callable[[], bool] | None = None,
+    now_s: Callable[[], int] = lambda: int(time.time()),
+) -> ArchiveExportResult:
+    _validate_owner_key(owner_key)
+    if generation_fence_check is not None and not generation_fence_check():
+        raise ArchiveError("stale_generation", "Competing wake or stale generation detected before export")
+    home_dir = Path(home_dir).resolve()
+    output_archive_path = Path(output_archive_path).resolve()
+    t0 = time.monotonic()
+    if not home_dir.is_dir():
+        raise ArchiveError("invalid_home", f"Home directory does not exist: {home_dir}")
+
+    t_inv0 = time.monotonic()
+    repo_list = _discover_git_repos(home_dir)
+    essential_files, excluded_secrets, omitted_regen = _collect_essential_files(home_dir, set(repo_list))
+    inventory_ms = int((time.monotonic() - t_inv0) * 1000)
+
+    with tempfile.TemporaryDirectory(prefix="domios-archive-export-") as tmp_str:
+        tmp_dir = Path(tmp_str)
+        repos_stage = tmp_dir / "repos"
+        repos_stage.mkdir(parents=True, exist_ok=True)
+
+        t_rep0 = time.monotonic()
+        repo_entries: list[RepoArchiveEntry] = []
+        for idx, rpath in enumerate(repo_list):
+            entry = _export_one_repo(rpath, home_dir, repos_stage, idx)
+            repo_entries.append(entry)
+            omitted_regen.extend(entry.omitted_regenerable_dirs)
+        repos_ms = int((time.monotonic() - t_rep0) * 1000)
+
+        omitted_regen = sorted(set(omitted_regen))
+        created_at = now_s()
+        uncompressed_bytes = sum(sz for _, _, sz in essential_files) + sum(
+            p.stat().st_size for p in repos_stage.rglob("*") if p.is_file()
+        )
+        manifest_obj: dict[str, Any] = {
+            "format_version": ARCHIVE_FORMAT_VERSION,
+            "crypto": {"scheme": "aes-256-gcm-chunked-v2", "chunk_size": chunk_size},
+            "archive_id": archive_id, "owner_uid": owner_uid, "machine_id": machine_id,
+            "generation": generation, "revision": revision, "created_at": created_at,
+            "excluded_secrets_verified": True,
+            "files": [{"rel_path": rel_posix, "size": size} for _, rel_posix, size in essential_files],
+            "repos": [asdict(r) for r in repo_entries],
+            "excluded_secret_paths": excluded_secrets,
+            "omitted_regenerable_dirs": omitted_regen,
+            "uncompressed_bytes": uncompressed_bytes,
+        }
+        manifest_bytes = json.dumps(manifest_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+
+        t_pack0 = time.monotonic()
+        manifest_file = tmp_dir / "manifest.json"
+        manifest_file.write_bytes(manifest_bytes)
+        tar_gz_path = tmp_dir / "payload.tar.gz"
+        with gzip.open(tar_gz_path, mode="wb", compresslevel=1) as gz_out:
+            with tarfile.open(fileobj=gz_out, mode="w|") as tf:
+                tf.add(manifest_file, arcname="manifest.json", recursive=False)
+                for fpath, rel_posix, _ in essential_files:
+                    if is_excluded_secret_path(rel_posix):
+                        raise ArchiveError("secret_leak_guard", f"Secret file reached pack stage: {rel_posix}")
+                    tf.add(fpath, arcname=f"files/{rel_posix}", recursive=False)
+                for p in sorted(repos_stage.rglob("*")):
+                    if p.is_file():
+                        tf.add(p, arcname="repos/" + p.relative_to(repos_stage).as_posix(), recursive=False)
+        pack_ms = int((time.monotonic() - t_pack0) * 1000)
+
+        t_enc0 = time.monotonic()
+        output_archive_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_out = output_archive_path.with_suffix(output_archive_path.suffix + ".tmp")
+        try:
+            ct_len, ciphertext_sha256 = encrypt_stream_file(
+                tar_gz_path, tmp_out,
+                owner_key=owner_key, owner_uid=owner_uid, machine_id=machine_id,
+                generation=generation, chunk_size=chunk_size, max_archive_bytes=max_archive_bytes,
+            )
+            os.replace(tmp_out, output_archive_path)
+        finally:
+            tmp_out.unlink(missing_ok=True)
+        encrypt_ms = int((time.monotonic() - t_enc0) * 1000)
+
+        t_ver0 = time.monotonic()
+        verified_gz = tmp_dir / "verified.tar.gz"
+        ver_ct_len, _, ver_digest = decrypt_stream_file(
+            output_archive_path, verified_gz,
+            owner_key=owner_key, owner_uid=owner_uid, machine_id=machine_id,
+            generation=generation, expected_sha256=ciphertext_sha256,
+        )
+        if ver_ct_len != ct_len or ver_digest != ciphertext_sha256:
+            raise ArchiveError("verify_failed", "Read-back verification digest/length mismatch")
+        found_manifest = False
+        with gzip.open(verified_gz, mode="rb") as gz_in:
+            with tarfile.open(fileobj=gz_in, mode="r|") as tf:
+                for member in tf:
+                    if member.name == "manifest.json":
+                        stream = tf.extractfile(member)
+                        if stream is None or hashlib.sha256(stream.read()).hexdigest() != manifest_sha256:
+                            raise ArchiveError("verify_failed", "manifest.json mismatch on verify")
+                        found_manifest = True
+                    elif member.name.startswith("files/") and is_excluded_secret_path(member.name[6:]):
+                        raise ArchiveError("secret_leak_guard", f"Excluded secret detected during verify: {member.name[6:]}")
+        if not found_manifest:
+            raise ArchiveError("verify_failed", "Verified archive missing manifest.json")
+        verify_ms = int((time.monotonic() - t_ver0) * 1000)
+
+    return ArchiveExportResult(
+        format_version=ARCHIVE_FORMAT_VERSION, archive_id=archive_id, owner_uid=owner_uid,
+        machine_id=machine_id, generation=generation, revision=revision, created_at=created_at,
+        archive_path=str(output_archive_path), archive_bytes=ct_len, uncompressed_bytes=uncompressed_bytes,
+        manifest_sha256=manifest_sha256, ciphertext_sha256=ciphertext_sha256,
+        excluded_secrets_verified=True, files_archived=len(essential_files),
+        excluded_secret_paths=excluded_secrets, omitted_regenerable_dirs=omitted_regen,
+        repos=repo_entries,
+        timings_ms=ArchivePhaseTimingsMs(
+            inventory_ms=inventory_ms, repos_ms=repos_ms, pack_ms=pack_ms,
+            encrypt_ms=encrypt_ms, verify_ms=verify_ms, total_ms=int((time.monotonic() - t0) * 1000),
+        ),
     )
 
-    try:
-        with tarfile.open(fileobj=io.BytesIO(plaintext), mode="r:gz") as tf:
-            members = {m.name: m for m in tf.getmembers()}
-            if "manifest.json" not in members:
-                raise ArchiveVerificationError("missing_manifest", "Archive lacks manifest.json")
-            manifest_bytes = tf.extractfile(members["manifest.json"]).read()
-            manifest_sha = _sha256_bytes(manifest_bytes)
-            if manifest_sha != header.get("manifest_sha256"):
-                raise ArchiveVerificationError("manifest_hash_mismatch", "Manifest SHA-256 mismatch")
-            manifest = json.loads(manifest_bytes.decode("utf-8"))
-            if not manifest.get("excluded_secrets_verified"):
-                raise ArchiveVerificationError("secrets_not_verified", "Manifest did not verify secret exclusion")
-            if manifest.get("uid") != expected_owner_uid or manifest.get("machine_id") != expected_machine_id:
-                raise ArchiveVerificationError("manifest_binding_mismatch", "Manifest owner/machine binding mismatch")
 
-            # Verify every file entry digest and confirm zero excluded secret paths.
-            for section in ("domios_files", "agent_home_files", "user_files"):
-                for entry in manifest.get(section, []):
-                    arc_p = entry["archive_path"]
-                    if is_excluded_secret_or_runtime_path(entry["relative_path"]):
-                        raise ArchiveVerificationError("secret_present_in_archive", f"Excluded path found: {entry['relative_path']}")
-                    if arc_p not in members:
-                        raise ArchiveVerificationError("missing_entry", f"Missing entry in archive: {arc_p}")
-                    data = tf.extractfile(members[arc_p]).read()
-                    if _sha256_bytes(data) != entry["sha256"]:
-                        raise ArchiveVerificationError("entry_checksum_mismatch", f"Checksum mismatch for {arc_p}")
-
-            for repo in manifest.get("repos", []):
-                validate_credential_free_remote_url(repo["remote_url"])
-                for ut in repo.get("untracked_files", []):
-                    arc_p = ut["archive_path"]
-                    if arc_p not in members:
-                        raise ArchiveVerificationError("missing_entry", f"Missing untracked entry: {arc_p}")
-                    data = tf.extractfile(members[arc_p]).read()
-                    if _sha256_bytes(data) != ut["sha256"]:
-                        raise ArchiveVerificationError("entry_checksum_mismatch", f"Checksum mismatch for {arc_p}")
-    except ArchiveVerificationError:
-        raise
-    except Exception as exc:
-        raise ArchiveVerificationError("corrupt_archive_tar", f"Failed to inspect archive payload: {exc}") from exc
-
-    return {
-        "header": header,
-        "manifest": manifest,
-        "manifest_sha256": manifest_sha,
-        "ciphertext_sha256": actual_cipher_sha,
-        "archive_bytes": len(blob),
-    }
-
-
-def _write_file_checked(dest: pathlib.Path, data: bytes, writer: Callable[[pathlib.Path, bytes], None] | None = None) -> None:
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if writer is not None:
-            writer(dest, data)
-        else:
-            dest.write_bytes(data)
-    except OSError as exc:
-        if exc.errno == errno.ENOSPC:
-            raise RestoreDiskFullError("disk_full", f"Local volume full while restoring {dest}") from exc
-        raise
+def _safe_extract_target(base_dir: Path, rel_posix: str) -> Path:
+    parts = [p for p in rel_posix.split("/") if p]
+    if not parts or any(p in (".", "..") for p in parts) or rel_posix.startswith("/"):
+        raise ArchiveError("unsafe_path", f"Refusing unsafe archive member path: {rel_posix}")
+    target = (base_dir / Path(*parts)).resolve()
+    base_resolved = base_dir.resolve()
+    if base_resolved != target and base_resolved not in target.parents:
+        raise ArchiveError("unsafe_path", f"Archive member escapes target directory: {rel_posix}")
+    return target
 
 
 def _restore_one_repo(
-    repo: dict[str, Any],
-    target_home: pathlib.Path,
-    extracted_payloads: dict[str, bytes],
-    staging_dir: pathlib.Path,
-    file_writer: Callable[[pathlib.Path, bytes], None] | None,
-) -> dict[str, Any]:
-    repo_rel = repo["relative_path"]
-    dest_dir = (target_home / repo_rel).resolve()
-    if not str(dest_dir).startswith(str(target_home.resolve())):
-        raise ArchiveVerificationError("unsafe_repo_path", f"Repo path escapes target: {repo_rel}")
-    dest_dir.parent.mkdir(parents=True, exist_ok=True)
+    repo_meta: dict[str, Any],
+    target_home: Path,
+    extracted_root: Path,
+    missing_or_partial: list[str],
+    deferred_installs: list[dict[str, Any]],
+) -> bool:
+    rel_path = repo_meta["rel_path"]
+    dest = _safe_extract_target(target_home, rel_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    remote_url = repo_meta.get("remote_url")
+    remote_name = repo_meta.get("remote_name") or "origin"
+    branch = repo_meta.get("branch")
+    head_sha = repo_meta.get("head_sha")
+    bundle_member = repo_meta.get("bundle_member")
 
-    remote_url = validate_credential_free_remote_url(repo["remote_url"])
-    remote_name = repo.get("remote_name") or "origin"
-    expected_head = repo["head_sha"]
-    branch = repo.get("branch")
+    if remote_url and _has_embedded_credentials(remote_url):
+        raise ArchiveError("repo_remote_has_credentials", f"Refusing credential-bearing remote on restore: {rel_path}")
 
-    # 1. Re-clone from credential-free remote (or init + fetch from bundle if remote is unreachable/local-only).
-    clone_proc = subprocess.run(
-        ["git", "clone", "--origin", remote_name, remote_url, str(dest_dir)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-        check=False,
-    )
-    if clone_proc.returncode != 0:
-        err = clone_proc.stderr.decode("utf-8", errors="replace").strip()
-        raise ArchiveError("repo_clone_failed", f"Failed to clone {remote_url}: {err}")
+    cloned = False
+    if remote_url:
+        clone_proc = subprocess.run(["git", "clone", "--no-checkout", remote_url, str(dest)], capture_output=True, check=False)
+        if clone_proc.returncode == 0:
+            cloned = True
+            if remote_name != "origin":
+                _run_git(dest, ["remote", "rename", "origin", remote_name], check=False)
+        else:
+            missing_or_partial.append(f"repo_clone_failed:{rel_path}")
 
-    # 2. Apply unpushed commits bundle if present (fetch into non-checked-out namespace to avoid ref lock).
-    if repo.get("has_bundle") and repo.get("bundle_archive_path"):
-        bundle_bytes = extracted_payloads.get(repo["bundle_archive_path"])
-        if not bundle_bytes:
-            raise ArchiveVerificationError("missing_bundle", f"Missing Git bundle for {repo_rel}")
-        bundle_path = staging_dir / f"{repo['repo_id']}.bundle"
-        bundle_path.write_bytes(bundle_bytes)
-        refspec = f"refs/heads/{branch}:refs/domios-restore/{branch}" if branch else "HEAD:refs/domios-restore/head"
-        _run_git(dest_dir, ["fetch", "--force", str(bundle_path), refspec], check=True)
+    if not cloned:
+        dest.mkdir(parents=True, exist_ok=True)
+        _run_git(dest, ["init"])
+        if remote_url:
+            _run_git(dest, ["remote", "add", remote_name, remote_url], check=False)
 
-    # 3. Checkout branch and pin exact expected HEAD!
-    if branch:
-        _run_git(dest_dir, ["checkout", "-B", branch, expected_head], check=True)
-    else:
-        _run_git(dest_dir, ["checkout", "--detach", expected_head], check=True)
+    if bundle_member:
+        bundle_path = extracted_root / bundle_member
+        if bundle_path.exists():
+            ref_target = f"refs/domios-restore/{branch}" if branch else "refs/domios-restore/head"
+            _run_git(dest, ["fetch", str(bundle_path), f"HEAD:{ref_target}"], check=False)
+            _run_git(dest, ["fetch", str(bundle_path), "refs/heads/*:refs/domios-restore/heads/*"], check=False)
+        else:
+            missing_or_partial.append(f"repo_bundle_missing:{rel_path}")
 
-    actual_head = _run_git(dest_dir, ["rev-parse", "--verify", "HEAD"], check=True).stdout.strip()
-    if actual_head != expected_head:
-        raise ArchiveVerificationError(
-            "head_pin_mismatch",
-            f"Restored HEAD {actual_head} != expected {expected_head} in {repo_rel}",
-        )
+    if head_sha:
+        chk = _run_git(dest, ["checkout", "-B", branch, head_sha] if branch else ["checkout", "--detach", head_sha], check=False)
+        if chk.returncode != 0:
+            missing_or_partial.append(f"repo_head_missing:{rel_path}:{head_sha}")
+            return False
 
-    # 4. Reapply staged patch (into index + working tree) and unstaged patch (working tree only).
-    if repo.get("has_staged_patch") and repo.get("staged_patch_archive_path"):
-        staged_bytes = extracted_payloads.get(repo["staged_patch_archive_path"])
-        if staged_bytes is None:
-            raise ArchiveVerificationError("missing_staged_patch", f"Missing staged patch for {repo_rel}")
-        patch_file = staging_dir / f"{repo['repo_id']}.staged.patch"
-        patch_file.write_bytes(staged_bytes)
-        _run_git(dest_dir, ["apply", "--index", "--binary", str(patch_file)], check=True)
+    staged_member = repo_meta.get("staged_patch_member")
+    if staged_member and (extracted_root / staged_member).exists():
+        if _run_git(dest, ["apply", "--index", "--binary", str(extracted_root / staged_member)], check=False).returncode != 0:
+            missing_or_partial.append(f"repo_staged_patch_failed:{rel_path}")
 
-    if repo.get("has_unstaged_patch") and repo.get("unstaged_patch_archive_path"):
-        unstaged_bytes = extracted_payloads.get(repo["unstaged_patch_archive_path"])
-        if unstaged_bytes is None:
-            raise ArchiveVerificationError("missing_unstaged_patch", f"Missing unstaged patch for {repo_rel}")
-        patch_file = staging_dir / f"{repo['repo_id']}.unstaged.patch"
-        patch_file.write_bytes(unstaged_bytes)
-        _run_git(dest_dir, ["apply", "--binary", str(patch_file)], check=True)
+    unstaged_member = repo_meta.get("unstaged_patch_member")
+    if unstaged_member and (extracted_root / unstaged_member).exists():
+        if _run_git(dest, ["apply", "--binary", str(extracted_root / unstaged_member)], check=False).returncode != 0:
+            missing_or_partial.append(f"repo_unstaged_patch_failed:{rel_path}")
 
-    # 5. Restore untracked user files and verify digests.
-    restored_untracked = 0
-    for ut in repo.get("untracked_files", []):
-        data = extracted_payloads.get(ut["archive_path"])
-        if data is None or _sha256_bytes(data) != ut["sha256"]:
-            raise ArchiveVerificationError("untracked_checksum_mismatch", f"Corrupt untracked file {ut['relative_path']}")
-        _write_file_checked(dest_dir / ut["relative_path"], data, file_writer)
-        restored_untracked += 1
+    repo_prefix = Path(bundle_member or staged_member or unstaged_member or "").parent
+    if not str(repo_prefix) or str(repo_prefix) == ".":
+        for cand in sorted((extracted_root / "repos").glob("repo-*")) if (extracted_root / "repos").exists() else []:
+            if (cand / "untracked").exists():
+                repo_prefix = cand.relative_to(extracted_root)
+                break
+    untracked_src_root = extracted_root / repo_prefix / "untracked"
+    for rel_u in repo_meta.get("untracked_files", []):
+        if is_excluded_secret_path(rel_u):
+            continue
+        src = untracked_src_root / rel_u
+        if src.exists() and src.is_file():
+            dst = _safe_extract_target(dest, rel_u)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(src, dst)
+            except OSError as exc:
+                if exc.errno == errno.ENOSPC:
+                    raise RestoreDiskFullError() from exc
+                raise
 
-    return {
-        "repo_id": repo["repo_id"],
-        "relative_path": repo_rel,
-        "branch": branch,
-        "head_sha": actual_head,
-        "untracked_restored": restored_untracked,
-        "omitted_regenerable": repo.get("omitted_regenerable", []),
-        "deferred_dependency_manifests": repo.get("deferred_dependency_manifests", []),
-    }
+    if repo_meta.get("omitted_regenerable_dirs"):
+        deferred_installs.append({
+            "repo": rel_path,
+            "omitted_dirs": repo_meta["omitted_regenerable_dirs"],
+            "manifests": repo_meta.get("reinstall_manifests", []),
+            "status": "deferred_post_ready",
+        })
+    return True
 
 
 def restore_essentials_archive(
-    archive_path: pathlib.Path,
-    target_home: pathlib.Path,
+    archive_path: Path,
+    target_home: Path,
     *,
     owner_key: bytes,
     requester_uid: str,
     target_machine_id: str,
     expected_generation: int | None = None,
-    max_parallel_clones: int = DEFAULT_MAX_PARALLEL_CLONES,
-    file_writer: Callable[[pathlib.Path, bytes], None] | None = None,
-) -> RestoreResult:
-    """Safely restores essentials and managed repos into a fresh volume before publishing recovery-ready.
-    Never deletes or mutates `archive_path` on failure."""
-    t_start = _now_ms()
-    target_home = target_home.resolve()
+    expected_ciphertext_sha256: str | None = None,
+    simulated_disk_full_after_bytes: int | None = None,
+) -> ArchiveRestoreResult:
+    _validate_owner_key(owner_key)
+    archive_path = Path(archive_path).resolve()
+    target_home = Path(target_home).resolve()
     target_home.mkdir(parents=True, exist_ok=True)
+    t0 = time.monotonic()
+    if not archive_path.is_file():
+        raise ArchiveError("archive_missing", f"Archive file not found: {archive_path}")
 
-    # 1. Verify archive integrity and strict owner/machine/generation binding before touching target disk.
-    verified = verify_archive(
-        archive_path,
-        owner_key=owner_key,
-        expected_owner_uid=requester_uid,
-        expected_machine_id=target_machine_id,
-        expected_generation=expected_generation,
+    t_ver0 = time.monotonic()
+    gen = expected_generation if expected_generation is not None else 1
+    with tempfile.TemporaryDirectory(prefix="domios-archive-restore-") as tmp_str:
+        tmp_dir = Path(tmp_str)
+        decrypted_gz = tmp_dir / "decrypted.tar.gz"
+        try:
+            decrypt_stream_file(
+                archive_path, decrypted_gz,
+                owner_key=owner_key, owner_uid=requester_uid,
+                machine_id=target_machine_id, generation=gen,
+                expected_sha256=expected_ciphertext_sha256,
+            )
+        except OSError as exc:
+            if exc.errno == errno.ENOSPC:
+                raise RestoreDiskFullError() from exc
+            raise
+        verify_ms = int((time.monotonic() - t_ver0) * 1000)
+
+        t_ext0 = time.monotonic()
+        extracted_repos = tmp_dir / "extracted"
+        extracted_repos.mkdir(parents=True, exist_ok=True)
+        manifest: dict[str, Any] | None = None
+        files_restored = 0
+        bytes_restored = 0
+
+        with gzip.open(decrypted_gz, mode="rb") as gz_in:
+            with tarfile.open(fileobj=gz_in, mode="r|") as tf:
+                for member in tf:
+                    if not member.isfile():
+                        continue
+                    stream = tf.extractfile(member)
+                    if stream is None:
+                        continue
+                    if member.name == "manifest.json":
+                        manifest = json.loads(stream.read().decode("utf-8"))
+                        if manifest.get("format_version") != ARCHIVE_FORMAT_VERSION:
+                            raise ArchiveError("unsupported_format", "Unsupported archive format_version")
+                        if manifest.get("owner_uid") != requester_uid:
+                            raise ArchiveError("owner_mismatch", "Archive owner_uid does not match requester")
+                        if manifest.get("machine_id") != target_machine_id:
+                            raise ArchiveError("machine_mismatch", "Archive machine_id does not match target")
+                        if expected_generation is not None and manifest.get("generation") != expected_generation:
+                            raise ArchiveError("generation_mismatch", "Archive generation mismatch")
+                        if manifest.get("excluded_secrets_verified") is not True:
+                            raise ArchiveError("secrets_not_verified", "Archive lacks excluded_secrets_verified")
+                    elif member.name.startswith("files/"):
+                        rel_posix = member.name[6:]
+                        if is_excluded_secret_path(rel_posix):
+                            raise ArchiveError("secret_leak_guard", f"Refusing to restore excluded secret: {rel_posix}")
+                        dst = _safe_extract_target(target_home, rel_posix)
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            with dst.open("wb") as out_f:
+                                while True:
+                                    chunk = stream.read(DEFAULT_CHUNK_SIZE)
+                                    if not chunk:
+                                        break
+                                    bytes_restored += len(chunk)
+                                    if simulated_disk_full_after_bytes is not None and bytes_restored > simulated_disk_full_after_bytes:
+                                        raise RestoreDiskFullError("Simulated ENOSPC during archive restore")
+                                    out_f.write(chunk)
+                        except OSError as exc:
+                            if exc.errno == errno.ENOSPC:
+                                raise RestoreDiskFullError() from exc
+                            raise
+                        files_restored += 1
+                    elif member.name.startswith("repos/"):
+                        dst = _safe_extract_target(extracted_repos, member.name)
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            with dst.open("wb") as out_f:
+                                shutil.copyfileobj(stream, out_f, length=DEFAULT_CHUNK_SIZE)
+                        except OSError as exc:
+                            if exc.errno == errno.ENOSPC:
+                                raise RestoreDiskFullError() from exc
+                            raise
+        if manifest is None:
+            raise ArchiveError("corrupt_archive", "Archive missing manifest.json")
+        extract_ms = int((time.monotonic() - t_ext0) * 1000)
+
+        t_rep0 = time.monotonic()
+        missing_or_partial: list[str] = []
+        deferred_installs: list[dict[str, Any]] = []
+        repos_restored = sum(
+            1 for repo_meta in manifest.get("repos", [])
+            if _restore_one_repo(repo_meta, target_home, extracted_repos, missing_or_partial, deferred_installs)
+        )
+        repos_ms = int((time.monotonic() - t_rep0) * 1000)
+
+        t_app0 = time.monotonic()
+        if deferred_installs:
+            marker_dir = target_home / ".domios-restore"
+            marker_dir.mkdir(parents=True, exist_ok=True)
+            (marker_dir / "deferred-installs.json").write_text(json.dumps(deferred_installs, indent=2), encoding="utf-8")
+        apply_ms = int((time.monotonic() - t_app0) * 1000)
+
+    return ArchiveRestoreResult(
+        archive_id=manifest["archive_id"], owner_uid=manifest["owner_uid"],
+        machine_id=manifest["machine_id"], generation=int(manifest["generation"]),
+        files_restored=files_restored, bytes_restored=bytes_restored,
+        repos_restored=repos_restored, deferred_installs=deferred_installs,
+        missing_or_partial=missing_or_partial, recovery_ready=len(missing_or_partial) == 0,
+        timings_ms=RestorePhaseTimingsMs(
+            verify_ms=verify_ms, extract_ms=extract_ms, repos_ms=repos_ms,
+            apply_ms=apply_ms, total_ms=int((time.monotonic() - t0) * 1000),
+        ),
     )
-    manifest = verified["manifest"]
-    header = verified["header"]
-    t_verify = _now_ms()
 
-    # 2. Extract verified files into memory and restore portable essentials first.
-    blob = archive_path.read_bytes()
-    _, plaintext = decrypt_archive_payload(
-        blob,
-        owner_key=owner_key,
-        expected_owner_uid=requester_uid,
-        expected_machine_id=target_machine_id,
-        expected_generation=expected_generation,
-    )
-    extracted_payloads: dict[str, bytes] = {}
-    with tarfile.open(fileobj=io.BytesIO(plaintext), mode="r:gz") as tf:
-        for member in tf.getmembers():
-            if member.isfile():
-                extracted_payloads[member.name] = tf.extractfile(member).read()
 
-    files_restored = 0
-    bytes_restored = 0
-    missing_or_partial: list[str] = []
+def _cli_export_and_upload() -> int:
+    raw = sys.stdin.read(65536)
+    req = json.loads(raw) if raw.strip() else {}
+    key_hex = os.environ.pop("DOMIOS_EXPORT_ARCHIVE_KEY_HEX", None)
+    if not key_hex or len(key_hex.strip()) != 64:
+        raise ArchiveError("missing_key", "DOMIOS_EXPORT_ARCHIVE_KEY_HEX must be 64 hex chars")
+    owner_key = bytes.fromhex(key_hex.strip())
+    home_dir = Path(req.get("home_dir") or os.environ.get("HOME") or "/var/lib/domios-cloud")
+    archive_id = str(req["archive_id"])
+    with tempfile.TemporaryDirectory(prefix="domios-export-run-") as tmp:
+        out_path = Path(tmp) / f"{archive_id}.enc"
+        result = export_essentials_archive(
+            home_dir, out_path,
+            archive_id=archive_id, owner_uid=str(req["owner_uid"]), machine_id=str(req["machine_id"]),
+            generation=int(req.get("generation", 1)), owner_key=owner_key,
+            revision=int(req.get("revision", 1)),
+            max_archive_bytes=int(req.get("max_archive_bytes", DEFAULT_MAX_ARCHIVE_BYTES)),
+        )
+        upload_receipt = (
+            upload_encrypted_archive(out_path, str(req["upload_url"]), extra_headers=req.get("upload_headers") or None)
+            if req.get("upload_url") else None
+        )
+    payload = asdict(result)
+    payload["archive_path"] = ""
+    if upload_receipt is not None:
+        payload["upload"] = upload_receipt
+    print(json.dumps(payload, separators=(",", ":")))
+    return 0
 
-    for section in ("domios_files", "agent_home_files", "user_files"):
-        for entry in manifest.get(section, []):
-            rel = entry["relative_path"]
-            if is_excluded_secret_or_runtime_path(rel):
-                missing_or_partial.append(f"skipped_excluded:{rel}")
-                continue
-            data = extracted_payloads.get(entry["archive_path"])
-            if data is None:
-                missing_or_partial.append(f"missing:{rel}")
-                continue
-            dest = (target_home / rel).resolve()
-            if not str(dest).startswith(str(target_home)):
-                raise ArchiveVerificationError("unsafe_restore_path", f"Restore path escapes target: {rel}")
-            _write_file_checked(dest, data, file_writer)
-            files_restored += 1
-            bytes_restored += len(data)
-    t_extract = _now_ms()
 
-    # 3. Re-clone managed repos with bounded parallelism and reapply bundles/patches/untracked files.
-    repos = manifest.get("repos", [])
-    repos_restored: list[dict[str, Any]] = []
-    deferred_deps: list[dict[str, Any]] = []
-    workers = max(1, min(max_parallel_clones, len(repos))) if repos else 1
-
-    with tempfile.TemporaryDirectory(prefix="domios-arc-restore-") as stage_tmp:
-        stage_dir = pathlib.Path(stage_tmp)
-        if len(repos) <= 1:
-            for repo in repos:
-                res = _restore_one_repo(repo, target_home, extracted_payloads, stage_dir, file_writer)
-                repos_restored.append(res)
-                if res["deferred_dependency_manifests"]:
-                    deferred_deps.append({
-                        "repo": res["relative_path"],
-                        "manifests": res["deferred_dependency_manifests"],
-                        "omitted_dirs": res["omitted_regenerable"],
-                    })
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = {
-                    pool.submit(_restore_one_repo, repo, target_home, extracted_payloads, stage_dir, file_writer): repo
-                    for repo in repos
-                }
-                for fut in as_completed(futures):
-                    res = fut.result()
-                    repos_restored.append(res)
-                    if res["deferred_dependency_manifests"]:
-                        deferred_deps.append({
-                            "repo": res["relative_path"],
-                            "manifests": res["deferred_dependency_manifests"],
-                            "omitted_dirs": res["omitted_regenerable"],
-                        })
-    t_repos = _now_ms()
-
-    # Workspace/session identity compatibility check: compatible iff zero missing essentials and all repos pinned.
-    identities_compatible = len(missing_or_partial) == 0 and len(repos_restored) == len(repos)
-    t_apply = _now_ms()
-
-    return RestoreResult(
-        recovery_ready=identities_compatible,
-        archive_id=header["archive_id"],
-        owner_uid=header["owner_uid"],
-        machine_id=header["machine_id"],
-        generation=int(header["generation"]),
-        bytes_restored=bytes_restored,
-        files_restored=files_restored,
-        repos_restored=sorted(repos_restored, key=lambda r: r["repo_id"]),
-        deferred_dependency_installs=deferred_deps,
-        missing_or_partial=missing_or_partial,
-        timings_ms={
-            "verify_ms": t_verify - t_start,
-            "extract_ms": t_extract - t_verify,
-            "repos_ms": t_repos - t_extract,
-            "apply_ms": t_apply - t_repos,
-            "total_ms": t_apply - t_start,
-        },
-        workspace_identities_compatible=identities_compatible,
-    )
+if __name__ == "__main__":
+    try:
+        if sys.argv[1:] != ["export-and-upload"]:
+            raise ArchiveError("invalid_args", "Supported subcommand: export-and-upload")
+        sys.exit(_cli_export_and_upload())
+    except ArchiveError as err:
+        print(json.dumps({"ok": False, "code": err.code, "message": str(err)}), file=sys.stderr)
+        sys.exit(2)
+    except Exception as err:
+        print(json.dumps({"ok": False, "code": "internal", "message": type(err).__name__}), file=sys.stderr)
+        sys.exit(1)
