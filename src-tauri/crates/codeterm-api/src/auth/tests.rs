@@ -460,6 +460,7 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         mesh.paired_peers["air"].relay_protocol_version
     };
     let announce = |relay_protocol_version| PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,

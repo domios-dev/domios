@@ -21,6 +21,36 @@ pub async fn broadcast_registry_snapshot(
     mesh: &MeshState,
     snapshot: &codeterm_entitlements::DetachedGrant,
 ) {
+    if mesh.lock().inbound_only {
+        return;
+    }
+    let targets = mesh
+        .lock()
+        .endpoint_records()
+        .into_iter()
+        .filter_map(|record| {
+            if let Some(crate::endpoint_gossip::EndpointAddress::DirectIngress { address }) =
+                record.claim.endpoint
+            {
+                Some((record.claim.installation_id, address))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut direct = tokio::task::JoinSet::new();
+    for (installation_id, address) in targets {
+        let mesh = mesh.clone();
+        let registry = snapshot.clone();
+        direct.spawn(async move {
+            let route = crate::cloud_ingress::CloudRoute::Direct(address);
+            if let Ok(channel) =
+                crate::cloud_ingress::connect_enrolled(mesh, route, &installation_id).await
+            {
+                let _ = channel.push_registry(registry).await;
+            }
+        });
+    }
     broadcast(
         mesh,
         PresenceNotice::Snapshot {
@@ -28,6 +58,7 @@ pub async fn broadcast_registry_snapshot(
         },
     )
     .await;
+    while direct.join_next().await.is_some() {}
 }
 
 pub async fn broadcast_presence_notice(mesh: &MeshState, metadata_revision: u64) {
@@ -44,6 +75,9 @@ pub async fn broadcast_endpoint_record(
 async fn broadcast(mesh: &MeshState, notice: PresenceNotice) {
     let (token, peers) = {
         let manager = mesh.lock();
+        if manager.inbound_only {
+            return;
+        }
         let Ok(token) = manager.sign_request() else {
             return;
         };

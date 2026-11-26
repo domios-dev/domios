@@ -87,7 +87,9 @@ pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
 pub mod mesh_artifacts;
-pub use mesh_artifacts::transfer as mesh_artifacts_transfer;
+pub use mesh_artifacts::{
+    transfer as mesh_artifacts_transfer, transfer_via as mesh_artifacts_transfer_via,
+};
 pub mod mesh_attachment;
 pub mod message_gateway;
 pub mod messenger;

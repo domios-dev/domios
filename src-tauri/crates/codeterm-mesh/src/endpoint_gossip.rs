@@ -12,7 +12,6 @@ pub const MAX_ENDPOINT_RECORDS: usize = 256;
 pub enum EndpointAddress {
     DirectIngress { address: std::net::SocketAddrV4 },
     Tailnet { tailnet_ip: String, api_port: u16 },
-    ProviderHttps { origin: String, header_name: String },
 }
 
 impl EndpointAddress {
@@ -22,24 +21,19 @@ impl EndpointAddress {
                 tailnet_ip,
                 api_port,
             } => Some((tailnet_ip, *api_port)),
-            Self::ProviderHttps { .. } | Self::DirectIngress { .. } => None,
+            Self::DirectIngress { .. } => None,
         }
     }
 
     fn valid(&self) -> bool {
         match self {
             Self::DirectIngress { address } => {
-                address.port() == 7687
-                    && codeterm_util::network_host::public_ip((*address.ip()).into())
+                crate::cloud_ingress::direct_address_allowed(*address)
             }
             Self::Tailnet {
                 tailnet_ip,
                 api_port,
             } => *api_port != 0 && crate::types::is_tailscale_ip(tailnet_ip),
-            Self::ProviderHttps {
-                origin,
-                header_name,
-            } => crate::cloud_ingress::valid_endpoint(origin, header_name),
         }
     }
 }
@@ -235,6 +229,18 @@ impl MeshManager {
         self.verified_endpoint_record(installation_id).is_some()
     }
 
+    pub fn direct_ingress_address(&self, installation_id: &str) -> Option<std::net::SocketAddrV4> {
+        match self
+            .verified_endpoint_record(installation_id)?
+            .claim
+            .endpoint
+            .as_ref()?
+        {
+            EndpointAddress::DirectIngress { address } => Some(*address),
+            EndpointAddress::Tailnet { .. } => None,
+        }
+    }
+
     pub fn endpoint_target(&self, installation_id: &str) -> Option<LinkTarget> {
         self.verified_endpoint_record(installation_id)?
             .claim
@@ -258,6 +264,108 @@ impl MeshManager {
             .get(installation_id)
             .filter(|entry| self.endpoint_membership_current(&entry.membership))
             .map(|entry| &entry.record)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn insert_direct_ingress_endpoint_for_test(
+        &mut self,
+        installation_id: String,
+        address: std::net::SocketAddrV4,
+    ) {
+        struct TestAuthority;
+        impl crate::account_mesh::AccountMeshAuthority for TestAuthority {
+            fn verify_membership(
+                &self,
+                _: &str,
+                _: u64,
+            ) -> Result<VerifiedMembership, AdmissionRefusal> {
+                Err(AdmissionRefusal::AuthRefused)
+            }
+            fn sign_possession(&self, _: &[u8; 32]) -> Result<String, AdmissionRefusal> {
+                Err(AdmissionRefusal::AuthRefused)
+            }
+            fn verify_possession(&self, _: &VerifiedMembership, _: &[u8; 32], _: &str) -> bool {
+                false
+            }
+            fn resolve_link_target(
+                &self,
+                _: &str,
+            ) -> crate::account_mesh::BoxFuture<'_, Result<LinkTarget, AdmissionRefusal>>
+            {
+                Box::pin(async { Err(AdmissionRefusal::PeerUnreachable) })
+            }
+        }
+        if self.account_authority().is_none() {
+            self.bind_account_authority(std::sync::Arc::new(TestAuthority));
+        }
+        let account_id = self
+            .account_state()
+            .signed_in_account()
+            .unwrap_or("test-account")
+            .to_owned();
+        let expires_at = self.now().saturating_add(3600);
+        let membership = VerifiedMembership {
+            account_id,
+            installation_id: installation_id.clone(),
+            key_id: "test-key".into(),
+            key_generation: 1,
+            slot_revision: 1,
+            issued_at: 0,
+            expires_at,
+        };
+        let mut next_state = self.account_state().clone();
+        let members = next_state
+            .registry_members
+            .get_or_insert_with(Default::default);
+        if let Some(own) = &next_state.membership {
+            members.insert(
+                own.verified.installation_id.clone(),
+                (
+                    own.verified.key_id.clone(),
+                    own.verified.key_generation,
+                    own.verified.slot_revision,
+                ),
+            );
+        }
+        for peer_id in self.paired_peers.keys() {
+            if let Some(remote) = self
+                .link_record(peer_id)
+                .and_then(|link| link.remote_membership.as_ref())
+            {
+                members.insert(
+                    remote.verified.installation_id.clone(),
+                    (
+                        remote.verified.key_id.clone(),
+                        remote.verified.key_generation,
+                        remote.verified.slot_revision,
+                    ),
+                );
+            }
+        }
+        members.insert(
+            installation_id.clone(),
+            (
+                membership.key_id.clone(),
+                membership.key_generation,
+                membership.slot_revision,
+            ),
+        );
+        self.apply_account_state(next_state);
+        let record = SignedEndpointRecord {
+            claim: EndpointClaim {
+                version: ENDPOINT_RECORD_VERSION,
+                installation_id: installation_id.clone(),
+                sequence: 1,
+                membership: "test-membership".into(),
+                endpoint: Some(EndpointAddress::DirectIngress { address }),
+            },
+            signature: "test-signature".into(),
+        };
+        self.endpoint_records.records.insert(
+            installation_id,
+            VerifiedEndpointRecord { record, membership },
+        );
+        self.bump_gate();
     }
 }
 

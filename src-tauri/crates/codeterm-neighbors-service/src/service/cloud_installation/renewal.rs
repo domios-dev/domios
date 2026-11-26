@@ -4,6 +4,27 @@ use codeterm_account::account_mesh::{
     MembershipExpectation,
 };
 
+impl codeterm_mesh::cloud_ingress::RenewalReceiver for CloudInstallation {
+    fn enrolled(&self) -> bool {
+        matches!(&*self.0.phase.lock(), Phase::Enrolled { .. })
+    }
+
+    fn apply<'a>(
+        &'a self,
+        membership: &'a DetachedGrant,
+        registry: &'a DetachedGrant,
+    ) -> codeterm_mesh::account_mesh::BoxFuture<
+        'a,
+        Result<(), codeterm_mesh::cloud_ingress::IngressError>,
+    > {
+        Box::pin(async move {
+            self.apply_renewal(membership, registry)
+                .await
+                .map_err(|_| codeterm_mesh::cloud_ingress::IngressError::Rejected)
+        })
+    }
+}
+
 impl CloudInstallation {
     /// Consumes the grant pair delivered by an admitted renewal frame.
     pub async fn apply_renewal(

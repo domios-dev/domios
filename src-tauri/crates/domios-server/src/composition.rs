@@ -443,6 +443,17 @@ pub(crate) fn compose_observed(
     }
     codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
     if let Some((installation, ingress)) = prepared.cloud {
+        assert!(ingress.bind_enrolled(
+            states.mesh.clone(),
+            Arc::new(installation.clone()),
+            codeterm_api::cloud_mesh_runtime::dispatcher(&svc_ctx)
+        ));
+        assert!(ingress
+            .bind_drain_policy(codeterm_api::cloud_mesh_runtime::drain_policy(
+                &svc_ctx,
+                states.mesh.clone(),
+            ))
+            .is_ok());
         assert!(svc_ctx.set_ext(installation).is_ok());
         assert!(svc_ctx.set_ext(ingress).is_ok());
     }

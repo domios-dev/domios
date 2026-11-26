@@ -224,14 +224,13 @@ fn endpoint_gossip_membership_revocation_and_key_changes_invalidate_cached_targe
 }
 
 #[test]
-fn provider_endpoint_requires_signed_metadata_and_stays_out_of_legacy_http_dialing() {
+fn direct_endpoint_changes_address_only_on_newer_signed_records() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));
     admit(&[&a, &b]);
     let token = record(&a, 1).claim.membership;
-    let endpoint = EndpointAddress::ProviderHttps {
-        origin: "https://preview.example.com".into(),
-        header_name: "x-preview-token".into(),
+    let endpoint = EndpointAddress::DirectIngress {
+        address: "8.8.8.8:7687".parse().unwrap(),
     };
     let record = a
         .mesh
@@ -244,6 +243,22 @@ fn provider_endpoint_requires_signed_metadata_and_stays_out_of_legacy_http_diali
         .receive_endpoint_record(record.clone())
         .unwrap());
     assert!(b.mesh.lock().endpoint_target(&a.installation_id).is_none());
+    let address = "1.1.1.1:7687".parse().unwrap();
+    let update = a
+        .mesh
+        .lock()
+        .sign_endpoint_record(Some(EndpointAddress::DirectIngress { address }), 3, &token)
+        .unwrap();
+    assert!(b.mesh.lock().receive_endpoint_record(update).unwrap());
+    assert!(!b
+        .mesh
+        .lock()
+        .receive_endpoint_record(record.clone())
+        .unwrap());
+    assert_eq!(
+        b.mesh.lock().direct_ingress_address(&a.installation_id),
+        Some(address)
+    );
     let mut forged = record;
     forged.claim.endpoint = None;
     assert!(b.mesh.lock().verify_endpoint_record(&forged).is_err());

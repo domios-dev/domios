@@ -421,6 +421,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
+- `--cloud` — Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicitly create subject to limit), or a cloud machine ID/name
 - `--cwd` — Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths
 - `--description` — Short tab description (max 200 chars)
 - `--environment` — Remote environment ID or unambiguous label; never inferred
@@ -1996,6 +1997,44 @@ Push our current address list to paired peers without re-detecting locally. Use 
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
 
+#### `domios mesh cloud`
+
+Create, list, sleep, wake, or delete cloud machines on this controller. Local-only
+
+#### `domios mesh cloud create`
+
+Create and enroll a new managed cloud machine
+
+- `--name` — Human-friendly machine name
+- `--size` — Machine size profile (default: small)
+
+#### `domios mesh cloud delete`
+
+Permanently delete a cloud machine (warns about unpushed work without --confirm)
+
+- `--confirm` — Confirm permanent deletion of the machine and any unpushed work
+- `<machine>` — Cloud machine ID, name, or peer ID
+
+#### `domios mesh cloud list`
+
+List cloud machines with state, hourly rate, and uptime
+
+#### `domios mesh cloud sleep`
+
+Drain an idle cloud machine and put it to sleep (refuses while work runs)
+
+- `<machine>` — Cloud machine ID, name, or peer ID
+
+#### `domios mesh cloud usage`
+
+Show managed cloud credit usage, allowance, remaining balance, cap, and burn per size
+
+#### `domios mesh cloud wake`
+
+Wake a sleeping cloud machine (concurrent wakes join one wake)
+
+- `<machine>` — Cloud machine ID, name, or peer ID
+
 #### `domios mesh identity`
 
 Manage the kind icon of an installation
@@ -3210,6 +3249,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
 - `--authorized-gate` — Gate token the worker may claim as executed; repeatable
 - `--canonical-writer` — Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred; needs a git repository with a commit
+- `--cloud` — Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicit create subject to limit), or a cloud machine ID/name
 - `--cwd`
 - `--description` — Worker tab description (defaults to a short summary of the task name)
 - `--execution-intent` — Explicit task intent; mutating work reports the advisory provider allowance

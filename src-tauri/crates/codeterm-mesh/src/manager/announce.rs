@@ -52,6 +52,7 @@ impl MeshManager {
         let addresses = self.local_announce_addresses();
         let online = self.local_http_healthy && !addresses.is_empty();
         types::PeerAnnounce {
+            inbound_only: self.inbound_only,
             machine_identity: self.sign_machine_identity(),
             domios_version: Some(crate::version::local_version().into()),
             domios_build: (!self.build_hash.is_empty()).then(|| self.build_hash.clone()),

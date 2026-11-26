@@ -533,6 +533,7 @@ pub(crate) fn start_servers(
         }
     }
     service_state.start_account_mesh_transport();
+    codeterm_api::cloud_mesh_runtime::start(service_state, states.mesh.clone());
     service_state.start_purchase_switch();
 
     let integrations = states.config.lock().integrations.clone();
