@@ -125,7 +125,6 @@ pub const fn is_supported_relay_protocol(version: u16) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(tag = "transport", rename_all = "snake_case")]
 pub enum WebUiEndpoint {
-    ProviderHttps { origin: String, header_name: String },
     TailscaleHttps { host: String, port: u16 },
     TailscaleHttp { ip: IpAddr, port: u16 },
     LanHttp { ip: IpAddr, port: u16 },
@@ -142,6 +141,8 @@ pub struct WebUiAnnouncement {
 /// sender's instance_id wholesale — stale entries must die.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerAnnounce {
+    #[serde(default)]
+    pub inbound_only: bool,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -335,7 +336,15 @@ pub struct AccountInstallation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+pub struct DirectIngressStatus {
+    pub address: String,
+    pub stream_attached: bool,
+    pub inbound_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct MeshPeersResponse {
+    pub direct_ingress: std::collections::BTreeMap<String, DirectIngressStatus>,
     pub local_machine_identity: crate::machine_identity::MachineIdentity,
     pub machine_identities:
         std::collections::BTreeMap<String, crate::machine_identity::MachineIdentity>,

@@ -69,6 +69,7 @@ fn apply_offline_announce_clears_addresses_and_marks_peer_offline() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                inbound_only: false,
                 machine_identity: None,
                 domios_version: None,
                 domios_build: None,
@@ -102,6 +103,7 @@ fn apply_online_empty_announce_keeps_existing_addresses() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                inbound_only: false,
                 machine_identity: None,
                 domios_version: None,
                 domios_build: None,
@@ -134,6 +136,7 @@ fn apply_offline_announce_reports_change_when_addresses_already_empty() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                inbound_only: false,
                 machine_identity: None,
                 domios_version: None,
                 domios_build: None,

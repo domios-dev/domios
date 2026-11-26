@@ -163,6 +163,16 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "invalid": return "The request was rejected as invalid.";
     case "authority-unavailable":
     case "unavailable": return "The account service is unavailable. Try again later.";
+    case "replay":
+    case "nonce_reused": return "This request was already used. Try again.";
+    case "apply_too_large": return "This account's machine list is too large to add another machine. Remove a machine and try again.";
+    case "cloud.machines": return `Your plan allows ${failure.limit} cloud ${failure.limit === 1 ? "machine" : "machines"}.`;
+    case "lease_required": return "Cloud hours are needed to start this machine.";
+    case "credits_exhausted": return "Out of cloud hours. Top up to continue.";
+    case "not_found": return "That cloud machine no longer exists.";
+    case "provider_refused": return "The cloud provider refused the request.";
+    case "provider_unavailable": return "The cloud provider is unavailable. Try again later.";
+    case "provider_unconfirmed": return "The cloud provider did not confirm the request yet. Domios checks again before retrying.";
   }
 }
 

@@ -224,7 +224,7 @@ function PeerDrawer({
         </div>
 
         <MachineFooter label={isSelf ? "This machine" : peer.pending ? "Waiting to pair" : peer.online ? "Connected" : "Unreachable"}
-          secondary={peer.pending ? "pairs when online" : ACCESS_LABELS[accessLevel] ?? accessLevel} tone={peer.online ? "ok" : "warning"}
+          secondary={peer.reachabilityHint ?? (peer.pending ? "pairs when online" : ACCESS_LABELS[accessLevel] ?? accessLevel)} tone={peer.online ? "ok" : "warning"}
           version={isSelf ? appVersion() : peer.domios_version} build={isSelf ? buildHash() : peer.domios_build} showBuild inset={false} />
 
         <Section label="IP">

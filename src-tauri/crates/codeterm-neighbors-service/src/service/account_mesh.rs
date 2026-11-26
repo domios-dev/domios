@@ -563,7 +563,10 @@ impl NeighborsExt for ServiceContext {
                 log::error!("[account-mesh] no Mesh state; Mesh traffic stays blocked");
                 return;
             };
-            crate::async_runtime::spawn(tailnet::run(service.clone(), mesh.clone()));
+            let cloud = service.try_ext::<super::cloud_installation::CloudInstallation>();
+            if cloud.is_none() {
+                crate::async_runtime::spawn(tailnet::run(service.clone(), mesh.clone()));
+            }
             let account_mesh = match service.account_mesh().await {
                 Ok(account_mesh) => account_mesh,
                 Err(error) => {
@@ -579,6 +582,14 @@ impl NeighborsExt for ServiceContext {
                 }
             };
             mesh.lock().bind_account_authority(account_mesh.authority());
+            if let Some(cloud) = cloud {
+                if let Err(error) = cloud.bind_lifecycle(account_mesh.mesh.clone()).await {
+                    log::warn!(
+                        "[account-mesh] persisted delegated admission unavailable: {error:?}"
+                    );
+                }
+                return;
+            }
             crate::async_runtime::spawn(push_account_mesh_listener(service.clone(), mesh.clone()));
             crate::async_runtime::spawn(reconcile::run(
                 service.clone(),

@@ -101,7 +101,14 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::Conflict
         | AccountMeshRefusal::Replay
         | AccountMeshRefusal::NonceReused
+        | AccountMeshRefusal::ApplyTooLarge
         | AccountMeshRefusal::CloudMachineLimit { .. }
+        | AccountMeshRefusal::LeaseRequired
+        | AccountMeshRefusal::CreditsExhausted
+        | AccountMeshRefusal::NotFound
+        | AccountMeshRefusal::ProviderRefused
+        | AccountMeshRefusal::ProviderUnavailable
+        | AccountMeshRefusal::ProviderUnconfirmed
         | AccountMeshRefusal::KeyConflict
         | AccountMeshRefusal::GenerationMismatch
         | AccountMeshRefusal::ChallengeInvalid
@@ -167,6 +174,51 @@ impl mesh::AccountMeshAuthority for AccountAuthority {
         self.0
             .sign_possession(transcript)
             .map_err(admission_refusal)
+    }
+
+    fn verify_key_possession(&self, key_id: &str, digest: &[u8; 32], signature: &str) -> bool {
+        account::verify_possession(key_id, digest, signature)
+    }
+
+    fn reserve_endpoint_sequence(
+        &self,
+        epoch: u64,
+    ) -> mesh::BoxFuture<'_, Result<u64, mesh::AdmissionRefusal>> {
+        Box::pin(async move {
+            self.0
+                .reserve_endpoint_sequence(epoch)
+                .await
+                .map_err(admission_refusal)
+        })
+    }
+
+    fn renew_cloud<'a>(
+        &'a self,
+        target: &'a mesh::VerifiedMembership,
+    ) -> mesh::BoxFuture<
+        'a,
+        Result<
+            (
+                codeterm_entitlements::DetachedGrant,
+                codeterm_entitlements::DetachedGrant,
+            ),
+            mesh::AdmissionRefusal,
+        >,
+    > {
+        Box::pin(async move {
+            let target = account::wire::MeshTarget {
+                installation_id: target.installation_id.clone(),
+                key_id: target.key_id.clone(),
+                key_generation: target.key_generation,
+                slot_revision: target.slot_revision,
+            };
+            let reply = self
+                .0
+                .renew_cloud_membership(&target)
+                .await
+                .map_err(admission_refusal)?;
+            Ok((reply.membership, reply.signed_registry))
+        })
     }
 
     fn verify_possession(

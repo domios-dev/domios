@@ -553,12 +553,22 @@ pub enum RegistryRefusal {
     Replay,
     #[serde(rename = "nonce_reused")]
     NonceReused,
+    #[serde(rename = "apply_too_large")]
+    ApplyTooLarge,
     #[serde(rename = "cloud.machines")]
-    CloudMachineLimit {
-        mode: super::cloud_enrollment::CloudMode,
-        limit: u32,
-        active_count: u32,
-    },
+    CloudMachineLimit { limit: u32, active_count: u32 },
+    #[serde(rename = "lease_required")]
+    LeaseRequired,
+    #[serde(rename = "credits_exhausted")]
+    CreditsExhausted,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "provider_refused")]
+    ProviderRefused,
+    #[serde(rename = "provider_unavailable")]
+    ProviderUnavailable,
+    #[serde(rename = "provider_unconfirmed")]
+    ProviderUnconfirmed,
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
     #[serde(rename = "authority-unavailable")]
@@ -572,6 +582,9 @@ pub enum RegistryRefusal {
 impl RegistryRefusal {
     /// Unknown or malformed details are an outage, never a plan-limit refusal.
     pub fn from_details(details: &serde_json::Value) -> Self {
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("provider_refused") {
+            return Self::ProviderRefused;
+        }
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("enrollment_budget") {
             let seconds = details
                 .get("retry_after_seconds")

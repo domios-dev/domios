@@ -319,6 +319,7 @@ fn peers_response_omits_inactive_installations_and_removes_installation_pairing(
 fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -347,6 +348,7 @@ fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
 fn apply_announce_stores_and_clears_web_ui() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let with_https = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -369,6 +371,7 @@ fn apply_announce_stores_and_clears_web_ui() {
     assert_eq!(m.paired_peers["peer-A"].web_ui, with_https.web_ui);
 
     let without = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         web_ui: None,
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
@@ -383,6 +386,7 @@ fn apply_announce_stores_and_clears_web_ui() {
 fn apply_announce_rejects_spoofed_sender() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -406,6 +410,7 @@ fn apply_announce_rejects_spoofed_sender() {
 fn apply_announce_empty_list_is_noop() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -426,6 +431,7 @@ fn apply_announce_empty_list_is_noop() {
 fn apply_announce_same_addrs_returns_no_change() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -443,6 +449,7 @@ fn apply_announce_same_addrs_returns_no_change() {
 
 fn announce_with_protocol(relay_protocol_version: u16) -> PeerAnnounce {
     PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,

@@ -21,6 +21,8 @@ pub use announce::PeerAnnounceChange;
 /// Central mesh state — composes identity with peer/discovery state.
 /// Single Mutex — no lock ordering concerns.
 pub struct MeshManager {
+    pub(crate) inbound_only: bool,
+    pub(crate) reverse_streams: HashMap<String, [u8; 32]>,
     pub ident: identity::IdentityManager,
     machine_identity: crate::machine_identity::Revision,
     peer_machine_identities: HashMap<String, crate::machine_identity::Revision>,
@@ -156,6 +158,8 @@ impl MeshManager {
             account: account_mesh::AccountMeshState::default(),
             account_authority: None,
             signed_registry: None,
+            inbound_only: false,
+            reverse_streams: HashMap::new(),
             endpoint_records: Default::default(),
             clock: Arc::new(account_gate::system_now),
             gate_generation: tokio::sync::watch::channel(0).0,
@@ -318,6 +322,27 @@ impl MeshManager {
             }
         }
         MeshPeersResponse {
+            direct_ingress: self
+                .endpoint_records()
+                .into_iter()
+                .filter_map(|r| {
+                    let id = r.claim.installation_id;
+                    let crate::endpoint_gossip::EndpointAddress::DirectIngress { address } =
+                        r.claim.endpoint?
+                    else {
+                        return None;
+                    };
+                    let stream_attached = self.reverse_streams.contains_key(&id);
+                    Some((
+                        id,
+                        types::DirectIngressStatus {
+                            address: address.to_string(),
+                            stream_attached,
+                            inbound_only: true,
+                        },
+                    ))
+                })
+                .collect(),
             local_machine_identity: self.machine_identity(),
             machine_identities: paired
                 .iter()

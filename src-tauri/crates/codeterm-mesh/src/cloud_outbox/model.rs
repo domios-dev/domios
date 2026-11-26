@@ -703,6 +703,10 @@ impl OutboxModel {
         self.streams.keys().cloned().collect()
     }
 
+    pub fn has_attached_stream(&self, pair: &InstallationPair) -> bool {
+        self.streams.contains_key(pair)
+    }
+
     pub fn snapshot(&self) -> OutboxSnapshot {
         let mut queued_count = 0usize;
         let mut in_flight_count = 0usize;

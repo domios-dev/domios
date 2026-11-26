@@ -188,6 +188,33 @@ pub trait AccountMeshAuthority: Send + Sync {
 
     fn sign_possession(&self, transcript: &[u8; 32]) -> Result<String, AdmissionRefusal>;
 
+    fn reserve_endpoint_sequence(
+        &self,
+        _epoch: u64,
+    ) -> BoxFuture<'_, Result<u64, AdmissionRefusal>> {
+        Box::pin(async { Err(AdmissionRefusal::AuthRefused) })
+    }
+
+    fn renew_cloud<'a>(
+        &'a self,
+        _target: &'a VerifiedMembership,
+    ) -> BoxFuture<
+        'a,
+        Result<
+            (
+                codeterm_entitlements::DetachedGrant,
+                codeterm_entitlements::DetachedGrant,
+            ),
+            AdmissionRefusal,
+        >,
+    > {
+        Box::pin(async { Err(AdmissionRefusal::AuthRefused) })
+    }
+
+    fn verify_key_possession(&self, _key_id: &str, _digest: &[u8; 32], _signature: &str) -> bool {
+        false
+    }
+
     fn verify_possession(
         &self,
         membership: &VerifiedMembership,

@@ -87,7 +87,9 @@ pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
 pub mod mesh_artifacts;
-pub use mesh_artifacts::transfer as mesh_artifacts_transfer;
+pub use mesh_artifacts::{
+    transfer as mesh_artifacts_transfer, transfer_via as mesh_artifacts_transfer_via,
+};
 pub mod mesh_attachment;
 pub mod message_gateway;
 pub mod messenger;
@@ -436,8 +438,6 @@ pub struct ServiceContext {
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
     /// tabs route their I/O here via the `TabTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
-    pub cloud_machine_provider:
-        std::sync::Arc<codeterm_plugin::cloud_machine_provider::CloudProviderRegistry>,
     /// Unified facade over the agent + chat-backend stores. Listing and
     /// spawn-classify go through this so call-sites stop touching two registries.
     pub provider_registry: Arc<crate::provider::ProviderRegistry>,
