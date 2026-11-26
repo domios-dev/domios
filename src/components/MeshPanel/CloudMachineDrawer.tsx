@@ -16,6 +16,7 @@ import { UI_PANEL } from "../shared/design";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { MachineGlyph } from "../shared/MachineGlyph";
 import { useEscapeDismissal } from "../shared/useEscapeDismissal";
+import { CloudBootstrapPanel } from "../CloudBootstrap/CloudBootstrapPanel";
 import { CloudUsageMeter } from "./CloudUsageMeter";
 import "./cloudMachines.css";
 
@@ -131,6 +132,13 @@ export function CloudMachineDrawer({
               onTopUp={() => onTopUp(isOutOfCredits)}
               onRedeem={onRedeem}
             />
+            <div className="my-1 h-px bg-[var(--ct-border)]" />
+          </>
+        )}
+
+        {isAwake && (
+          <>
+            <CloudBootstrapPanel machineId={machine.machine_id} />
             <div className="my-1 h-px bg-[var(--ct-border)]" />
           </>
         )}
