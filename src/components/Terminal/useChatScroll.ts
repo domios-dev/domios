@@ -26,7 +26,7 @@ import {
   type ChatContentAnchor,
 } from "./chatScrollAnchor";
 
-import { chatLayoutScrollTarget, chatScrollWriteTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor, shouldRevealNewerChatRows } from "./chatScrollDecisions";
+import { chatLayoutScrollTarget, chatScrollWriteTarget, chatUserScrollChanged, chatViewportLayoutChanged, shouldCaptureChatAnchor, shouldRevealNewerChatRows } from "./chatScrollDecisions";
 import { chatOverflowAnchorFor } from "./chatAnchorAuthority";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatRevealIndex } from "./chatAnchorModel";
