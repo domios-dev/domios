@@ -615,8 +615,10 @@ describe("Live Transcript panel", () => {
     expect(panel()?.textContent).toContain("Scout is unavailable: Supporter adapter 'cli-fixture' is cooling down after a recent failure.");
 
     await click("Choose routing mode");
-    await openSelect("Routing mode");
-    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Supporter adapter 'cli-fixture' is cooling down after a recent failure.");
+    const routingMode = await openSelect("Routing mode");
+    const scoutOption = document.querySelector<HTMLElement>(`[data-testid="${routingMode.dataset.testid}-option-scout_then_concierge"]`);
+    expect(scoutOption?.textContent).toContain("Supporter adapter 'cli-fixture' is cooling down after a recent failure.");
+    expect(scoutOption?.hasAttribute("disabled")).toBe(true);
     await act(async () => { document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
 
     readiness.scout = "ready";
