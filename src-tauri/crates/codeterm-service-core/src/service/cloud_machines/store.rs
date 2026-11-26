@@ -39,7 +39,7 @@ impl CloudMachineStore {
             serde_json::from_str::<PersistedCloudMachines>(text).map_err(|error| error.to_string())
         }) {
             Loaded::Parsed(data) | Loaded::Recovered { value: data, .. } => data.machines,
-            Loaded::Absent | Loaded::Corrupt { .. } => Vec::new(),
+            Loaded::Missing | Loaded::Unrecoverable { .. } => Vec::new(),
         }
     }
 
