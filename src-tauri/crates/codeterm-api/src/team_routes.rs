@@ -61,7 +61,7 @@ fn map_rename_error(error: String) -> (StatusCode, String) {
     }
 }
 
-fn map_close_team_error(error: String) -> (StatusCode, String) {
+pub(crate) fn map_close_team_error(error: String) -> (StatusCode, String) {
     if error.contains("remote Team preflight failed")
         || error.contains("unresolved remote Worker transfer")
     {

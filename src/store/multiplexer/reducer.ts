@@ -600,7 +600,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const toasts = !existing && archived && toast.update_only ? state.toasts : existing
         ? state.toasts.map((entry) => matches(entry) ? toast : entry)
         : capToasts([...state.toasts, toast]);
-      const notifications = admitBellNotification(state.notifications, toast, "local_notice");
+      const notifications = admitBellNotification(
+        state.notifications,
+        toast,
+        toast.retain_in_notifications ? "agent_notification" : "local_notice",
+      );
       return { ...state, toasts, notifications };
     }
 

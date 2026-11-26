@@ -1,9 +1,14 @@
 import { useCallback, useRef } from "react";
+import { authoredCause } from "../../lib/describeError";
 import type { Notice } from "../../lib/notices";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { createTabsTransport } from "../../lib/transport/tabs";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { remotePeerActionEligibility, workspaceNameFromPath } from "./remoteSidebarActionsModel";
+
+function peerRefusalReason(raw: string): string {
+  return raw.replace(/^.*? → HTTP \d{3}: /, "").trim() || raw.trim();
+}
 
 export function remoteWorkspaceCreateErrorNotice(
   peerId: string,
@@ -16,8 +21,17 @@ export function remoteWorkspaceCreateErrorNotice(
     tabId: null,
     workspaceId: null,
     title: result.kind === "unavailable" ? "Workspace create not sent" : "Workspace creation failed",
-    detail: result.kind === "unavailable" ? `${machineName} is ${result.reason}.` : `${machineName}\n${result.detail}`,
+    detail: result.kind === "unavailable"
+      ? authoredCause(`${machineName} is ${result.reason}.`)
+      : JSON.stringify({
+        code: "workspace_close_refused",
+        message: peerRefusalReason(result.detail),
+        cause: `Could not create the workspace on ${machineName}.`,
+        raw: `${machineName}\n${result.detail}`,
+      }),
     severity: "Error",
+    persistent: true,
+    retainInNotifications: true,
   };
 }
 

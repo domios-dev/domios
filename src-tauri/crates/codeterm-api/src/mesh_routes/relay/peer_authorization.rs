@@ -18,6 +18,13 @@ pub(super) enum PeerRelayAuthorization<'a> {
         peer_id: &'a str,
         workspace_id: &'a str,
     },
+    TeamClose {
+        peer_id: &'a str,
+        team_id: &'a str,
+        force: bool,
+        confirm: Option<&'a str>,
+        force_busy: bool,
+    },
     MeshRpc {
         peer_id: &'a str,
     },
@@ -72,13 +79,110 @@ pub(super) fn authorize_peer_relay<'a>(
             workspace_id,
         };
     }
+    if let Some(team_id) = team_close_target(method, path) {
+        return PeerRelayAuthorization::TeamClose {
+            peer_id,
+            team_id,
+            force: relay_bool_field(body, "force"),
+            confirm: body.get("confirm").and_then(serde_json::Value::as_str),
+            force_busy: relay_bool_field(body, "force_busy"),
+        };
+    }
     match workspace_close_target(method, path) {
         Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
             peer_id,
             workspace_id,
-            force: relay_workspace_close_force(body),
+            force: relay_bool_field(body, "force"),
         },
         None => PeerRelayAuthorization::Forward,
+    }
+}
+
+pub(super) async fn dispatch_peer_relay(
+    state: &AppState,
+    authorization: PeerRelayAuthorization<'_>,
+    cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    access: &AccessLevel,
+    origin: crate::auth::AuthenticatedOrigin,
+    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    grant: &crate::auth::peer_grant::PeerGrant,
+) -> Result<Option<(codeterm_service_core::mesh::types::RelayResponse, bool)>, (StatusCode, String)>
+{
+    if (!origin.owner_trusted()
+        && matches!(authorization, PeerRelayAuthorization::WorkspaceClose { .. }))
+        || (origin != crate::auth::AuthenticatedOrigin::Owner
+            && matches!(
+                authorization,
+                PeerRelayAuthorization::WorkspaceClosePreview { .. }
+                    | PeerRelayAuthorization::TeamClose { .. }
+                    | PeerRelayAuthorization::OwnerTabClose { .. }
+            ))
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "An agent relay cannot use peer authority".into(),
+        ));
+    }
+    match authorization {
+        PeerRelayAuthorization::Rejected => Ok(Some((
+            super::relay_failure(
+                StatusCode::FORBIDDEN.as_u16(),
+                codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
+                Some(false),
+                format!(
+                    "Peer not authorized to {} {} (access_level={:?})",
+                    cmd.method, cmd.path, access
+                ),
+            ),
+            true,
+        ))),
+        PeerRelayAuthorization::WorkspaceClose {
+            peer_id,
+            workspace_id,
+            force,
+        } => close_workspace_from_mesh_peer(state, peer_id, workspace_id, force, grant.clone())
+            .await
+            .map(|response| Some((response, false))),
+        PeerRelayAuthorization::WorkspaceClosePreview { workspace_id, .. } => {
+            let response = workspace_close_preview_from_mesh_peer(state, workspace_id).await?;
+            if !grant.current(&state.mesh.lock()) {
+                return Ok(Some((super::grant_refusal(), true)));
+            }
+            Ok(Some((response, false)))
+        }
+        PeerRelayAuthorization::TeamClose {
+            peer_id,
+            team_id,
+            force,
+            confirm,
+            force_busy,
+        } => close_team_from_mesh_peer(
+            state,
+            peer_id,
+            team_id,
+            force,
+            confirm,
+            force_busy,
+            grant.clone(),
+        )
+        .await
+        .map(|response| Some((response, false))),
+        PeerRelayAuthorization::MeshRpc { peer_id } => {
+            mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body, origin, agent)
+                .await
+                .map(|response| Some((response, false)))
+        }
+        PeerRelayAuthorization::TabClose { peer_id, tab_id } => {
+            close_tab_from_mesh_peer(state, peer_id, tab_id, &cmd.path, origin, agent, grant.clone())
+                .await
+                .map(|response| Some((response, false)))
+        }
+        PeerRelayAuthorization::OwnerTabClose { tab_id } => {
+            close_tab_from_mesh_owner(state, tab_id, &cmd.path, grant.clone())
+                .await
+                .map(|response| Some((response, false)))
+        }
+        PeerRelayAuthorization::Forward => Ok(None),
     }
 }
 
@@ -108,8 +212,8 @@ pub(super) async fn mesh_rpc_from_mesh_peer(
     })
 }
 
-fn relay_workspace_close_force(body: &serde_json::Value) -> bool {
-    body.get("force")
+fn relay_bool_field(body: &serde_json::Value, field: &str) -> bool {
+    body.get(field)
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
@@ -186,6 +290,120 @@ fn tab_close_relay_response(
             data: None,
             error: Some(message),
         },
+    }
+}
+
+fn team_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
+    if *method != Method::POST {
+        return None;
+    }
+    let team_id = path.strip_prefix("/api/teams/")?.strip_suffix("/close")?;
+    (!team_id.is_empty() && !team_id.contains('/')).then_some(team_id)
+}
+
+fn relay_error(
+    status: StatusCode,
+    message: String,
+) -> codeterm_service_core::mesh::types::RelayResponse {
+    codeterm_service_core::mesh::types::RelayResponse {
+        ok: false,
+        status: status.as_u16(),
+        data: None,
+        error: Some(message),
+    }
+}
+
+pub(super) async fn close_team_from_mesh_peer(
+    state: &AppState,
+    peer_id: &str,
+    team_id: &str,
+    force: bool,
+    confirm: Option<&str>,
+    force_busy: bool,
+    grant: crate::auth::peer_grant::PeerGrant,
+) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
+    if peer_id.trim().is_empty() {
+        return Ok(relay_error(
+            StatusCode::FORBIDDEN,
+            "authenticated mesh peer id is required".into(),
+        ));
+    }
+    if !(force && confirm == Some(team_id)) {
+        return Ok(relay_error(
+            StatusCode::FORBIDDEN,
+            format!(
+                "{}: explicit confirmation is required to close Team {team_id}",
+                codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX
+            ),
+        ));
+    }
+    let admission: Result<(), (StatusCode, String)> = {
+        let mux = state.svc.mux.read();
+        let mesh = state.mesh.lock();
+        if !grant.current(&mesh) {
+            return Ok(super::grant_refusal());
+        }
+        match mux.get_team(team_id) {
+            None => Err((StatusCode::NOT_FOUND, format!("Team {team_id} not found"))),
+            Some(team) => {
+                if let Err(error) = mux.ensure_workspace_membership_mutable(&team.workspace_id) {
+                    Err((StatusCode::CONFLICT, error))
+                } else if mux
+                    .get_workspace(&team.workspace_id)
+                    .is_some_and(|workspace| workspace.protected)
+                {
+                    Err((
+                        StatusCode::FORBIDDEN,
+                        format!(
+                            "{}: Cannot close Team in protected workspace",
+                            codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX
+                        ),
+                    ))
+                } else if mux
+                    .team_member_tab_ids(team_id)
+                    .iter()
+                    .any(|tab_id| mux.get_tab(tab_id).is_some_and(|tab| tab.protected))
+                {
+                    Err((
+                        StatusCode::FORBIDDEN,
+                        format!(
+                            "{}: Cannot close Team containing a protected Tab",
+                            codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX
+                        ),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    };
+    if let Err((status, message)) = admission {
+        return Ok(relay_error(status, message));
+    }
+    match codeterm_orchestration::TeamExt::close_team(
+        state.svc.as_ref(),
+        team_id,
+        codeterm_service_core::service::TeamMutationCaller::AuthenticatedMeshPeer(
+            peer_id.to_string(),
+        ),
+        force_busy,
+    )
+    .await
+    {
+        Ok(result) => {
+            let data = serde_json::to_value(result)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            Ok(codeterm_service_core::mesh::types::RelayResponse {
+                ok: true,
+                status: StatusCode::OK.as_u16(),
+                data: Some(data),
+                error: None,
+            })
+        }
+        Err(error) => {
+            let (status, message) = crate::team_routes::map_close_team_error(error);
+            Ok(relay_error(status, message))
+        }
     }
 }
 

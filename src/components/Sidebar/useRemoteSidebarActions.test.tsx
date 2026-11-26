@@ -1,8 +1,11 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describeError } from "../../lib/describeError";
 import type { Notice } from "../../lib/notices";
+import type { Notification } from "../../lib/notificationTypes";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { reducer } from "../../store/multiplexer/reducer";
 import {
   remoteWorkspaceCreatePort,
   useRemoteWorkspaceCreate,
@@ -169,7 +172,9 @@ describe("remote workspace create and team close hooks", () => {
         blueprints: [],
         lanes: [],
       })),
-      closeTeam: vi.fn(async () => { throw new Error("Peer lacks authority to close Team"); }),
+      closeTeam: vi.fn(async () => {
+        throw new Error("/api/teams/team-b/close → HTTP 403: Peer lacks authority to close Team");
+      }),
       teamExists: vi.fn(async () => true),
     };
     let availability: GeneralAvailability = "online";
@@ -192,8 +197,13 @@ describe("remote workspace create and team close hooks", () => {
       expect(notices[0]).toMatchObject({
         title: "Team remains open",
         severity: "Error",
+        persistent: true,
+        retainInNotifications: true,
       });
-      expect(notices[0].detail).toContain("Peer lacks authority to close Team");
+      const describedRefusal = describeError(notices[0].detail);
+      expect(describedRefusal.title).toBe("Peer lacks authority to close Team");
+      expect(describedRefusal.cause).toContain("Crew B on Desk B stays open.");
+      expect(describedRefusal.raw).toContain("HTTP 403: Peer lacks authority to close Team");
 
       availability = "signed-out";
       await act(async () => { await hook.request({ ...teamTarget, availability: "signed-out" }, () => true); });
@@ -202,11 +212,34 @@ describe("remote workspace create and team close hooks", () => {
       expect(notices[1]).toMatchObject({
         title: "Team close unavailable",
         severity: "Error",
+        persistent: true,
+        retainInNotifications: true,
       });
-      expect(notices[1].detail).toContain("signed out");
+      expect(describeError(notices[1].detail).title).toContain("signed out");
     } finally {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+
+  it("retains refusal notices in the Notifications bell only when retain_in_notifications is set", () => {
+    const ordinary = { id: "ordinary", title: "x", body: "y", severity: "Error", timestamp: 1 } as unknown as Notification;
+    const refusal = {
+      id: "remote-team-close:peer:team",
+      title: "Team remains open",
+      body: "Peer refused",
+      severity: "Error",
+      persistent: true,
+      retain_in_notifications: true,
+      timestamp: 2,
+    } as unknown as Notification;
+    const emptyState = { toasts: [], notifications: [] } as unknown as Parameters<typeof reducer>[0];
+    let state = reducer(emptyState, { type: "UPSERT_TOAST", toast: ordinary });
+    expect(state.notifications.some((n) => n.id === ordinary.id)).toBe(false);
+    state = reducer(state, { type: "UPSERT_TOAST", toast: refusal });
+    expect(state.notifications.some((n) => n.id === refusal.id)).toBe(true);
+    state = reducer(state, { type: "DISMISS_TOAST", id: refusal.id });
+    expect(state.toasts.some((t) => t.id === refusal.id)).toBe(false);
+    expect(state.notifications.some((n) => n.id === refusal.id)).toBe(true);
   });
 });

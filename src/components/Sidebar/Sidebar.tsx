@@ -745,14 +745,18 @@ export const Sidebar = memo(function Sidebar({
     };
     void remoteWorkspaceClose.request(target, () => selectedWorkspaceKeyRef.current === targetKey).then(result => {
       if (result.kind === "ready" || result.kind === "stale") return;
-      const detail = result.kind === "inventory_failed"
+      const detailText = result.kind === "inventory_failed"
         ? `${target.machineName} · ${target.workspaceName}\n${result.detail}`
         : result.kind === "protected"
           ? `${target.workspaceName} on ${target.machineName} is protected.`
           : `${target.workspaceName} on ${target.machineName} cannot be inspected while the machine is offline.`;
+      const message = result.kind === "inventory_failed"
+        ? result.detail.replace(/^.*? → HTTP \d{3}: /, "").trim() || result.detail
+        : detailText;
       createNoticePublisher({ upsertToast })({ kind: "toast", id: `workspace-close-inventory:${target.peerId}:${target.workspaceId}`,
         tabId: null, workspaceId: target.workspaceId, title: result.kind === "offline" ? "Machine offline" : "Close inventory unavailable",
-        detail, severity: "Error" });
+        detail: JSON.stringify({ code: "workspace_close_refused", message, cause: `${target.workspaceName} on ${target.machineName} stays open.`, raw: detailText }),
+        severity: "Error", persistent: true, retainInNotifications: true });
     });
   }, [selectedWorkspace, observedWorkspace, selectedWorkspaceKey, requestLocalWorkspaceClose, machineNameForPeer,
     generalByPeerId, remoteWorkspaceClose.request, upsertToast]);
@@ -766,15 +770,17 @@ export const Sidebar = memo(function Sidebar({
     if (result.kind === "none") return;
     const target = result.target;
     const targetLabel = `${target.workspaceName} on ${target.machineName}`;
+    const workspaceRefusal = (message: string, cause: string, raw: string) =>
+      JSON.stringify({ code: "workspace_close_refused", message: message.replace(/^.*? → HTTP \d{3}: /, "").trim() || message, cause, raw });
     const notification = result.kind === "closed"
       ? { title: "Workspace closed", detail: targetLabel, severity: "Info" as const }
       : result.kind === "closed_with_warning"
-        ? { title: "Workspace closed with a cleanup warning", detail: `${targetLabel}\n${result.detail}`, severity: "Error" as const }
+        ? { title: "Workspace closed with a cleanup warning", detail: workspaceRefusal(result.detail, `${targetLabel} closed with a cleanup warning.`, `${targetLabel}\n${result.detail}`), severity: "Error" as const, persistent: true, retainInNotifications: true }
         : result.kind === "still_present"
-          ? { title: "Workspace remains open", detail: `${targetLabel}\n${result.detail}`, severity: "Error" as const }
+          ? { title: "Workspace remains open", detail: workspaceRefusal(result.detail, `${targetLabel} stays open.`, `${targetLabel}\n${result.detail}`), severity: "Error" as const, persistent: true, retainInNotifications: true }
           : result.kind === "offline"
-            ? { title: "Workspace close not sent", detail: `${targetLabel} is offline.`, severity: "Error" as const }
-            : { title: "Close status could not be checked", detail: `${targetLabel}\n${result.detail}\nRefresh the machine before starting another close.`, severity: "Error" as const };
+            ? { title: "Workspace close not sent", detail: workspaceRefusal(`${targetLabel} is offline.`, `${targetLabel} stays open.`, `${targetLabel} is offline.`), severity: "Error" as const, persistent: true, retainInNotifications: true }
+            : { title: "Close status could not be checked", detail: workspaceRefusal(result.detail, `Refresh ${target.machineName} before starting another close.`, `${targetLabel}\n${result.detail}\nRefresh the machine before starting another close.`), severity: "Error" as const, persistent: true, retainInNotifications: true };
     createNoticePublisher({ upsertToast })({ kind: "toast", id: `workspace-close:${target.peerId}:${target.workspaceId}`,
       tabId: null, workspaceId: target.workspaceId, ...notification });
   }, [remoteWorkspaceClose.pending, remoteWorkspaceClose.cancel, remoteWorkspaceClose.confirm, selectedWorkspaceKey, upsertToast]);

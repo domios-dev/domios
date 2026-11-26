@@ -118,7 +118,7 @@ export function RemoteFolderPicker({
           color: "var(--ct-fg, #c9d1d9)",
         }}
       >
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 px-3 py-2">
           <Folder size={16} className="shrink-0 text-[var(--ct-accent,#58a6ff)]" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{title}</div>
@@ -137,7 +137,7 @@ export function RemoteFolderPicker({
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1 px-3 py-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-1 px-3 py-2">
           <button
             type="button"
             disabled={!listing?.parent || loading}
@@ -193,7 +193,7 @@ export function RemoteFolderPicker({
 
         {newFolderName !== null && (
           <form
-            className="flex gap-2 px-3 py-2"
+            className="flex shrink-0 gap-2 px-3 py-2"
             onSubmit={(e) => {
               e.preventDefault();
               void createFolder();
@@ -218,13 +218,13 @@ export function RemoteFolderPicker({
           </form>
         )}
         {newFolderName !== null && createError && (
-          <div className="px-3 pb-2">
+          <div className="shrink-0 px-3 pb-2">
             <InlineErrorNotice error={createError} operation="creating this folder" />
           </div>
         )}
 
         <form
-          className="ct-jobs-header flex gap-2 px-3 py-2"
+          className={`flex shrink-0 gap-2 px-3 py-2${rootItems.length === 0 ? " border-b border-[var(--ct-border)]" : ""}`}
           onSubmit={(e) => {
             e.preventDefault();
             void load(manualPath);
@@ -246,13 +246,16 @@ export function RemoteFolderPicker({
         </form>
 
         {rootItems.length > 0 && (
-          <div className="ct-jobs-header flex gap-1 overflow-x-auto px-3 py-2">
+          <div
+            data-testid="folder-picker-roots"
+            className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--ct-border)] px-3 py-2"
+          >
             {rootItems.map((root) => (
               <button
                 key={root.path}
                 type="button"
                 onClick={() => load(root.path)}
-                className="shrink-0 rounded border border-[var(--ct-border)] px-2 py-1 text-xs hover:bg-[var(--ct-hover)]"
+                className="shrink-0 rounded border border-[var(--ct-border)] px-2 py-1 text-xs leading-4 hover:bg-[var(--ct-hover)]"
                 title={root.path}
               >
                 {root.name}
@@ -286,7 +289,7 @@ export function RemoteFolderPicker({
           ))}
         </div>
 
-        <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--ct-border)] px-3 py-2">
           <div className="min-w-0 truncate text-[11px] text-[var(--ct-muted-fg)]" title={path}>
             {path}
           </div>

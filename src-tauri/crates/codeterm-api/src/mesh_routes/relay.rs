@@ -866,86 +866,18 @@ async fn perform_relay_unredacted(
         if !grant.current(&state.mesh.lock()) {
             return Ok((grant_refusal(), true));
         }
-        if (!origin.owner_trusted()
-            && matches!(authorization, PeerRelayAuthorization::WorkspaceClose { .. }))
-            || (origin != crate::auth::AuthenticatedOrigin::Owner
-                && matches!(
-                    authorization,
-                    PeerRelayAuthorization::WorkspaceClosePreview { .. }
-                        | PeerRelayAuthorization::OwnerTabClose { .. }
-                ))
+        if let Some(handled) = peer_authorization::dispatch_peer_relay(
+            state,
+            authorization,
+            cmd,
+            access,
+            origin,
+            agent,
+            grant,
+        )
+        .await?
         {
-            return Err((
-                StatusCode::FORBIDDEN,
-                "An agent relay cannot use peer authority".into(),
-            ));
-        }
-        match authorization {
-            PeerRelayAuthorization::Rejected => {
-                return Ok((
-                    relay_failure(
-                        StatusCode::FORBIDDEN.as_u16(),
-                        codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
-                        Some(false),
-                        format!(
-                            "Peer not authorized to {} {} (access_level={:?})",
-                            cmd.method, cmd.path, access
-                        ),
-                    ),
-                    true,
-                ));
-            }
-            PeerRelayAuthorization::WorkspaceClose {
-                peer_id,
-                workspace_id,
-                force,
-            } => {
-                return close_workspace_from_mesh_peer(
-                    state,
-                    peer_id,
-                    workspace_id,
-                    force,
-                    grant.clone(),
-                )
-                .await
-                .map(|response| (response, false));
-            }
-            PeerRelayAuthorization::WorkspaceClosePreview { workspace_id, .. } => {
-                let response = workspace_close_preview_from_mesh_peer(state, workspace_id).await?;
-                if !grant.current(&state.mesh.lock()) {
-                    return Ok((grant_refusal(), true));
-                }
-                return Ok((response, false));
-            }
-            PeerRelayAuthorization::MeshRpc { peer_id } => {
-                return mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body, origin, agent)
-                    .await
-                    .map(|response| (response, false));
-            }
-            PeerRelayAuthorization::TabClose { peer_id, tab_id } => {
-                return peer_authorization::close_tab_from_mesh_peer(
-                    state,
-                    peer_id,
-                    tab_id,
-                    &cmd.path,
-                    origin,
-                    agent,
-                    grant.clone(),
-                )
-                .await
-                .map(|response| (response, false));
-            }
-            PeerRelayAuthorization::OwnerTabClose { tab_id } => {
-                return peer_authorization::close_tab_from_mesh_owner(
-                    state,
-                    tab_id,
-                    &cmd.path,
-                    grant.clone(),
-                )
-                .await
-                .map(|response| (response, false));
-            }
-            PeerRelayAuthorization::Forward => {}
+            return Ok(handled);
         }
         admitted_grant = Some(grant);
     }
@@ -1142,10 +1074,9 @@ mod path_guard;
 mod peer_authorization;
 mod peer_resolution;
 use path_guard::validate_relay_path;
-use peer_authorization::{
-    authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
-    workspace_close_preview_from_mesh_peer, PeerRelayAuthorization,
-};
+use peer_authorization::authorize_peer_relay;
+#[cfg(test)]
+use peer_authorization::PeerRelayAuthorization;
 use peer_resolution::{
     peer_not_paired_error, peer_unroutable_error, resolve_exact_relay_peer_route,
     resolve_relay_peer_route, AnsweringPeer, PeerRelayResponse,
