@@ -81,7 +81,11 @@ export interface MultiplexerActionsContextType {
 
 export const MultiplexerActionsContext = createContext<MultiplexerActionsContextType | null>(null);
 export const MuxStateStoreContext = createContext<MuxStateStore | null>(null);
-type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse"> & { ready?: boolean; peerWorkspaces?: ReturnType<typeof usePairedWorkspaces>["peerWorkspaces"] };
+type PairedWorkspaceInventory = Pick<ReturnType<typeof usePairedWorkspaces>, "generals" | "browse"> & {
+  ready?: boolean;
+  peerWorkspaces?: ReturnType<typeof usePairedWorkspaces>["peerWorkspaces"];
+  refreshPeerInventory?: ReturnType<typeof usePairedWorkspaces>["refreshPeerInventory"];
+};
 export const PairedWorkspaceInventoryContext = createContext<PairedWorkspaceInventory>({ generals: [], browse: null });
 
 export function usePairedWorkspaceInventory(): PairedWorkspaceInventory {

@@ -61,6 +61,15 @@ import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import { BlueprintOwnerCloseDialog } from "./BlueprintOwnerCloseDialog";
 import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import { useRemoteWorkspaceClose } from "./useRemoteWorkspaceClose";
+import { remoteWorkspaceCreateErrorNotice, useRemoteWorkspaceCreate } from "./useRemoteWorkspaceCreate";
+import { useRemoteTeamClose } from "./useRemoteTeamClose";
+import {
+  remotePeerActionEligibility,
+  remotePeerStatusLabel,
+  remoteWorkspaceCloseAction,
+  remoteWorkspaceCreateAction,
+  workspaceNameFromPath,
+} from "./remoteSidebarActionsModel";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
 import { deskWorkspaceMembership, observedGeneralViewers } from "../../store/multiplexer/pairedWorkspaceProjection";
@@ -144,7 +153,7 @@ export const Sidebar = memo(function Sidebar({
     spawnAgentTab,
     upsertToast,
   } = useMultiplexer();
-  const { generals, browse, peerWorkspaces, ready: pairedInventoryReady = true } = usePairedWorkspaceInventory();
+  const { generals, browse, peerWorkspaces, refreshPeerInventory, ready: pairedInventoryReady = true } = usePairedWorkspaceInventory();
   const restoring = restoringWorkspace || !pairedInventoryReady;
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
   const machineFilter = useSidebarMachineFilter();
@@ -161,6 +170,8 @@ export const Sidebar = memo(function Sidebar({
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
     initialPath?: string | null;
+    peerId?: string | null;
+    machineName?: string;
     onSelect: (path: string) => void;
   } | null>(null);
   const [pendingWorkspaceClose, setPendingWorkspaceClose] = useState<{
@@ -185,6 +196,18 @@ export const Sidebar = memo(function Sidebar({
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
   );
+  const generalByPeerId = useMemo(() => new Map(generals.map(general => [general.peerId, general])), [generals]);
+  const machineNameCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const general of generals) counts.set(general.name, (counts.get(general.name) ?? 0) + 1);
+    return counts;
+  }, [generals]);
+  const machineNameForPeer = useCallback((peerId: string) => {
+    const general = generalByPeerId.get(peerId);
+    const name = general?.name ?? "Machine";
+    return !general || (machineNameCounts.get(name) ?? 0) > 1 ? `${name} · ${peerId.slice(0, 8)}` : name;
+  }, [generalByPeerId, machineNameCounts]);
+  const availabilityForPeer = useCallback((peerId: string) => generalByPeerId.get(peerId)?.availability, [generalByPeerId]);
 
   const handleAgentSpawn = useCallback(async (
     agentId: string,
@@ -460,6 +483,22 @@ export const Sidebar = memo(function Sidebar({
   }, [closeTab]);
 
   const animatedCloseTab = useCallback((wsId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => {
+    const remote = parseCompositeTabId(tabId);
+    if (remote) {
+      const eligibility = remotePeerActionEligibility(availabilityForPeer(remote.peerId));
+      if (!eligibility.allowed) {
+        createNoticePublisher({ upsertToast })({
+          kind: "toast",
+          id: `tab-close-unavailable:${tabId}`,
+          tabId,
+          workspaceId: wsId,
+          title: "Tab close unavailable",
+          detail: `${title || "This tab"} on ${machineNameForPeer(remote.peerId)} cannot be closed while the machine is ${eligibility.reason ?? "offline"}.`,
+          severity: "Error",
+        });
+        return;
+      }
+    }
     void (async () => {
       let running: string[];
       try {
@@ -478,7 +517,7 @@ export const Sidebar = memo(function Sidebar({
       }
       performCloseTab(wsId, tabId);
     })();
-  }, [upsertToast, performCloseTab, state.tabs]);
+  }, [availabilityForPeer, machineNameForPeer, upsertToast, performCloseTab, state.tabs]);
 
   const requestTeamClose = useCallback(async (workspaceId: string, teamId: string) => {
     const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
@@ -565,24 +604,45 @@ export const Sidebar = memo(function Sidebar({
     setPreferredWorkspaceKey,
     setActiveTab,
   });
-  const generalByPeerId = useMemo(() => new Map(generals.map(general => [general.peerId, general])), [generals]);
-  const machineNameCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const general of generals) counts.set(general.name, (counts.get(general.name) ?? 0) + 1);
-    return counts;
-  }, [generals]);
-  const machineNameForPeer = useCallback((peerId: string) => {
-    const general = generalByPeerId.get(peerId);
-    const name = general?.name ?? "Machine";
-    return !general || (machineNameCounts.get(name) ?? 0) > 1 ? `${name} · ${peerId.slice(0, 8)}` : name;
-  }, [generalByPeerId, machineNameCounts]);
-  const availabilityForPeer = useCallback((peerId: string) => generalByPeerId.get(peerId)?.availability, [generalByPeerId]);
   const onRemoteWorkspaceClosed = useCallback((peerId: string, workspaceId: string) => {
     const key = sidebarWorkspaceKey(peerId, workspaceId);
     setClosedRemoteWorkspaceKeys(previous => new Set(previous).add(key));
     setPreferredWorkspaceKey(previous => previous === key ? null : previous);
-  }, []);
+    refreshPeerInventory?.(peerId);
+  }, [refreshPeerInventory]);
   const remoteWorkspaceClose = useRemoteWorkspaceClose(availabilityForPeer, onRemoteWorkspaceClosed);
+  const onRemoteWorkspaceCreated = useCallback((peerId: string, workspace: { id: string; name: string }) => {
+    setPreferredWorkspaceKey(sidebarWorkspaceKey(peerId, workspace.id));
+    refreshPeerInventory?.(peerId);
+  }, [refreshPeerInventory]);
+  const remoteWorkspaceCreate = useRemoteWorkspaceCreate(availabilityForPeer, onRemoteWorkspaceCreated);
+  const handleNewRemoteWorkspace = useCallback((peerId: string) => {
+    const eligibility = remotePeerActionEligibility(availabilityForPeer(peerId));
+    const machineName = machineNameForPeer(peerId);
+    if (!eligibility.allowed) {
+      createNoticePublisher({ upsertToast })(remoteWorkspaceCreateErrorNotice(peerId, machineName, {
+        kind: "unavailable", peerId, reason: eligibility.reason ?? "offline",
+      }));
+      return;
+    }
+    setFolderPicker({
+      title: `Workspace folder on ${machineName}`,
+      peerId,
+      machineName,
+      onSelect: (path) => {
+        void remoteWorkspaceCreate.create(peerId, path, workspaceNameFromPath(path)).then(result => {
+          if (result.kind === "unavailable" || result.kind === "failed") {
+            createNoticePublisher({ upsertToast })(remoteWorkspaceCreateErrorNotice(peerId, machineName, result));
+          }
+        });
+      },
+    });
+  }, [availabilityForPeer, machineNameForPeer, remoteWorkspaceCreate.create, upsertToast]);
+  const onRemoteTeamClosed = useCallback((peerId: string) => {
+    refreshPeerInventory?.(peerId);
+  }, [refreshPeerInventory]);
+  const publishSidebarNotice = useMemo(() => createNoticePublisher({ upsertToast }), [upsertToast]);
+  const remoteTeamClose = useRemoteTeamClose(availabilityForPeer, onRemoteTeamClosed, publishSidebarNotice);
   useEffect(() => {
     const pending = remoteWorkspaceClose.pending;
     if (pending && (
@@ -592,6 +652,15 @@ export const Sidebar = memo(function Sidebar({
       remoteWorkspaceClose.cancel();
     }
   }, [remoteWorkspaceClose.pending, remoteWorkspaceClose.cancel, selectedWorkspaceKey, availabilityForPeer]);
+  useEffect(() => {
+    const pending = remoteTeamClose.pending;
+    if (pending && (
+      sidebarWorkspaceKey(pending.peerId, pending.workspaceId) !== selectedWorkspaceKey
+      || availabilityForPeer(pending.peerId) !== "online"
+    )) {
+      remoteTeamClose.cancel();
+    }
+  }, [remoteTeamClose.pending, remoteTeamClose.cancel, selectedWorkspaceKey, availabilityForPeer]);
   const peerWorkspaceKeys = useMemo(() => new Set((peerWorkspaces ?? []).map(workspace => sidebarWorkspaceKey(workspace.peerId, workspace.workspace.id))), [peerWorkspaces]);
   useEffect(() => {
     setClosedRemoteWorkspaceKeys(previous => {
@@ -617,7 +686,9 @@ export const Sidebar = memo(function Sidebar({
   const workspaceStatuses = useMemo(() => Object.fromEntries(Object.entries(workspaceActivity).map(([key, activity]) => [key, activity.status])), [workspaceActivity]);
   const workspaceWorking = useMemo(() => Object.fromEntries(Object.entries(workspaceActivity).map(([key, activity]) => [key, activity.working])), [workspaceActivity]);
   const workspaceMachineGroups = useMemo(() => groupSidebarWorkspaceMachines(workspaceView.visible,
-    machineFilter === "all" ? [null, ...generals.map(general => general.peerId)] : machineFilter === "local" ? [null] : []),
+    machineFilter === "all" ? [null, ...generals.map(general => general.peerId)]
+      : machineFilter === "local" ? [null]
+      : [machineFilter.peerId]),
   [workspaceView.visible, machineFilter, generals]);
   const [expandedWorkspaceMachines, setExpandedWorkspaceMachines] = useState<ReadonlySet<string>>(() => new Set());
   const setWorkspaceMachineExpanded = useCallback((peerId: string | null, expanded: boolean) => {
@@ -844,8 +915,8 @@ export const Sidebar = memo(function Sidebar({
                   {workspaceMachineGroups.map((group, index) => {
                     const groupKey = JSON.stringify([group.peerId]);
                     const availability = group.peerId ? availabilityForPeer(group.peerId) ?? "offline" : "online";
-                    const machineStatus = availability === "update-required" ? "update required"
-                      : availability === "signed-out" ? "signed out" : availability;
+                    const machineStatus = remotePeerStatusLabel(availability);
+                    const createAction = remoteWorkspaceCreateAction(group.peerId, availability);
                     return <WorkspaceCardGrid
                       key={index === 0 ? "workspace-grid-primary" : groupKey}
                       workspaces={group.workspaces.map(({ key, workspace }) => ({ ...workspace, id: key }))}
@@ -859,7 +930,9 @@ export const Sidebar = memo(function Sidebar({
                       machineName={group.peerId === null ? undefined : machineNameForPeer(group.peerId)}
                       machineStatus={machineStatus}
                       showMachineHeader={machineFilter === "all"}
-                      showCreate={group.peerId === null}
+                      showCreate={createAction.visible}
+                      createDisabled={createAction.disabled}
+                      createDisabledReason={createAction.reason}
                       expanded={expandedWorkspaceMachines.has(groupKey)}
                       onExpandedChange={expanded => setWorkspaceMachineExpanded(group.peerId, expanded)}
                       onSelect={(key) => {
@@ -870,28 +943,35 @@ export const Sidebar = memo(function Sidebar({
                           setActiveWorkspace(localId);
                         }
                       }}
-                      onCreate={handleNewWorkspace}
+                      onCreate={group.peerId === null ? handleNewWorkspace : () => handleNewRemoteWorkspace(group.peerId!)}
                     />;
                   })}
-                  {selectedWorkspace && (
-                    <SidebarWorkspaceDetail
+                  {selectedWorkspace && (() => {
+                    const observedCloseAction = observedWorkspace
+                      ? remoteWorkspaceCloseAction(selectedWorkspace.protected === true, availabilityForPeer(observedWorkspace.peerId))
+                      : null;
+                    return <SidebarWorkspaceDetail
                       key={selectedWorkspaceKey}
                       workspace={selectedWorkspace}
                       status={selectedWorkspaceKey ? workspaceActivity[selectedWorkspaceKey]?.status ?? null : null}
                       data={workspaceDetailData}
                       actions={workspaceDetailActions}
-                      allowObservedWorkspaceClose={Boolean(observedWorkspace
-                        && generalByPeerId.get(observedWorkspace.peerId)?.availability === "online"
-                        && !selectedWorkspace.protected)}
+                      allowObservedWorkspaceClose={Boolean(observedCloseAction?.visible && !observedCloseAction.disabled)}
+                      observedWorkspaceCloseDisabledReason={observedCloseAction?.visible && observedCloseAction.disabled ? observedCloseAction.reason : null}
                       observedContent={observedWorkspace && <WorkspaceBrowseSection
                         workspace={observedWorkspace}
                         attachedTabs={state.tabs}
                         touchMode={touchMode}
+                        closingTeamKeys={remoteTeamClose.closingTeamKeys}
                         onOpenCanvas={onNavigateToTab}
                         onRenameViewer={(tab, title) => {
                           if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
                         }}
                         onCloseViewer={(tabId, title, ownerWorkspaceId) => animatedCloseTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
+                        onCloseTeam={(target) => {
+                          const targetKey = selectedWorkspaceKey;
+                          void remoteTeamClose.request(target, () => selectedWorkspaceKeyRef.current === targetKey);
+                        }}
                         selectedViewerId={observedSelectedViewerId}
                         onSelectViewer={tabId => {
                           cancelPendingSwitch();
@@ -899,8 +979,8 @@ export const Sidebar = memo(function Sidebar({
                           onNavigateToTab?.();
                         }}
                       />}
-                    />
-                  )}
+                    />;
+                  })()}
                 </>}
               </SidebarStructuralSection>}
               </SidebarDnd>
@@ -992,6 +1072,8 @@ export const Sidebar = memo(function Sidebar({
         <RemoteFolderPicker
           title={folderPicker.title}
           initialPath={folderPicker.initialPath}
+          peerId={folderPicker.peerId}
+          machineName={folderPicker.machineName}
           onCancel={() => setFolderPicker(null)}
           onSelect={(path) => {
             setFolderPicker(null);
@@ -1013,6 +1095,27 @@ export const Sidebar = memo(function Sidebar({
           onRetry={() => { void requestTeamClose(pendingTeamClose.workspaceId, pendingTeamClose.id); }}
           onCancel={dismissTeamClose}
           onConfirm={() => { void confirmTeamClose(); }}
+        />
+      )}
+      {remoteTeamClose.pending && (
+        <GroupCloseConfirmDialog
+          mode="team"
+          orchestratorTitle={remoteTeamClose.pending.teamName}
+          machineName={remoteTeamClose.pending.machineName}
+          members={remoteTeamClose.pending.members}
+          crons={remoteTeamClose.pending.phase === "ready" ? remoteTeamClose.pending.crons : undefined}
+          blueprints={remoteTeamClose.pending.phase === "ready" ? remoteTeamClose.pending.blueprints : undefined}
+          lanes={remoteTeamClose.pending.phase === "ready" ? remoteTeamClose.pending.lanes : undefined}
+          loading={remoteTeamClose.pending.phase === "loading"}
+          error={remoteTeamClose.pending.phase === "error" ? remoteTeamClose.pending.error : undefined}
+          onRetry={() => {
+            const target = remoteTeamClose.pending;
+            if (!target) return;
+            const targetKey = selectedWorkspaceKey;
+            void remoteTeamClose.request(target, () => selectedWorkspaceKeyRef.current === targetKey);
+          }}
+          onCancel={remoteTeamClose.cancel}
+          onConfirm={() => { void remoteTeamClose.confirm(); }}
         />
       )}
       {pendingWorkspaceClose && (
@@ -1050,6 +1153,22 @@ export const Sidebar = memo(function Sidebar({
           onConfirm={() => {
             const pending = pendingTabClose;
             setPendingTabClose(null);
+            const remote = parseCompositeTabId(pending.tabId);
+            if (remote) {
+              const eligibility = remotePeerActionEligibility(availabilityForPeer(remote.peerId));
+              if (!eligibility.allowed) {
+                publishSidebarNotice({
+                  kind: "toast",
+                  id: `tab-close-unavailable:${pending.tabId}`,
+                  tabId: pending.tabId,
+                  workspaceId: pending.workspaceId,
+                  title: "Tab close not sent",
+                  detail: `${pending.title} on ${machineNameForPeer(remote.peerId)} is ${eligibility.reason ?? "offline"}.`,
+                  severity: "Error",
+                });
+                return;
+              }
+            }
             performCloseTab(pending.workspaceId, pending.tabId);
           }}
         />

@@ -90,12 +90,13 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     enable_web_access: (a) =>
       webJson("POST", "/api/network/serve/enable", { https_port: a.https_port }),
     fs_list_dir: (a) =>
-      webJson(
+      peerScoped(
+        a,
         "GET",
         `/api/fs/list-dir?path=${enc(s(a, "path"))}&show_hidden=${a.showHidden ? "true" : "false"}`,
       ),
     fs_mkdir: (a) =>
-      webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
+      peerScoped(a, "POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
     get_config: async (a = {}) => {
       const config = await peerScoped(a, "GET", "/api/config") as Record<string, unknown>;
       const api = config.api as Record<string, unknown> | undefined;

@@ -384,12 +384,17 @@ function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): T
   };
 }
 
-export function unavailableTabMenu(entries: readonly TabMenuEntry[], reason: string): TabMenuEntry[] {
+export function unavailableTabMenu(
+  entries: readonly TabMenuEntry[],
+  reason: string,
+  options: { allowClose?: boolean } = {},
+): TabMenuEntry[] {
+  const allowClose = options.allowClose ?? true;
   return entries.map(entry => {
-    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || (allowClose && entry.id === "close")) return entry;
     return {
       kind: "item", id: entry.id, testId: entry.testId, label: entry.label, icon: entry.icon,
-      unavailable: true, hint: reason, action: null,
+      unavailable: true, hint: reason, danger: entry.kind === "item" ? entry.danger : undefined, action: null,
     };
   });
 }

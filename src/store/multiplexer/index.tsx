@@ -372,7 +372,7 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
   const settleInitialRoster = useCallback(() => setRosterSettled(true), []);
   useMeshPeerProjection(remoteProjectionActiveRef, hasPairedPeersRef, markRemoteChannelsReconnecting, requestRemoteRefresh, setPairedRoster, settleInitialRoster);
   const { generals, browse, peerWorkspaces, refreshPeerInventory, invalidatePeerInventory, ready } = usePairedWorkspaces(pairedRoster, rosterSettled, pairedCacheAccount ?? null);
-  const pairedInventory = useMemo(() => ({ generals, browse, peerWorkspaces, ready }), [generals, browse, peerWorkspaces, ready]);
+  const pairedInventory = useMemo(() => ({ generals, browse, peerWorkspaces, refreshPeerInventory, ready }), [generals, browse, peerWorkspaces, refreshPeerInventory, ready]);
   const pairedInventoryRef = useRef(pairedInventory);
   pairedInventoryRef.current = pairedInventory;
 

@@ -5,6 +5,7 @@ import { countBySection, summarizeGroupClose } from "./orchestrationSections";
 export function GroupCloseConfirmDialog({
   mode = "group",
   orchestratorTitle,
+  machineName,
   members,
   crons = [],
   blueprints = [],
@@ -17,6 +18,7 @@ export function GroupCloseConfirmDialog({
 }: {
   mode?: "group" | "team";
   orchestratorTitle: string;
+  machineName?: string;
   members: OrchestrationGroupMember[];
   crons?: readonly string[];
   blueprints?: readonly string[];
@@ -35,7 +37,7 @@ export function GroupCloseConfirmDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={isTeam ? "Close Team" : "Close orchestration group"}
+        aria-label={isTeam ? (machineName ? `Close ${orchestratorTitle} on ${machineName}` : "Close Team") : "Close orchestration group"}
         data-testid="group-close-confirm"
         className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[340px] max-w-[calc(100vw-2rem)] max-h-[85vh] flex flex-col overflow-hidden"
       >
@@ -43,6 +45,7 @@ export function GroupCloseConfirmDialog({
           <div className="text-[13px] font-medium text-[var(--ct-fg)]">
             {isTeam ? `Close ${orchestratorTitle}?` : "Close orchestration group?"}
           </div>
+          {machineName && <div className="pt-0.5 text-[12px] text-[var(--ct-muted-fg)]">{orchestratorTitle} · {machineName}</div>}
         </div>
         <div className="min-h-0 overflow-y-auto">
         <div data-testid="group-close-summary" className="px-4 py-1 text-[12px] text-[var(--ct-muted-fg)]">

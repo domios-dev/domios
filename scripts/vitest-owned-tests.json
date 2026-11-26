@@ -482,5 +482,7 @@
   "src/hooks/useProviderCliStatus.test.tsx",
   "src/hooks/terminal/xtermWebglViewport.test.ts",
   "src/components/Terminal/chatHistorySentinelModel.test.ts",
-  "src/components/Terminal/ChatHistoryTopSentinel.test.tsx"
+  "src/components/Terminal/ChatHistoryTopSentinel.test.tsx",
+  "src/components/Sidebar/remoteSidebarActionsModel.test.ts",
+  "src/components/Sidebar/useRemoteSidebarActions.test.tsx"
 ]

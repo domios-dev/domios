@@ -30,6 +30,8 @@ interface WorkspaceCardGridProps {
   machineStatus?: string;
   showMachineHeader?: boolean;
   showCreate?: boolean;
+  createDisabled?: boolean;
+  createDisabledReason?: string | null;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   onSelect: (workspaceId: string) => void;
@@ -70,7 +72,8 @@ export function mergeVisibleOrder(all: readonly string[], visibleOrdered: readon
 }
 
 export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, workingByWorkspace, sortIds, fullWorkspaceOrder, localWorkspaceIds,
-  machinePeerId = null, machineName, machineStatus = "offline", showMachineHeader = false, showCreate = true, expanded: expandedProp,
+  machinePeerId = null, machineName, machineStatus = "offline", showMachineHeader = false, showCreate = true,
+  createDisabled = false, createDisabledReason = null, expanded: expandedProp,
   onExpandedChange, onSelect, onCreate }: WorkspaceCardGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -235,9 +238,10 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
               type="button"
               data-testid="workspace-card-create"
               className="sidebar-workspace-card-create"
-              aria-label="Create workspace"
-              title="New workspace"
-              onClick={onCreate}
+              disabled={createDisabled}
+              aria-label={createDisabled && createDisabledReason ? `Create workspace (${createDisabledReason})` : "Create workspace"}
+              title={createDisabled && createDisabledReason ? `Create workspace unavailable: ${createDisabledReason}` : "New workspace"}
+              onClick={createDisabled ? undefined : onCreate}
             >
               <Plus size={17} strokeWidth={1.5} />
             </button>
