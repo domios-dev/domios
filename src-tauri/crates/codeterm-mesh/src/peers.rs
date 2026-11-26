@@ -57,7 +57,50 @@ fn write_identity(file: &StateFile, identity: &MeshIdentity) {
 
 /// Load or create a stable instance identity (UUID v4).
 pub fn load_or_create_identity() -> MeshIdentity {
+    let _guard = IDENTITY_ACCESS.lock();
     load_or_create_identity_at(&identity_path())
+}
+
+static IDENTITY_ACCESS: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
+pub struct PersistedPublicIdentity {
+    pub instance_id: String,
+    pub mesh_public_key: [u8; 32],
+}
+
+pub fn persisted_public_identity(
+) -> Result<PersistedPublicIdentity, crate::cloud_ingress::IngressError> {
+    let _guard = IDENTITY_ACCESS.lock();
+    persisted_public_identity_at(&identity_path())
+}
+
+fn persisted_public_identity_at(
+    path: &Path,
+) -> Result<PersistedPublicIdentity, crate::cloud_ingress::IngressError> {
+    use crate::cloud_ingress::IngressError::Unavailable;
+    let identity = load_or_create_identity_at(path);
+    let persisted: MeshIdentity =
+        serde_json::from_slice(&std::fs::read(path).map_err(|_| Unavailable)?)
+            .map_err(|_| Unavailable)?;
+    let public = persisted.public_key.as_deref().ok_or(Unavailable)?;
+    if persisted.instance_id != identity.instance_id
+        || persisted.public_key != identity.public_key
+        || uuid::Uuid::parse_str(&persisted.instance_id).is_err()
+        || crate::crown::public_key_from_private(
+            persisted.private_key.as_deref().ok_or(Unavailable)?,
+        )
+        .map_err(|_| Unavailable)?
+            != public
+    {
+        return Err(Unavailable);
+    }
+    let mesh_public_key = crate::crown::verifying_key_from_b64(public)
+        .map_err(|_| Unavailable)?
+        .to_bytes();
+    Ok(PersistedPublicIdentity {
+        instance_id: persisted.instance_id,
+        mesh_public_key,
+    })
 }
 
 pub(crate) fn load_or_create_identity_at(path: &Path) -> MeshIdentity {
@@ -86,6 +129,7 @@ pub(crate) fn load_or_create_identity_at(path: &Path) -> MeshIdentity {
 
 /// Persist identity changes (e.g. crown state).
 pub fn save_identity(identity: &MeshIdentity) {
+    let _guard = IDENTITY_ACCESS.lock();
     write_identity(&identity_file(&identity_path()), identity);
 }
 
