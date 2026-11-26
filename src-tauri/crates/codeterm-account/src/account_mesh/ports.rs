@@ -54,6 +54,13 @@ pub trait MeshRegistry: Send + Sync {
     ) -> RegistryResult<super::cloud_provisioning::DeleteMachineReply> {
         Err(RegistryRefusal::Unavailable)
     }
+    async fn record_warm_bootstrap_phases(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::RecordWarmBootstrapPhasesRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RecordWarmBootstrapPhasesReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     async fn renew_cloud_lease(
         &self,
         _session: &Session,

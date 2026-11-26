@@ -985,3 +985,59 @@ fn endpoint_union_refuses_unknown_kind_ip_host_wrong_ports_and_non_wss_scheme() 
         );
     }
 }
+
+#[test]
+fn decodes_and_validates_record_warm_bootstrap_phases_wire_contract() {
+    use crate::account_mesh::cloud_provisioning::{
+        RecordWarmBootstrapPhasesBody, RecordWarmBootstrapPhasesReply, WireWarmBootstrapPhase,
+        DOMAIN_CLOUD_WARM_PHASES, ROUTE_CLOUD_WARM_PHASES,
+    };
+
+    let raw: Value = serde_json::from_str(FIXTURES_JSON).unwrap();
+    assert_eq!(
+        raw["routes"]["record_warm_bootstrap_phases"].as_str(),
+        Some(ROUTE_CLOUD_WARM_PHASES)
+    );
+    assert_eq!(
+        raw["domains"]["record_warm_bootstrap_phases"].as_str(),
+        Some(DOMAIN_CLOUD_WARM_PHASES)
+    );
+
+    let reply: RecordWarmBootstrapPhasesReply =
+        serde_json::from_value(raw["replies"]["record_warm_bootstrap_phases"].clone()).unwrap();
+    assert_eq!(reply.machine_id, "cm_fixture0000000000000001");
+    assert_eq!(reply.last_create_phases.peer_ready, Some(1_795_700_032));
+    assert_eq!(reply.last_create_phases.seed_started, Some(1_795_700_033));
+    assert_eq!(
+        reply.last_create_phases.warm_console_ready,
+        Some(1_795_700_039)
+    );
+    assert_eq!(reply.warm_bootstrap_delta_secs, Some(6.0));
+
+    // Request body rejects client-supplied phase timestamps (unknown fields).
+    assert!(
+        serde_json::from_value::<RecordWarmBootstrapPhasesBody>(json!({
+            "schema_version": 1,
+            "controller_installation_id": "desk-ctrl-1",
+            "machine_id": "cm_fixture0000000000000001",
+            "phase": "seed_started",
+            "request_id": "oaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaE",
+            "timestamp": 1_795_700_033u64,
+            "seed_started": 1_795_700_033u64
+        }))
+        .is_err()
+    );
+
+    let body = RecordWarmBootstrapPhasesBody {
+        schema_version: 1,
+        controller_installation_id: "desk-ctrl-1".into(),
+        machine_id: "cm_fixture0000000000000001".into(),
+        phase: WireWarmBootstrapPhase::WarmConsoleReady,
+        request_id: "oaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaE".into(),
+        timestamp: 1_795_700_039,
+    };
+    assert_eq!(
+        serde_json::to_value(&body).unwrap()["phase"],
+        json!("warm_console_ready")
+    );
+}

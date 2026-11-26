@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Verify owner PR and select qualification
         id: route
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const pr = context.payload.pull_request;
@@ -33,7 +33,7 @@ jobs:
             if (scope === 'full' && pr.head.ref !== 'release/next')
               throw new Error('Use release/next, release/docs or release/plugin-<id>');
             core.setOutput('scope', scope);
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
@@ -78,7 +78,7 @@ jobs:
         run: node scripts/check-public-privacy.mjs
       - name: Verify the exact release push and its retained qualification
         if: steps.route.outputs.scope == 'full'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const {pathToFileURL} = require('node:url');

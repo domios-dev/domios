@@ -48,8 +48,11 @@ pub fn mint_request_id() -> String {
 pub struct CloudMachineController {
     store: CloudMachineStore,
     wake_queue_store: CloudWakeQueueStore,
+    pub(super) warm_ledger_store: super::warm_bootstrap::CloudWarmLedgerStore,
     machines: Mutex<Vec<CloudMachineRecord>>,
     wake_queue: Mutex<CloudWakeQueue>,
+    pub(super) warm_ledger:
+        Mutex<BTreeMap<String, super::warm_bootstrap::MachineWarmBootstrapEntry>>,
     flush_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     wakes: Arc<SingleFlightWakes>,
     lifecycle_tx: tokio::sync::watch::Sender<u64>,
@@ -62,6 +65,9 @@ impl CloudMachineController {
     pub fn new(store: CloudMachineStore, controller_id: String, clock: Arc<dyn Clock>) -> Self {
         let loaded = store.load();
         let wake_queue_store = store.wake_queue_store();
+        let warm_ledger_store =
+            super::warm_bootstrap::CloudWarmLedgerStore::beside_machine_store(store.path());
+        let warm_ledger = warm_ledger_store.load();
         let (next_seq, sends) = wake_queue_store.load();
         let (queue, reconciled_claimed) = CloudWakeQueue::from_persisted(next_seq, sends);
         if reconciled_claimed {
@@ -74,8 +80,10 @@ impl CloudMachineController {
         Self {
             store,
             wake_queue_store,
+            warm_ledger_store,
             machines: Mutex::new(loaded),
             wake_queue: Mutex::new(queue),
+            warm_ledger: Mutex::new(warm_ledger),
             flush_locks: Mutex::new(HashMap::new()),
             wakes: Arc::new(SingleFlightWakes::default()),
             lifecycle_tx,
@@ -251,11 +259,16 @@ impl CloudMachineController {
 
     pub fn list(&self) -> Vec<CloudReceipt> {
         let now_ms = self.clock.now_ms();
-        self.machines
+        let records: Vec<CloudMachineRecord> = self
+            .machines
             .lock()
             .iter()
             .filter(|m| m.state != CloudLifecycleState::Deleted)
-            .map(|m| m.receipt(now_ms, None))
+            .cloned()
+            .collect();
+        records
+            .iter()
+            .map(|m| self.receipt_for_record(m, now_ms, None))
             .collect()
     }
 
@@ -405,6 +418,16 @@ impl CloudMachineController {
             }
         };
 
+        let requested_at_ms = self.clock.now_ms();
+        let creation_generation = format!("{machine_id}:{request_id}");
+        self.update_warm_entry(&machine_id, |entry| {
+            entry.creation_generation = Some(creation_generation.clone());
+            let phases = entry
+                .create_phases
+                .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+            phases.requested_at_ms.get_or_insert(requested_at_ms);
+        });
+
         let binding = match enrollment.prepare_binding().await {
             Ok(binding) => binding,
             Err(error) => {
@@ -441,6 +464,14 @@ impl CloudMachineController {
                 return Err(error);
             }
         };
+
+        let provisioned_at_ms = self.clock.now_ms();
+        self.update_warm_entry(&machine_id, |entry| {
+            let phases = entry
+                .create_phases
+                .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+            phases.provisioned_at_ms = Some(provisioned_at_ms);
+        });
 
         let enrolling = self.update_record(&machine_id, |rec| {
             let mut next = transition(
@@ -481,6 +512,13 @@ impl CloudMachineController {
                 installation_id,
                 peer_instance_id,
             }) => {
+                let enrolled_at_ms = self.clock.now_ms();
+                self.update_warm_entry(&machine_id, |entry| {
+                    let phases = entry
+                        .create_phases
+                        .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+                    phases.enrolled_at_ms = Some(enrolled_at_ms);
+                });
                 let enrolled = self.update_record(&machine_id, |rec| {
                     let mut next = rec.clone();
                     next.installation_id = Some(installation_id.clone());
@@ -526,7 +564,21 @@ impl CloudMachineController {
                         awake_now,
                     )
                 })?;
-                Ok(awake.receipt(awake_now, None))
+                // Preserve original peer_ready milestone before starting warm bootstrap.
+                self.update_warm_entry(&machine_id, |entry| {
+                    let phases = entry
+                        .create_phases
+                        .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+                    phases.peer_ready_at_ms = Some(awake_now);
+                });
+                self.run_post_enrollment_warm_bootstrap(
+                    &awake,
+                    &creation_generation,
+                    provisioning,
+                    peer_control,
+                )
+                .await;
+                Ok(self.receipt_for_record(&awake, self.clock.now_ms(), None))
             }
             Ok(EnrollmentOutcome::ApplyUnconfirmed { installation_id }) => {
                 let _ = self.update_record(&machine_id, |rec| {

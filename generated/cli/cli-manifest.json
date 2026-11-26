@@ -8866,6 +8866,34 @@
               "subcommands": []
             },
             {
+              "name": "topup",
+              "about": "Create a checkout link to top up managed cloud credits",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "amount",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "AMOUNT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Custom top-up amount in USD",
+                  "aliases": []
+                },
+                {
+                  "name": "pack",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PACK",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Credit pack ID from `domios mesh cloud usage`",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "usage",
               "about": "Show managed cloud credit usage, allowance, remaining balance, cap, and burn per size",
               "aliases": [],

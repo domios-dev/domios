@@ -55,7 +55,7 @@ jobs:
       CI_RELEASE_TESTS: 'true'
     steps:
       - name: Select runner environment
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           DOMIOS_FIREBASE_API_KEY: ${{ runner.environment != 'github-hosted' && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
           DOMIOS_FIREBASE_PROJECT_ID: ${{ runner.environment != 'github-hosted' && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
@@ -73,7 +73,7 @@ jobs:
             }
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const path = require('node:path');
@@ -84,7 +84,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 1
@@ -120,7 +120,7 @@ jobs:
           components: clippy,rustfmt
       - name: Hosted nextest
         if: runner.environment == 'github-hosted'
-        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519
         with:
           tool: cargo-nextest@0.9.148
       - name: Hosted sccache

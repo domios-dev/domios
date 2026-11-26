@@ -2031,6 +2031,13 @@ Drain an idle cloud machine and put it to sleep (refuses while work runs)
 
 - `<machine>` — Cloud machine ID, name, or peer ID
 
+#### `domios mesh cloud topup`
+
+Create a checkout link to top up managed cloud credits
+
+- `--amount` — Custom top-up amount in USD
+- `--pack` — Credit pack ID from `domios mesh cloud usage`
+
 #### `domios mesh cloud usage`
 
 Show managed cloud credit usage, allowance, remaining balance, cap, and burn per size

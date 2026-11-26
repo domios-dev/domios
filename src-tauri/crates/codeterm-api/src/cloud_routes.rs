@@ -1,4 +1,5 @@
 mod adapters;
+mod warm_bootstrap;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -86,7 +87,7 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
     ))
 }
 
-fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
+pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
     let status = match &error {
         CloudError::LimitReached { .. }
         | CloudError::ImplicitCreateRefused
@@ -142,7 +143,7 @@ fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
     (status, Json(body))
 }
 
-fn require_local_caller(
+pub(super) fn require_local_caller(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -162,7 +163,7 @@ fn require_local_caller(
     }
 }
 
-fn require_local_owner(
+pub(super) fn require_local_owner(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -752,6 +753,18 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/mesh/cloud/{id}/delete", post(delete_machine))
         .route("/api/mesh/cloud/{id}/recreate", post(recreate_machine))
         .route("/api/mesh/cloud/{id}/resize-volume", post(resize_volume))
+        .route(
+            "/api/mesh/cloud/{id}/bootstrap",
+            get(warm_bootstrap::machine_bootstrap_status),
+        )
+        .route(
+            "/api/mesh/cloud/{id}/provider-signin/prepare",
+            post(warm_bootstrap::prepare_machine_provider_signin),
+        )
+        .route(
+            "/api/mesh/cloud/{id}/provider-signin/timing",
+            post(warm_bootstrap::record_provider_signin_timing),
+        )
         .route("/api/mesh/cloud/resolve", post(resolve_machine))
         .route("/api/mesh/cloud/usage", get(usage_summary))
         .route("/api/mesh/cloud/redeem", post(redeem_promo))
@@ -763,7 +776,21 @@ pub(super) fn router() -> Router<AppState> {
             "/api/mesh/cloud/peer/export-archive",
             post(peer_export_archive),
         )
+        .route(
+            "/api/mesh/cloud/peer/warm-bootstrap",
+            post(warm_bootstrap::peer_warm_bootstrap),
+        )
+        .route(
+            "/api/mesh/cloud/peer/provider-readiness",
+            get(warm_bootstrap::peer_provider_readiness),
+        )
+        .route(
+            "/api/mesh/cloud/peer/provider-signin/prepare",
+            post(warm_bootstrap::peer_prepare_provider_signin),
+        )
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod warm_bootstrap_tests;

@@ -4,6 +4,7 @@ use crate::provider_version::{ProbeStatus, VersionObservation};
 
 pub(super) struct ProviderObservation {
     pub(super) binary: Option<String>,
+    pub(super) aliases: Vec<String>,
     pub(super) compatibility: Option<crate::provider_compat::CompatibilityManifest>,
     #[cfg(test)]
     fixture_version: Option<VersionObservation>,
@@ -25,6 +26,11 @@ impl ProviderObservation {
                         .unwrap_or(&m.id)
                         .clone()
                 }),
+            aliases: manifest
+                .as_ref()
+                .filter(|m| m.capabilities.agent_provider)
+                .map(|m| m.cli_binary_aliases.clone())
+                .unwrap_or_default(),
             compatibility: manifest.and_then(|m| m.cli_compatibility),
         }
     }
@@ -34,16 +40,20 @@ impl ProviderObservation {
         if let Some(version) = &self.fixture_version {
             return version.clone();
         }
-        match self
+        let candidates: Vec<&str> = self
             .binary
-            .as_deref()
+            .iter()
+            .chain(self.aliases.iter())
+            .map(String::as_str)
             .filter(|binary| sandbox.can_exec(binary))
-        {
-            Some(binary) => crate::provider_version::observe_in(binary, sandbox.extra_bin_dirs()),
-            None => VersionObservation {
+            .collect();
+        if candidates.is_empty() {
+            VersionObservation {
                 version: None,
                 status: ProbeStatus::Unreadable,
-            },
+            }
+        } else {
+            crate::provider_version::observe_candidates_in(&candidates, sandbox.extra_bin_dirs())
         }
     }
 

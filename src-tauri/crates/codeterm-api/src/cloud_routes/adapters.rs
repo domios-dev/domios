@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use codeterm_account::account_mesh::{
     cloud_provisioning::{
         ProvisionedMachineReply, WireCloudDeleteMode, WireCloudSleepMode, WireCloudStorageTier,
-        WireCloudStorageUsageSummary, WireProviderSnapshotResidual,
+        WireCloudStorageUsageSummary, WireProviderSnapshotResidual, WireWarmBootstrapPhase,
     },
     AccountMeshRefusal,
 };
@@ -503,6 +503,53 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             currency: reply.currency,
         })
     }
+
+    async fn record_warm_bootstrap_phases(
+        &self,
+        machine_id: &str,
+        phase: codeterm_service_core::service::cloud_machines::WarmBootstrapPhaseEvent,
+        request_id: &str,
+    ) -> Result<
+        Option<codeterm_service_core::service::cloud_machines::BackendCreatePhases>,
+        CloudError,
+    > {
+        let mesh = self
+            .svc
+            .account_mesh()
+            .await
+            .map_err(|_| CloudError::ProviderUnavailable("account mesh unavailable".into()))?;
+        let controller = mesh
+            .mesh
+            .cloud_controller()
+            .await
+            .map_err(map_account_refusal)?;
+        let wire_phase = match phase {
+            codeterm_service_core::service::cloud_machines::WarmBootstrapPhaseEvent::SeedStarted => {
+                WireWarmBootstrapPhase::SeedStarted
+            }
+            codeterm_service_core::service::cloud_machines::WarmBootstrapPhaseEvent::WarmConsoleReady => {
+                WireWarmBootstrapPhase::WarmConsoleReady
+            }
+        };
+        let reply = controller
+            .record_warm_bootstrap_phases(machine_id, wire_phase, request_id)
+            .await
+            .map_err(map_account_refusal)?;
+        let phases = reply.last_create_phases;
+        Ok(Some(
+            codeterm_service_core::service::cloud_machines::BackendCreatePhases {
+                requested: phases.requested,
+                allocated: phases.allocated,
+                ipv4_bound: phases.ipv4_bound,
+                running: phases.running,
+                enrolled: phases.enrolled,
+                peer_ready: phases.peer_ready,
+                seed_started: phases.seed_started,
+                warm_console_ready: phases.warm_console_ready,
+                warm_bootstrap_delta_secs: reply.warm_bootstrap_delta_secs,
+            },
+        ))
+    }
 }
 
 pub(super) struct BakerEnrollmentAdapter {
@@ -570,7 +617,7 @@ pub struct CloudEndpointPublisherOverride(
 );
 
 pub struct MeshPeerControlAdapter {
-    state: AppState,
+    pub(super) state: AppState,
 }
 
 impl MeshPeerControlAdapter {
@@ -578,7 +625,7 @@ impl MeshPeerControlAdapter {
         Self { state }
     }
 
-    fn peer_client(
+    pub(super) fn peer_client(
         &self,
         record: &CloudMachineRecord,
     ) -> Result<codeterm_service_core::mesh::transport::PeerClient, CloudError> {
@@ -596,7 +643,7 @@ impl MeshPeerControlAdapter {
             .ok_or_else(|| CloudError::ProviderUnavailable(format!("peer {target} has no route")))
     }
 
-    fn resolve_installation_id(&self, record: &CloudMachineRecord) -> Option<String> {
+    pub(super) fn resolve_installation_id(&self, record: &CloudMachineRecord) -> Option<String> {
         let mesh = self.state.mesh.lock();
         for selector in [
             record.peer_instance_id.as_deref(),
@@ -683,7 +730,7 @@ impl MeshPeerControlAdapter {
         )
     }
 
-    async fn send_controller_cloud_relay(
+    pub(super) async fn send_controller_cloud_relay(
         &self,
         record: &CloudMachineRecord,
         cmd: codeterm_service_core::mesh::types::RelayCommand,
@@ -1092,5 +1139,27 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
                 }
             }
         }
+    }
+
+    async fn apply_warm_bootstrap(
+        &self,
+        record: &CloudMachineRecord,
+        creation_generation: &str,
+    ) -> Result<
+        Option<codeterm_service_core::service::cloud_machines::warm_bootstrap::WarmBootstrapApplyResult>,
+        CloudError,
+    >{
+        super::warm_bootstrap::relay_apply_warm_bootstrap(self, record, creation_generation).await
+    }
+
+    async fn prepare_provider_signin(
+        &self,
+        record: &CloudMachineRecord,
+        request: &codeterm_service_core::service::cloud_machines::warm_bootstrap::PrepareProviderSignInRequest,
+    ) -> Result<
+        codeterm_service_core::service::cloud_machines::warm_bootstrap::PrepareProviderSignInResponse,
+        CloudError,
+    >{
+        super::warm_bootstrap::relay_prepare_provider_signin(self, record, request).await
     }
 }
