@@ -35,7 +35,7 @@ On Timeweb the system service starts at boot. Its public ingress listens on TCP 
 
 Cloud enrollment uses a dedicated listener on public IPv4 port 7687. The address in a signed endpoint record locates the installation. Peers discard older address records when a newer signed record arrives.
 
-After enrollment, each connection requires current account membership and signatures from both the installation key and the mesh key, bound to the encrypted session. A home peer can deliver an issuer-signed registry update or renew the cloud installation’s membership. Revocation and membership expiry close admission.
+Ordinary mesh traffic requires current membership and signatures from both the installation key and the mesh key, bound to the encrypted session. If membership expires during sleep, a previously paired home machine with current membership can deliver one signed renewal. Both installations prove possession of their pinned keys and check their slots against the live signed registry. The recovery connection closes after the renewal. A fresh enrolled connection must succeed before the peer can publish its address or exchange traffic. Revoked installations cannot recover this way.
 
 An inbound-only machine is reachable only while one of your machines is online. An attached home peer receives queued announcements, Worker acknowledgements and reports, notifications and plan RPCs. A full queue returns `outbox_full`. If a write may have reached the peer and its receipt is lost, the record stays `delivery_unconfirmed` and is never replayed automatically.
 
@@ -200,4 +200,4 @@ Idle sleep, lease renewal, and wake-on-use: after the idle window (`mesh.cloud_i
 
 Cost visibility: `domios mesh peers`, `domios tab list`, and cloud spawn/dispatch receipts surface `kind=cloud`, provider, size, rate per hour, state, uptime, and a cost notice.
 
-<!-- revision: 88 -->
+<!-- revision: 89 -->

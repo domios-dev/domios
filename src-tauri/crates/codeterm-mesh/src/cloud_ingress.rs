@@ -7,6 +7,7 @@ mod controller;
 mod dial;
 mod enrolled;
 mod enrolled_wire;
+mod renewal_recovery;
 mod reverse;
 pub use controller::{connect_enrollment, EnrollmentClient};
 pub(crate) use dial::direct_address_allowed;
@@ -14,6 +15,7 @@ pub use dial::CloudRoute;
 #[cfg(test)]
 pub(crate) use enrolled::{accept as accept_test_channel, initiate as initiate_test_channel};
 pub use enrolled::{connect_enrolled, EnrolledChannel, RenewalReceiver};
+pub use renewal_recovery::recover_expired_cloud;
 pub use reverse::ReverseDispatcher;
 #[cfg(test)]
 pub(crate) use reverse::{receive as receive_test_stream, serve as serve_test_stream};

@@ -6,7 +6,7 @@ mod refusals;
 mod registry_gossip;
 mod review;
 mod rotation;
-mod support;
+pub(crate) mod support;
 
 use super::gate::{self, BlockReason, TrafficDecision};
 use super::ledger::{LinkAdmission, LinkLedger, LinkRecord};

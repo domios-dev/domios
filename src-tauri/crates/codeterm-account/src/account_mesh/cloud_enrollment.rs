@@ -213,7 +213,7 @@ pub fn verify_apply(
     allows_member(&registry, &membership).then_some(membership)
 }
 
-fn allows_member(
+pub(super) fn allows_member(
     registry: &super::registry_snapshot::VerifiedRegistry,
     member: &VerifiedMembership,
 ) -> bool {
@@ -275,6 +275,27 @@ impl super::AccountMesh {
         grant: &DetachedGrant,
         issued_registry: &DetachedGrant,
     ) -> Result<(), super::AccountMeshRefusal> {
+        self.publish_cloud_record(account, grant, issued_registry, false)
+            .await
+    }
+
+    pub async fn restore_cloud_membership(
+        &self,
+        account: &str,
+        grant: &DetachedGrant,
+        issued_registry: &DetachedGrant,
+    ) -> Result<(), super::AccountMeshRefusal> {
+        self.publish_cloud_record(account, grant, issued_registry, true)
+            .await
+    }
+
+    async fn publish_cloud_record(
+        &self,
+        account: &str,
+        grant: &DetachedGrant,
+        issued_registry: &DetachedGrant,
+        restoring: bool,
+    ) -> Result<(), super::AccountMeshRefusal> {
         use super::{AccountMeshRefusal as R, Enrollment, Presence, SignedMembership};
         let trust = self
             .config
@@ -283,7 +304,7 @@ impl super::AccountMesh {
             .ok_or(R::VerificationUnavailable)?;
         let installation = self.installation();
         let key_id = self.key().await?.key_id();
-        let member = verify_membership(
+        let member = super::verify_enrollment_record(
             grant,
             trust,
             &MembershipExpectation {
@@ -295,6 +316,9 @@ impl super::AccountMesh {
             self.now(),
         )
         .map_err(|_| R::ProofInvalid)?;
+        if !restoring && !member.is_current(self.now()) {
+            return Err(R::ProofInvalid);
+        }
         let issued =
             super::registry_snapshot::verify_registry(issued_registry, trust, account, self.now())?;
         if !allows_member(&issued, &member) {
@@ -334,6 +358,9 @@ impl super::AccountMesh {
         self.receive_registry_snapshot(issued_registry).await?;
         self.with(|inner| {
             let state = &inner.state;
+            if !restoring && !member.is_current(self.now()) {
+                return Err(R::ProofInvalid);
+            }
             if state.signed_in_account() != Some(account)
                 || state.revoked_installations.contains(&installation)
                 || state.signed_registry.as_ref().is_none_or(|r| {

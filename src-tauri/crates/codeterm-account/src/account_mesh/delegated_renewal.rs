@@ -105,6 +105,12 @@ impl AccountMesh {
             self.now(),
         )
         .map_err(|_| AccountMeshRefusal::Invalid)?;
+        let issued = super::registry_snapshot::verify_registry(
+            &reply.signed_registry,
+            &signed.trust,
+            &signed.account,
+            self.now(),
+        )?;
         self.receive_registry_snapshot(&reply.signed_registry)
             .await?;
         let state = self.state();
@@ -115,10 +121,21 @@ impl AccountMesh {
         let matches_issued_slot = state
             .signed_registry
             .as_ref()
-            .is_some_and(|registry| registry.grant == reply.signed_registry);
+            .is_some_and(|local| renewal_registries_admit(&issued, local, &membership));
         if !matches_issued_slot || !membership.is_current(now) {
             return Err(AccountMeshRefusal::Invalid);
         }
         Ok(reply)
     }
+}
+
+pub(super) fn renewal_registries_admit(
+    issued: &super::registry_snapshot::VerifiedRegistry,
+    local: &super::registry_snapshot::VerifiedRegistry,
+    membership: &super::VerifiedMembership,
+) -> bool {
+    super::cloud_enrollment::allows_member(issued, membership)
+        && super::cloud_enrollment::allows_member(local, membership)
+        && (local.revision > issued.revision
+            || (local.revision == issued.revision && local.grant == issued.grant))
 }

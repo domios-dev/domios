@@ -208,13 +208,25 @@ fn window(issued_at: u64, expires_at: u64, now: u64) -> Result<(), MembershipRef
     if now.saturating_add(NOT_BEFORE_SKEW_SECONDS) < issued_at {
         return Err(MembershipRefusal::NotYetValid);
     }
-    if now >= expires_at {
-        return Err(MembershipRefusal::Expired);
-    }
     Ok(())
 }
 
 pub fn verify_membership(
+    grant: &DetachedGrant,
+    trust: &MembershipTrust,
+    expect: &MembershipExpectation<'_>,
+    now: u64,
+) -> Result<VerifiedMembership, MembershipRefusal> {
+    let member = verify_enrollment_record(grant, trust, expect, now)?;
+    if member.expires_at <= now {
+        return Err(MembershipRefusal::Expired);
+    }
+    Ok(member)
+}
+
+/// Verifies retained enrollment evidence, including its original validity window.
+/// Its signed expiration remains authoritative for traffic and replacement grants.
+pub fn verify_enrollment_record(
     grant: &DetachedGrant,
     trust: &MembershipTrust,
     expect: &MembershipExpectation<'_>,

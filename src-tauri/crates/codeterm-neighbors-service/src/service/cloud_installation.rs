@@ -209,10 +209,10 @@ impl CloudInstallation {
         }) {
             return Err(EnrollmentError::Unavailable);
         }
-        self.publish().await
+        self.publish(true).await
     }
 
-    async fn publish(&self) -> Result<(), EnrollmentError> {
+    async fn publish(&self, restoring: bool) -> Result<(), EnrollmentError> {
         let (account, membership, registry) = match &*self.0.phase.lock() {
             Phase::Bound { .. } => return Ok(()),
             Phase::Unavailable => return Err(EnrollmentError::Unavailable),
@@ -232,9 +232,14 @@ impl CloudInstallation {
             .borrow()
             .clone()
             .ok_or(EnrollmentError::Unavailable)?;
-        mesh.publish_cloud_membership(&account, &membership, &registry)
-            .await
-            .map_err(|_| EnrollmentError::Rejected)
+        let result = if restoring {
+            mesh.restore_cloud_membership(&account, &membership, &registry)
+                .await
+        } else {
+            mesh.publish_cloud_membership(&account, &membership, &registry)
+                .await
+        };
+        result.map_err(|_| EnrollmentError::Rejected)
     }
 
     fn apply(
@@ -350,7 +355,7 @@ impl EnrollmentHandler for CloudInstallation {
                         })
                         .await
                         .map_err(|_| EnrollmentError::Unavailable)??;
-                        publisher.publish().await?;
+                        publisher.publish(false).await?;
                         Ok(ack)
                     })
                     .await

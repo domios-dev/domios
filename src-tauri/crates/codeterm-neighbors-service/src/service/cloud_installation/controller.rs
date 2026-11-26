@@ -183,8 +183,21 @@ pub async fn publish_direct_endpoint(
     address: std::net::SocketAddrV4,
     id: &str,
 ) -> Result<(), ControllerError> {
-    enrolled_channel(service, CloudRoute::Direct(address), id)
-        .await?
+    let route = CloudRoute::Direct(address);
+    let channel = match enrolled_channel(service, route, id).await {
+        Ok(channel) => channel,
+        Err(original) => {
+            let mesh = service
+                .try_ext::<crate::MeshStateHandle>()
+                .ok_or(ControllerError::Unavailable)?;
+            match codeterm_mesh::cloud_ingress::recover_expired_cloud(mesh, route, id).await {
+                Ok(()) => enrolled_channel(service, route, id).await?,
+                Err(IngressError::Rejected) => return Err(original),
+                Err(error) => return Err(ControllerError::Ingress(error)),
+            }
+        }
+    };
+    channel
         .publish_endpoint(address)
         .await
         .map_err(ControllerError::Ingress)

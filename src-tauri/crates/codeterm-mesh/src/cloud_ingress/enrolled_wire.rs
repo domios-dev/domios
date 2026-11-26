@@ -37,14 +37,22 @@ async fn send<S: AsyncRead + AsyncWrite + Unpin>(
 
 impl<S: AsyncRead + AsyncWrite + Unpin> EncryptedStream<S> {
     pub async fn handshake(
+        socket: WebSocketStream<S>,
+        initiator: bool,
+    ) -> Result<Self, IngressError> {
+        Self::handshake_with_domain(socket, initiator, b"domios-cloud-ingress-enrolled-v1").await
+    }
+
+    pub(super) async fn handshake_with_domain(
         mut socket: WebSocketStream<S>,
         initiator: bool,
+        domain: &'static [u8],
     ) -> Result<Self, IngressError> {
         let params = "Noise_NN_25519_ChaChaPoly_SHA256"
             .parse()
             .map_err(|_| IngressError::Unavailable)?;
         let builder = snow::Builder::new(params)
-            .prologue(b"domios-cloud-ingress-enrolled-v1")
+            .prologue(domain)
             .map_err(|_| IngressError::Unavailable)?;
         let mut handshake = if initiator {
             builder.build_initiator()

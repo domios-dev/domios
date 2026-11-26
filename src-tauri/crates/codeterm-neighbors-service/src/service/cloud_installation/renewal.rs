@@ -1,7 +1,7 @@
 use super::{CloudInstallation, DetachedGrant, EnrollmentError, Phase, Stored};
 use codeterm_account::account_mesh::{
-    cloud_enrollment::verify_cloud_renewal, registry_snapshot::verify_registry, verify_membership,
-    MembershipExpectation,
+    cloud_enrollment::verify_cloud_renewal, registry_snapshot::verify_registry,
+    verify_enrollment_record, MembershipExpectation,
 };
 
 impl codeterm_mesh::cloud_ingress::RenewalReceiver for CloudInstallation {
@@ -27,7 +27,7 @@ impl codeterm_mesh::cloud_ingress::RenewalReceiver for CloudInstallation {
 
 impl CloudInstallation {
     /// Consumes the grant pair delivered by an admitted renewal frame.
-    pub async fn apply_renewal(
+    async fn apply_renewal(
         &self,
         membership: &DetachedGrant,
         signed_registry: &DetachedGrant,
@@ -42,7 +42,7 @@ impl CloudInstallation {
             tokio::task::spawn_blocking(move || worker.persist_renewal(membership, registry))
                 .await
                 .map_err(|_| EnrollmentError::Unavailable)??;
-            owner.publish().await
+            owner.publish(false).await
         })
         .await
         .map_err(|_| EnrollmentError::Unavailable)?
@@ -57,12 +57,15 @@ impl CloudInstallation {
         let lifecycle = self.0.lifecycle.borrow().clone().ok_or(Unavailable)?;
         let now = codeterm_service_core::service::neighbor_account::now();
         let live = lifecycle.state();
-        let active = &live.current_membership(now).ok_or(Rejected)?.verified;
+        let active = &live.membership.as_ref().ok_or(Rejected)?.verified;
         let id = self.installation_id();
         let key = self.0.signer.key_id();
         if active.installation_id != id
+            || live.signed_in_account() != Some(active.account_id.as_str())
             || active.key_id != key
             || live.revoked_installations.contains(id)
+            || live.unavailable_installations.contains(id)
+            || live.plan_limit_locked()
         {
             return Err(Rejected);
         }
@@ -92,8 +95,8 @@ impl CloudInstallation {
         if previous == membership && previous_registry == registry {
             return Ok(());
         }
-        let prior =
-            verify_membership(&previous, &self.0.trust, &expected, now).map_err(|_| Rejected)?;
+        let prior = verify_enrollment_record(&previous, &self.0.trust, &expected, now)
+            .map_err(|_| Rejected)?;
         let prior_registry = verify_registry(&previous_registry, &self.0.trust, &account_id, now)
             .map_err(|_| Rejected)?;
         if revision <= prior_registry.revision
