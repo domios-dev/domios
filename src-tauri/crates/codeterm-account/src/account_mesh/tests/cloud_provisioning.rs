@@ -202,8 +202,8 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
         WireCloudSleepMode::DeleteRecreate
     );
     assert_eq!(fixtures.replies.delete.state, "deleted");
-    assert!(fixtures.replies.enroll.signed_registry.is_some());
-    assert!(fixtures.replies.renew.signed_registry.is_some());
+    assert!(!fixtures.replies.enroll.signed_registry.signature.is_empty());
+    assert!(!fixtures.replies.renew.signed_registry.signature.is_empty());
 }
 
 #[test]
