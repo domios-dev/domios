@@ -417,6 +417,8 @@ pub struct Capabilities {
     /// Bool (registered, backend-only) or `{ spawnable }` object (user-openable).
     #[serde(default)]
     pub chat_backend: ChatBackendCap,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cloud_machine_provider: bool,
     /// Send-time text stage of the outbound pipeline (`chatPreprocess`). Matches
     /// final text and augments it (mem recall / worker / Groq) before transport.
     /// Bool or `{ match }` object (the §6 slot).

@@ -272,7 +272,13 @@ fn request_builder(client: &reqwest::Client, opts: &FetchOpts) -> reqwest::Reque
     .unwrap_or(reqwest::Method::GET);
     let mut req = client.request(method, &opts.url).timeout(timeout);
     for (k, v) in &opts.headers {
-        req = req.header(k, v);
+        req = match reqwest::header::HeaderValue::from_str(v) {
+            Ok(mut value) => {
+                value.set_sensitive(true);
+                req.header(k, value)
+            }
+            Err(_) => req.header(k, v),
+        };
     }
     if let Some(b) = &opts.body {
         req = req.body(b.clone());

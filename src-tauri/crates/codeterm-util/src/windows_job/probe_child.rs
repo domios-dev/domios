@@ -430,8 +430,9 @@ impl ProbeChild {
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"));
         let program = if batch {
+            // cmd.exe re-parses its own argv[0]: a `/` there reads as a switch (`/cmd.exe` runs `md`).
             std::env::var_os("SystemRoot")
-                .map(|root| std::path::PathBuf::from(root).join("System32/cmd.exe"))
+                .map(|root| std::path::PathBuf::from(root).join(r"System32\cmd.exe"))
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "SystemRoot is missing"))?
         } else {
             binary.to_path_buf()

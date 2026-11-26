@@ -290,6 +290,7 @@ fn default_capabilities() -> Capabilities {
         binary_transfer: None,
         agent_runtime: None,
         chat_backend: ChatBackendCap::default(),
+        cloud_machine_provider: false,
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
         local_recording_trigger: None,

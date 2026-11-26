@@ -58,6 +58,25 @@ pub(super) fn execute(
             if !sandbox.secrets_allowed() {
                 return Ok(Value::Null);
             }
+            if sandbox.cloud_machine_provider {
+                let key_name = format!("{}-api-key", sandbox.plugin_id());
+                let scoped_name = name
+                    .strip_prefix(&key_name)
+                    .and_then(|suffix| suffix.strip_prefix('-'))
+                    .is_some_and(|suffix| {
+                        !suffix.is_empty()
+                            && suffix
+                                .bytes()
+                                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                    });
+                if name != key_name && !scoped_name {
+                    return Ok(Value::Null);
+                }
+                return service()?
+                    .cloud_provider_key(&name)
+                    .map(|key| json!(key))
+                    .map_err(Into::into);
+            }
             let Some(name) = crate::provider_account::secret_name(sandbox.plugin_id(), &name)
             else {
                 return Ok(Value::Null);

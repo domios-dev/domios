@@ -7,6 +7,7 @@ pub(crate) mod call_deadline;
 mod call_gate;
 mod chatbackend;
 mod chatpreprocessor;
+mod cloud_machine_provider;
 mod converter;
 mod decision_model;
 mod event_source;
