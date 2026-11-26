@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { providerCompatibilityHint, installerShellLanguage, missingInstallerPrerequisites, providerCliPresentation, providerCliView, type ProviderCliStatus } from "./providerCli";
+import { providerCompatibilityHint, installerShellLanguage, missingInstallerPrerequisites, prerequisiteGuidance, providerCliPresentation, providerCliView, type ProviderCliStatus } from "./providerCli";
 
 const base: ProviderCliStatus = { required: true, installed: null, binary: "tool", resolved_path: null, availability: "unknown", searched: [], installer: "opaque installer", updater: null };
 describe("provider CLI presentation", () => {
@@ -39,7 +39,32 @@ describe("provider CLI view", () => {
   });
   it("labels the install command with the shell it runs in", () => {
     expect(installerShellLanguage("irm https://example.invalid/install.ps1 | iex")).toBe("powershell");
+    expect(installerShellLanguage("if (Get-Command npm -ErrorAction SilentlyContinue) { npm install -g pkg }")).toBe("powershell");
+    expect(installerShellLanguage("Invoke-WebRequest -Uri https://example.invalid/install.ps1 -OutFile $s")).toBe("powershell");
     expect(installerShellLanguage("curl -fsSL https://example.invalid/install.sh | sh")).toBe("bash");
+  });
+  it("extracts official HTTPS install routes and remediation commands from prerequisite hints", () => {
+    expect(prerequisiteGuidance({
+      binary: "npm",
+      hint: "Install npm using https://nodejs.org/en/download, then rerun the manifest command.",
+    })).toMatchObject({
+      binary: "npm",
+      installUrl: "https://nodejs.org/en/download",
+      installHostPath: "nodejs.org/en/download",
+      remediationCommand: null,
+    });
+    expect(prerequisiteGuidance({
+      binary: "PowerShell script execution",
+      hint: "Unsigned PowerShell scripts are disabled. To allow them, run Set-ExecutionPolicy -Scope CurrentUser RemoteSigned in Windows PowerShell, then Re-check.",
+    })).toMatchObject({
+      installUrl: null,
+      remediationCommand: "Set-ExecutionPolicy -Scope CurrentUser RemoteSigned",
+      remediationLanguage: "powershell",
+    });
+    expect(prerequisiteGuidance({
+      binary: "tool",
+      hint: "Install tool using http://insecure.example/install",
+    }).installUrl).toBeNull();
   });
 });
 

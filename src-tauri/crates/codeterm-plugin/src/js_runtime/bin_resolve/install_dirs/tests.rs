@@ -125,3 +125,76 @@ fn npmrc_prefix_refreshes_when_mtime_changes_without_length_change() {
         );
     }
 }
+
+#[test]
+fn expands_versioned_desktop_cli_wildcards_newest_first_and_rejects_unsafe_globs() {
+    let home = PathBuf::from(if cfg!(windows) {
+        r"C:\Users\fixture"
+    } else {
+        "/home/fixture"
+    });
+    let appdata = home.join("AppData").join("Roaming");
+    let env = |key: &str| match key {
+        "APPDATA" => Some(appdata.clone().into_os_string()),
+        _ => None,
+    };
+
+    let claude_win_parent = appdata.join("Claude").join("claude-code");
+    let claude_mac_parent = home
+        .join("Library")
+        .join("Application Support")
+        .join("Claude")
+        .join("claude-code");
+    let opencode_win_parent = appdata.join("ai.opencode.desktop").join("cli");
+
+    let reader = |dir: &Path| {
+        if dir == claude_win_parent {
+            vec![
+                "2.1.9".into(),
+                "2.1.87".into(),
+                "2.1.10".into(),
+                "..".into(),
+                "bad/child".into(),
+            ]
+        } else if dir == claude_mac_parent {
+            vec!["2.1.50".into(), "2.1.87".into()]
+        } else if dir == opencode_win_parent {
+            vec!["1.19.6".into(), "2.4.2-x64".into(), "custom".into()]
+        } else {
+            Vec::new()
+        }
+    };
+
+    let templates = vec![
+        "%APPDATA%/Claude/claude-code/*".into(),
+        "~/Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS".into(),
+        "%APPDATA%/ai.opencode.desktop/cli/*".into(),
+        "%APPDATA%/Claude/claude-code/*/*".into(),
+        "%APPDATA%/Claude/claude-code/2.*".into(),
+        "%APPDATA%/Claude/claude-code/*/../escape".into(),
+        "/*".into(),
+    ];
+
+    let expanded = expand_install_dirs_with_reader(&templates, &env, Some(&home), &reader);
+    assert_eq!(
+        expanded,
+        vec![
+            claude_win_parent.join("2.1.87"),
+            claude_win_parent.join("2.1.10"),
+            claude_win_parent.join("2.1.9"),
+            claude_mac_parent
+                .join("2.1.87")
+                .join("claude.app")
+                .join("Contents")
+                .join("MacOS"),
+            claude_mac_parent
+                .join("2.1.50")
+                .join("claude.app")
+                .join("Contents")
+                .join("MacOS"),
+            opencode_win_parent.join("2.4.2-x64"),
+            opencode_win_parent.join("1.19.6"),
+            opencode_win_parent.join("custom"),
+        ]
+    );
+}

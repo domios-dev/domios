@@ -115,6 +115,8 @@ pub struct PluginManifest {
     pub binary_name: Option<String>,
     #[serde(default)]
     pub cli_binary: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cli_binary_aliases: Vec<String>,
     #[serde(default)]
     pub general_agent_offer_when_absent: bool,
     #[serde(default)]
@@ -248,6 +250,10 @@ pub struct PluginManifest {
 }
 
 impl PluginManifest {
+    pub fn cli_binary_candidates<'a>(&'a self, primary: &'a str) -> Vec<&'a str> {
+        super::bin_resolve::cli_binary_candidates(primary, &self.cli_binary_aliases)
+    }
+
     pub fn cli_install_dirs(&self, platform: &str) -> Vec<PathBuf> {
         let Some(templates) = self.cli_install_dirs.get(platform) else {
             return Vec::new();

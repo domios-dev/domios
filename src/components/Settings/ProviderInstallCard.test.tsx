@@ -6,10 +6,12 @@ import type { ProviderCliStatus } from "../../lib/providerCli";
 const fixture = vi.hoisted(() => ({
   invoke: vi.fn(), listen: vi.fn(),
   launchProviderUpdate: vi.fn(),
+  openUrl: vi.fn(async () => {}),
   complete: null as null | ((event: { payload: { provider: string; summary: string } }) => void),
 }));
 vi.mock("../../lib/bridge", () => ({ invoke: fixture.invoke, listen: fixture.listen }));
 vi.mock("../../lib/providerUpdate", () => ({ launchProviderUpdate: fixture.launchProviderUpdate }));
+vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { openUrl: fixture.openUrl } }));
 import { providerCompatibilityHint } from "../../lib/providerCli";
 import { setWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { ProviderCliControls } from "./ProviderInstallCard";
@@ -51,10 +53,27 @@ describe("provider CLI controls", () => {
     expect([...host.querySelectorAll('[role="status"]')].some(element => element.textContent === "opaque persisted result")).toBe(true);
     expect(host.querySelector('[role="alert"]')).toBeNull();
   });
-  it("renders the model's missing prerequisite guidance in a status", async () => {
-    status = { ...missing, installer_prerequisites: [{ binary: "runner", installed: false, hint: "opaque setup guidance" }] };
+  it("renders the model's missing prerequisite guidance with official install action and re-check", async () => {
+    fixture.openUrl.mockReset();
+    status = {
+      ...missing,
+      installer_prerequisites: [{
+        binary: "runner",
+        installed: false,
+        hint: "Install runner using https://example.invalid/setup, then rerun the manifest command.",
+      }],
+    };
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
-    expect([...host.querySelectorAll('[role="status"]')].some(element => element.textContent?.includes("opaque setup guidance"))).toBe(true);
+    expect([...host.querySelectorAll('[role="status"]')].some(element => element.textContent?.includes("https://example.invalid/setup"))).toBe(true);
+    const openLink = host.querySelector<HTMLButtonElement>('[data-testid="prerequisite-install-link-runner"]')!;
+    expect(openLink).not.toBeNull();
+    await act(async () => openLink.click());
+    expect(fixture.openUrl).toHaveBeenCalledExactlyOnceWith("https://example.invalid/setup");
+    const before = statusCalls();
+    const retry = host.querySelector<HTMLButtonElement>('[data-testid="prerequisite-retry-action"]')!;
+    expect(retry).not.toBeNull();
+    await act(async () => retry.click());
+    expect(statusCalls()).toBe(before + 1);
   });
   it("renders unverified compatibility in a quiet accessible Settings status", async () => {
     status = { ...missing, installed: true, detected_version: "1.20.0", compatibility: { verdict: "unknown", reasons: ["version_not_declared"] } };

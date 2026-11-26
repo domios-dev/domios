@@ -3,6 +3,7 @@ import { localJson } from "./webApi";
 import { relayToPeer } from "./transport/tabs";
 import { listen } from "./bridge";
 import { launchProviderInstaller } from "./providerInstall";
+import type { ProviderCliStatus } from "./providerCli";
 
 export interface InstallCompletion {
   provider: string;
@@ -10,6 +11,17 @@ export interface InstallCompletion {
   tab_id: string;
   success: boolean;
   summary: string;
+  status?: ProviderCliStatus | null;
+}
+
+export class ProviderInstallError extends Error {
+  readonly status: ProviderCliStatus | null;
+
+  constructor(message: string, status: ProviderCliStatus | null = null) {
+    super(message);
+    this.name = "ProviderInstallError";
+    this.status = status;
+  }
 }
 
 async function supportsInstallCompletion(peerId: string): Promise<boolean> {
@@ -51,7 +63,7 @@ export async function installAndWait(providerId: string, signal: AbortSignal, pe
     target = launch.tab_id;
     const early = observed.get(target);
     const result = early ?? await completed;
-    if (!result.success) throw new Error(result.summary);
+    if (!result.success) throw new ProviderInstallError(result.summary, result.status ?? null);
     return "installed";
   } finally {
     stop();
