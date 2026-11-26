@@ -424,6 +424,18 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         )
         .await
     }
+    async fn redeem_cloud_promo(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::RedeemCloudCreditPromoRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RedeemCloudCreditPromoReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO,
+            session,
+            request,
+        )
+        .await
+    }
     fn handles_call_deadline(&self) -> bool {
         true
     }
@@ -589,6 +601,7 @@ impl CallableTransport for HttpCallable {
                 | super::cloud_provisioning::ROUTE_CLOUD_DELETE
                 | super::cloud_provisioning::ROUTE_CLOUD_LEASE_RENEW
                 | super::cloud_provisioning::ROUTE_CLOUD_USAGE
+                | super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO
         ) && !endpoints.emulator
         {
             let redeem = url::Url::parse(endpoints.redeem).map_err(|_| CallableFailure::Offline)?;

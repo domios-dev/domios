@@ -561,6 +561,16 @@ pub enum RegistryRefusal {
     LeaseRequired,
     #[serde(rename = "credits_exhausted")]
     CreditsExhausted,
+    #[serde(rename = "invalid_code")]
+    PromoInvalidCode,
+    #[serde(rename = "expired")]
+    PromoExpired,
+    #[serde(rename = "disabled")]
+    PromoDisabled,
+    #[serde(rename = "exhausted")]
+    PromoExhausted,
+    #[serde(rename = "spend_cap_exceeded")]
+    PromoSpendCapExceeded,
     #[serde(rename = "not_found")]
     NotFound,
     #[serde(rename = "provider_refused")]
@@ -584,6 +594,23 @@ impl RegistryRefusal {
     pub fn from_details(details: &serde_json::Value) -> Self {
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("provider_refused") {
             return Self::ProviderRefused;
+        }
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("rate_limited") {
+            let seconds = details
+                .get("retry_after_seconds")
+                .and_then(|value| {
+                    value
+                        .as_f64()
+                        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
+                })
+                .filter(|seconds| {
+                    seconds.is_finite() && *seconds > 0.0 && *seconds <= u64::MAX as f64
+                })
+                .map(|seconds| seconds.ceil() as u64)
+                .unwrap_or(1);
+            return Self::RateLimited {
+                retry_after_seconds: seconds,
+            };
         }
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("enrollment_budget") {
             let seconds = details

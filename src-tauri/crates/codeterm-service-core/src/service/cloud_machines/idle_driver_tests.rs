@@ -1,0 +1,494 @@
+use std::collections::{BTreeMap, VecDeque};
+use std::net::{Ipv4Addr, SocketAddrV4};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use parking_lot::Mutex;
+use tokio::sync::Notify;
+
+use super::*;
+
+struct InjectedClock(AtomicU64);
+
+impl InjectedClock {
+    fn new(start_ms: u64) -> Arc<Self> {
+        Arc::new(Self(AtomicU64::new(start_ms)))
+    }
+
+    fn advance_ms(&self, delta_ms: u64) {
+        self.0.fetch_add(delta_ms, Ordering::SeqCst);
+    }
+}
+
+impl Clock for InjectedClock {
+    fn now_ms(&self) -> u64 {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// Deterministic waiter: advances the injected clock by each scheduled `delay_ms`
+/// once the test releases one step, with zero wall-clock sleeps.
+struct SteppingWaiter {
+    clock: Arc<InjectedClock>,
+    recorded_delays: Mutex<Vec<u64>>,
+    pending_waits: AtomicUsize,
+    entered: Notify,
+    permits: Mutex<usize>,
+    release: Notify,
+}
+
+impl SteppingWaiter {
+    fn new(clock: Arc<InjectedClock>) -> Arc<Self> {
+        Arc::new(Self {
+            clock,
+            recorded_delays: Mutex::new(Vec::new()),
+            pending_waits: AtomicUsize::new(0),
+            entered: Notify::new(),
+            permits: Mutex::new(0),
+            release: Notify::new(),
+        })
+    }
+
+    async fn wait_until_parked(&self, expected_count: usize) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let notified = self.entered.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if self.pending_waits.load(Ordering::SeqCst) >= expected_count {
+                    return;
+                }
+                notified.await;
+            }
+        })
+        .await
+        .expect("timed out waiting for idle driver to park on waiter");
+    }
+
+    fn step_one(&self) {
+        *self.permits.lock() += 1;
+        self.release.notify_one();
+    }
+
+    async fn advance_step(&self) {
+        self.wait_until_parked(1).await;
+        self.step_one();
+    }
+}
+
+#[async_trait]
+impl IdleTickWaiter for SteppingWaiter {
+    async fn wait_ms(&self, delay_ms: u64) {
+        self.recorded_delays.lock().push(delay_ms);
+        self.pending_waits.fetch_add(1, Ordering::SeqCst);
+        self.entered.notify_waiters();
+        loop {
+            let notified = self.release.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            {
+                let mut permits = self.permits.lock();
+                if *permits > 0 {
+                    *permits -= 1;
+                    break;
+                }
+            }
+            notified.await;
+        }
+        self.pending_waits.fetch_sub(1, Ordering::SeqCst);
+        self.clock.advance_ms(delay_ms);
+    }
+}
+
+struct DriverProvisioning {
+    clock: Arc<InjectedClock>,
+    lease_duration_ms: u64,
+    renew_calls: AtomicUsize,
+    sleep_calls: AtomicUsize,
+    delete_calls: AtomicUsize,
+    renew_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
+}
+
+impl DriverProvisioning {
+    fn new(clock: Arc<InjectedClock>, lease_duration_ms: u64) -> Arc<Self> {
+        Arc::new(Self {
+            clock,
+            lease_duration_ms,
+            renew_calls: AtomicUsize::new(0),
+            sleep_calls: AtomicUsize::new(0),
+            delete_calls: AtomicUsize::new(0),
+            renew_outcomes: Mutex::new(VecDeque::new()),
+        })
+    }
+}
+
+#[async_trait]
+impl CloudProvisioningPort for DriverProvisioning {
+    async fn create(
+        &self,
+        _request: &ProvisioningCreateRequest,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        Err(CloudError::Internal("unused".into()))
+    }
+
+    async fn wake(
+        &self,
+        _machine_id: &str,
+        _request_id: &str,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        Err(CloudError::Internal("unused".into()))
+    }
+
+    async fn sleep(
+        &self,
+        _machine_id: &str,
+        _request_id: &str,
+    ) -> Result<CloudSleepMode, CloudError> {
+        self.sleep_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(CloudSleepMode::DeleteRecreate)
+    }
+
+    async fn delete(&self, _machine_id: &str, _request_id: &str) -> Result<(), CloudError> {
+        self.delete_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn renew_lease(
+        &self,
+        machine_id: &str,
+        lease_id: &str,
+        _request_id: &str,
+    ) -> Result<ProvisionedLease, CloudError> {
+        let seq = self.renew_calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some(outcome) = self.renew_outcomes.lock().pop_front() {
+            outcome?;
+        }
+        Ok(ProvisionedLease {
+            machine_id: machine_id.to_owned(),
+            lease_id: format!("{lease_id}-r{seq}"),
+            lease_expires_at_ms: self.clock.now_ms().saturating_add(self.lease_duration_ms),
+        })
+    }
+
+    async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
+        Ok(CloudUsageSummary::default())
+    }
+}
+
+struct DriverPeerControl {
+    busy: Mutex<PeerBusySnapshot>,
+    read_idle_calls: AtomicUsize,
+    drain_calls: AtomicUsize,
+}
+
+impl DriverPeerControl {
+    fn new(busy: PeerBusySnapshot) -> Arc<Self> {
+        Arc::new(Self {
+            busy: Mutex::new(busy),
+            read_idle_calls: AtomicUsize::new(0),
+            drain_calls: AtomicUsize::new(0),
+        })
+    }
+}
+
+#[async_trait]
+impl CloudPeerControlPort for DriverPeerControl {
+    async fn read_idle(
+        &self,
+        _record: &CloudMachineRecord,
+    ) -> Result<PeerBusySnapshot, CloudError> {
+        self.read_idle_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(*self.busy.lock())
+    }
+
+    async fn enter_drain(&self, _record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
+        self.drain_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(DrainToken {
+            token: "drain-tok".into(),
+            entered_at_ms: 0,
+        })
+    }
+
+    async fn reopen_drain(&self, _record: &CloudMachineRecord) -> Result<(), CloudError> {
+        Ok(())
+    }
+
+    async fn update_endpoint(
+        &self,
+        _record: &CloudMachineRecord,
+        _endpoint: SocketAddrV4,
+    ) -> Result<(), CloudError> {
+        Ok(())
+    }
+
+    async fn publish_direct_endpoint(
+        &self,
+        _record: &CloudMachineRecord,
+        _endpoint: SocketAddrV4,
+    ) -> Result<(), CloudError> {
+        Ok(())
+    }
+
+    async fn await_peer_ready(
+        &self,
+        _record: &CloudMachineRecord,
+        _deadline_ms: u64,
+    ) -> Result<(), CloudError> {
+        Ok(())
+    }
+
+    async fn flush_send(
+        &self,
+        _record: &CloudMachineRecord,
+        _send: &HeldCloudSend,
+    ) -> FlushWriteOutcome {
+        FlushWriteOutcome::Delivered
+    }
+}
+
+fn awake_record(id: &str, now_ms: u64, lease_expires_at_ms: u64) -> CloudMachineRecord {
+    CloudMachineRecord {
+        machine_id: id.into(),
+        name: id.into(),
+        provider: "timeweb".into(),
+        size: "small".into(),
+        state: CloudLifecycleState::Awake,
+        sleep_mode: CloudSleepMode::DeleteRecreate,
+        installation_id: Some(format!("inst-{id}")),
+        peer_instance_id: Some(format!("peer-{id}")),
+        endpoint_addr: Some(SocketAddrV4::new(
+            Ipv4Addr::new(198, 51, 100, 10),
+            CLOUD_INGRESS_PORT,
+        )),
+        rate_per_hour: None,
+        created_at_ms: now_ms,
+        last_awake_at_ms: Some(now_ms),
+        accumulated_awake_secs: 0,
+        period_start_ms: now_ms,
+        lease_id: Some("lease-0".into()),
+        lease_expires_at_ms: Some(lease_expires_at_ms),
+        exhaustion_pending: false,
+        idle_since_ms: None,
+        apply_unconfirmed: false,
+        pending_request: None,
+        last_error: None,
+        ownership: CloudOwnershipReceipt {
+            provider_machine_id: format!("prov-{id}"),
+            floating_ip_id: None,
+            auxiliary_resource_ids: BTreeMap::new(),
+            controller_id: "home-1".into(),
+            labels: BTreeMap::new(),
+        },
+    }
+}
+
+async fn wait_for_active_ids(handle: &CloudIdleDriverHandle, expected: &[&str]) {
+    let want: Vec<String> = expected.iter().map(|s| (*s).to_owned()).collect();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if handle.active_machine_ids() == want {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "timed out waiting for active_machine_ids={want:?}, got={:?}",
+            handle.active_machine_ids()
+        )
+    });
+}
+
+#[tokio::test]
+async fn idle_driver_renews_while_busy_across_all_signals_then_sleeps_after_idle_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    let start_ms = 1_000_000;
+    let lease_duration_ms = 600_000; // 10 minutes
+    let idle_window_ms = 15 * 60_000; // 15 minutes
+
+    // Persist an awake machine to disk before controller construction (proves restart rebuild).
+    let store = CloudMachineStore::new(store_path.clone());
+    store
+        .save(&[awake_record(
+            "cloud-1",
+            start_ms,
+            start_ms + lease_duration_ms,
+        )])
+        .unwrap();
+
+    let clock = InjectedClock::new(start_ms);
+    let ctrl = Arc::new(CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "home-1".into(),
+        clock.clone(),
+    ));
+    let prov = DriverProvisioning::new(clock.clone(), lease_duration_ms);
+    let peer = DriverPeerControl::new(PeerBusySnapshot {
+        active_agent_turns: 1,
+        ..Default::default()
+    });
+    let waiter = SteppingWaiter::new(clock.clone());
+
+    let handle = spawn_cloud_idle_driver(
+        ctrl.clone(),
+        prov.clone(),
+        peer.clone(),
+        waiter.clone(),
+        CloudIdleDriverConfig::with_idle_window_reader(Arc::new(move || idle_window_ms)),
+    );
+    wait_for_active_ids(&handle, &["cloud-1"]).await;
+
+    // Cycle through all 4 busy signals for 18 virtual minutes (> 15 min idle window):
+    // must renew lease before expiry (at 8m and 16m), call read_idle on 60s cadence, and NEVER sleep.
+    let busy_states = [
+        PeerBusySnapshot {
+            active_agent_turns: 1,
+            ..Default::default()
+        },
+        PeerBusySnapshot {
+            running_background_jobs: 1,
+            ..Default::default()
+        },
+        PeerBusySnapshot {
+            held_sends: 1,
+            ..Default::default()
+        },
+        PeerBusySnapshot {
+            attached_viewers: 1,
+            ..Default::default()
+        },
+    ];
+    for step in 0..18 {
+        *peer.busy.lock() = busy_states[step % busy_states.len()];
+        waiter.advance_step().await;
+    }
+    waiter.wait_until_parked(1).await;
+
+    assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(peer.drain_calls.load(Ordering::SeqCst), 0);
+    assert!(
+        prov.renew_calls.load(Ordering::SeqCst) >= 2,
+        "expected at least 2 renewals across 18 busy minutes, got {}",
+        prov.renew_calls.load(Ordering::SeqCst)
+    );
+    assert!(
+        waiter
+            .recorded_delays
+            .lock()
+            .iter()
+            .all(|&d| d <= IDLE_DRIVER_CADENCE_MS),
+        "driver cadence must stay bounded at 60s"
+    );
+    assert_eq!(
+        ctrl.find_by_peer("cloud-1").unwrap().state,
+        CloudLifecycleState::Awake
+    );
+
+    // Switch to idle: after 15 virtual minutes of idle ticks, driver drains, sleeps, and stops.
+    *peer.busy.lock() = PeerBusySnapshot::default();
+    for _ in 0..16 {
+        if ctrl.find_by_peer("cloud-1").unwrap().state == CloudLifecycleState::Asleep {
+            break;
+        }
+        waiter.advance_step().await;
+    }
+    wait_for_active_ids(&handle, &[]).await;
+
+    assert_eq!(
+        ctrl.find_by_peer("cloud-1").unwrap().state,
+        CloudLifecycleState::Asleep
+    );
+    assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(peer.drain_calls.load(Ordering::SeqCst), 1);
+    assert!(peer.read_idle_calls.load(Ordering::SeqCst) >= 18);
+}
+
+#[tokio::test]
+async fn idle_driver_rebuilds_on_restart_and_cancels_immediately_on_sleep_and_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    let start_ms = 500_000;
+    CloudMachineStore::new(store_path.clone())
+        .save(&[
+            awake_record("cloud-a", start_ms, start_ms + 600_000),
+            awake_record("cloud-b", start_ms, start_ms + 600_000),
+        ])
+        .unwrap();
+
+    let clock = InjectedClock::new(start_ms);
+    let ctrl = Arc::new(CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "home-1".into(),
+        clock.clone(),
+    ));
+    let prov = DriverProvisioning::new(clock.clone(), 600_000);
+    let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+    let waiter = SteppingWaiter::new(clock);
+
+    let handle = spawn_cloud_idle_driver(
+        ctrl.clone(),
+        prov.clone(),
+        peer.clone(),
+        waiter.clone(),
+        CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+    );
+    // Both persisted awake machines immediately have active drivers and park on the waiter.
+    wait_for_active_ids(&handle, &["cloud-a", "cloud-b"]).await;
+    waiter.wait_until_parked(2).await;
+
+    // Sleep cloud-a while its driver is parked: must event-cancel without advancing the timer.
+    ctrl.sleep("cloud-a", prov.as_ref(), peer.as_ref(), true)
+        .await
+        .unwrap();
+    wait_for_active_ids(&handle, &["cloud-b"]).await;
+
+    // Delete cloud-b while its driver is parked: must event-cancel immediately too.
+    ctrl.delete("cloud-b", true, prov.as_ref()).await.unwrap();
+    wait_for_active_ids(&handle, &[]).await;
+}
+
+#[tokio::test]
+async fn offline_home_lapsed_lease_conflict_reconciles_local_state_to_asleep_and_stops_driver() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    // Lease already expired while home was offline; Firebase reconciliation put machine asleep.
+    let expired_at = 200_000;
+    let now_after_offline = 900_000;
+    CloudMachineStore::new(store_path.clone())
+        .save(&[awake_record("cloud-offline", 100_000, expired_at)])
+        .unwrap();
+
+    let clock = InjectedClock::new(now_after_offline);
+    let ctrl = Arc::new(CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "home-1".into(),
+        clock.clone(),
+    ));
+    let prov = DriverProvisioning::new(clock.clone(), 600_000);
+    prov.renew_outcomes
+        .lock()
+        .push_back(Err(CloudError::Conflict("Machine is not awake".into())));
+    let peer = DriverPeerControl::new(PeerBusySnapshot {
+        active_agent_turns: 1,
+        ..Default::default()
+    });
+    let waiter = SteppingWaiter::new(clock);
+
+    let handle = spawn_cloud_idle_driver(
+        ctrl.clone(),
+        prov,
+        peer,
+        waiter,
+        CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+    );
+    wait_for_active_ids(&handle, &[]).await;
+    assert_eq!(
+        ctrl.find_by_peer("cloud-offline").unwrap().state,
+        CloudLifecycleState::Asleep
+    );
+}

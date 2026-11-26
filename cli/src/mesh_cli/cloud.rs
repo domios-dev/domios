@@ -36,6 +36,11 @@ pub enum MeshCloudAction {
     },
     /// Show managed cloud credit usage, allowance, remaining balance, cap, and burn per size
     Usage,
+    /// Redeem a cloud credit promo code into your account balance
+    Redeem {
+        /// Promo code to redeem
+        code: String,
+    },
 }
 
 fn auth_header(token: &Option<String>) -> String {
@@ -119,6 +124,23 @@ pub(crate) fn format_usage_human(val: &Value) -> String {
     lines.join("\n")
 }
 
+pub(crate) fn format_redeem_human(val: &Value) -> String {
+    let hours = val["hours"].as_f64().unwrap_or(0.0);
+    let remaining = val["remaining"].as_f64().unwrap_or(0.0);
+    let purchased = val["purchased"].as_f64().unwrap_or(0.0);
+    let already = val["already_redeemed"].as_bool().unwrap_or(false);
+    let lead = if already {
+        format!("Promo code already redeemed (+{hours:.2}h)")
+    } else {
+        format!("Redeemed promo code: +{hours:.2}h cloud credits")
+    };
+    let expiry = match val["expires_at"].as_u64() {
+        Some(ts) => format!(" expires_at={ts}"),
+        None => " expires=never".into(),
+    };
+    format!("{lead}{expiry} (remaining={remaining:.2}h purchased={purchased:.2}h)")
+}
+
 pub(crate) fn resolve_cloud_target(target: &str) -> Result<(String, Value), String> {
     let (base, token) = read_api_config();
     let http =
@@ -151,6 +173,7 @@ pub fn handle_cloud(
     action: MeshCloudAction,
 ) {
     let is_usage = matches!(action, MeshCloudAction::Usage);
+    let is_redeem = matches!(action, MeshCloudAction::Redeem { .. });
     let response = match action {
         MeshCloudAction::Create { size, name } => {
             let mut body = serde_json::json!({});
@@ -197,6 +220,11 @@ pub fn handle_cloud(
             .get(format!("{base}/api/mesh/cloud/usage"))
             .header("Authorization", auth_header(token))
             .send(),
+        MeshCloudAction::Redeem { code } => http
+            .post(format!("{base}/api/mesh/cloud/redeem"))
+            .header("Authorization", auth_header(token))
+            .json(&serde_json::json!({ "code": code }))
+            .send(),
     };
 
     match response {
@@ -209,6 +237,8 @@ pub fn handle_cloud(
                 crate::cmd::print::print_json(&val);
             } else if is_usage {
                 println!("{}", format_usage_human(&val));
+            } else if is_redeem {
+                println!("{}", format_redeem_human(&val));
             } else if let Some(machines) = val["machines"].as_array() {
                 if machines.is_empty() {
                     println!("No cloud machines.");

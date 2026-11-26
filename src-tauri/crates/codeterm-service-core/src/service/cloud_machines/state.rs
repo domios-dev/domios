@@ -110,7 +110,7 @@ pub fn transition(
             next.state = Awake;
             next.idle_since_ms = None;
         }
-        (Draining, LifecycleEvent::ProviderStopped) => {
+        (Awake | Draining, LifecycleEvent::ProviderStopped) => {
             settle_awake_interval(&mut next, now_ms);
             next.state = Asleep;
             next.lease_id = None;

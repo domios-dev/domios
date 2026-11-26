@@ -51,6 +51,7 @@ pub struct CloudMachineController {
     wake_queue: Mutex<CloudWakeQueue>,
     flush_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     wakes: Arc<SingleFlightWakes>,
+    lifecycle_tx: tokio::sync::watch::Sender<u64>,
     local_drain_gate: Arc<LocalPeerDrainGate>,
     clock: Arc<dyn Clock>,
     controller_id: String,
@@ -68,6 +69,7 @@ impl CloudMachineController {
                 log::warn!("[cloud] failed to persist reconciled wake queue on startup: {error}");
             }
         }
+        let (lifecycle_tx, _) = tokio::sync::watch::channel(0u64);
         Self {
             store,
             wake_queue_store,
@@ -75,6 +77,7 @@ impl CloudMachineController {
             wake_queue: Mutex::new(queue),
             flush_locks: Mutex::new(HashMap::new()),
             wakes: Arc::new(SingleFlightWakes::default()),
+            lifecycle_tx,
             local_drain_gate: Arc::new(LocalPeerDrainGate::default()),
             clock,
             controller_id,
@@ -87,6 +90,15 @@ impl CloudMachineController {
             controller_id,
             Arc::new(SystemClock),
         )
+    }
+
+    pub fn subscribe_lifecycle(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.lifecycle_tx.subscribe()
+    }
+
+    fn notify_lifecycle(&self) {
+        self.lifecycle_tx
+            .send_modify(|rev| *rev = rev.wrapping_add(1));
     }
 
     pub fn local_drain_gate(&self) -> &Arc<LocalPeerDrainGate> {
@@ -145,6 +157,8 @@ impl CloudMachineController {
         let updated = mutate(&machines[idx])?;
         machines[idx] = updated.clone();
         self.persist_locked(&machines)?;
+        drop(machines);
+        self.notify_lifecycle();
         Ok(updated)
     }
 
@@ -152,8 +166,13 @@ impl CloudMachineController {
         let mut machines = self.machines.lock();
         let before = machines.len();
         machines.retain(|m| m.machine_id != machine_id);
-        if machines.len() != before {
+        let removed = machines.len() != before;
+        if removed {
             let _ = self.persist_locked(&machines);
+        }
+        drop(machines);
+        if removed {
+            self.notify_lifecycle();
         }
     }
 
@@ -1089,6 +1108,21 @@ impl CloudMachineController {
                                 idle_since_ms: None,
                             })
                         }
+                    }
+                    Err(CloudError::Conflict(_)) if now_ms >= lease_expires_at_ms => {
+                        // Backend reconciliation already slept this machine after lease expiry while home was offline.
+                        let _ = self.update_record(machine_id, |rec| {
+                            let mut next =
+                                transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
+                            next.lease_id = None;
+                            next.lease_expires_at_ms = None;
+                            next.pending_request = None;
+                            Ok(next)
+                        });
+                        Ok(IdleDecision::BeginTwoPhaseDrain {
+                            action: IdleSleepAction::StopProvider,
+                            out_of_credits: false,
+                        })
                     }
                     Err(error) => Err(error),
                 }

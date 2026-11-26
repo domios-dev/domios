@@ -2,6 +2,7 @@ pub mod controller;
 mod enrichment;
 pub mod held_sends;
 pub mod idle_drain;
+pub mod idle_driver;
 pub mod placement;
 pub mod ports;
 pub mod state;
@@ -21,6 +22,10 @@ pub use idle_drain::{
     evaluate_idle_and_renewal, DrainToken, IdleDecision, IdleEvalInput, IdlePolicy,
     IdleSleepAction, LocalPeerDrainGate, PeerBusySnapshot,
 };
+pub use idle_driver::{
+    spawn_cloud_idle_driver, CloudIdleDriverConfig, CloudIdleDriverHandle, IdleTickWaiter,
+    TokioIdleTickWaiter, IDLE_DRIVER_CADENCE_MS,
+};
 pub use placement::{select_placement, CloudTarget, PlacementDecision};
 pub use ports::{
     Clock, CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, CloudRouteSpec,
@@ -34,9 +39,9 @@ pub use state::{
 pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{
     CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
-    CloudRate, CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
-    PendingProvisioningRequest, CLOUD_INGRESS_PORT, CLOUD_WAKE_SEND_PREFIX, COST_WARNING_TEXT,
-    DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
+    CloudPromoRedemption, CloudRate, CloudReceipt, CloudSleepMode, CloudUsageSummary,
+    PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT, CLOUD_WAKE_SEND_PREFIX,
+    COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
 };
 
 #[derive(Clone)]
@@ -125,6 +130,8 @@ impl ServiceContext {
     }
 }
 
+#[cfg(test)]
+mod idle_driver_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

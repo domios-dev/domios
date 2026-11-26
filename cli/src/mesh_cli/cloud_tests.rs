@@ -54,6 +54,16 @@ fn parses_mesh_cloud_verbs_and_flags() {
             }
         ));
     }
+
+    let redeem = Cli::try_parse_from(["domios", "mesh", "cloud", "redeem", "BETA-25"]).unwrap();
+    assert!(matches!(
+        redeem.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::Redeem { ref code }
+            }
+        } if code == "BETA-25"
+    ));
 }
 
 #[test]
@@ -141,4 +151,31 @@ fn format_receipt_and_usage_human_surface_managed_cost_fields() {
     assert!(rendered_usage.contains("cap=50.00"));
     assert!(rendered_usage.contains("medium=2.00 cr/h"));
     assert!(rendered_usage.contains("small=1.00 cr/h"));
+
+    let redeemed = serde_json::json!({
+        "schema_version": 1,
+        "status": "redeemed",
+        "already_redeemed": false,
+        "hours": 25.0,
+        "expires_at": 1_800_000_000u64,
+        "remaining": 35.0,
+        "purchased": 25.0
+    });
+    let rendered_redeem = format_redeem_human(&redeemed);
+    assert!(rendered_redeem.contains("Redeemed promo code: +25.00h"));
+    assert!(rendered_redeem.contains("expires_at=1800000000"));
+    assert!(rendered_redeem.contains("remaining=35.00h"));
+
+    let already = serde_json::json!({
+        "schema_version": 1,
+        "status": "redeemed",
+        "already_redeemed": true,
+        "hours": 25.0,
+        "expires_at": null,
+        "remaining": 35.0,
+        "purchased": 25.0
+    });
+    let rendered_already = format_redeem_human(&already);
+    assert!(rendered_already.contains("already redeemed"));
+    assert!(rendered_already.contains("expires=never"));
 }

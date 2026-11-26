@@ -68,6 +68,7 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 | POST | `/api/mesh/cloud/{id}/delete` | `{confirm}` | Local-only. Delete a cloud machine through the backend; without `confirm: true` returns `delete_confirmation_required` warning about unpushed work. |
 | POST | `/api/mesh/cloud/resolve` | `{target, size?, name?}` | Local-only. Resolve reuse-first cloud placement (`auto` reuses awake then wakes asleep, never creates; `new` creates explicitly; `<machine>` targets one). |
 | GET | `/api/mesh/cloud/usage` | — | Local-only. Managed cloud credit usage summary (`used`, `allowance`, `purchased`, `remaining`, `cap`, `burn_per_size`). |
+| POST | `/api/mesh/cloud/redeem` | `{code}` | Local-only. Redeem a cloud credit promo code into the signed-in account balance; surfaces typed refusals (`invalid_code`, `expired`, `disabled`, `exhausted`, `spend_cap_exceeded`, `rate_limited` with `retry_after_seconds`). |
 | GET | `/api/mesh/cloud/peer/idle` | — | Cloud-peer control route (Full peer access). Reports active turns, background jobs, held sends, attached viewers, and drain state. |
 | POST | `/api/mesh/cloud/peer/drain` | `{}` | Cloud-peer control route (Full peer access). Atomically enters draining iff idle (`machine_busy` otherwise); writes during drain return `machine_sleeping` with `bytes_written: false`. |
 | POST | `/api/mesh/cloud/peer/reopen` | `{}` | Cloud-peer control route (Full peer access). Exits draining state back to open. |
@@ -230,4 +231,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 258 -->
+<!-- revision: 259 -->

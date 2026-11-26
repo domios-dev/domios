@@ -14,6 +14,7 @@ pub const ROUTE_CLOUD_SLEEP: &str = "sleepManagedCloudMachine";
 pub const ROUTE_CLOUD_DELETE: &str = "deleteManagedCloudMachine";
 pub const ROUTE_CLOUD_LEASE_RENEW: &str = "renewManagedCloudLease";
 pub const ROUTE_CLOUD_USAGE: &str = "getManagedCloudUsage";
+pub const ROUTE_CLOUD_REDEEM_PROMO: &str = "redeemCloudCreditPromo";
 
 pub const DOMAIN_CLOUD_CREATE: &str = "domios.cloud-create.v1";
 pub const DOMAIN_CLOUD_WAKE: &str = "domios.cloud-wake.v1";
@@ -202,6 +203,60 @@ pub struct CloudUsageReply {
     pub custom_min_cents: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_max_cents: Option<u64>,
+}
+
+/// Wire request for `redeemCloudCreditPromo` (`shared/cloud-credits.ts::RedeemCloudCreditPromoRequest`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedeemCloudCreditPromoRequest {
+    pub code: String,
+}
+
+/// Wire reply for `redeemCloudCreditPromo` (`shared/cloud-credits.ts::RedeemCloudCreditPromoReply`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedeemCloudCreditPromoReply {
+    pub schema_version: u8,
+    pub status: String,
+    pub already_redeemed: bool,
+    pub hours: f64,
+    pub expires_at: Option<u64>,
+    pub remaining: f64,
+    pub purchased: f64,
+}
+
+impl RedeemCloudCreditPromoReply {
+    pub fn is_valid(&self) -> bool {
+        self.schema_version == 1
+            && self.status == "redeemed"
+            && self.hours.is_finite()
+            && self.hours >= 0.0
+            && self.remaining.is_finite()
+            && self.remaining >= 0.0
+            && self.purchased.is_finite()
+            && self.purchased >= 0.0
+    }
+}
+
+/// Typed refusal detail matching `shared/cloud-credits.ts::PromoRedeemRefusal`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "reason", deny_unknown_fields)]
+pub enum PromoRedeemRefusal {
+    #[serde(rename = "invalid_code")]
+    InvalidCode,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "disabled")]
+    Disabled,
+    #[serde(rename = "exhausted")]
+    Exhausted,
+    #[serde(rename = "spend_cap_exceeded")]
+    SpendCapExceeded,
+    #[serde(rename = "rate_limited")]
+    RateLimited {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after_seconds: Option<u64>,
+    },
 }
 
 /// Typed refusal detail matching `shared/cloud-provisioning.ts::CloudProvisioningRefusal`.
@@ -483,6 +538,34 @@ impl CloudController<'_> {
             .call(self.mesh.ports.registry.cloud_usage(&self.signed.session))
             .await?;
         self.ensure_current()?;
+        Ok(reply)
+    }
+
+    pub async fn redeem_promo(
+        &self,
+        code: &str,
+    ) -> Result<RedeemCloudCreditPromoReply, AccountMeshRefusal> {
+        self.ensure_current()?;
+        let trimmed = code.trim();
+        if trimmed.is_empty() || trimmed.len() > 64 {
+            return Err(AccountMeshRefusal::PromoInvalidCode);
+        }
+        let request = RedeemCloudCreditPromoRequest {
+            code: trimmed.to_owned(),
+        };
+        let reply = self
+            .mesh
+            .call(
+                self.mesh
+                    .ports
+                    .registry
+                    .redeem_cloud_promo(&self.signed.session, &request),
+            )
+            .await?;
+        self.ensure_current()?;
+        if !reply.is_valid() {
+            return Err(AccountMeshRefusal::Unavailable);
+        }
         Ok(reply)
     }
 }

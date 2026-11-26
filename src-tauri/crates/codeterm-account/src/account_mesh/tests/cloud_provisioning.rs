@@ -379,3 +379,152 @@ fn decodes_all_ledger_cloud_provisioning_refusal_fixtures() {
         )
     );
 }
+
+#[test]
+fn decodes_and_validates_redeem_cloud_credit_promo_wire_types_and_refusals() {
+    use crate::account_mesh::{
+        cloud_provisioning::{
+            PromoRedeemRefusal, RedeemCloudCreditPromoReply, RedeemCloudCreditPromoRequest,
+            ROUTE_CLOUD_REDEEM_PROMO,
+        },
+        state::AccountMeshRefusal,
+    };
+
+    assert_eq!(ROUTE_CLOUD_REDEEM_PROMO, "redeemCloudCreditPromo");
+
+    let req: RedeemCloudCreditPromoRequest =
+        serde_json::from_value(json!({ "code": "DOMIOS-BETA-25" })).unwrap();
+    assert_eq!(req.code, "DOMIOS-BETA-25");
+    assert!(
+        serde_json::from_value::<RedeemCloudCreditPromoRequest>(
+            json!({ "code": "DOMIOS-BETA-25", "extra": true })
+        )
+        .is_err(),
+        "request must reject unknown fields"
+    );
+
+    let fresh: RedeemCloudCreditPromoReply = serde_json::from_value(json!({
+        "schema_version": 1,
+        "status": "redeemed",
+        "already_redeemed": false,
+        "hours": 25.0,
+        "expires_at": 1_800_000_000u64,
+        "remaining": 35.0,
+        "purchased": 25.0
+    }))
+    .unwrap();
+    assert!(fresh.is_valid());
+    assert!(!fresh.already_redeemed);
+    assert_eq!(fresh.expires_at, Some(1_800_000_000));
+
+    let idempotent: RedeemCloudCreditPromoReply = serde_json::from_value(json!({
+        "schema_version": 1,
+        "status": "redeemed",
+        "already_redeemed": true,
+        "hours": 25.0,
+        "expires_at": null,
+        "remaining": 35.0,
+        "purchased": 25.0
+    }))
+    .unwrap();
+    assert!(idempotent.is_valid());
+    assert!(idempotent.already_redeemed);
+    assert_eq!(idempotent.expires_at, None);
+
+    // Reject unknown fields and missing required fields on reply.
+    assert!(
+        serde_json::from_value::<RedeemCloudCreditPromoReply>(json!({
+            "schema_version": 1,
+            "status": "redeemed",
+            "already_redeemed": false,
+            "hours": 25.0,
+            "expires_at": null,
+            "remaining": 35.0,
+            "purchased": 25.0,
+            "unexpected": 1
+        }))
+        .is_err()
+    );
+
+    // All 6 typed promo refusal reasons decode strictly and map through callable::refusal.
+    for (reason, expected_wire, expected_registry, expected_mesh) in [
+        (
+            "invalid_code",
+            PromoRedeemRefusal::InvalidCode,
+            RegistryRefusal::PromoInvalidCode,
+            AccountMeshRefusal::PromoInvalidCode,
+        ),
+        (
+            "expired",
+            PromoRedeemRefusal::Expired,
+            RegistryRefusal::PromoExpired,
+            AccountMeshRefusal::PromoExpired,
+        ),
+        (
+            "disabled",
+            PromoRedeemRefusal::Disabled,
+            RegistryRefusal::PromoDisabled,
+            AccountMeshRefusal::PromoDisabled,
+        ),
+        (
+            "exhausted",
+            PromoRedeemRefusal::Exhausted,
+            RegistryRefusal::PromoExhausted,
+            AccountMeshRefusal::PromoExhausted,
+        ),
+        (
+            "spend_cap_exceeded",
+            PromoRedeemRefusal::SpendCapExceeded,
+            RegistryRefusal::PromoSpendCapExceeded,
+            AccountMeshRefusal::PromoSpendCapExceeded,
+        ),
+    ] {
+        let details = json!({ "reason": reason });
+        assert_eq!(
+            serde_json::from_value::<PromoRedeemRefusal>(details.clone()).unwrap(),
+            expected_wire
+        );
+        let mapped = refusal(&CallableFailure::Status {
+            status: 400,
+            retry_after_seconds: None,
+            body: Some(json!({ "error": { "status": "FAILED_PRECONDITION", "details": details } })),
+        });
+        assert_eq!(mapped, expected_registry);
+        assert_eq!(AccountMeshRefusal::from(mapped), expected_mesh);
+    }
+
+    // rate_limited with and without retry_after_seconds.
+    assert_eq!(
+        serde_json::from_value::<PromoRedeemRefusal>(json!({ "reason": "rate_limited" })).unwrap(),
+        PromoRedeemRefusal::RateLimited {
+            retry_after_seconds: None
+        }
+    );
+    assert_eq!(
+        serde_json::from_value::<PromoRedeemRefusal>(
+            json!({ "reason": "rate_limited", "retry_after_seconds": 120 })
+        )
+        .unwrap(),
+        PromoRedeemRefusal::RateLimited {
+            retry_after_seconds: Some(120)
+        }
+    );
+    assert_eq!(
+        refusal(&CallableFailure::Status {
+            status: 429,
+            retry_after_seconds: Some(90),
+            body: Some(json!({
+                "error": { "status": "RESOURCE_EXHAUSTED", "details": { "reason": "rate_limited" } }
+            })),
+        }),
+        RegistryRefusal::RateLimited {
+            retry_after_seconds: 90
+        }
+    );
+    assert_eq!(
+        RegistryRefusal::from_details(&json!({ "reason": "rate_limited" })),
+        RegistryRefusal::RateLimited {
+            retry_after_seconds: 1
+        }
+    );
+}
