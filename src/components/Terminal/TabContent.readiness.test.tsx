@@ -10,16 +10,17 @@ import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerAction
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { TabContent } from "./TabContent";
+import { TerminalTab } from "./TerminalTab";
 import { clearTranscriptWindows } from "./transcriptStore";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { __setChatSendRepositoryForTest, readChatSends } from "./chatSendStore";
 
-const lifecycle = vi.hoisted(() => ({ current: null as UsePtyConnectionOptions | null }));
+const lifecycle = vi.hoisted(() => ({ current: null as UsePtyConnectionOptions | null, readinessFailed: false }));
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 vi.mock("../../hooks/terminal", async importOriginal => ({
   ...await importOriginal<typeof import("../../hooks/terminal")>(),
   useXterm: () => ({ termRef: useRef(null), fitAddonRef: useRef(null), searchAddonRef: useRef(null), termReady: false, bellFlash: false }),
-  usePtyConnection: (options: UsePtyConnectionOptions) => { lifecycle.current = options; return { writePty: () => {}, readinessFailed: false, retryConnection: () => {} }; },
+  usePtyConnection: (options: UsePtyConnectionOptions) => { lifecycle.current = options; return { writePty: () => {}, readinessFailed: lifecycle.readinessFailed, retryConnection: () => {} }; },
 }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -244,4 +245,73 @@ it("reveals an empty real TerminalTab only after its current frame and connectio
     expect(frame.closest('[inert], [aria-hidden="true"]')).toBeNull();
     expect(rows.textContent).toBe("");
   } finally { await fixture.dispose(); }
+});
+
+it("never renders PTY readiness alerts or Terminal starting on a chat_backend tab", async () => {
+  const tabId = "chat-backend-no-pty-readiness";
+  const tab: Tab = {
+    id: tabId, title: "Main", tab_type: "Terminal", cwd: null, pty_id: null,
+    backing: { kind: "chat_backend", plugin_id: "fixture-runtime", session_id: "" },
+    agent_type: "fixture-runtime", protected: true, role_profile: "general_agent",
+    boot_stage: "agent_launching", agent_booting: true,
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tabId]: tab }, teams: [], active_workspace_id: null,
+    focused_tab_id: tabId, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  const store = createMuxStateStore(() => state);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  const commands: string[] = [];
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    commands.push(command);
+    if (command === "chat_start") return { source_session_id: null, session_binding_nonce: null, subscription_id: args?.subscriptionId, pending: true, messages: [], text: "", offset: 0 } as T;
+    if (["delayed_send_list", "system_heartbeat_list", "chat_send_status", "chat_send_dismissals", "chat_send_admissions", "list_agent_providers"].includes(command)) return [] as T;
+    if (command === "plugin_manager_snapshot") return { plugins: [], channels: [], diff: [], marketplace: [] } as T;
+    return {} as T;
+  });
+  __setListenForTest(async () => () => {});
+  setClientTabUiMode(tabId, "terminal");
+  lifecycle.readinessFailed = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(
+      <MuxStateStoreContext.Provider value={store}>
+        <MultiplexerActionsContext.Provider value={actions}>
+          <TabContent tab={tab} isVisible isFocused onFocusTab={() => {}} onPtySpawned={() => {}}
+            theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
+    ));
+    expect(host.querySelector('[data-testid="terminal-start-failure"]')).toBeNull();
+    expect(host.querySelector('[data-testid="terminal-loading-overlay"]')).toBeNull();
+    expect(host.textContent).not.toContain("Terminal output did not arrive");
+    expect(host.textContent).not.toContain("Terminal starting");
+    expect(host.textContent).not.toContain("Starting terminal");
+    expect(commands).not.toContain("spawn_pty");
+
+    await act(async () => root.render(
+      <MuxStateStoreContext.Provider value={store}>
+        <MultiplexerActionsContext.Provider value={actions}>
+          <TerminalTab tabId={tabId} ptyId={null} isVisible isFocused
+            theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
+    ));
+    expect(lifecycle.current?.ioEnabled).toBe(false);
+    expect(lifecycle.current?.renderEnabled).toBe(false);
+    expect(host.querySelector('[data-testid="terminal-start-failure"]')).toBeNull();
+    expect(host.querySelector('[data-testid="terminal-loading-overlay"]')).toBeNull();
+    expect(host.textContent).not.toContain("Terminal output did not arrive");
+    expect(host.textContent).not.toContain("Terminal starting");
+    expect(host.textContent).not.toContain("Starting terminal");
+  } finally {
+    lifecycle.readinessFailed = false;
+    lifecycle.current = null;
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+    clearTranscriptWindows();
+  }
 });

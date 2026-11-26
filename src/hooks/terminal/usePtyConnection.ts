@@ -84,6 +84,7 @@ export function usePtyConnection({
   );
   const tabCwdRef = useRef(tabCwd);
   const spawnBlocked = useMuxSelector(s => !ptyId && tabWakeRequiresRetry(s.tabs[tabId]));
+  const isChatBackend = useMuxSelector(s => s.tabs[tabId]?.backing?.kind === "chat_backend");
   const flowAllowed = useMuxSelector(s => rendererFlowEligible(s.tabs[tabId]));
   const remotePtyId = useMuxSelector(s => s.tabs[tabId]?.remote_pty_id ?? null);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
@@ -128,6 +129,10 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
+    if (isChatBackend) {
+      setReadinessFailed(false);
+      return;
+    }
     if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)
       || spawnBlocked) return;
     let disposed = false;
@@ -261,7 +266,7 @@ export function usePtyConnection({
       connectedPtyRef.current = null;
       callbacks.current.onConnectionStateChange?.(false);
     };
-  }, [ptyId, remotePtyId, flowAllowed, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked]);
+  }, [ptyId, remotePtyId, flowAllowed, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked, isChatBackend]);
 
   return { writePty, readinessFailed, retryConnection };
 }

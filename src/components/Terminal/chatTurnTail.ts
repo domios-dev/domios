@@ -1,3 +1,4 @@
+import { hasRetryableProviderErrorRemediation } from "@codeterm/chat-core";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
@@ -19,6 +20,9 @@ export function latestTurnStopNoticeId(entries: readonly EnrichedChatEntry[]): s
     if (msg.type === "system") {
       if (msg.systemSubtype === "model_unavailable") return null;
       if (msg.systemSubtype === "turn_stop_reason") stopNotice ??= msg.id;
+      if (msg.systemSubtype === "api_error" && hasRetryableProviderErrorRemediation(msg.toolInput)) {
+        stopNotice ??= msg.id;
+      }
     }
     if (msg.type === "user" || msg.type === "assistant") {
       break;

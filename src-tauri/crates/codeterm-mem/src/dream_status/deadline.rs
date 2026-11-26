@@ -127,6 +127,13 @@ pub fn finalize_at_deadline_with_reason(
     let worker = workers
         .get(worker_id)
         .ok_or_else(|| format!("worker not found: {worker_id}"))?;
+    if matches!(worker.execution_end, Some(super::ExecutionEnd::Cancelled)) {
+        return Ok(DeadlineOutcome {
+            diary_id: worker.diary_id,
+            diary_rewritten: false,
+            finalization_recorded: false,
+        });
+    }
     let diary_id = match worker.diary_id.clone() {
         Some(id) => Some(id),
         None => mem

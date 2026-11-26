@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -140,11 +139,58 @@ pub fn revision() -> u64 {
     REVISION.load(Ordering::Acquire)
 }
 
-pub fn observe(binary: &str) -> VersionObservation {
+struct PendingSettlement {
+    identity: Option<BinaryIdentity>,
+}
+
+impl PendingSettlement {
+    fn new(identity: BinaryIdentity) -> Self {
+        Self {
+            identity: Some(identity),
+        }
+    }
+
+    fn settle(mut self, observed: VersionObservation) {
+        let Some(identity) = self.identity.take() else {
+            return;
+        };
+        let unchanged = BinaryIdentity::read(&identity.path).as_ref() == Some(&identity);
+        let mut cache = CACHE.lock();
+        if unchanged {
+            cache.settle(identity, observed, Instant::now());
+        } else {
+            cache.entries.remove(&identity);
+        }
+        REVISION.fetch_add(1, Ordering::Release);
+    }
+}
+
+impl Drop for PendingSettlement {
+    fn drop(&mut self) {
+        let Some(identity) = self.identity.take() else {
+            return;
+        };
+        let mut cache = CACHE.lock();
+        if cache
+            .entries
+            .get(&identity)
+            .is_some_and(|entry| entry.observation.status == ProbeStatus::Pending)
+        {
+            cache.settle(
+                identity,
+                VersionObservation::unknown(ProbeStatus::Failed),
+                Instant::now(),
+            );
+            REVISION.fetch_add(1, Ordering::Release);
+        }
+    }
+}
+
+pub fn observe_in(binary: &str, extra_dirs: &[PathBuf]) -> VersionObservation {
     if binary.trim().is_empty() {
         return VersionObservation::unknown(ProbeStatus::Missing);
     }
-    let path = match crate::js_runtime::probe_bin(binary).resolution {
+    let path = match crate::js_runtime::probe_bin_with_extra_dirs(binary, extra_dirs).resolution {
         crate::js_runtime::BinResolution::Found(path) => path,
         crate::js_runtime::BinResolution::Missing => {
             return VersionObservation::unknown(ProbeStatus::Missing)
@@ -162,15 +208,15 @@ pub fn observe(binary: &str) -> VersionObservation {
         let spawned = std::thread::Builder::new()
             .name("provider-version".into())
             .spawn(move || {
+                let settlement = PendingSettlement::new(identity);
                 let observed = probe(&path);
-                let unchanged = BinaryIdentity::read(&identity.path).as_ref() == Some(&identity);
-                let mut cache = CACHE.lock();
-                if unchanged {
-                    cache.settle(identity, observed, Instant::now());
-                } else {
-                    cache.entries.remove(&identity);
-                }
-                REVISION.fetch_add(1, Ordering::Release);
+                log::debug!(
+                    "[provider-version] path={} status={:?} version={:?}",
+                    path.display(),
+                    observed.status,
+                    observed.version
+                );
+                settlement.settle(observed);
             });
         if spawned.is_err() {
             CACHE.lock().settle(
@@ -213,53 +259,21 @@ fn probe(path: &Path) -> VersionObservation {
     probe_command(command)
 }
 
-fn probe_command(mut command: Command) -> VersionObservation {
-    let deadline = Instant::now() + PROBE_DEADLINE;
+fn probe_command(command: Command) -> VersionObservation {
+    probe_command_with_deadline(command, PROBE_DEADLINE)
+}
+
+fn probe_command_with_deadline(mut command: Command, timeout: Duration) -> VersionObservation {
+    let deadline = Instant::now() + timeout;
     command.arg("--version");
     let Ok(mut child) = ProbeChild::spawn(&mut command) else {
         return VersionObservation::unknown(ProbeStatus::Failed);
     };
-    let Some(stdout) = child.stdout.take() else {
-        return VersionObservation::unknown(ProbeStatus::Failed);
+    let bytes = match child.collect_output(deadline, MAX_OUTPUT_BYTES as usize) {
+        Ok(Some((status, bytes))) if status.success() => bytes,
+        Ok(Some(_)) | Err(_) => return VersionObservation::unknown(ProbeStatus::Failed),
+        Ok(None) => return VersionObservation::unknown(ProbeStatus::Timeout),
     };
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let reader = std::thread::Builder::new()
-        .name("provider-version-output".into())
-        .spawn(move || {
-            let mut bytes = Vec::new();
-            let result = stdout.take(MAX_OUTPUT_BYTES + 1).read_to_end(&mut bytes);
-            let _ = sender.send(result.ok().map(|_| bytes));
-        });
-    let status = if reader.is_ok() {
-        child.wait_timeout(deadline.saturating_duration_since(Instant::now()))
-    } else {
-        Ok(None)
-    };
-    match status {
-        Ok(Some(status)) if status.success() => {}
-        other => {
-            child.terminate();
-            if let Ok(reader) = reader {
-                let _ = reader.join();
-            }
-            return VersionObservation::unknown(if matches!(other, Ok(None)) {
-                ProbeStatus::Timeout
-            } else {
-                ProbeStatus::Failed
-            });
-        }
-    }
-    let Ok(Some(bytes)) = receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-    else {
-        child.terminate();
-        if let Ok(reader) = reader {
-            let _ = reader.join();
-        }
-        return VersionObservation::unknown(ProbeStatus::Timeout);
-    };
-    if let Ok(reader) = reader {
-        let _ = reader.join();
-    }
     if bytes.len() as u64 > MAX_OUTPUT_BYTES {
         return VersionObservation::unknown(ProbeStatus::Invalid);
     }

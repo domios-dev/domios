@@ -130,9 +130,12 @@ fn tab_chat_identity_host_numbers_uuidless_rows_within_one_record() {
         serde_json::json!({ "role": "user" }),
         serde_json::json!({ "role": "user", "recordIndex": 3 }),
     ];
-    let (mut rows, indexes) = rows_from_plugin(values).expect("well-formed rows");
-    anchor_rows(&mut rows, &indexes, bytes, 100);
-    let anchored: Vec<(Option<u64>, u32)> = rows
+    let mut parsed = rows_from_plugin(values);
+    assert_eq!(parsed.skipped, 0);
+    assert!(parsed.first_skipped.is_none());
+    anchor_rows(&mut parsed.messages, &parsed.record_indexes, bytes, 100);
+    let anchored: Vec<(Option<u64>, u32)> = parsed
+        .messages
         .iter()
         .map(|r| (r.record_start, r.record_row))
         .collect();
@@ -149,14 +152,29 @@ fn tab_chat_identity_host_numbers_uuidless_rows_within_one_record() {
         "uuid rows are not numbered; missing or past-end indexes stay unanchored"
     );
     assert!(
-        serde_json::to_value(&rows[0])
+        serde_json::to_value(&parsed.messages[0])
             .unwrap()
             .get("recordIndex")
             .is_none(),
         "the host anchor never reaches the wire"
     );
-    assert!(
-        rows_from_plugin(vec![serde_json::json!({ "role": "user", "blocks": 7 })]).is_none(),
-        "one malformed row still fails the chunk"
-    );
+    let mut mixed = rows_from_plugin(vec![
+        serde_json::json!({ "role": "user", "recordIndex": 0 }),
+        serde_json::json!({ "role": "user", "blocks": 7, "recordIndex": 1 }),
+        serde_json::json!({ "role": "assistant", "recordIndex": 2 }),
+    ]);
+    assert_eq!(mixed.skipped, 1);
+    let diagnostic = mixed
+        .first_skipped
+        .as_ref()
+        .expect("skipped row must record a bounded diagnostic");
+    assert_eq!(diagnostic.row_position, 1);
+    assert_eq!(diagnostic.record_index, Some(1));
+    assert!(!diagnostic.reason.is_empty());
+    assert!(diagnostic.reason.chars().count() <= 203);
+    assert!(!diagnostic.reason.contains('\n'));
+    anchor_rows(&mut mixed.messages, &mixed.record_indexes, bytes, 100);
+    assert_eq!(mixed.messages.len(), 2);
+    assert_eq!(mixed.messages[0].record_start, Some(100));
+    assert_eq!(mixed.messages[1].record_start, Some(109));
 }

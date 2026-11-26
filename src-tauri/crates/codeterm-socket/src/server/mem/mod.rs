@@ -703,14 +703,8 @@ fn mem_worker_kill(
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
-    let info = svc.workers.kill(&id).map_err(not_found)?;
-    if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
-        log::warn!("[graph-workers] kill Tab {}: {}", info.tab_id, e);
-    }
-    svc.ui.emit(
-        "graph-worker-done",
-        serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
-    );
+    codeterm_service_core::mem_host::cancel_worker(svc, &id)
+        .ok_or_else(|| not_found(format!("worker not found: {id}")))?;
     Ok(serde_json::json!({ "ok": true }))
 }
 

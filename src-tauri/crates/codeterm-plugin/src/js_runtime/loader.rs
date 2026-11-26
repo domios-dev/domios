@@ -236,6 +236,7 @@ fn compute_sandbox(
     // onto every path, including unrestricted/dev.
     Ok(base
         .with_identity_and_perms(&manifest.id, &perms)
+        .with_extra_bin_dirs(manifest.cli_install_dirs(crate::provider::current_platform_tag()))
         .with_binary_transfer(
             manifest.capabilities.binary_transfer.clone(),
             bundle_dir,

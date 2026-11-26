@@ -1,9 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { remainingLifetime, toastLifetime } from "./toastLifetime";
 
-export function useToastLifetime(id: string, configured: number | undefined, onDismiss: (id: string) => void) {
+export interface ToastLifetimeOptions {
+  persistent?: boolean;
+  suspended?: boolean;
+}
+
+export function useToastLifetime(
+  id: string,
+  configured: number | undefined,
+  onDismiss: (id: string) => void,
+  options?: ToastLifetimeOptions,
+) {
+  const persistent = Boolean(options?.persistent);
+  const suspended = Boolean(options?.suspended);
   const [duration] = useState(() => toastLifetime(configured));
-  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const paused = persistent || suspended || hovered;
   const remaining = useRef(duration);
   const dismissed = useRef(false);
   const dismissHandler = useRef(onDismiss);
@@ -32,5 +45,5 @@ export function useToastLifetime(id: string, configured: number | undefined, onD
     };
   }, [paused]);
 
-  return { duration, paused, dismiss, pause: () => setPaused(true), resume: () => setPaused(false) };
+  return { duration, paused, persistent, dismiss, pause: () => setHovered(true), resume: () => setHovered(false) };
 }

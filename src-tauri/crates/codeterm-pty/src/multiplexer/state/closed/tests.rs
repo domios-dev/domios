@@ -970,3 +970,59 @@ fn only_the_policy_worker_reason_lifts_the_hidden_skip() {
         );
     }
 }
+
+#[test]
+fn reopen_refuses_owned_surface_whose_owner_is_closed_and_keeps_live_owner() {
+    use crate::multiplexer::types::SurfaceBacking;
+
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let owner = state.create_tab(&wsid).unwrap();
+    let surface = state.create_tab(&wsid).unwrap();
+    {
+        let tab = state.get_tab_mut(&surface).unwrap();
+        tab.parent_tab_id = Some(owner.clone());
+        tab.backing = TabBacking::Surface(SurfaceBacking {
+            plugin_id: "browser".into(),
+            surface_id: "browser".into(),
+            instance_id: "owned".into(),
+            owner_label: true,
+            resume_url: None,
+            resume_profile: None,
+        });
+    }
+
+    // Direct user close of surface while owner is alive: reopen succeeds and retains owner.
+    state.close_tab(&surface).unwrap();
+    let reopened = state.reopen_closed_tab(&wsid, None).unwrap();
+    assert_eq!(
+        state.get_tab(&reopened).unwrap().parent_tab_id.as_deref(),
+        Some(owner.as_str())
+    );
+
+    // Close surface again, then close its owner: reopening the orphaned surface is refused.
+    state.close_tab(&reopened).unwrap();
+    state.close_tab(&owner).unwrap();
+    assert!(state.reopen_closed_tab(&wsid, Some(1)).is_err());
+
+    // AgentRunEnded close of an owned surface does not record a reopenable entry.
+    let owner2 = state.create_tab(&wsid).unwrap();
+    let surface2 = state.create_tab(&wsid).unwrap();
+    {
+        let tab = state.get_tab_mut(&surface2).unwrap();
+        tab.parent_tab_id = Some(owner2.clone());
+        tab.backing = TabBacking::Surface(SurfaceBacking {
+            plugin_id: "browser".into(),
+            surface_id: "browser".into(),
+            instance_id: "agent-ended".into(),
+            owner_label: true,
+            resume_url: None,
+            resume_profile: None,
+        });
+    }
+    let before = state.list_recently_closed(&wsid).len();
+    state
+        .close_tab_with_reason(&surface2, TabCloseReason::AgentRunEnded)
+        .unwrap();
+    assert_eq!(state.list_recently_closed(&wsid).len(), before);
+}

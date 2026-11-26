@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import type {
   ChatSessionIntent,
   ChatTimelineMarker,
@@ -40,7 +40,8 @@ const HistoryGapContext = createContext<{ load?: HistoryGapLoader; label?: (mess
 
 /** Supplies the loader a history-gap row calls to page the older history behind it. */
 export function HistoryGapProvider({ onLoad, label, children }: { onLoad?: HistoryGapLoader; label?: (message: ChatMessage) => string; children: ReactNode }) {
-  return <HistoryGapContext.Provider value={{ load: onLoad, label }}>{children}</HistoryGapContext.Provider>;
+  const value = useMemo(() => ({ load: onLoad, label }), [onLoad, label]);
+  return <HistoryGapContext.Provider value={value}>{children}</HistoryGapContext.Provider>;
 }
 
 function HistoryGapRow({ message }: { message: ChatMessage }): ReactNode {

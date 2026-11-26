@@ -1,6 +1,7 @@
 import type {ChatMsg} from "@codeterm/plugin-sdk";
 import {canonicalToolFields, toolFileDiffs, type OpencodePart} from "./helpers";
 import {fail, list, object, text} from "./runtimeProtocol";
+import {classifiedTurnError} from "./turnErrors";
 
 export function contentId(message:string, kind:"text"|"reasoning", ordinal:number):string {return `${message}:${kind}:${ordinal}`;}
 export function toolId(message:string, id:string):string {return `${message}:tool:${id}`;}
@@ -65,6 +66,18 @@ export function v2History(raw:unknown, order:"asc"|"desc"="desc"):ChatMsg[] {
         const ordinal=kind === "text" || kind === "reasoning" ? ordinals[kind]++ : 0;
         const row=v2Content(id,part,ordinal,rows.length+1,ts);
         if (row) rows.push(row);
+      }
+      const error=object(message.error);
+      if (message.finish === "error" && Object.keys(error).length > 0 && error.type !== "aborted") {
+        const model=object(message.model);
+        const provider=text(model.providerID), modelLeaf=text(model.id);
+        const modelId=modelLeaf?.includes("/") ? modelLeaf : provider && modelLeaf ? `${provider}/${modelLeaf}` : undefined;
+        const {content:errorMessage,remediation}=classifiedTurnError(error,modelId,"OpenCode execution failed");
+        rows.push({
+          id:`${id}:error`,seq:rows.length+1,type:"system",systemSubtype:"api_error",toolFlowId:id,content:errorMessage,
+          ...(remediation ? {toolInput:{remediation}} : {}),
+          ...(ts !== undefined ? {timestamp:new Date(ts).toISOString()} : {}),
+        });
       }
     }
   }

@@ -12,10 +12,23 @@ export interface TraceChunk {
 }
 
 export function packGesture(state: ChatScrollGesture): number {
-  return Number(state.touching) | Number(state.scrolling) << 1 | Number(state.awaitingMovement) << 2 | Number(state.observedScroll) << 3;
+  return Number(state.touching)
+    | Number(state.scrolling) << 1
+    | Number(state.awaitingMovement) << 2
+    | Number(state.observedScroll) << 3
+    | Number(state.pointerDown) << 4
+    | Number(state.scrollbarDrag) << 5;
 }
 export function unpackGesture(bits: number, stationaryFrames: number): ChatScrollGesture {
-  return { touching: !!(bits & 1), scrolling: !!(bits & 2), awaitingMovement: !!(bits & 4), observedScroll: !!(bits & 8), stationaryFrames };
+  return {
+    touching: !!(bits & 1),
+    scrolling: !!(bits & 2),
+    awaitingMovement: !!(bits & 4),
+    observedScroll: !!(bits & 8),
+    pointerDown: !!(bits & 16),
+    scrollbarDrag: !!(bits & 32),
+    stationaryFrames,
+  };
 }
 export function traceNumber(value: number): number {
   return Number.isFinite(value) ? Math.round(Math.max(-1e12, Math.min(1e12, value)) * 100) / 100 : 0;

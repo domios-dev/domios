@@ -1,3 +1,4 @@
+use super::peer_authorization::close_workspace_from_mesh_peer;
 use super::*;
 use crate::auth::{authenticated_origin, AuthenticatedOrigin};
 use axum::{

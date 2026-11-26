@@ -153,7 +153,7 @@ mod provider_interruption;
 pub use provider_interruption::{ProviderRecoveryRead, TaskInterruptionRead};
 
 mod remote;
-pub use remote::{RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
+pub use remote::{RemoteAttemptDeliveryRead, RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
 
 mod review;
 pub use review::{CanonicalWriterHoldRead, LaneIntegrationRead};

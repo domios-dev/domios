@@ -21,6 +21,7 @@ use codeterm_service_core::service::ServiceState;
 use serde_json::{json, Value};
 
 mod add_fields;
+mod remote_lifecycle;
 mod respawn;
 mod split;
 mod task_fields;
@@ -736,97 +737,8 @@ pub(super) fn dispatch(
         "plan.task.merge_remote_lane" => {
             super::plan_task_dispatch::remote::merge_lane(params, svc, now)
         }
-        "plan.task.remote_ack" => {
-            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
-            let attempt_id = get_string_param(params, "attempt_id")?;
-            let worker_tab_id = get_string_param(params, "worker_tab_id")?;
-            let peer_id = get_string_param(params, "authenticated_mesh_peer_id").map_err(|_| {
-                JsonRpcError {
-                    code: -32003,
-                    message: "remote ACK requires authenticated mesh transport".into(),
-                    data: None,
-                }
-            })?;
-            let acknowledged = store
-                .acknowledge_remote_dispatch(
-                    &plan_id,
-                    &task_id,
-                    &attempt_id,
-                    &peer_id,
-                    &worker_tab_id,
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
-            svc.acknowledge_remote_worker_ack(
-                &plan_id,
-                &task_id,
-                &attempt_id,
-                &peer_id,
-                &worker_tab_id,
-            );
-            emit_plan_changed(svc, &plan_id);
-            Ok(
-                json!({"acknowledged": acknowledged, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
-            )
-        }
-        "plan.task.remote_report" => {
-            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
-            let body = params.as_ref().ok_or_else(|| JsonRpcError {
-                code: -32602,
-                message: "remote report params required".into(),
-                data: None,
-            })?;
-            let attempt_id = get_string_param(params, "attempt_id")?;
-            let peer_id = get_string_param(params, "authenticated_mesh_peer_id").map_err(|_| {
-                JsonRpcError {
-                    code: -32003,
-                    message: "remote report requires authenticated mesh transport".into(),
-                    data: None,
-                }
-            })?;
-            let report: codeterm_service_core::plan::TaskExecutionReportSnapshot =
-                serde_json::from_value(body.get("report").cloned().ok_or_else(|| {
-                    JsonRpcError {
-                        code: -32602,
-                        message: "remote report snapshot is required".into(),
-                        data: None,
-                    }
-                })?)
-                .map_err(|error| JsonRpcError {
-                    code: -32602,
-                    message: format!("invalid remote report snapshot: {error}"),
-                    data: None,
-                })?;
-            if report.id.trim().is_empty() {
-                return Err(JsonRpcError {
-                    code: -32602,
-                    message: "remote report id is required for idempotency".into(),
-                    data: None,
-                });
-            }
-            if report.status.as_deref() != Some("in_review") {
-                return Err(JsonRpcError {
-                    code: -32602,
-                    message: "remote task reports must enter in_review for origin acceptance"
-                        .into(),
-                    data: None,
-                });
-            }
-            let reported = store
-                .ingest_remote_dispatch_report(
-                    &plan_id,
-                    &task_id,
-                    &attempt_id,
-                    &peer_id,
-                    report,
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
-            emit_plan_changed(svc, &plan_id);
-            Ok(
-                json!({"reported": reported, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
-            )
-        }
+        "plan.task.remote_ack" => remote_lifecycle::remote_ack(params, svc, now),
+        "plan.task.remote_report" => remote_lifecycle::remote_report(params, svc, now),
         "plan.task.dispatch_unplanned" => {
             super::plan_task_dispatch::dispatch_unplanned(params, svc, now)
         }
@@ -875,6 +787,8 @@ pub(super) fn dispatch(
     }
 }
 
+#[cfg(test)]
+mod remote_notification_tests;
 #[cfg(test)]
 mod task_key_contract_tests;
 #[cfg(test)]

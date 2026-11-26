@@ -40,7 +40,7 @@ Immediate `domios send` exits 1 with its reason on stderr whenever the result is
 15. **Cross-workspace spawn**: `domios agent spawn claude --workspace WS_ID --title "Remote" --description "Reviews API contracts" --role worker --parent-tab ID --task "work"`
 16. **Create cron job**: `domios cron create review-todos --schedule "0 9 * * *" --task "Review TODOs"` (name jobs by what they do; lands in your own workspace and inherits your Team; use `--no-team` only for a deliberately independent job; add `--once` for oneshot: `--schedule "in 30m" --once`)
 17. **Edit cron job**: `domios cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
-18. **Complete cron run**: `domios cron complete --run-id UUID --summary "result"`
+18. **Complete cron run**: `domios cron complete --run-id UUID --summary "result"` records success by default. Add `--status failed` when the job fails.
 19. **List cron jobs**: `domios cron list`, **trigger manually**: `domios cron trigger ID`
 20. **Read config**: `domios config get integrations.telegram_enabled` (dot-notation); bare `domios config get` (no key) dumps the whole redacted config
 21. **Write config**: `domios config set integrations.telegram_enabled true` (JSON values)
@@ -143,4 +143,4 @@ For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer mus
 
 See `domios docs CHAT-BLOCKS` for sharing files with another tab's chat.
 
-<!-- revision: 97 -->
+<!-- revision: 98 -->

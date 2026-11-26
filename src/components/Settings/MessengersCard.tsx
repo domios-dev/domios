@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { MessageCircle } from "lucide-react";
 import { connectStatus, needsTokenEntry, type BridgeConnectInfo, type BridgePhase } from "@codeterm/chat-ui";
 import type { AppConfig } from "../../lib/types";
@@ -8,7 +8,8 @@ import { telegramBridgeStore, useTelegramBridge, type TelegramBridgeStore } from
 import { Button } from "../shared/Button";
 import { FormRow } from "../shared/FormRow";
 import { UI_INPUT } from "../shared/design";
-import { SettingsCard, SettingsPill } from "./shared";
+import { RemoteLocalOnlyNotice, SettingsCard, SettingsPill } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 export function parseAllowedUsers(text: string): string[] {
   return text.split(",").map((value) => value.trim()).filter(Boolean);
@@ -30,12 +31,57 @@ export function MessengersCard({
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   store?: TelegramBridgeStore;
 }) {
+  const remoteTarget = useSettingsRemoteTarget();
   const usersId = useId();
+  const configuredUsers = (config.integrations?.telegram_allowed_users ?? []).join(", ");
+  const [allowedUsersText, setAllowedUsersText] = useState(configuredUsers);
+
+  useEffect(() => {
+    setAllowedUsersText(configuredUsers);
+  }, [configuredUsers]);
+
+  const allowedUsersInput = (
+    <FormRow label="Allowed user IDs" htmlFor={usersId} hint="Comma-separated Telegram user IDs. Empty allows anyone who finds the bot.">
+      <input
+        id={usersId}
+        type="text"
+        data-testid="settings-telegram-allowed-users"
+        value={allowedUsersText}
+        onChange={(event) => {
+          setAllowedUsersText(event.target.value);
+          onUpdate("integrations", { telegram_allowed_users: parseAllowedUsers(event.target.value) });
+        }}
+        placeholder="123456789, 987654321"
+        className={UI_INPUT.fullMono}
+      />
+    </FormRow>
+  );
+
+  if (remoteTarget) {
+    return (
+      <SettingsCard
+        icon={<MessageCircle size={16} />}
+        title="Messengers"
+        description="Talk to your General Agent from a chat app. Replies go back to the chat you wrote from."
+      >
+        <RemoteLocalOnlyNotice machineName={remoteTarget.name} subject="Telegram bridge connection and bot token" />
+        {allowedUsersInput}
+      </SettingsCard>
+    );
+  }
+
+  return <LocalMessengersCard store={store}>{allowedUsersInput}</LocalMessengersCard>;
+}
+
+function LocalMessengersCard({
+  store,
+  children,
+}: {
+  store: TelegramBridgeStore;
+  children: React.ReactNode;
+}) {
   const snapshot = useTelegramBridge(store);
   const bridge = snapshot.kind === "ready" ? telegramConnectInfo(snapshot.raw) : null;
-  const [allowedUsersText, setAllowedUsersText] = useState(
-    (config.integrations?.telegram_allowed_users ?? []).join(", "),
-  );
 
   return (
     <SettingsCard
@@ -47,20 +93,7 @@ export function MessengersCard({
       {snapshot.kind === "loading" && <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Checking the Telegram bridge…</p>}
       {snapshot.kind === "unavailable" && <p role="status" className="m-0 text-xs text-[var(--ct-muted-fg)]">Telegram status is unavailable.</p>}
       {bridge && <TelegramConnection bridge={bridge} store={store} />}
-      <FormRow label="Allowed user IDs" htmlFor={usersId} hint="Comma-separated Telegram user IDs. Empty allows anyone who finds the bot.">
-        <input
-          id={usersId}
-          type="text"
-          data-testid="settings-telegram-allowed-users"
-          value={allowedUsersText}
-          onChange={(event) => {
-            setAllowedUsersText(event.target.value);
-            onUpdate("integrations", { telegram_allowed_users: parseAllowedUsers(event.target.value) });
-          }}
-          placeholder="123456789, 987654321"
-          className={UI_INPUT.fullMono}
-        />
-      </FormRow>
+      {children}
     </SettingsCard>
   );
 }

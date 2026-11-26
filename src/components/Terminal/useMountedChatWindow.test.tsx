@@ -162,11 +162,12 @@ describe("mounted chat wiring", () => {
     expect(followTail.current).toBe(true);
     expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
   });
-  it("coalesces native scroll events and skips renders within the same row window", async () => {
+  it("coalesces every scroll onto one rAF commit and never commits synchronously on the scroll event", async () => {
     await render();
     await move(scroller().scrollTop - 2990);
     frames.clear();
     const before = renders;
+    // Small scrolls inside the mounted window coalesce into a single rAF with zero synchronous renders.
     await act(async () => {
       for (let index = 0; index < 8; index++) {
         scroller().scrollTop += 1;
@@ -181,6 +182,38 @@ describe("mounted chat wiring", () => {
       callbacks.forEach((callback) => callback(0));
     });
     expect(renders).toBe(before);
+
+    // Scrolling within visible coverage across the proactive overscan margin schedules an async next-frame commit (no flushSync).
+    const startBeforeShift = mountApi.range.start;
+    const rendersBeforeInCoverageShift = renders;
+    await act(async () => {
+      scroller().scrollTop = mountApi.range.top + 50;
+      scroller().dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    expect(renders).toBe(rendersBeforeInCoverageShift);
+    expect(mountApi.range.start).toBe(startBeforeShift);
+    expect(frames.size).toBe(1);
+    await act(async () => {
+      const callbacks = Array.from(frames.values());
+      frames.clear();
+      callbacks.forEach((callback) => callback(0));
+    });
+    expect(mountApi.range.start).toBeLessThan(startBeforeShift);
+
+    // A jump outside the mounted window also commits on the next frame, never inside the scroll event.
+    const rendersBeforeJump = renders;
+    await act(async () => {
+      scroller().scrollTop = 2000;
+      scroller().dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    expect(renders).toBe(rendersBeforeJump);
+    expect(frames.size).toBe(1);
+    await act(async () => {
+      const callbacks = Array.from(frames.values());
+      frames.clear();
+      callbacks.forEach((callback) => callback(0));
+    });
+    expect(mounted().some((row) => row.offsetTop >= 2000 && row.offsetTop < 2000 + VIEWPORT)).toBe(true);
   });
   it("keeps initial mount and hydrated content pinned without reader events", async () => {
     rows = [];

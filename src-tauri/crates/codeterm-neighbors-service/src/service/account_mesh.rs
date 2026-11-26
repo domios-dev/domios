@@ -206,6 +206,7 @@ impl MeshTransport for TransportBridge {
                     .as_ref()
                     .map(|snapshot| snapshot.grant.clone());
                 let own = self.installation_id.as_str();
+                manager.registry_names = current_registry_names(state);
                 manager.account_installations = state.registry.as_ref().map(|registry| registry.rows.iter()
                     .filter(|row| row.installation_id != own)
                     .map(|row| codeterm_mesh::types::AccountInstallation {
@@ -227,13 +228,7 @@ impl MeshTransport for TransportBridge {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct RegistryMachineName {
-    installation_id: String,
-    admitted_at: u64,
-    display_name: Option<String>,
-    active: bool,
-}
+pub use codeterm_mesh::types::RegistryMachineName;
 
 fn current_registry_names(state: &LifecycleState) -> Vec<RegistryMachineName> {
     state
@@ -277,11 +272,20 @@ fn view_with_peer_memberships(
         return view;
     }
     if let Some(registry) = view.registry.as_mut() {
+        let self_installation_id = view
+            .self_installation
+            .as_ref()
+            .map(|self_row| self_row.installation_id.as_str());
         for row in &mut registry.rows {
             if row.active
                 && row.presence != codeterm_account::account_mesh::wire::RegistryPresence::SignedOut
             {
-                if let Some(expiry) = manager.peer_membership_expiry(&row.installation_id) {
+                let renewed = if self_installation_id == Some(row.installation_id.as_str()) {
+                    view.membership_expires_at
+                } else {
+                    manager.peer_membership_expiry(&row.installation_id)
+                };
+                if let Some(expiry) = renewed {
                     row.membership_expires_at =
                         Some(row.membership_expires_at.unwrap_or(0).max(expiry));
                 }

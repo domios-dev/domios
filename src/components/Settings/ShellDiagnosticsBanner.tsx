@@ -2,6 +2,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { Sliders } from "lucide-react";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 interface ShellDiagnostics {
   platform: string;
@@ -12,13 +13,16 @@ interface ShellDiagnostics {
 }
 
 export function ShellDiagnosticsBanner({ onDismissSettings }: { onDismissSettings: () => void }) {
+  const remoteTarget = useSettingsRemoteTarget();
+  const isRemote = remoteTarget !== null;
   const [diag, setDiag] = useState<ShellDiagnostics | null>(null);
 
   useEffect(() => {
+    if (isRemote) return;
     invoke<ShellDiagnostics>("get_shell_diagnostics").then(setDiag).catch(() => {});
-  }, []);
+  }, [isRemote]);
 
-  if (!diag || diag.platform !== "windows" || diag.pwsh_installed) return null;
+  if (remoteTarget || !diag || diag.platform !== "windows" || diag.pwsh_installed) return null;
 
   const handleInstall = async () => {
     try {

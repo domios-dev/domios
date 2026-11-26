@@ -20,7 +20,7 @@ pub mod digest_rules;
 pub mod element_queries;
 mod export_projection;
 pub mod external_refs;
-pub use export_projection::PlanExportEncoder;
+pub use export_projection::{BoundedPlanExportLimits, PlanExportEncoder};
 pub mod gates;
 pub mod handoff;
 pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
@@ -385,15 +385,15 @@ pub use store_db::read_projections::provider_switch::{
 };
 pub use task_authority_projection::{
     BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
-    PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,
-    RemoteWorkerBindingRead, RestartAttemptRead, ReviewBindingRestoreRead,
-    ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
-    RuntimeSessionAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead,
-    TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
-    TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
-    TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
-    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead, WorkerLossRead,
-    WorkerLossRecoveryRead, WorkerLossReplacementRead,
+    PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteAttemptDeliveryRead,
+    RemoteRecoveryAttemptRead, RemoteWorkerBindingRead, RestartAttemptRead,
+    ReviewBindingRestoreRead, ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery,
+    RuntimeAttemptRestoreRead, RuntimeSessionAttemptRead, TaskAttemptBindingRead,
+    TaskBindingRestoreRead, TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest,
+    TaskContinuityRead, TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead,
+    TaskLaneAdmissionRead, TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead,
+    TaskRestartQuery, TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead,
+    WorkerLossRead, WorkerLossRecoveryRead, WorkerLossReplacementRead,
 };
 
 pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};

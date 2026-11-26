@@ -51,7 +51,9 @@ fn expected_charter(plan: &Plan) -> String {
         crate::service_plan::task_attempts::live_attempt_count(task),
         0,
     );
-    if let Some(strides) = stride_context::render_worker_strides(&task.milestones) {
+    if let Some(strides) =
+        stride_context::render_worker_strides(&task.milestones, Some(&plan.id), Some(&task.id))
+    {
         body = format!("{body}\n\n{strides}")
     }
     format!("{body}\n\ncontinue")

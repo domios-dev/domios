@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.35",
-  "minCodeterm": "1.21.0",
+  "version": "1.14.38",
+  "minCodeterm": "1.23.3",
   "hostApi": 2,
   "capabilities": {
     "attachments": {
@@ -457,16 +457,17 @@
   ],
   "models": [
     {
-      "id": "anthropic/claude-opus-4-8",
-      "displayName": "Claude Opus 4.8",
-      "description": "Anthropic Opus via opencode router.",
-      "group": "Anthropic"
+      "id": "opencode/deepseek-v4.1-flash-free",
+      "displayName": "OpenCode Zen DeepSeek V4.1 Flash Free",
+      "description": "OpenCode Zen hosted free DeepSeek model.",
+      "badge": "free",
+      "group": "OpenCode Zen"
     },
     {
-      "id": "anthropic/claude-sonnet-4-6",
-      "displayName": "Claude Sonnet 4.6",
-      "description": "Anthropic Sonnet via opencode router.",
-      "group": "Anthropic"
+      "id": "opencode/big-pickle",
+      "displayName": "OpenCode Zen Big Pickle",
+      "description": "OpenCode Zen hosted coding model.",
+      "group": "OpenCode Zen"
     },
     {
       "id": "opencode/gpt-5.4-mini",
@@ -481,19 +482,19 @@
       "group": "OpenCode Zen"
     },
     {
-      "id": "opencode/deepseek-v4-flash-free",
-      "displayName": "OpenCode Zen DeepSeek V4 Flash Free",
-      "description": "OpenCode Zen hosted free DeepSeek model.",
-      "group": "OpenCode Zen"
+      "id": "anthropic/claude-opus-4-8",
+      "displayName": "Claude Opus 4.8",
+      "description": "Anthropic Opus via opencode router.",
+      "group": "Anthropic"
     },
     {
-      "id": "opencode/big-pickle",
-      "displayName": "OpenCode Zen Big Pickle",
-      "description": "OpenCode Zen hosted coding model.",
-      "group": "OpenCode Zen"
+      "id": "anthropic/claude-sonnet-4-6",
+      "displayName": "Claude Sonnet 4.6",
+      "description": "Anthropic Sonnet via opencode router.",
+      "group": "Anthropic"
     }
   ],
-  "defaultModel": "anthropic/claude-opus-4-8",
+  "defaultModel": "opencode/deepseek-v4.1-flash-free",
   "modelCatalogue": {
     "authority": "authoritative",
     "configFiles": [
@@ -529,6 +530,25 @@
     "macos": "curl -fsSL https://opencode.ai/install | bash",
     "linux": "curl -fsSL https://opencode.ai/install | bash",
     "windows": "npm install -g opencode-ai"
+  },
+  "cliInstallDirs": {
+    "macos": [
+      "$OPENCODE_INSTALL_DIR",
+      "~/.opencode/bin",
+      "$XDG_BIN_DIR"
+    ],
+    "linux": [
+      "$OPENCODE_INSTALL_DIR",
+      "~/.opencode/bin",
+      "$XDG_BIN_DIR"
+    ],
+    "windows": [
+      "%OPENCODE_INSTALL_DIR%",
+      "%NPM_CONFIG_PREFIX%",
+      "%APPDATA%/npm",
+      "~/AppData/Roaming/npm",
+      "~/.opencode/bin"
+    ]
   },
   "updater": {
     "macos": "opencode upgrade {version}",

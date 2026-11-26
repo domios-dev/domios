@@ -609,7 +609,7 @@ fn enumeration_agrees_with_the_shared_resolver() {
 
     let listed = registry.describe_all().remove(0).availability;
     let shared = codeterm_service_core::agent::provider::ProviderAvailability::from_resolution(
-        &codeterm_plugin::js_runtime::probe_bin(BINARY).resolution,
+        &codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(BINARY, &[]).resolution,
     );
     assert_eq!(
         listed, shared,

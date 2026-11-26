@@ -32,6 +32,7 @@ import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { managedByLabel } from "./remoteOwnership";
+import { remoteTabCloseAction } from "./remoteSidebarActionsModel";
 import { RemoteMachineSummary, RemoteTabIcon, RemoteTabMachineGlyph, useRemoteTabPresentation, type ObservedTabMachine } from "./RemoteTabPresentation";
 import { matchesSidebarMachine, SidebarWholeTeam, SidebarWholeWorkspace, useSidebarMachineFilter } from "./sidebarMachineFilter";
 import { managedTabPresentation } from "../../lib/managedTab";
@@ -391,11 +392,23 @@ function TabItemInner({
     telegramThread: telegramThread.state,
   }), [activity, canClose, descriptor, lock, observedName, observedPeerId, orchestrators, pluginTabMenu, readOnly, tabState.status, tab, telegramThread.state]);
 
-  const menuEntries = readOnly
-    ? unavailableTabMenu(standardMenu, remoteStateLabel ?? "Open this tab to use its actions.")
-    : standardMenu;
+  // Only an observed peer row closes on the peer; an attached remote row keeps its shared close even offline.
+  const remoteClose = remote && readOnly
+    ? remoteTabCloseAction({
+        isProtected: tab.protected === true,
+        availability: observedMachine?.availability,
+        remoteUnavailableReason: remoteStateLabel,
+      })
+    : null;
+
+  const menuEntries = remote && remoteClose?.disabled && remoteClose.reason
+    ? unavailableTabMenu(standardMenu, remoteClose.reason, { allowClose: false })
+    : readOnly
+      ? unavailableTabMenu(standardMenu, "Open this tab to use its actions.", { allowClose: true })
+      : standardMenu;
 
   const runMenuAction = (action: TabMenuAction) => {
+    if (action.type === "close" && remoteClose?.disabled) return;
     performTabMenuAction(tab.id, action, {
       sessionBindingNonce: tab.session_binding_nonce,
       switchProvider: openProviderSwitch,

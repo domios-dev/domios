@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { chatScrollBookmark, chatScrollRestoreTarget } from "./chatScrollMemory";
-import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerDriftAfterShift, chatSpacerFold, chatSpacerHeight, shouldAbsorbChatShift,
-  chatSpacerTranslation, unrecordedRowsAbove } from "./chatSpacerDrift";
+import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerDriftAfterShift, chatSpacerDriftForViewport, chatSpacerFold, chatSpacerHeight,
+  shouldAbsorbChatShift, chatSpacerTranslation, unrecordedRowsAbove } from "./chatSpacerDrift";
 
 test("a row above the anchor that grew before its resize notification landed is still owed its shift", () => {
   // A command card above the view grew 420px while the finger moved and new rows arrived below; its notification was
@@ -89,15 +89,24 @@ test("an idle layout pass preserves drift until the gesture-end fold owns the wr
   assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 400, shift: 0, absorb: false, viewportHeight: 800, scrollTop: 900 }), { drift: 400, scrollBy: 0 });
 });
 
-test("a shorter first page is held above the first row without a mid-gesture fold", () => {
-  // A fling sits 117px into estimated rows that mount 286px shorter; the anchor would need scrollTop -169.
+test("range start 0 never leaves positive spacer drift inside the visible top", () => {
+  // At scrollTop 0 (or within the top sentinel prefix), the top spacer above row 0 is exactly 0.
+  assert.equal(chatSpacerDriftForViewport({ base: 0, drift: 3530, scrollTop: 0, prefix: 83 }), 0);
+  assert.equal(chatSpacerHeight(0, chatSpacerDriftForViewport({ base: 0, drift: 3530, scrollTop: 0, prefix: 83 })), 0);
+  assert.equal(chatSpacerDriftForViewport({ base: 0, drift: 348, scrollTop: 83, prefix: 83 }), 0);
+
+  // Above prefix, positive drift drains with scrollTop so row 0 stays flush at the visible top without blank frames.
+  assert.equal(chatSpacerDriftForViewport({ base: 0, drift: 3530, scrollTop: 500, prefix: 83 }), 417);
   assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 0, shift: -286, absorb: true, viewportHeight: 844, scrollTop: 117 }),
-    { drift: 286, scrollBy: 0 });
-  // The held space stays put while the finger rests at the top, and folds once the view moves down far enough.
+    { drift: 117, scrollBy: 0 });
   assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 169, shift: 0, absorb: true, viewportHeight: 844, scrollTop: 0 }),
-    { drift: 169, scrollBy: 0 });
+    { drift: 0, scrollBy: 0 });
+
+  // Off-screen positive drift above scrollTop, negative drift, and mid-list base > 0 stay intact (no mid-scroll jump).
   assert.deepEqual(chatSpacerAfterLayout({ base: 0, drift: 169, shift: 0, absorb: true, viewportHeight: 844, scrollTop: 400 }),
     { drift: 169, scrollBy: 0 });
+  assert.equal(chatSpacerDriftForViewport({ base: 0, drift: -500, scrollTop: 0, prefix: 83 }), -500);
+  assert.equal(chatSpacerDriftForViewport({ base: 1200, drift: 3530, scrollTop: 0, prefix: 83 }), 3530);
 });
 
 test("the shift anchor is the first row reaching into the viewport", () => {

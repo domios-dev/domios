@@ -187,22 +187,7 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
     let Some(peers) = peers else {
         crate::cmd::print::fail(1, "could not reach the daemon to list mesh peers.");
     };
-    // Match on instance name (case-insensitive) or an instance-id prefix.
-    let id = peers
-        .get("paired")
-        .and_then(|p| p.as_array())
-        .and_then(|arr| {
-            arr.iter().find(|p| {
-                let name = p
-                    .get("instance_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let pid = p.get("instance_id").and_then(|v| v.as_str()).unwrap_or("");
-                name.eq_ignore_ascii_case(peer_name) || pid.starts_with(peer_name)
-            })
-        })
-        .and_then(|p| p.get("instance_id").and_then(|v| v.as_str()))
-        .map(str::to_string);
+    let id = resolve_peer_instance_id_from_response(&peers, peer_name);
     let Some(id) = id else {
         crate::cmd::print::fail(
             1,
@@ -254,6 +239,153 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         );
     } else {
         println!("{}", url);
+    }
+}
+
+pub(crate) fn resolve_peer_instance_id_from_response(
+    peers: &serde_json::Value,
+    target: &str,
+) -> Option<String> {
+    let paired = peers.get("paired").and_then(|p| p.as_array());
+    if let Some(arr) = paired {
+        if let Some(id) = arr.iter().find_map(|p| {
+            let pid = p.get("instance_id").and_then(|v| v.as_str())?;
+            (pid == target).then(|| pid.to_string())
+        }) {
+            return Some(id);
+        }
+    }
+
+    struct Candidate {
+        instance_id: String,
+        installation_id: Option<String>,
+        online: bool,
+    }
+
+    fn configured_name(name: &str) -> &str {
+        match name.rfind(" [") {
+            Some(at) if name.ends_with(']') => &name[..at],
+            _ => name,
+        }
+    }
+    let target_lower = target.to_ascii_lowercase();
+    let is_short_id =
+        target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+
+    let installations = peers.get("installations").and_then(|v| v.as_array());
+    let mut inst_by_instance_id = std::collections::HashMap::<&str, &str>::new();
+    if let Some(rows) = installations {
+        for row in rows {
+            if row["active"] == false {
+                continue;
+            }
+            if let (Some(inst_id), Some(peer_id)) = (
+                row["installation_id"].as_str().filter(|s| !s.is_empty()),
+                row["instance_id"].as_str().filter(|s| !s.is_empty()),
+            ) {
+                inst_by_instance_id.insert(peer_id, inst_id);
+            }
+        }
+    }
+
+    let mut by_instance = std::collections::BTreeMap::<String, Candidate>::new();
+    let mut matched_installations = std::collections::BTreeSet::<String>::new();
+    let mut record = |instance_id: Option<&str>, installation_id: Option<&str>, online: bool| {
+        if let Some(inst) = installation_id {
+            matched_installations.insert(inst.to_ascii_lowercase());
+        }
+        let Some(instance_id) = instance_id else {
+            return;
+        };
+        let entry = by_instance
+            .entry(instance_id.to_string())
+            .or_insert_with(|| Candidate {
+                instance_id: instance_id.to_string(),
+                installation_id: installation_id.map(str::to_string),
+                online,
+            });
+        entry.online |= online;
+        if entry.installation_id.is_none() {
+            entry.installation_id = installation_id.map(str::to_string);
+        }
+    };
+
+    let mut has_exact_name = false;
+    let mut configured_hits: Vec<(Option<&str>, Option<&str>, bool)> = Vec::new();
+
+    if let Some(rows) = installations {
+        for row in rows {
+            if row["active"] == false {
+                continue;
+            }
+            let inst_id = row["installation_id"].as_str().filter(|s| !s.is_empty());
+            let peer_id = row["instance_id"].as_str().filter(|s| !s.is_empty());
+            let online = row["online"] == true;
+            let name = row["name"].as_str();
+            let id_hit = inst_id.is_some_and(|id| {
+                id.eq_ignore_ascii_case(target)
+                    || (is_short_id && id.to_ascii_lowercase().starts_with(&target_lower))
+            });
+            let exact_name_hit = name.is_some_and(|n| n.eq_ignore_ascii_case(target));
+            if exact_name_hit {
+                has_exact_name = true;
+            }
+            if id_hit || exact_name_hit {
+                record(peer_id, inst_id, online);
+            } else if name.is_some_and(|n| configured_name(n).eq_ignore_ascii_case(target)) {
+                configured_hits.push((peer_id, inst_id, online));
+            }
+        }
+    }
+
+    if let Some(arr) = paired {
+        for p in arr {
+            let Some(peer_id) = p
+                .get("instance_id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            let inst_id = inst_by_instance_id.get(peer_id).copied();
+            let online = p["online"] == true;
+            let inst_name = p.get("instance_name").and_then(|v| v.as_str());
+            let id_hit = is_short_id && peer_id.to_ascii_lowercase().starts_with(&target_lower);
+            let exact_name_hit = inst_name.is_some_and(|n| n.eq_ignore_ascii_case(target));
+            if exact_name_hit {
+                has_exact_name = true;
+            }
+            if id_hit || exact_name_hit {
+                record(Some(peer_id), inst_id, online);
+            } else if inst_name.is_some_and(|n| configured_name(n).eq_ignore_ascii_case(target)) {
+                configured_hits.push((Some(peer_id), inst_id, online));
+            }
+        }
+    }
+
+    if !has_exact_name {
+        for (peer_id, inst_id, online) in configured_hits {
+            record(peer_id, inst_id, online);
+        }
+    }
+
+    let candidates: Vec<Candidate> = by_instance.into_values().collect();
+    if matched_installations.len() > 1
+        || (!matched_installations.is_empty()
+            && candidates.iter().any(|c| c.installation_id.is_none()))
+    {
+        return None;
+    }
+    match candidates.as_slice() {
+        [] => None,
+        [only] => Some(only.instance_id.clone()),
+        _ => {
+            let online: Vec<&Candidate> = candidates.iter().filter(|c| c.online).collect();
+            match online.as_slice() {
+                [only] => Some(only.instance_id.clone()),
+                _ => None,
+            }
+        }
     }
 }
 

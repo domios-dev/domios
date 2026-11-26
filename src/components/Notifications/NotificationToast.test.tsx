@@ -79,8 +79,8 @@ test("remote toast origin uses the exact installation glyph when machine names c
   setupDom();
   rememberMachineIdentities({
     machine_identities: {
-      "install-a": { kind: "laptop", color: "blue" },
-      "install-b": { kind: "server", color: "pink" },
+      "install-a": { kind: "laptop" },
+      "install-b": { kind: "server" },
     },
     paired: [
       { instance_id: "install-a", instance_name: "Same name" },
@@ -182,6 +182,52 @@ test("all runnable actions remain available", async () => {
   const { host, root } = await render(<NotificationToastContainer toasts={[item]} onDismiss={() => undefined} />);
   assert([...host.querySelectorAll("button")].filter((button) => button.textContent?.includes("action")).length === 2, "both actions render");
   await act(async () => root.unmount());
+});
+
+test("persistent and expanded toasts do not auto-dismiss before inspection", async () => {
+  setupDom();
+  const originalNow = Date.now;
+  let now = 0;
+  Date.now = () => now;
+  const scheduled = new Map<number, { due: number; run: () => void }>();
+  let timerId = 0;
+  window.setTimeout = ((run: () => void, delay: number) => { const id = ++timerId; scheduled.set(id, { due: now + delay, run }); return id; }) as typeof window.setTimeout;
+  window.clearTimeout = ((id: number) => scheduled.delete(id)) as typeof window.clearTimeout;
+  const advance = async (elapsed: number) => {
+    now += elapsed;
+    await act(async () => {
+      for (const [id, timer] of scheduled) if (timer.due <= now) { scheduled.delete(id); timer.run(); }
+    });
+  };
+  const dismissed: string[] = [];
+  const persistentItem: Notification = {
+    ...notification("refusal", "Team remains open", 1),
+    severity: "Error",
+    level: "failure",
+    persistent: true,
+    body: JSON.stringify({ code: "team_close_refused", message: "Authenticated owner identity required", cause: "Crew B stays open.", raw: "HTTP 403" }),
+  };
+  const expandableItem: Notification = {
+    ...notification("expandable", "Status", 2),
+    body: "Detailed body",
+  };
+  const { host, root } = await render(
+    <NotificationToastContainer toasts={[persistentItem, expandableItem]} onDismiss={(id) => dismissed.push(id)} />,
+  );
+  try {
+    await act(async () => {
+      (host.querySelector('[data-notification-id="expandable"]') as HTMLElement).click();
+    });
+    await advance(60_000);
+    assert(dismissed.length === 0, "persistent and expanded toasts stay open while inspected");
+    assert(host.textContent?.includes("Authenticated owner identity required"), "refusal toast displays the peer refusal reason");
+    await act(async () => (document.querySelector('[aria-label="Close expanded notification"]') as HTMLButtonElement).click());
+    await advance(5_000);
+    assert(dismissed.join() === "expandable", "closing expanded resumes normal toast expiry without dismissing persistent toast");
+  } finally {
+    await act(async () => root.unmount());
+    Date.now = originalNow;
+  }
 });
 
 async function run() {

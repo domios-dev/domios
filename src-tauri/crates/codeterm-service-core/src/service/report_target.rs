@@ -105,8 +105,7 @@ pub fn resolve_peer_client_by_name(
     mesh: &crate::mesh::manager::MeshManager,
     name: &str,
 ) -> Option<crate::mesh::transport::PeerClient> {
-    let peer =
-        crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, name).ok()?;
+    let peer = mesh.resolve_peer(name).ok()?;
     mesh.client_for(&peer.instance_id)
 }
 

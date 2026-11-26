@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
-import { Bot, Check, Users } from "lucide-react";
+import { Bot, Check, TerminalSquare, Users } from "lucide-react";
 import type { NewSessionMode } from "../../lib/newSessionChoice";
+import { useShellProfiles } from "../../hooks/useShellProfiles";
+import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
+import { Button } from "../shared/Button";
 
 interface ModeCardProps {
   selected: boolean;
@@ -70,6 +73,63 @@ export function ModeCards({
           </span>
         }
       />}
+      {allowedModes.includes("terminal") && <ModeCard
+        selected={mode === "terminal"}
+        label="Terminal"
+        description="Bare shell, start any tool"
+        onSelect={() => onSelect("terminal")}
+        data-testid="picker-mode-terminal"
+        glyphs={
+          <span className="picker-mode-glyph-tile">
+            <TerminalSquare size={18} strokeWidth={1.75} />
+          </span>
+        }
+      />}
+    </div>
+  );
+}
+
+export function TerminalModePanel({
+  shellProfile,
+  disabled,
+  onShellChange,
+}: {
+  shellProfile?: string;
+  disabled?: boolean;
+  onShellChange: (shellProfile?: string) => void;
+}) {
+  const { profiles: rawProfiles, loading, error, refresh } = useShellProfiles();
+  const profiles = Array.isArray(rawProfiles) ? rawProfiles : [];
+  const options: DropdownSelectOption[] = [
+    { value: "", label: "Default shell" },
+    ...profiles.map((profile) => ({ value: profile.id, label: profile.name })),
+  ];
+  return (
+    <div className="flex flex-col gap-2" data-testid="picker-terminal-panel">
+      <p className="m-0 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
+        Opens a bare shell tab in this workspace so you can start any CLI or agent manually.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between text-[11px] font-medium text-[var(--ct-muted-fg)]">
+          <span>Shell</span>
+          <Button
+            variant="ghost"
+            size="compact"
+            disabled={disabled || loading}
+            onClick={() => { void refresh(); }}
+          >
+            {error ? "Retry shell detection" : "Refresh shells"}
+          </Button>
+        </div>
+        <DropdownSelect
+          aria-label="Shell profile"
+          data-testid="picker-shell-profile"
+          disabled={disabled}
+          options={options}
+          value={shellProfile ?? ""}
+          onChange={(value) => onShellChange(value || undefined)}
+        />
+      </div>
     </div>
   );
 }

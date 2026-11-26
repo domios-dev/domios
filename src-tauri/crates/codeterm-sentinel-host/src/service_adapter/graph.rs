@@ -542,18 +542,41 @@ pub(crate) fn invalidate(
         return;
     }
     let changes = {
-        let store = store.lock();
-        let scopes: BTreeSet<_> = store
-            .list()
-            .iter()
-            .filter(|job| graph::is_snapshot_root(job))
-            .map(|job| (job.workspace_id.clone(), job.team_id.clone()))
-            .collect();
-        scopes
+        let mut guard = store.lock();
+        let store = &mut *guard;
+        let changed: Vec<_> = {
+            let jobs = &store.jobs;
+            let last_emitted = &store.last_emitted_revisions;
+            store
+                .committed_revisions
+                .iter()
+                .filter(|(scope, revision)| {
+                    last_emitted.get(*scope) != Some(*revision)
+                        && jobs.iter().any(|job| {
+                            graph::is_snapshot_root(job)
+                                && job.workspace_id == scope.0
+                                && job.team_id == scope.1
+                        })
+                })
+                .map(|(scope, revision)| (scope.clone(), revision.clone()))
+                .collect()
+        };
+        for (scope, revision) in &changed {
+            if store.changes.get(scope) == Some(revision) {
+                store.changes.remove(scope);
+            }
+            store
+                .last_emitted_revisions
+                .insert(scope.clone(), revision.clone());
+        }
+        let committed = &store.committed_revisions;
+        store
+            .last_emitted_revisions
+            .retain(|scope, _| committed.contains_key(scope));
+        changed
             .into_iter()
-            .filter_map(|(workspace_id, team_id)| {
-                let revision = store.committed_revision(&workspace_id, team_id.as_deref())?;
-                Some(json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision}))
+            .map(|((workspace_id, team_id), revision)| {
+                json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision})
             })
             .collect::<Vec<_>>()
     };

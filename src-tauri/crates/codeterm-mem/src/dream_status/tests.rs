@@ -256,3 +256,23 @@ fn dream_deadline_without_a_diary_still_records_partial() {
         }
     );
 }
+
+#[test]
+fn dream_deadline_does_not_overwrite_cancelled_worker_or_diary() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let registry = registry();
+    rem_worker(&registry);
+    let diary = save_diary(&mem, "dream: cancelled wip", SKELETON, DREAMS_AREA);
+    registry.bind_diary(WORKER, &diary);
+    let before = mem.get(&diary).unwrap().unwrap().body;
+    registry.kill(WORKER).unwrap();
+
+    let outcome = finalize_at_deadline(&mem, &registry, WORKER, DETAIL).unwrap();
+
+    assert!(!outcome.diary_rewritten && !outcome.finalization_recorded);
+    assert_eq!(outcome.diary_id.as_deref(), Some(diary.as_str()));
+    assert_eq!(mem.get(&diary).unwrap().unwrap().body, before);
+    let worker = registry.get(WORKER).unwrap();
+    assert_eq!(worker.execution_end, Some(ExecutionEnd::Cancelled));
+    assert_eq!(worker.finalization, DiaryFinalization::Pending);
+}

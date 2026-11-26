@@ -28,9 +28,10 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
     };
     match action {
         MeshAction::Identity {
-            action: mesh_cli::MeshIdentityAction::Set { kind, color, peer },
+            action: mesh_cli::MeshIdentityAction::Set { kind, peer },
         } => {
-            let identity = serde_json::json!({ "kind": kind, "color": color });
+            // Keep sending the neutral legacy color until 1.23.2 peers leave the fleet.
+            let identity = serde_json::json!({ "kind": kind, "color": "graphite" });
             let path = "/api/account/mesh/identity";
             let result = if let Some(peer) = peer {
                 mesh_cli::mesh_relay_fetch_json(
@@ -435,31 +436,77 @@ fn account_mesh_status_lines(state: &serde_json::Value) -> Vec<String> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+    let local_id = state["local_installation_id"].as_str();
+    let local_published = state["publication"].as_str() == Some("published");
+    let local_membership_expiry = state["membership_expires_at"].as_u64();
+    let any_pair_online = state["pairs"]
+        .as_array()
+        .is_some_and(|pairs| pairs.iter().any(|pair| pair["online"] == true));
     if let Some(rows) = state["registry"]["rows"].as_array() {
         for row in rows {
             if row["active"] == false || row["eligibility"] == "revoked" {
                 continue;
             }
+            let installation_id = row["installation_id"].as_str();
+            let pair_online = installation_id.is_some_and(|id| {
+                state["pairs"].as_array().is_some_and(|pairs| {
+                    pairs.iter().any(|pair| {
+                        pair["installation_id"].as_str() == Some(id) && pair["online"] == true
+                    })
+                })
+            });
+            let is_local = installation_id.is_some_and(|id| local_id == Some(id));
+            let local_online = is_local && (local_published || any_pair_online);
             let name = row["display_name"]
                 .as_str()
-                .or_else(|| row["installation_id"].as_str())
+                .or(installation_id)
                 .unwrap_or("Unnamed machine");
-            lines.push(format!("  {name}: {}", account_machine_status(row, now)));
+            lines.push(format!(
+                "  {name}: {}",
+                account_machine_status_with_live(
+                    row,
+                    now,
+                    pair_online,
+                    local_online,
+                    is_local.then_some(local_membership_expiry).flatten(),
+                )
+            ));
         }
     }
     lines
 }
 
+#[cfg(test)]
 fn account_machine_status(row: &serde_json::Value, now: u64) -> &'static str {
+    account_machine_status_with_live(row, now, false, false, None)
+}
+
+fn account_machine_status_with_live(
+    row: &serde_json::Value,
+    now: u64,
+    pair_online: bool,
+    local_online: bool,
+    local_membership_expiry: Option<u64>,
+) -> &'static str {
+    let membership_expires_at = match (
+        row["membership_expires_at"].as_u64(),
+        local_membership_expiry,
+    ) {
+        (Some(row_exp), Some(local_exp)) => Some(row_exp.max(local_exp)),
+        (Some(row_exp), None) => Some(row_exp),
+        (None, Some(local_exp)) => Some(local_exp),
+        (None, None) => None,
+    };
     if row["active"] == false || row["eligibility"] == "revoked" {
         "Removed"
     } else if row["presence"] == "signed_out" {
         "Signed out (actions disabled)"
-    } else if row["membership_expires_at"]
-        .as_u64()
-        .is_some_and(|at| at <= now)
-    {
+    } else if membership_expires_at.is_some_and(|at| at <= now) {
         "Membership expired"
+    } else if pair_online {
+        "Connected"
+    } else if local_online {
+        "This machine"
     } else if row["endpoint"]["expires_at"]
         .as_u64()
         .is_none_or(|at| at <= now)

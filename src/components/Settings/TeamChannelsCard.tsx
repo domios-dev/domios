@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Layers, RefreshCw, Trash2 } from "lucide-react";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
-import type { TeamChannelAction, TeamTemplatesTransport } from "../../lib/transport/teamTemplates";
+import { createTeamTemplatesTransport, type TeamChannelAction, type TeamChannelRow, type TeamTemplatesTransport } from "../../lib/transport/teamTemplates";
 import { channelRefusalText, channelStatusLine, publishTeamChannels, teamChannelView, useTeamChannels, type TeamChannelView } from "../../lib/teamTemplates/teamChannels";
 import { ChannelAddForm, ChannelName } from "../Channels/ChannelParts";
 import { channelFormIssue, type ChannelFormField, type ChannelFormInput } from "../Channels/channelForm";
@@ -10,6 +11,7 @@ import { Button } from "../shared/Button";
 import { BusySpinner, BusyState } from "../shared/BusyState";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { SettingsCard } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 const MUTED = "text-[11px] text-[var(--ct-muted-fg)]";
 
@@ -80,8 +82,16 @@ function RemoveConfirm({ view, onCancel, onConfirm }: { view: TeamChannelView; o
 }
 
 /** Team channels beside plugin channels: the official domios-teams channel and any community channel the owner adds. */
-export function TeamChannelsCard({ transport = teamTemplatesTransport }: { transport?: () => TeamTemplatesTransport }) {
-  const rows = useTeamChannels();
+export function TeamChannelsCard({ transport }: { transport?: () => TeamTemplatesTransport }) {
+  const remoteTarget = useSettingsRemoteTarget();
+  const remotePeerId = transport ? undefined : remoteTarget?.id;
+  const localRows = useTeamChannels();
+  const [remoteRows, setRemoteRows] = useState<TeamChannelRow[] | null>(null);
+  const rows = remotePeerId ? remoteRows : localRows;
+  const resolveTransport = useMemo(
+    () => transport ?? (remotePeerId ? () => createTeamTemplatesTransport(daemonTransportForPeer(remotePeerId)) : teamTemplatesTransport),
+    [transport, remotePeerId],
+  );
   const [loadError, setLoadError] = useState<unknown>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -91,25 +101,32 @@ export function TeamChannelsCard({ transport = teamTemplatesTransport }: { trans
 
   useEffect(() => {
     const controller = new AbortController();
-    void Promise.resolve().then(() => transport().channels({ signal: controller.signal })).then(
-      (list) => { if (!controller.signal.aborted) publishTeamChannels(list.channels); },
+    setLoadError(null);
+    if (remotePeerId) setRemoteRows(null);
+    void Promise.resolve().then(() => resolveTransport().channels({ signal: controller.signal })).then(
+      (list) => {
+        if (controller.signal.aborted) return;
+        if (remotePeerId) setRemoteRows(list.channels);
+        else publishTeamChannels(list.channels);
+      },
       (error: unknown) => { if (!controller.signal.aborted) setLoadError(error); },
     );
     return () => controller.abort();
-  }, [transport]);
+  }, [resolveTransport, remotePeerId]);
 
   const run = useCallback(async (key: string, action: TeamChannelAction, fallback: string): Promise<string | null> => {
     setBusy(key);
     try {
-      const list = await transport().channelAction(action);
-      publishTeamChannels(list.channels, { changed: true });
+      const list = await resolveTransport().channelAction(action);
+      if (remotePeerId) setRemoteRows(list.channels);
+      else publishTeamChannels(list.channels, { changed: true });
       return null;
     } catch (error) {
       return channelRefusalText(error, fallback);
     } finally {
       setBusy(null);
     }
-  }, [transport]);
+  }, [resolveTransport, remotePeerId]);
 
   const add = useCallback(async (input: ChannelFormInput): Promise<boolean> => {
     const invalid = channelFormIssue(input, { nameRequired: false });

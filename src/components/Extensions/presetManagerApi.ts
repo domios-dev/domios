@@ -5,6 +5,9 @@
  * to a live session reuses `switch_model`. Keyed by `pluginId`, no hardcoded id.
  */
 import { invoke } from "../../lib/bridge";
+import { setCachedShellModel } from "../../lib/shellSessionModel";
+
+type ChatSessionInfo = import("../../../gen/ChatSessionInfo").ChatSessionInfo;
 
 /** A user-defined preset for a chatBackend. Mirrors the plugin SDK `PresetInfo`
  *  plus the editable behaviour (system prompt, bound model, params). */
@@ -35,6 +38,24 @@ interface PluginConfigShape {
   [k: string]: unknown;
 }
 
+interface PendingPresetSave {
+  state: PresetState;
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
+}
+
+const saveQueues = new Map<string, { inFlight: boolean; pending: PendingPresetSave | null }>();
+
+async function writePresetState(pluginId: string, state: PresetState): Promise<void> {
+  const cfg = await invoke<PluginConfigShape>("get_config");
+  const plugins = { ...(cfg.plugins ?? {}) };
+  plugins[pluginId] = {
+    ...(plugins[pluginId] ?? {}),
+    presets: state.presets,
+    activePreset: state.activePreset,
+  };
+  await invoke("update_config", { config: { ...cfg, plugins } });
+}
+
 const defaultApi: PresetManagerApi = {
   load: async (pluginId) => {
     const cfg = await invoke<PluginConfigShape>("get_config");
@@ -45,17 +66,53 @@ const defaultApi: PresetManagerApi = {
     };
   },
   save: async (pluginId, state) => {
-    const cfg = await invoke<PluginConfigShape>("get_config");
-    const plugins = { ...(cfg.plugins ?? {}) };
-    plugins[pluginId] = {
-      ...(plugins[pluginId] ?? {}),
-      presets: state.presets,
-      activePreset: state.activePreset,
+    let queue = saveQueues.get(pluginId);
+    if (!queue) {
+      queue = { inFlight: false, pending: null };
+      saveQueues.set(pluginId, queue);
+    }
+    if (queue.inFlight) {
+      return await new Promise<void>((resolve, reject) => {
+        if (queue.pending) {
+          queue.pending.state = state;
+          queue.pending.waiters.push({ resolve, reject });
+        } else {
+          queue.pending = { state, waiters: [{ resolve, reject }] };
+        }
+      });
+    }
+    queue.inFlight = true;
+    const drainPending = async () => {
+      try {
+        while (queue.pending) {
+          const next = queue.pending;
+          queue.pending = null;
+          try {
+            await writePresetState(pluginId, next.state);
+            for (const waiter of next.waiters) waiter.resolve();
+          } catch (error) {
+            for (const waiter of next.waiters) waiter.reject(error);
+          }
+        }
+      } finally {
+        queue.inFlight = false;
+        if (!queue.pending) saveQueues.delete(pluginId);
+      }
     };
-    await invoke("update_config", { config: { ...cfg, plugins } });
+    try {
+      await writePresetState(pluginId, state);
+    } finally {
+      if (queue.pending) {
+        void drainPending();
+      } else {
+        queue.inFlight = false;
+        saveQueues.delete(pluginId);
+      }
+    }
   },
   applyToSession: async (pluginId, sessionId, model) => {
-    await invoke("chatbackend_switch_model", { pluginId, sessionId, model });
+    const info = await invoke<ChatSessionInfo | null>("chatbackend_switch_model", { pluginId, sessionId, model });
+    setCachedShellModel(pluginId, sessionId, info?.model ?? model);
   },
 };
 

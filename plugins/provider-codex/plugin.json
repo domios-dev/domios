@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.85",
-  "minCodeterm": "1.22.1",
+  "version": "1.14.86",
+  "minCodeterm": "1.23.3",
   "hostApi": 2,
   "accounts": {
     "credentialFiles": [
@@ -653,6 +653,12 @@
     "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
     "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
     "windows": "$s = Join-Path $env:TEMP 'codeterm-codex-install.ps1'; Invoke-WebRequest -Uri 'https://chatgpt.com/codex/install.ps1' -OutFile $s -UseBasicParsing; try { $env:CODEX_NON_INTERACTIVE = '1'; & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
+  },
+  "cliInstallDirs": {
+    "windows": [
+      "%LOCALAPPDATA%/Programs/OpenAI/Codex/bin",
+      "~/AppData/Local/Programs/OpenAI/Codex/bin"
+    ]
   },
   "updater": {
     "macos": "codex update",

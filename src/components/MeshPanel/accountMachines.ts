@@ -62,8 +62,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   const locked = snapshot.traffic === "plan_limit_locked";
   const refusal = snapshot.last_refusal;
   const machineLimit = locked && refusal?.reason === "mesh.machines" ? { limit: refusal.limit, activeCount: refusal.active_count } : undefined;
-  const registryControlsAllowed = snapshot.traffic !== "blocked_signed_out" && refusal?.reason !== "enrollment_budget";
-  const usable = registryControlsAllowed && snapshot.binding !== "other";
+  const usable = snapshot.traffic !== "blocked_signed_out" && refusal?.reason !== "enrollment_budget";
   const selfId = snapshot.local_installation_id;
   const unique = new Map((snapshot.registry?.rows ?? []).map(row => [row.installation_id, row]));
   const { labels, duplicates } = registryMachineNames(snapshot.registry_names ?? []);
@@ -85,14 +84,11 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   if (failure) notes.push(`${snapshot.registry ? "Showing the last account list. " : ""}${failureMessage(failure)}`);
   const own = snapshot.self;
   const ownRow = unique.get(selfId);
-  // The first-owner binding gates remote controls. Local rename targets this installation in the verified account.
-  const verifiedSelf = ownRow?.active && ownRow.eligibility === "eligible" && ownRow.presence === "present"
-    && snapshot.registry_names?.some(row => row.installation_id === selfId && row.active);
   return {
     kind: "account", machineLimit, selfSameNameOthers, registrySelfName: labels.get(selfId),
     removed: ownRow?.active === false,
     reauthRequired: snapshot.enrollment === "refused" && ["reauth_required", "generation_mismatch", "key_conflict", "revoked"].includes(refusal?.reason ?? ""),
-    self: own ? { readOnly: !registryControlsAllowed || (snapshot.binding === "other" && !verifiedSelf), planLimited: locked, name: labels.get(selfId) ?? cleanMachineName(ownRow?.display_name ?? own.display_name) ?? "This machine", installationId: own.installation_id,
+    self: own ? { readOnly: !usable, planLimited: locked, name: labels.get(selfId) ?? cleanMachineName(ownRow?.display_name ?? own.display_name) ?? "This machine", installationId: own.installation_id,
       metadataRevision: ownRow?.metadata_revision ?? own.metadata_revision, displayName: ownRow?.display_name ?? own.display_name, sameNameOthers: selfSameNameOthers } : null,
     machines, saved: [], notes,
   };

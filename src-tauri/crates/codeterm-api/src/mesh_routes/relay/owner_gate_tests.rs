@@ -517,3 +517,265 @@ async fn workspace_close_preview_relay_enforces_owner_origin_and_workspace_autho
     assert!(!protected.ok);
     assert_eq!(protected.status, StatusCode::CONFLICT.as_u16());
 }
+
+#[tokio::test]
+async fn team_close_relay_authorizes_paired_owner_and_refuses_ungranted_or_unconfirmed_callers() {
+    use codeterm_service_core::mesh::types::Permission;
+
+    let valid_body = serde_json::json!({
+        "force": true,
+        "confirm": "team_remote",
+        "force_busy": true,
+    });
+    for path in [
+        "/api/teams/team_remote/close",
+        "/api/teams/team_remote/close?caller_tab_id=x",
+    ] {
+        for access in [
+            AccessLevel::Full,
+            AccessLevel::Custom(vec![Permission::ManageWorkspaces]),
+        ] {
+            assert_eq!(
+                authorize_peer_relay(
+                    "signed-peer",
+                    &access,
+                    &Method::POST,
+                    path,
+                    &valid_body,
+                    |_| None,
+                ),
+                PeerRelayAuthorization::TeamClose {
+                    peer_id: "signed-peer",
+                    team_id: "team_remote",
+                    force: true,
+                    confirm: Some("team_remote".to_owned()),
+                    force_busy: true,
+                },
+                "{access:?} {path}"
+            );
+        }
+        for access in [
+            AccessLevel::ReadOnly,
+            AccessLevel::AgentIsolated,
+            AccessLevel::Custom(vec![Permission::ReadTabs]),
+        ] {
+            assert_eq!(
+                authorize_peer_relay(
+                    "signed-peer",
+                    &access,
+                    &Method::POST,
+                    path,
+                    &valid_body,
+                    |_| None,
+                ),
+                PeerRelayAuthorization::Rejected,
+                "{access:?} {path}"
+            );
+        }
+    }
+
+    let (mut mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let protected_ws = mux.snapshot().workspaces[0].id.clone();
+    mux.get_workspace_mut(&protected_ws).unwrap().protected = true;
+    let protected_ws_team = "team_in_protected_ws".to_string();
+    mux.upsert_team(codeterm_types::team::Team {
+        id: protected_ws_team.clone(),
+        name: Some("Protected WS Team".into()),
+        lifecycle: Default::default(),
+        created_at: 1000,
+        workspace_id: protected_ws.clone(),
+        locked: false,
+    });
+
+    let target_ws = mux.create_workspace("Remote Teams".into(), None).id;
+    let target_team = "team_remote".to_string();
+    mux.upsert_team(codeterm_types::team::Team {
+        id: target_team.clone(),
+        name: Some("Remote Crew".into()),
+        lifecycle: Default::default(),
+        created_at: 1000,
+        workspace_id: target_ws.clone(),
+        locked: false,
+    });
+    let member_tab = mux.create_tab(&target_ws).unwrap();
+    mux.get_tab_mut(&member_tab).unwrap().team_id = Some(target_team.clone());
+
+    let protected_tab_team = "team_with_protected_tab".to_string();
+    mux.upsert_team(codeterm_types::team::Team {
+        id: protected_tab_team.clone(),
+        name: Some("Protected Member Team".into()),
+        lifecycle: Default::default(),
+        created_at: 1000,
+        workspace_id: target_ws.clone(),
+        locked: false,
+    });
+    let protected_tab = mux.create_tab(&target_ws).unwrap();
+    mux.get_tab_mut(&protected_tab).unwrap().team_id = Some(protected_tab_team.clone());
+    mux.get_tab_mut(&protected_tab).unwrap().protected = true;
+
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+    let state = app_state(&fixture);
+    let mut full_peer = isolated_peer();
+    full_peer.instance_id = "peer-full".into();
+    full_peer.instance_name = "Full".into();
+    full_peer.access_level = AccessLevel::Full;
+    state.mesh.lock().insert_account_peer_for_test(full_peer);
+
+    let mut readonly_peer = isolated_peer();
+    readonly_peer.instance_id = "peer-readonly".into();
+    readonly_peer.instance_name = "ReadOnly".into();
+    readonly_peer.access_level = AccessLevel::ReadOnly;
+    state
+        .mesh
+        .lock()
+        .insert_account_peer_for_test(readonly_peer);
+
+    let close_cmd = RelayCommand {
+        method: "POST".into(),
+        path: format!("/api/teams/{target_team}/close"),
+        body: valid_body,
+        delivery_id: None,
+    };
+
+    for caller_peer in ["peer-unpaired", ISOLATED_PEER, "peer-readonly"] {
+        let refused = perform_test_relay(
+            &state,
+            caller_peer,
+            &close_cmd,
+            crate::auth::AuthenticatedOrigin::Owner,
+            None,
+            None,
+        )
+        .await
+        .expect("unpaired or ungranted refusal is a relay response");
+        assert!(!refused.ok, "{caller_peer}");
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN.as_u16(),
+            "{caller_peer}"
+        );
+    }
+
+    for origin in [
+        crate::auth::AuthenticatedOrigin::Agent,
+        crate::auth::AuthenticatedOrigin::Mesh,
+    ] {
+        let refused = perform_test_relay(&state, "peer-full", &close_cmd, origin, None, None)
+            .await
+            .expect_err("non-owner origin must be refused");
+        assert_eq!(refused.0, StatusCode::FORBIDDEN);
+    }
+
+    for unconfirmed_body in [
+        serde_json::json!({ "force": false, "confirm": target_team, "force_busy": true }),
+        serde_json::json!({ "force": true, "confirm": "wrong_team", "force_busy": true }),
+        serde_json::json!({}),
+    ] {
+        let refused = perform_test_relay(
+            &state,
+            "peer-full",
+            &RelayCommand {
+                method: "POST".into(),
+                path: format!("/api/teams/{target_team}/close"),
+                body: unconfirmed_body,
+                delivery_id: None,
+            },
+            crate::auth::AuthenticatedOrigin::Owner,
+            None,
+            None,
+        )
+        .await
+        .expect("unconfirmed close returns structured relay 403");
+        assert!(!refused.ok);
+        assert_eq!(refused.status, StatusCode::FORBIDDEN.as_u16());
+    }
+
+    for protected_team in [&protected_ws_team, &protected_tab_team] {
+        let refused = perform_test_relay(
+            &state,
+            "peer-full",
+            &RelayCommand {
+                method: "POST".into(),
+                path: format!("/api/teams/{protected_team}/close"),
+                body: serde_json::json!({
+                    "force": true,
+                    "confirm": protected_team,
+                    "force_busy": true,
+                }),
+                delivery_id: None,
+            },
+            crate::auth::AuthenticatedOrigin::Owner,
+            None,
+            None,
+        )
+        .await
+        .expect("protected Team close returns structured relay 403");
+        assert!(!refused.ok, "{protected_team}");
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN.as_u16(),
+            "{protected_team}"
+        );
+        assert!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_team(protected_team)
+                .is_some(),
+            "protected Team {protected_team} stays open"
+        );
+    }
+
+    let missing = perform_test_relay(
+        &state,
+        "peer-full",
+        &RelayCommand {
+            method: "POST".into(),
+            path: "/api/teams/missing-team/close".into(),
+            body: serde_json::json!({
+                "force": true,
+                "confirm": "missing-team",
+                "force_busy": true,
+            }),
+            delivery_id: None,
+        },
+        crate::auth::AuthenticatedOrigin::Owner,
+        None,
+        None,
+    )
+    .await
+    .expect("missing Team returns structured relay 404");
+    assert!(!missing.ok);
+    assert_eq!(missing.status, StatusCode::NOT_FOUND.as_u16());
+
+    assert!(
+        fixture.service.mux.read().get_team(&target_team).is_some(),
+        "Team stays open until an authorized confirmed owner call"
+    );
+
+    let ok = perform_test_relay(
+        &state,
+        "peer-full",
+        &close_cmd,
+        crate::auth::AuthenticatedOrigin::Owner,
+        None,
+        None,
+    )
+    .await
+    .expect("authorized paired owner Team close succeeds");
+    assert!(ok.ok, "expected ok relay response, got: {ok:?}");
+    assert_eq!(ok.status, StatusCode::OK.as_u16());
+    let data = ok.data.expect("team close payload");
+    assert_eq!(data["team"]["id"], serde_json::json!(target_team));
+    assert!(data.get("inventory").is_some(), "payload carries inventory");
+    let mux = fixture.service.mux.read();
+    assert!(
+        mux.get_team(&target_team).is_none(),
+        "closed Team is removed"
+    );
+    assert!(
+        mux.get_tab(&member_tab).is_none(),
+        "closed Team member tab is removed"
+    );
+}

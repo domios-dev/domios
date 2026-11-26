@@ -4,13 +4,13 @@ import { invoke, listen } from "../lib/bridge";
 import { DEV_BUILD } from "../lib/devBuild";
 import type { ShellProfile } from "../lib/types";
 
-export function useShellProfiles() {
+export function useShellProfiles(peerId?: string) {
   const page = useContext(PageDataContext);
-  const local = useShellProfilesLoader(!page);
-  return page?.shells ?? local;
+  const local = useShellProfilesLoader(Boolean(peerId) || !page, peerId);
+  return peerId ? local : (page?.shells ?? local);
 }
 
-export function useShellProfilesLoader(enabled = true) {
+export function useShellProfilesLoader(enabled = true, peerId?: string) {
   const [profiles, setProfiles] = useState<ShellProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,7 +19,10 @@ export function useShellProfilesLoader(enabled = true) {
     const current = ++generation.current;
     setLoading(true);
     try {
-      const result = await invoke<ShellProfile[]>("shell_profiles", { refresh });
+      const result = await invoke<ShellProfile[]>(
+        "shell_profiles",
+        peerId ? { refresh, peerId } : { refresh },
+      );
       if (generation.current === current) {
         setProfiles(result);
         setError(null);
@@ -31,10 +34,15 @@ export function useShellProfilesLoader(enabled = true) {
     } finally {
       if (generation.current === current) setLoading(false);
     }
-  }, []);
+  }, [peerId]);
   useEffect(() => {
     if (!enabled) return;
+    setProfiles([]);
+    setError(null);
     void load();
+    if (peerId) {
+      return () => { generation.current++; };
+    }
     let active = true;
     let stop: (() => void) | undefined;
     void listen("shells-changed", () => { void load(); }).then((off) => {
@@ -50,6 +58,6 @@ export function useShellProfilesLoader(enabled = true) {
       window.removeEventListener("codeterm-peer-switch-reset", reset);
       window.removeEventListener("codeterm-peer-switch-rebind", rebind);
     };
-  }, [load, enabled]);
+  }, [load, enabled, peerId]);
   return { profiles, error, loading, refresh: () => load(true, true) };
 }

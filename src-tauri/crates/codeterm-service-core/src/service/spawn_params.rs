@@ -520,6 +520,23 @@ impl ServiceContext {
                         agent_cmd
                     ).into());
                 }
+                if super::agent_runtime::engine::requested(self, agent_cmd)
+                    && self
+                        .agent_registry
+                        .with_provider(agent_cmd, |provider| {
+                            provider
+                                .agent_runtime()
+                                .is_some_and(|runtime| runtime.launch_profiles.is_none())
+                        })
+                        .unwrap_or(false)
+                {
+                    super::spawn_cli::provider_launch_preflight(
+                        &self.agent_registry,
+                        agent_cmd,
+                        false,
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
                 Ok(true)
             }
             Some(crate::agent::provider::ProviderTransport::Pty) => {

@@ -52,6 +52,7 @@ pub struct Reconciliation {
     retries: BTreeMap<String, Retry>,
     fallback_at: BTreeMap<String, u64>,
     server_retry_at: u64,
+    immediate_fallback: bool,
 }
 
 impl Reconciliation {
@@ -91,7 +92,10 @@ impl Reconciliation {
     }
 
     fn dial_due(&mut self, own: &str, installation: &str, now: u64) -> bool {
-        if !prefers_initiating(own, installation) && !self.retries.contains_key(installation) {
+        if !self.immediate_fallback
+            && !prefers_initiating(own, installation)
+            && !self.retries.contains_key(installation)
+        {
             let at = self
                 .fallback_at
                 .entry(installation.to_owned())
@@ -116,6 +120,14 @@ impl Reconciliation {
     /// non-preferred side, which is the only one that knows a newly enrolled peer.
     fn network_changed(&mut self) {
         self.retries.retain(|_, retry| !retry.transport_failure);
+    }
+
+    /// After an explicit local mesh re-enable, already-running peers will not initiate
+    /// a handshake, so allow non-preferred installations to dial immediately once.
+    fn mesh_reenabled(&mut self) {
+        self.retries.clear();
+        self.fallback_at.clear();
+        self.immediate_fallback = true;
     }
 
     fn deadline(&self, now: u64, peers_ready: bool) -> Option<u64> {
@@ -204,9 +216,15 @@ pub async fn run(
     let mut network = service.events.subscribe();
     let mut publication = Publication::default();
     let mut reconciliation = Reconciliation::default();
+    let mut last_enable_gen = mesh.lock().mesh_enable_generation();
     loop {
         connections.borrow_and_update();
         let enabled = service.configuration().mesh.enabled;
+        let enable_gen = mesh.lock().mesh_enable_generation();
+        if enabled && enable_gen != last_enable_gen {
+            last_enable_gen = enable_gen;
+            reconciliation.mesh_reenabled();
+        }
         let state = changes.borrow_and_update().clone();
         mesh.lock().expire_pending_connections();
         let now = mesh.lock().now();
@@ -319,6 +337,7 @@ pub async fn run(
                         }
                     }
                 }
+                reconciliation.immediate_fallback = false;
             }
         } else if !enabled || state.current_membership(now).is_none() {
             mesh.lock().clear_connection_phases();

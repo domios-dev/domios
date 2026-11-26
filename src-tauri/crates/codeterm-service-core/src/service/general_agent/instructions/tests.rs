@@ -85,6 +85,33 @@ fn test_bootstrap_template_renders_general_dir() {
 }
 
 #[test]
+fn general_prompt_uses_owner_identity_from_mem_when_identity_md_is_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let mem = crate::mem::MemManager::open_in_memory().unwrap();
+    mem.seed_bundled_if_needed().unwrap();
+    let before = render_agent_md_with_mem_at(dir.path(), "opaque-provider", "", Some(&mem));
+    assert!(before.contains("No identity configured yet."));
+
+    mem.save_replace(crate::mem::store::NewMemItem {
+        kind: crate::mem::store::MemKind::Preference,
+        scope: crate::mem::store::MemScope::Global,
+        title: "identity".into(),
+        summary: None,
+        area: None,
+        tags: vec!["identity".into()],
+        body: "MEM_OWNER_IDENTITY_SENTINEL".into(),
+        source: Some("user".into()),
+        importance: 5.0,
+        source_path: None,
+        pinned: false,
+    })
+    .unwrap();
+    let after = render_agent_md_with_mem_at(dir.path(), "opaque-provider", "", Some(&mem));
+    assert!(after.contains("MEM_OWNER_IDENTITY_SENTINEL"));
+    assert!(!after.contains("No identity configured yet."));
+}
+
+#[test]
 fn test_wake_up_section_empty_when_mem_none() {
     let section = render_wake_up_section(None);
     assert!(section.is_empty());

@@ -79,7 +79,7 @@ export async function restoredSends(ctx) {
   await Promise.all(ctx.state.tabs.filter((tab) => tab.reply).map((tab) =>
     ctx.check("J4", "restored_send_reply", `${tab.id} ${tab.provider}${tab.role ? `/${tab.role}` : ""}`, async () => {
       const expected = sessions.get(tab.id);
-      const reply = await probeReply(ctx, tab.id, marker(ctx.state.run, `${tab.provider}${tab.role ?? ""}`, "r"));
+      const reply = await probeReply(ctx, tab.id, marker(ctx.state.run, tab.id, "r"));
       if (expected && reply.session !== expected) throw new JourneyFailure(`reply on session ${reply.session}, expected restored ${expected}`);
       return { summary: `${reply.answer} on ${reply.session}`, evidence: reply };
     })));

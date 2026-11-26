@@ -1,3 +1,4 @@
+use super::role_policy::CronSettlement;
 use super::ServiceContext;
 mod terminal;
 use crate::cron::store::{
@@ -894,7 +895,7 @@ impl ServiceContext {
         cron: &CronState,
         wake: &CronWake,
         run_id: &str,
-        summary: Option<&str>,
+        outcome: CronSettlement,
         caller_tab_id: Option<&str>,
         binding_nonce: Option<&str>,
         human_confirmed: bool,
@@ -907,13 +908,17 @@ impl ServiceContext {
         if self.run_watcher.unknown_cron_outcome(run_id) {
             return Err("Cron terminal outcome is unknown; use cron.cancel on the exact job to acknowledge retained effects without replay".into());
         }
-        if self.run_watcher.resume_cron_finalizer_for_run(
+        if let Some(status) = self.run_watcher.resume_cron_finalizer_for_run(
             self,
             run_id,
             caller_tab_id,
             binding_nonce,
             human_confirmed,
-        ) || self.run_watcher.resume_cron_cleanup_for_run(
+        ) {
+            outcome.confirm_recorded(&status)?;
+            return Ok(None);
+        }
+        if self.run_watcher.resume_cron_cleanup_for_run(
             self,
             cron,
             run_id,
@@ -921,6 +926,9 @@ impl ServiceContext {
             binding_nonce,
             human_confirmed,
         ) {
+            if let Some((_, run)) = cron.lock().find_run_by_id(run_id) {
+                outcome.confirm_recorded(&run.status)?;
+            }
             return Ok(None);
         }
         let owner = cron
@@ -951,12 +959,8 @@ impl ServiceContext {
                 tab.is_chat_backend() || (tab.agent_type.is_some() && session_id.is_some());
             drop(mux);
             if await_final_answer {
-                self.run_watcher.request_cron_completion(
-                    self,
-                    &tab_id,
-                    run_id,
-                    summary.unwrap_or("(no summary provided)"),
-                )?;
+                self.run_watcher
+                    .request_cron_completion(self, &tab_id, run_id, &outcome)?;
                 return Ok(None);
             }
             let raw = authority
@@ -964,25 +968,36 @@ impl ServiceContext {
                 .and_then(|pty| self.output_buf.lock().get_full_text(pty))
                 .unwrap_or_default();
             let raw_clean = crate::pty::ansi::clean_terminal_output(&raw);
-            let summary = summary.unwrap_or("(no summary provided)").to_string();
             let release = self.run_watcher.finish_cron_after_response(
                 self,
                 authority,
-                summary.clone(),
+                &outcome,
                 &raw_clean,
                 session_id.as_deref(),
                 run_cwd.as_deref(),
             )?;
+            if release.is_none()
+                && !outcome.success
+                && !cron
+                    .lock()
+                    .run_receipt(&job_id, run_id)
+                    .is_some_and(|run| run.status == CronRunStatus::Failed)
+            {
+                return Err(format!(
+                    "Failure completion did not claim cron run {run_id}"
+                ));
+            }
             Ok(release.map(|release| CronCompleteAfterResponse {
                 tab_id,
                 job_id,
                 run_id: run_id.into(),
-                summary,
+                summary: outcome.summary,
                 cron: cron.clone(),
                 wake: wake.clone(),
                 release,
             }))
         } else if let Some((job_id, run)) = cron.lock().find_run_by_id(run_id) {
+            outcome.confirm_recorded(&run.status)?;
             // The terminal status already recorded stands (first terminal wins); log it so the race stays observable instead of surfacing as an opaque "not found".
             log::warn!(
                 "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",

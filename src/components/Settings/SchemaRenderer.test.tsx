@@ -345,6 +345,120 @@ test("two-field text array renders sleek inline pair editor with empty state, he
   await act(async () => root.unmount());
 });
 
+function accessibleNameOf(el: HTMLInputElement): string {
+  const ariaLabel = el.getAttribute("aria-label")?.trim();
+  if (ariaLabel) return ariaLabel;
+  if (el.id) {
+    const label = document.querySelector(`label[for="${el.id}"]`);
+    if (label?.textContent?.trim()) return label.textContent.trim();
+  }
+  const wrapping = el.closest("label");
+  if (wrapping) {
+    const clone = wrapping.cloneNode(true) as HTMLElement;
+    for (const control of Array.from(clone.querySelectorAll("input, select, textarea"))) control.remove();
+    if (clone.textContent?.trim()) return clone.textContent.trim();
+  }
+  return "";
+}
+
+test("schema number fields render locale-independent dot-decimal text inputs with accessible names", async () => {
+  const numberSchema: SettingField[] = [
+    { kind: "number", key: "threshold", label: "Threshold", min: 0.05, max: 0.5, default: 0.15 },
+    {
+      kind: "array",
+      key: "weights",
+      label: "Weights",
+      item_label: "Rule",
+      item: {
+        kind: "object",
+        fields: [
+          { key: "name", label: "Name", kind: "text" },
+          { key: "weight", label: "Weight", kind: "number", min: 0, max: 1 },
+        ],
+      },
+    },
+    {
+      kind: "array",
+      key: "retries",
+      label: "Retry policies",
+      item_label: "Policy",
+      item: {
+        kind: "object",
+        fields: [
+          { key: "name", label: "Name", kind: "text" },
+          { key: "notes", label: "Notes", kind: "textarea" },
+          { key: "attempts", label: "Attempts", kind: "number", min: 1, max: 10 },
+        ],
+      },
+    },
+  ];
+  let values: ProviderConfig = {
+    threshold: 0.15,
+    weights: [{ name: "default", weight: 0.5 }],
+    retries: [{ name: "fast", notes: "", attempts: 3 }],
+  };
+  const patches: Partial<ProviderConfig>[] = [];
+  const onChange = (_providerId: string, patch: Partial<ProviderConfig>) => {
+    patches.push(patch);
+    values = { ...values, ...patch };
+  };
+
+  const { host, root } = await render(
+    <SchemaRenderer
+      schema={numberSchema}
+      providerId="test-provider"
+      config={config}
+      values={values}
+      onChange={onChange}
+    />,
+  );
+  const rerender = async () => {
+    await act(async () => {
+      root.render(
+        <SchemaRenderer
+          schema={numberSchema}
+          providerId="test-provider"
+          config={config}
+          values={values}
+          onChange={onChange}
+        />,
+      );
+    });
+  };
+
+  const input = host.querySelector('[data-testid="settings-schema-number"][data-settings-field="threshold"]');
+  assert(input instanceof HTMLInputElement, "schema number input should render");
+  assert(accessibleNameOf(input) === "Threshold", `top-level schema number must have accessible name 'Threshold', got '${accessibleNameOf(input)}'`);
+  const pairNumber = host.querySelector('[data-testid="settings-schema-array-number"][data-settings-field="weights.0.weight"]');
+  assert(pairNumber instanceof HTMLInputElement, "compact pair schema number input should render");
+  assert(accessibleNameOf(pairNumber) === "Weight (rule 1)", `compact pair number must have accessible name 'Weight (rule 1)', got '${accessibleNameOf(pairNumber)}'`);
+  const objectNumber = host.querySelector('[data-testid="settings-schema-array-number"][data-settings-field="retries.0.attempts"]');
+  assert(objectNumber instanceof HTMLInputElement, "object array schema number input should render");
+  assert(accessibleNameOf(objectNumber) === "Attempts", `object array number must have accessible name 'Attempts', got '${accessibleNameOf(objectNumber)}'`);
+  const readInputValue = () => input.value;
+  const patchCount = () => patches.length;
+  const readThreshold = () => values.threshold;
+  assert(input.type === "text", `schema number input must use type='text', got '${input.type}'`);
+  assert(input.inputMode === "decimal", `schema number input must use decimal inputMode, got '${input.inputMode}'`);
+  assert(readInputValue() === "0.15", `schema number input must show '0.15', got '${readInputValue()}'`);
+
+  await act(async () => {
+    setNativeValue(input, "0,25");
+    dispatchFormChange(input);
+  });
+  assert(patchCount() === 0 && readThreshold() === 0.15, "locale comma input must not mutate schema config");
+
+  await act(async () => {
+    setNativeValue(input, "0.35");
+    dispatchFormChange(input);
+  });
+  await rerender();
+  assert(patchCount() === 1 && readThreshold() === 0.35, "dot-decimal value should persist as 0.35");
+  assert(readInputValue() === "0.35", `schema number input should round-trip as '0.35', got '${readInputValue()}'`);
+
+  await act(async () => root.unmount());
+});
+
 async function main() {
   const started = performance.now();
   let failed = 0;

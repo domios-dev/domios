@@ -102,6 +102,18 @@ check("legacy interruption settles without a provider-error alert",()=>{
     {kind:"turnState",threadId:ctx.threadId,turnId,state:"idle",detail:"interrupted"},
   ]);
 });
+check("legacy expired OpenCode Console key emits typed remediation on free Zen models",()=>{
+  const {ctx,message:turnId}=prepared("legacy-expired-key");
+  ctx.settings={model:"opencode/beam-free"};
+  const frame:RuntimeFrame={kind:"notification",method:"http/event",params:{type:"session.error",properties:{sessionID:ctx.threadId!,error:{
+    name:"APIError",
+    data:{statusCode:401,isRetryable:false,message:"This API key has expired.",responseBody:JSON.stringify({error:{type:"authentication_error",code:"api_key_expired",message:"This API key has expired."}})},
+  }}}};
+  const reduced=runtimeReduce(ctx,null,[frame]);
+  const item=reduced.events.find(event=>event.kind === "chatItem")?.item;
+  assert.equal(item?.id,`${turnId}:error`);
+  assert.equal((item?.toolInput as {remediation?:{code?:string}})?.remediation?.code,"api_key_expired");
+});
 check("prompt identity never authorizes replay and acknowledgment is not delivery evidence",()=>{
   const {ctx,op,plan,message}=prepared("fixture-no-replay");
   assert.equal(call(plan).method,"session.prompt");

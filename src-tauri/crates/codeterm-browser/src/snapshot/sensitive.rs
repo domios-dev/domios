@@ -136,8 +136,8 @@ fn redact_node(node: &mut AxNode) {
     });
     node.properties.retain(|p| {
         [
-            "disabled", "readonly", "required", "focused", "checked", "selected", "expanded",
-            "invalid",
+            "disabled", "readonly", "required", "focused", "checked", "pressed", "selected",
+            "expanded", "invalid",
         ]
         .contains(&p.name.as_str())
     });

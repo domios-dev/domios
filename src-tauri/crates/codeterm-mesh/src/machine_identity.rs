@@ -4,7 +4,6 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use codeterm_util::persisted_state::{Loaded, StateFile};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
@@ -19,40 +18,43 @@ pub enum MachineKind {
     Other,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "snake_case")]
-pub enum MachineColor {
-    Blue,
-    Teal,
-    Green,
-    Yellow,
-    Pink,
-    Violet,
-    Graphite,
+// Keep emitting a neutral wire color until 1.23.2 peers leave the fleet.
+const LEGACY_WIRE_COLOR: &str = "graphite";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireMachineIdentity {
+    kind: MachineKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
 }
 
-const COLORS: [MachineColor; 7] = [
-    MachineColor::Blue,
-    MachineColor::Teal,
-    MachineColor::Green,
-    MachineColor::Yellow,
-    MachineColor::Pink,
-    MachineColor::Violet,
-    MachineColor::Graphite,
-];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ts_rs::TS)]
 pub struct MachineIdentity {
     pub kind: MachineKind,
-    pub color: MachineColor,
+}
+
+impl Serialize for MachineIdentity {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        WireMachineIdentity {
+            kind: self.kind,
+            color: Some(LEGACY_WIRE_COLOR.to_owned()),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MachineIdentity {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = WireMachineIdentity::deserialize(deserializer)?;
+        Ok(Self { kind: wire.kind })
+    }
 }
 
 impl MachineIdentity {
-    pub(crate) fn inferred(id: &str, os: &str, headless: bool) -> Self {
+    pub(crate) fn inferred(os: &str, headless: bool) -> Self {
         Self {
             kind: MachineFacts::detect(os, headless).kind(),
-            color: COLORS[usize::from(Sha256::digest(id.as_bytes())[0]) % COLORS.len()],
         }
     }
 }
@@ -211,8 +213,16 @@ pub(crate) fn save(path: &Path, instance_id: &str, revision: Revision) -> Result
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireRevision {
+    identity: WireMachineIdentity,
+    number: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignedMachineIdentity {
-    revision: Revision,
+    revision: WireRevision,
     signature: String,
 }
 
@@ -226,17 +236,24 @@ where
 }
 
 impl SignedMachineIdentity {
-    fn message(instance_id: &str, revision: Revision) -> Option<Vec<u8>> {
+    fn message(instance_id: &str, revision: &WireRevision) -> Option<Vec<u8>> {
         let mut message = b"domios-mesh-machine-identity-v1\0".to_vec();
         message.extend(serde_json::to_vec(&(instance_id, revision)).ok()?);
         Some(message)
     }
 
     pub(crate) fn sign(instance_id: &str, private_key: &str, revision: Revision) -> Option<Self> {
+        let wire = WireRevision {
+            identity: WireMachineIdentity {
+                kind: revision.identity.kind,
+                color: Some(LEGACY_WIRE_COLOR.to_owned()),
+            },
+            number: revision.number,
+        };
         let seed: [u8; 32] = STANDARD.decode(private_key).ok()?.try_into().ok()?;
-        let signature = SigningKey::from_bytes(&seed).sign(&Self::message(instance_id, revision)?);
+        let signature = SigningKey::from_bytes(&seed).sign(&Self::message(instance_id, &wire)?);
         Some(Self {
-            revision,
+            revision: wire,
             signature: STANDARD.encode(signature.to_bytes()),
         })
     }
@@ -247,9 +264,14 @@ impl SignedMachineIdentity {
         }
         let key = crate::crown::verifying_key_from_b64(public_key).ok()?;
         let signature = Signature::from_slice(&STANDARD.decode(&self.signature).ok()?).ok()?;
-        key.verify(&Self::message(instance_id, self.revision)?, &signature)
+        key.verify(&Self::message(instance_id, &self.revision)?, &signature)
             .ok()?;
-        Some(self.revision)
+        Some(Revision {
+            identity: MachineIdentity {
+                kind: self.revision.identity.kind,
+            },
+            number: self.revision.number,
+        })
     }
 }
 

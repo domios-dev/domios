@@ -14,21 +14,62 @@ export function openNewSessionPicker(detail: OpenNewSessionDetail): void {
   window.dispatchEvent(new CustomEvent<OpenNewSessionDetail>(OPEN_NEW_SESSION_EVENT, { detail }));
 }
 
-export type NewSessionMode = "single" | "pair";
+export type NewSessionMode = "single" | "pair" | "terminal";
 export type NewSessionSection = "general" | "workspace";
 
 export function allowedNewSessionModes(section: NewSessionSection): readonly NewSessionMode[] {
-  return section === "general" ? ["single"] : ["single", "pair"];
+  return section === "general" ? ["single"] : ["single", "pair", "terminal"];
 }
 
-export function choiceForSessionSection(choice: NewSessionChoice, section: NewSessionSection): NewSessionChoice {
+export function unavailableProviderIds(
+  providers: ReadonlyArray<Pick<ProviderDescriptor, "id" | "availability">>,
+  installMap: Readonly<Record<string, boolean>>,
+): Set<string> {
+  return new Set(
+    providers
+      .filter((provider) => installMap[provider.id] === false || (installMap[provider.id] !== true && provider.availability === "unavailable"))
+      .map((provider) => provider.id),
+  );
+}
+
+export function isProviderSelectable(
+  provider: Pick<ProviderDescriptor, "id" | "availability">,
+  disabledProviderIds?: ReadonlySet<string>,
+): boolean {
+  return disabledProviderIds ? !disabledProviderIds.has(provider.id) : provider.availability !== "unavailable";
+}
+
+export function firstSelectableProvider(
+  providers: readonly ProviderDescriptor[],
+  disabledProviderIds?: ReadonlySet<string>,
+): ProviderDescriptor | undefined {
+  return providers.find((provider) => isProviderSelectable(provider, disabledProviderIds));
+}
+
+export function choiceForSessionSection(
+  choice: NewSessionChoice,
+  section: NewSessionSection,
+  providers: ProviderDescriptor[] = [],
+  disabledProviderIds?: ReadonlySet<string>,
+): NewSessionChoice {
   if (allowedNewSessionModes(section).includes(choice.mode) || choice.mode === "single") return choice;
-  return {
+  if (choice.mode === "terminal") {
+    const provider = firstSelectableProvider(providers, disabledProviderIds);
+    const modelId = resolveProviderModel(provider);
+    return {
+      mode: "single",
+      providerId: provider?.id ?? "",
+      modelId,
+      effortId: resolveEffort(provider, modelId),
+    };
+  }
+  const single: SingleSessionChoice = {
     mode: "single",
     providerId: choice.orchestratorProviderId,
     modelId: choice.orchestratorModelId,
     effortId: choice.orchestratorEffortId,
   };
+  return providers.length > 0 ? resolvePersistedChoice(providers, single, disabledProviderIds) : single;
 }
 
 export interface SingleSessionChoice {
@@ -49,7 +90,12 @@ export interface PairSessionChoice {
   plannerEffortId?: string;
 }
 
-export type NewSessionChoice = SingleSessionChoice | PairSessionChoice;
+export interface TerminalSessionChoice {
+  mode: "terminal";
+  shellProfile?: string;
+}
+
+export type NewSessionChoice = SingleSessionChoice | PairSessionChoice | TerminalSessionChoice;
 
 export function reconcilePresetSelection(
   choice: NewSessionChoice,
@@ -63,8 +109,11 @@ export function reconcilePresetSelection(
 function resolveProvider(
   providers: ProviderDescriptor[],
   selectedProviderId?: string,
+  disabledProviderIds?: ReadonlySet<string>,
 ): ProviderDescriptor | undefined {
-  return providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
+  return providers.find(
+    (provider) => provider.id === selectedProviderId && isProviderSelectable(provider, disabledProviderIds),
+  ) ?? firstSelectableProvider(providers, disabledProviderIds);
 }
 
 export function resolveProviderModel(
@@ -114,8 +163,11 @@ export function initialProviderChoice(provider: ProviderDescriptor): NewSessionC
   return { mode: "single", providerId: provider.id, modelId, effortId: resolveEffort(provider, modelId) };
 }
 
-export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSessionChoice {
-  const provider = providers[0];
+export function defaultNewSessionChoice(
+  providers: ProviderDescriptor[],
+  disabledProviderIds?: ReadonlySet<string>,
+): NewSessionChoice {
+  const provider = firstSelectableProvider(providers, disabledProviderIds);
   const providerId = provider?.id ?? "";
   const modelId = resolveProviderModel(provider);
   return {
@@ -132,9 +184,13 @@ export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSes
 export function resolvePersistedChoice(
   providers: ProviderDescriptor[],
   choice: NewSessionChoice,
+  disabledProviderIds?: ReadonlySet<string>,
 ): NewSessionChoice {
+  if (choice.mode === "terminal") {
+    return choice.shellProfile ? { mode: "terminal", shellProfile: choice.shellProfile } : { mode: "terminal" };
+  }
   if (choice.mode === "single") {
-    const provider = resolveProvider(providers, choice.providerId);
+    const provider = resolveProvider(providers, choice.providerId, disabledProviderIds);
     const modelId = resolveProviderModel(provider, choice.modelId);
     return {
       mode: "single",
@@ -144,8 +200,8 @@ export function resolvePersistedChoice(
       effortId: resolveEffort(provider, modelId, choice.effortId),
     };
   }
-  const orchestrator = resolveProvider(providers, choice.orchestratorProviderId);
-  const planner = resolveProvider(providers, choice.plannerProviderId);
+  const orchestrator = resolveProvider(providers, choice.orchestratorProviderId, disabledProviderIds);
+  const planner = resolveProvider(providers, choice.plannerProviderId, disabledProviderIds);
   const orchestratorModelId = resolveProviderModel(orchestrator, choice.orchestratorModelId);
   const plannerModelId = resolveProviderModel(planner, choice.plannerModelId);
   return {
@@ -161,25 +217,29 @@ export function resolvePersistedChoice(
 
 export function readPersistedNewSessionChoice(
   providers: ProviderDescriptor[],
+  disabledProviderIds?: ReadonlySet<string>,
 ): NewSessionChoice {
   try {
     const raw = window.localStorage.getItem(NEW_SESSION_CHOICE_STORAGE_KEY);
-    if (!raw) return defaultNewSessionChoice(providers);
+    if (!raw) return defaultNewSessionChoice(providers, disabledProviderIds);
     const parsed = JSON.parse(raw) as NewSessionChoice;
+    if (parsed.mode === "terminal") {
+      return resolvePersistedChoice(providers, parsed, disabledProviderIds);
+    }
     if (parsed.mode === "single" && parsed.providerId) {
-      return resolvePersistedChoice(providers, parsed);
+      return resolvePersistedChoice(providers, parsed, disabledProviderIds);
     }
     if (
       parsed.mode === "pair"
       && parsed.orchestratorProviderId
       && parsed.plannerProviderId
     ) {
-      return resolvePersistedChoice(providers, parsed);
+      return resolvePersistedChoice(providers, parsed, disabledProviderIds);
     }
   } catch {
     // Quota/private-mode or corrupt payload — fall back to defaults.
   }
-  return defaultNewSessionChoice(providers);
+  return defaultNewSessionChoice(providers, disabledProviderIds);
 }
 
 export function writePersistedNewSessionChoice(choice: NewSessionChoice): void {

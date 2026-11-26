@@ -15,6 +15,7 @@ mod agent_tests;
 
 const INTERACTIVE: &[&str] = &[
     "button",
+    "toggleButton",
     "DisclosureTriangle",
     "summary",
     "link",
@@ -224,6 +225,7 @@ pub fn build_snapshot_with_text(
                         | "readonly"
                         | "focused"
                         | "checked"
+                        | "pressed"
                         | "selected"
                         | "expanded"
                         | "invalid"
@@ -262,7 +264,7 @@ pub fn build_snapshot_with_text(
                     "disabled" | "required" | "readonly" | "focused" if truthy(value) => {
                         line.push_str(&format!(" [{}]", property.name));
                     }
-                    "checked" | "selected" | "expanded" => {
+                    "checked" | "pressed" | "selected" | "expanded" => {
                         let state = display_value(value);
                         if matches!(state.as_str(), "true" | "false" | "mixed") {
                             line.push_str(&format!(" [{}={state}]", property.name));
@@ -369,7 +371,9 @@ impl std::fmt::Display for ResolveError {
 }
 
 fn role_matches(actual: &str, wanted: &str) -> bool {
-    actual == wanted || (wanted == "summary" && actual == "DisclosureTriangle")
+    actual == wanted
+        || (wanted == "summary" && actual == "DisclosureTriangle")
+        || (wanted == "button" && actual == "toggleButton")
 }
 
 /// Resolve `@e3` or `(role, name)` against the latest snapshot: exact name first, then substring.

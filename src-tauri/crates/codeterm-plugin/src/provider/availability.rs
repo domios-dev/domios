@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::js_runtime::{probe_bin, BinResolution};
+use crate::js_runtime::{probe_bin_with_extra_dirs, BinResolution};
 
 /// The three answers an observation can give. `Unknown` is what a probe that
 /// could not run reports: `Unavailable` means the ladder searched and found
@@ -47,6 +47,13 @@ pub struct LaunchBinaryObservation {
 /// Observe a provider's declared launch binary through the SHARED resolver.
 /// A provider that declares none launches nothing external, so nothing gates it.
 pub fn observe_launch_binary(binary: Option<&str>) -> LaunchBinaryObservation {
+    observe_launch_binary_in(binary, &[])
+}
+
+pub fn observe_launch_binary_in(
+    binary: Option<&str>,
+    extra_dirs: &[PathBuf],
+) -> LaunchBinaryObservation {
     let Some(binary) = binary.map(str::trim).filter(|b| !b.is_empty()) else {
         return LaunchBinaryObservation {
             availability: ProviderAvailability::Available,
@@ -54,7 +61,7 @@ pub fn observe_launch_binary(binary: Option<&str>) -> LaunchBinaryObservation {
             searched: Vec::new(),
         };
     };
-    let probe = probe_bin(binary);
+    let probe = probe_bin_with_extra_dirs(binary, extra_dirs);
     LaunchBinaryObservation {
         availability: ProviderAvailability::from_resolution(&probe.resolution),
         binary: Some(binary.to_string()),
@@ -78,7 +85,14 @@ pub struct ResolvedLaunchSpec {
 pub fn resolve_launch_spec(
     spec: &codeterm_types::agent::LaunchSpec,
 ) -> Result<ResolvedLaunchSpec, String> {
-    let target = match probe_bin(&spec.program).resolution {
+    resolve_launch_spec_in(spec, &[])
+}
+
+pub fn resolve_launch_spec_in(
+    spec: &codeterm_types::agent::LaunchSpec,
+    extra_dirs: &[PathBuf],
+) -> Result<ResolvedLaunchSpec, String> {
+    let target = match probe_bin_with_extra_dirs(&spec.program, extra_dirs).resolution {
         BinResolution::Found(path) => path,
         BinResolution::Missing => {
             return Err(format!("launch program not found: {}", spec.program))
@@ -91,12 +105,12 @@ pub fn resolve_launch_spec(
         }
     };
     let powershell = || {
-        ["pwsh", "powershell"]
-            .into_iter()
-            .find_map(|program| match probe_bin(program).resolution {
+        ["pwsh", "powershell"].into_iter().find_map(|program| {
+            match probe_bin_with_extra_dirs(program, &[]).resolution {
                 BinResolution::Found(path) => Some(path),
                 _ => None,
-            })
+            }
+        })
     };
     resolve_launch_target(spec, &target, cfg!(windows), powershell)
 }

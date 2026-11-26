@@ -20,12 +20,32 @@ pub(crate) fn stamp_launch_authority(
     {
         tab.report_target_mesh_peer = Some(peer.clone());
     }
+    // Stamp remote attempt binding before any background launch thread can check startup supervision.
+    if let Some(binding) = &params.remote_task_binding {
+        tab.task_binding = Some(TaskBinding {
+            plan_id: Some(binding.plan_id.clone()),
+            task_id: Some(binding.task_id.clone()),
+            attempt_id: Some(binding.attempt_id.clone()),
+            spawn_handle: None,
+            bound_at: now_unix_ms(),
+        });
+        if !binding.origin_peer_id.is_empty() {
+            tab.report_target_mesh_peer = Some(binding.origin_peer_id.clone());
+        }
+    }
 }
 
 pub(crate) fn now_unix_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
 

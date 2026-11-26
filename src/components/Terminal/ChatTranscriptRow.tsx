@@ -12,6 +12,7 @@ import { ChatDeliveryState } from "./ChatDeliveryState";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
+import { isRemoteMessageAttachmentRefusal } from "../../lib/remoteChatState";
 import { canRetryChatSend, canDeleteChatSend, canEditChatSend, deliveryError, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import { editChatDelivery } from "./chatDeliveryComposer";
 import { messageTurnId } from "./messageForkModel";
@@ -79,7 +80,7 @@ export interface ChatTranscriptRowProps {
   canContinueTurn?: boolean;
   forkable: boolean;
   revertible: boolean;
-  ariaLabel: string;
+  ariaLabel?: string;
   context: ChatTranscriptRowContext;
 }
 
@@ -136,7 +137,8 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   canContinueTurn, forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
   const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
-  const remoteFailure = deliverySend?.remoteFailure;
+  const remoteFailure = deliverySend?.remoteFailure && !isRemoteMessageAttachmentRefusal(deliverySend.remoteFailure)
+    ? deliverySend.remoteFailure : undefined;
   const error = deliverySend && !remoteFailure ? deliveryError(deliverySend) : null;
   const transcriptionFailed = deliveryView === "failed" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length) && isTranscriptionFailure(error);
   const onRetry = !remoteFailure && deliverySend && canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined;

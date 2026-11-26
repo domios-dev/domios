@@ -150,14 +150,17 @@ export const TerminalTab = memo(function TerminalTab({
   const [terminalIoReady, setTerminalIoReady] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
+  const isChatBackend = tab?.backing?.kind === "chat_backend";
+  const terminalVisible = !isChatBackend && (uiMode === "terminal" || terminalFallbackOpen);
   const ownsLivePty = terminalOwnsLivePty({
     frozen: tab?.frozen,
+    chatBackend: isChatBackend,
     terminalVisible,
     tabVisible: isVisible,
     ptyId,
   });
   const renderTerminal = terminalRenderEnabled({
+    chatBackend: isChatBackend,
     terminalVisible,
     tabVisible: isVisible,
   });
@@ -512,12 +515,12 @@ export const TerminalTab = memo(function TerminalTab({
         </div>
       )}
       <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
-      {isVisible && uiMode === "terminal" && framePtyId === null && (!terminalIoReady || !frameReady) && !lock.locked && (
+      {!isChatBackend && isVisible && uiMode === "terminal" && framePtyId === null && (!terminalIoReady || !frameReady) && !lock.locked && (
         readinessFailed
           ? <TerminalStartFailure onRetry={retryConnection} />
           : <Loader label="Starting terminal…" variant="overlay" className="z-20" />
       )}
-      <DeferredPresence present={isVisible && uiMode === "terminal" && framePtyId !== null && (!terminalIoReady || !frameReady) && !lock.locked}
+      <DeferredPresence present={!isChatBackend && isVisible && uiMode === "terminal" && framePtyId !== null && (!terminalIoReady || !frameReady) && !lock.locked}
         className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
         <BusyState inline indicator="brand" label="Restoring…" phase="work" className="ct-bar-pill" />
       </DeferredPresence>
@@ -796,7 +799,7 @@ export const TerminalTab = memo(function TerminalTab({
       </div>
 
       {/* Loading overlay */}
-      {terminalVisible && !(tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt) && <TabBootOverlay
+      {!isChatBackend && terminalVisible && !(tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt) && <TabBootOverlay
         tabId={tabId}
         view={bootOverlay}
         workspace={tabWorkspace}

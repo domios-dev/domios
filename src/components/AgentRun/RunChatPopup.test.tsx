@@ -12,14 +12,14 @@ import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions
 import type { Service } from "../MeshPanel/types";
 
 const tabState = vi.hoisted(() => ({ tab: { agent_session_id: "session-1", session_binding_nonce: "nonce" } as { agent_session_id: string; session_binding_nonce: string } | undefined }));
-const transcriptRelay = vi.hoisted(() => ({ calls: [] as Array<{ peerId?: string; method: string; path: string }> }));
+const transcriptRelay = vi.hoisted(() => ({ messages: [] as NormalizedChatMessage[], calls: [] as Array<{ peerId?: string; method: string; path: string }> }));
 vi.mock("../../store/multiplexer/hooks", () => ({ useMuxSelector: () => tabState.tab }));
 vi.mock("../../lib/daemonBootstrap", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/daemonBootstrap")>(),
   daemonTransportForPeer: (peerId?: string) => ({
     json: async (method: string, path: string) => {
       transcriptRelay.calls.push({ peerId, method, path });
-      return { messages: [] };
+      return { messages: transcriptRelay.messages };
     },
   }),
 }));
@@ -34,6 +34,7 @@ afterEach(() => {
   vi.useRealTimers();
   tabState.tab = { agent_session_id: "session-1", session_binding_nonce: "nonce" };
   transcriptRelay.calls = [];
+  transcriptRelay.messages = [];
 });
 
 const drawerRun: CronRunInfo = {
@@ -156,7 +157,12 @@ it("reads a completed run by its retained session without requiring its closed t
   }
 });
 
-it("loads a cron transcript from the run owner using cron and run identity", async () => {
+it("shows the assigned task from a retained cron transcript on its owning peer", async () => {
+  const body = "Opaque scheduled task instruction";
+  transcriptRelay.messages = [{
+    id: "task", type: "user", content: `<domios from="system" context="assigned-task">${body}</domios>`,
+    segments: [{ type: "frame", kind: "system", from: "system", attrs: { from: "system", context: "assigned-task" }, body, tip: null }],
+  }];
   const root = createRoot(document.createElement("div"));
   try {
     await act(async () => root.render(<RunChatPopup
@@ -170,6 +176,11 @@ it("loads a cron transcript from the run owner using cron and run identity", asy
       ownerInstanceId="machine-air"
       onClose={() => undefined}
     />));
+    const notice = document.body.querySelector('[role="status"]');
+    const task = [...notice?.querySelectorAll("button") ?? []].find(button => button.textContent?.includes("assigned-task"));
+    expect(task).toBeDefined();
+    await act(async () => task!.click());
+    expect(notice?.textContent).toContain(body);
     expect(transcriptRelay.calls).toEqual([{
       peerId: "machine-air",
       method: "GET",

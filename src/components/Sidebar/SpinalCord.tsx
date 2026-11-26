@@ -21,7 +21,7 @@ function useIdleGlint(active: boolean) {
     let timer = 0;
     const schedule = () => {
       timer = window.setTimeout(() => {
-        setGlint((value) => value + 1);
+        if (!document.hidden) setGlint((value) => value + 1);
         schedule();
       }, GLINT_MIN_MS + Math.random() * GLINT_SPREAD_MS);
     };

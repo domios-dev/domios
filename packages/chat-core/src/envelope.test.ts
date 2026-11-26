@@ -6,6 +6,7 @@ import { markVoice } from "./markers";
 import { formatAttachmentMarker } from "./attachmentMarker";
 import type { FrameKind } from "./gen/FrameKind";
 import { parseDsBlocks } from "./dsBlocks";
+import { rawEnvelopeExclusions } from "./envelopeSpans";
 
 interface Fixture { name: string; source: string; raw: string; route: string; quoted?: boolean; segments: MessageSegment[] }
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Fixture[];
@@ -26,6 +27,8 @@ const expectedRows: Record<string, number> = {
   "pad-substituted body": 1, "owner text with trailing pasted marker": 1, "pasted voice note": 1, "unknown sender kind": 1,
   "opening tag cut before its close": 1, "neighbor question with host tip": 1,
   "routed file after context with unmatched fence": 1, "agent sender with model": 1,
+  "routed paired tab mention": 2, "routed unpaired tab mention": 1, "inline unpaired tab mention": 1,
+  "unpaired tab mention followed by newline": 1, "unpaired tab mention followed by owner text": 2,
 };
 
 function displayed(segments: readonly MessageSegment[]): string[] {
@@ -53,6 +56,24 @@ for (const fixture of fixtures) {
   }
 }
 const screenshot = fixtures.find((fixture) => fixture.name === "owner merged screenshot")!;
+for (const [name, complete] of [
+  ["routed paired tab mention", true],
+  ["routed unpaired tab mention", false],
+  ["unpaired tab mention followed by newline", false],
+  ["unpaired tab mention followed by owner text", false],
+  ["inline unpaired tab mention", false],
+] as const) {
+  const fixture = fixtures.find((item) => item.name === name)!;
+  const rows = envelopeRows(fixture.segments);
+  const visible = fixture.segments.filter((segment) => segment.type !== "text" || segment.text.trim().length > 0);
+  assert.deepEqual(rows.map((row) => row.content), displayed(visible), name);
+  assert.deepEqual(rows.map((row) => row.frame?.kind), visible.map((segment) =>
+    segment.type === "frame" ? segment.kind : undefined), name);
+  const end = fixture.raw.length - (complete ? (rows[1]?.content.length ?? 0) : 0);
+  assert.deepEqual(rawEnvelopeExclusions(fixture.raw), [{
+    start: fixture.raw.indexOf("<domios"), end, kind: "domios", complete, malformed: false,
+  }], name);
+}
 assert.deepEqual(envelopeRows(screenshot.segments).map((row) => [row.frame?.attrs.tab, row.content.trim()]), [
   [undefined, "какой щас план?"], ["41f7661c", "Harness preflight caught ... Product code untouched."],
 ]);

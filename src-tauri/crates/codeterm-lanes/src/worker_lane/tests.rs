@@ -154,6 +154,51 @@ fn repository_remote_normalization_unifies_supported_forms() {
 }
 
 #[test]
+fn file_remote_identity_error_explains_accepted_url_schemes() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+    let cwd = project.to_str().unwrap();
+
+    let no_remote_err = repository_identities(cwd).unwrap_err();
+    assert!(
+        no_remote_err.contains("ssh")
+            && no_remote_err.contains("https")
+            && no_remote_err.contains("git"),
+        "missing remote error must name accepted schemes: {no_remote_err}"
+    );
+
+    git(
+        &project,
+        &["remote", "add", "origin", "file:///tmp/local-bare.git"],
+    );
+    let file_err = repository_identities(cwd).unwrap_err();
+    assert!(
+        file_err.contains("ssh") && file_err.contains("https") && file_err.contains("git"),
+        "file:// remote error must state accepted ssh/https/git URLs: {file_err}"
+    );
+    assert!(
+        !file_err.contains("no configured repository remote identity"),
+        "file:// remote error must not claim no remote is configured: {file_err}"
+    );
+
+    git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/rollacode/codeterm.git",
+        ],
+    );
+    assert_eq!(
+        repository_identities(cwd).unwrap(),
+        vec!["github.com/rollacode/codeterm".to_string()]
+    );
+}
+
+#[test]
 fn repository_identity_intersection_matches_one_of_multiple_remotes() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("project");

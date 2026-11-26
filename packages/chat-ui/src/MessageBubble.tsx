@@ -4,7 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, userMessageAttachments } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, materializeToolEvent, parseProviderErrorRemediation, readableSystemReminder, shortTabRef, systemOriginLabel, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -28,9 +28,11 @@ import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportC
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { NeighborOriginHeader } from "./codeterm/NeighborOriginHeader";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
+import { TaskStridesBlock } from "./TaskStridesBlock";
 import { ChatNoticeCard } from "./ChatNoticeCard";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import { BoundedNoticeText } from "./BoundedNoticeText";
+import { ProviderErrorNotice } from "./ProviderErrorNotice";
 import { MessageTimeFrame } from "./MessageTimeFrame";
 import { messageRowTime } from "./messageRowTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
@@ -263,9 +265,30 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           bodyClassName={`${userText} ${TEXT_WRAP_CLASS}`}
           status={prompt ? undefined : noticeStatus}
         >
-          {reminder
-            ? <CompactMessageContent text={reminder.text} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
-            : <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />}
+          {reminder && reminder.sections.some((section) => section.taskStrides)
+            ? reminder.sections.map((section, index) => section.taskStrides
+              ? (
+                <TaskStridesBlock
+                  key={index}
+                  block={section.taskStrides}
+                  renderBody={(body) => (
+                    <RichMarkdown text={body} fontScale={fontScale} planLinks={{ onOpenPlan, resolvePlanRef }} />
+                  )}
+                />
+              )
+              : (
+                <CompactMessageContent
+                  key={index}
+                  text={section.body}
+                  fontScale={fontScale}
+                  onOpenPlan={onOpenPlan}
+                  resolvePlanRef={resolvePlanRef}
+                  collapseAfter={Number.POSITIVE_INFINITY}
+                />
+              ))
+            : reminder
+              ? <CompactMessageContent text={reminder.text} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+              : <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />}
         </ChatNoticeCard>
       );
     }
@@ -466,6 +489,10 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   if (message.type === "system" || message.type === "local_command") {
     if (message.systemSubtype === "api_error") {
+      const remediation = parseProviderErrorRemediation(message.toolInput);
+      if (remediation) {
+        return <ProviderErrorNotice remediation={remediation} onRetry={remediation.retry ? onContinueTurn : undefined} />;
+      }
       return <div role="alert" aria-label="Provider API error" className="mb-2 w-full rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}><BoundedNoticeText text={message.content} /></div>;
     }
     if (message.systemSubtype === "turn_stop_reason") {

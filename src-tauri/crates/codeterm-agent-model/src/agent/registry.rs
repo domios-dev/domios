@@ -414,24 +414,20 @@ impl AgentRegistry {
     /// it can run here, so enumeration observes it outside the registry lock.
     pub fn list_descriptors(&self) -> Vec<crate::agent::provider::ProviderDescriptor> {
         let providers = self.all_provider_arcs();
-        let described: Vec<_> = providers
+        providers
             .iter()
-            .map(|p| {
-                let descriptor = p.describe();
-                let launch_binary = descriptor
+            .map(|provider| {
+                let mut descriptor = provider.describe();
+                let binary = descriptor
                     .agent_runtime
                     .as_ref()
-                    .map(|runtime| runtime.command.binary.clone())
-                    .unwrap_or_else(|| p.binary_name().to_string());
-                (descriptor, launch_binary)
-            })
-            .collect();
-        described
-            .into_iter()
-            .map(|(mut descriptor, launch_binary)| {
-                descriptor.availability =
-                    crate::agent::provider::observe_launch_binary(Some(&launch_binary))
-                        .availability;
+                    .map(|runtime| runtime.command.binary.as_str())
+                    .unwrap_or_else(|| provider.binary_name());
+                descriptor.availability = crate::agent::provider::observe_launch_binary_in(
+                    Some(binary),
+                    &provider.cli_search_dirs(),
+                )
+                .availability;
                 descriptor
             })
             .collect()

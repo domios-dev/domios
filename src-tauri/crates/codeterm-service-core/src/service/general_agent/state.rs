@@ -11,6 +11,8 @@ use super::general_dir;
 pub(super) struct GeneralAgentSessionState {
     pub(super) provider: String,
     pub(super) session_id: String,
+    #[serde(default)]
+    pub(super) by_provider: std::collections::BTreeMap<String, String>,
 }
 
 struct SessionCandidate {
@@ -42,7 +44,7 @@ pub(super) fn load_session_record(
     )
 }
 
-fn load_session_record_from(
+pub(super) fn load_session_record_from(
     registry: &crate::agent::registry::AgentRegistry,
     provider_name: &str,
     cwd: &str,
@@ -50,21 +52,28 @@ fn load_session_record_from(
     path: &Path,
 ) -> Option<GeneralAgentSessionState> {
     let text = std::fs::read_to_string(path).ok()?;
-    let state: GeneralAgentSessionState = serde_json::from_str(&text).ok()?;
-    if state.provider != provider_name
-        || state.session_id.is_empty()
-        || excluded.contains(&state.session_id)
-    {
+    let mut state: GeneralAgentSessionState = serde_json::from_str(&text).ok()?;
+    let session_id = if state.provider == provider_name {
+        state.session_id.clone()
+    } else {
+        state.by_provider.get(provider_name)?.clone()
+    };
+    if session_id.is_empty() || excluded.contains(&session_id) {
         return None;
     }
     let valid = registry
         .with_provider(provider_name, |p| {
             can_resume_saved_session(p.agent_runtime().is_some(), || {
-                p.session_exists(cwd, &state.session_id)
+                p.session_exists(cwd, &session_id)
             })
         })
         .unwrap_or(false);
-    valid.then_some(state)
+    if !valid {
+        return None;
+    }
+    state.provider = provider_name.to_string();
+    state.session_id = session_id;
+    Some(state)
 }
 
 fn can_resume_saved_session(runtime: bool, session_exists: impl FnOnce() -> Option<bool>) -> bool {
@@ -72,11 +81,33 @@ fn can_resume_saved_session(runtime: bool, session_exists: impl FnOnce() -> Opti
 }
 
 pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
+    persist_session_id_to(&session_state_path(), provider_name, session_id);
+}
+
+pub(super) fn persist_session_id_to(path: &Path, provider_name: &str, session_id: &str) {
+    let mut by_provider = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<GeneralAgentSessionState>(&text).ok())
+        .map(|mut existing| {
+            if !existing.provider.is_empty() && !existing.session_id.is_empty() {
+                existing
+                    .by_provider
+                    .entry(existing.provider)
+                    .or_insert(existing.session_id);
+            }
+            existing.by_provider
+        })
+        .unwrap_or_default();
+    by_provider.insert(provider_name.to_string(), session_id.to_string());
     let state = GeneralAgentSessionState {
         provider: provider_name.to_string(),
         session_id: session_id.to_string(),
+        by_provider,
     };
-    let path = session_state_path();
+    write_session_state(path, &state);
+}
+
+fn write_session_state(path: &Path, state: &GeneralAgentSessionState) {
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             log::warn!(
@@ -88,7 +119,7 @@ pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
         }
     }
     let tmp = path.with_extension("json.tmp");
-    let Ok(body) = serde_json::to_string_pretty(&state) else {
+    let Ok(body) = serde_json::to_string_pretty(state) else {
         return;
     };
     if let Err(e) = std::fs::write(&tmp, body) {
@@ -99,7 +130,7 @@ pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
         );
         return;
     }
-    if let Err(e) = std::fs::rename(&tmp, &path) {
+    if let Err(e) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
         log::warn!(
             "[general-agent] failed to commit session state {}: {}",
@@ -109,9 +140,73 @@ pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
     }
 }
 
-pub(super) fn clear_session_id() {
-    let path = session_state_path();
-    if let Err(e) = std::fs::remove_file(&path) {
+pub(super) fn has_recorded_session() -> bool {
+    has_recorded_session_in(&general_dir())
+}
+
+pub(super) fn has_recorded_session_in(dir: &Path) -> bool {
+    let path = dir.join("state").join("general-agent-session.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<GeneralAgentSessionState>(&text).ok())
+        .is_some_and(|state| {
+            !state.session_id.is_empty() || state.by_provider.values().any(|id| !id.is_empty())
+        })
+}
+
+fn bootstrap_dispatched_path_in(dir: &Path) -> PathBuf {
+    dir.join("state").join("bootstrap-dispatched")
+}
+
+pub(super) fn bootstrap_dispatched_in(dir: &Path) -> bool {
+    bootstrap_dispatched_path_in(dir).is_file()
+}
+
+pub(super) fn mark_bootstrap_dispatched() {
+    mark_bootstrap_dispatched_in(&general_dir());
+}
+
+pub(super) fn mark_bootstrap_dispatched_in(dir: &Path) {
+    let path = bootstrap_dispatched_path_in(dir);
+    if let Some(parent) = path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            log::warn!(
+                "[general-agent] failed to create bootstrap state dir {}: {error}",
+                parent.display()
+            );
+            return;
+        }
+    }
+    if let Err(error) = std::fs::write(&path, b"dispatched") {
+        log::warn!(
+            "[general-agent] failed to persist bootstrap marker {}: {error}",
+            path.display()
+        );
+    }
+}
+
+pub(super) fn clear_bootstrap_dispatched() {
+    clear_bootstrap_dispatched_in(&general_dir());
+}
+
+pub(super) fn clear_bootstrap_dispatched_in(dir: &Path) {
+    let path = bootstrap_dispatched_path_in(dir);
+    if let Err(error) = std::fs::remove_file(&path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            log::warn!(
+                "[general-agent] failed to remove bootstrap marker {}: {error}",
+                path.display()
+            );
+        }
+    }
+}
+
+pub(super) fn clear_all_session_ids() {
+    clear_all_session_ids_at(&session_state_path());
+}
+
+fn clear_all_session_ids_at(path: &Path) {
+    if let Err(e) = std::fs::remove_file(path) {
         if e.kind() != std::io::ErrorKind::NotFound {
             log::warn!(
                 "[general-agent] failed to remove session state {}: {}",
@@ -119,6 +214,35 @@ pub(super) fn clear_session_id() {
                 e
             );
         }
+    }
+}
+
+pub(super) fn clear_session_id_for_provider(provider_name: &str) {
+    clear_session_id_for_provider_in(&session_state_path(), provider_name);
+}
+
+pub(super) fn clear_session_id_for_provider_in(path: &Path, provider_name: &str) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(mut state) = serde_json::from_str::<GeneralAgentSessionState>(&text) else {
+        return;
+    };
+    if !state.provider.is_empty() && !state.session_id.is_empty() {
+        state
+            .by_provider
+            .entry(state.provider.clone())
+            .or_insert_with(|| state.session_id.clone());
+    }
+    state.by_provider.remove(provider_name);
+    if state.provider == provider_name {
+        state.provider.clear();
+        state.session_id.clear();
+    }
+    if state.session_id.is_empty() && state.by_provider.is_empty() {
+        clear_all_session_ids_at(path);
+    } else {
+        write_session_state(path, &state);
     }
 }
 
@@ -140,6 +264,21 @@ pub(super) fn take_fresh_session_requirement() -> bool {
             false
         }
     }
+}
+
+pub(super) fn prepare_with_fresh_session_requirement<T>(
+    marker: &Path,
+    prepare: impl FnOnce(bool) -> Result<T, String>,
+) -> Result<T, String> {
+    let fresh = marker
+        .try_exists()
+        .map_err(|error| format!("Cannot read General's fresh-session request: {error}"))?;
+    let prepared = prepare(fresh)?;
+    if fresh {
+        std::fs::remove_file(marker)
+            .map_err(|error| format!("Cannot clear General's fresh-session request: {error}"))?;
+    }
+    Ok(prepared)
 }
 
 pub(super) fn detect_owned_session_id(
@@ -217,13 +356,13 @@ pub(super) fn session_id_is_owned(
         .unwrap_or(false)
 }
 
-fn session_state_path() -> std::path::PathBuf {
+pub(super) fn session_state_path() -> std::path::PathBuf {
     general_dir()
         .join("state")
         .join("general-agent-session.json")
 }
 
-fn fresh_session_path() -> std::path::PathBuf {
+pub(super) fn fresh_session_path() -> std::path::PathBuf {
     general_dir().join("state").join("force-fresh-session")
 }
 

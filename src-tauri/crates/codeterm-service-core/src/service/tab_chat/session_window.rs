@@ -243,6 +243,7 @@ pub fn try_snapshot(
                 provider_session_id: row.provider_session_id.clone(),
                 provider_observations: row.provider_observations.clone(),
                 background_work: row.background_work.clone(),
+                background_tool_calls: row.background_tool_calls.clone(),
                 blocks: row
                     .blocks
                     .iter()

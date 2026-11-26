@@ -109,7 +109,7 @@ Task writes require current caller, session and binding authority (API). Executi
 | GET | `/api/efforts/{id}` | Read an effort. |
 | GET | `/api/plans` | List plans in the selected scope. |
 | GET | `/api/plans/task-reference` | Resolve `reference` to task and plan metadata, optionally scoped by `project` or `team`. |
-| GET | `/api/plans/{id}` | Read a plan. |
+| GET | `/api/plans/{id}` | Read a plan (bounded by default; pass `full=true` for the complete document export). |
 | GET | `/api/plans/{id}/attachments` | Read plan attachments. |
 | GET | `/api/plans/{id}/board-state` | Read board runtime state and optional events (`event_cursor`, `events`). |
 | GET | `/api/plans/{id}/control-loop` | Read the control-loop configuration. |
@@ -195,4 +195,4 @@ accept the same optional `page` and `all` parameters. Nested detail lists expand
 history windows remain bounded. Pages reflect the current
 plan revision; restart from page 1 after a revision change.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

@@ -892,6 +892,7 @@ Stop any currently-running executions of a cron job without deleting the job def
 Mark a cron run as complete (called by agent at end of task)
 
 - `--run-id` — Run ID
+- `--status` — Completion status (defaults to success)
 - `--summary` — Summary of what happened
 - `--yes` — Confirm a human completion when this caller has no tab identity
 
@@ -1997,13 +1998,12 @@ Push our current address list to paired peers without re-detecting locally. Use 
 
 #### `domios mesh identity`
 
-Manage the kind icon and colour of an installation
+Manage the kind icon of an installation
 
 #### `domios mesh identity set`
 
-Set the machine's kind and colour. Requires owner authority
+Set the machine's kind icon. Requires owner authority
 
-- `--color`
 - `--kind`
 - `--peer` — Set the identity on this paired machine by name or ID
 

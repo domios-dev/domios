@@ -6,15 +6,19 @@ import { Button } from "../shared/Button";
 import { SettingsCard, Toggle } from "./shared";
 import type { AppConfig } from "../../lib/types";
 import { capabilityHintsEnabled, capabilityHintsPatch } from "./generalAgentSettingsModel";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 interface GeneralAgentCardProps {
   config: AppConfig;
+  peerId?: string;
   onOpenGuide?: (section: HelpSectionId) => void;
   onSwitchProvider?: (provider: string) => Promise<void>;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }
 
-export function GeneralAgentCard({ config, onUpdate, onSwitchProvider, onOpenGuide }: GeneralAgentCardProps) {
+export function GeneralAgentCard({ config, peerId, onUpdate, onSwitchProvider, onOpenGuide }: GeneralAgentCardProps) {
+  const remoteTarget = useSettingsRemoteTarget();
+  const targetPeerId = peerId !== undefined ? peerId : remoteTarget?.id;
   return (
     <SettingsCard
       icon={<Bot size={16} />}
@@ -34,6 +38,7 @@ export function GeneralAgentCard({ config, onUpdate, onSwitchProvider, onOpenGui
       {config.general_agent?.enabled && (
         <div className="space-y-3">
             {onSwitchProvider && <GeneralAgentProviderChoice current={config.general_agent?.agent_provider}
+              peerId={targetPeerId}
               enabled={config.general_agent?.enabled ?? true} onSwitch={onSwitchProvider} onOpenGuide={onOpenGuide} />}
 
             <Button
@@ -41,7 +46,8 @@ export function GeneralAgentCard({ config, onUpdate, onSwitchProvider, onOpenGui
               size="compact"
               data-testid="settings-general-agent-restart"
               onClick={() => {
-                invoke("restart_general_agent").catch((e) => console.error("GA restart failed:", e));
+                invoke("restart_general_agent", targetPeerId ? { peerId: targetPeerId } : undefined)
+                  .catch((e) => console.error("GA restart failed:", e));
               }}
               className="text-[11px]"
             >

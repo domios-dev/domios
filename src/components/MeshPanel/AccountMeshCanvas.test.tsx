@@ -100,14 +100,19 @@ describe("Mesh canvas wiring", () => {
   it("returns focus to the machine editor trigger after Escape, an outside press, or Back", async () => {
     await act(async () => root.render(<MachineSessionControls name="Desk" busy={false} identityPeer={null} />));
     const trigger = button("More for Desk")!;
-    const editor = () => document.querySelector('[role="group"][aria-label="Icon and colour"]');
+    const editor = () => document.querySelector('[role="group"][aria-label="Machine icon"]');
     const open = async () => {
       await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-      expect(document.activeElement?.textContent).toBe("Change icon and colour");
+      expect(document.activeElement?.textContent).toBe("Change icon");
       await click(document.activeElement as HTMLElement);
       expect(editor()?.contains(document.activeElement)).toBe(true);
     };
     await open();
+    const groups = [...editor()!.querySelectorAll('[role="radiogroup"]')];
+    expect(groups).toHaveLength(1);
+    expect(editor()!.querySelector(".machine-options__swatch")).toBeNull();
+    const tile = editor()!.querySelector<HTMLElement>(".ct-card__icon")!;
+    expect(tile.style.getPropertyValue("--ct-card-tone")).toBe("var(--ct-accent)");
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })));
     expect(editor()).toBeNull();
     expect(document.activeElement).toBe(trigger);
@@ -475,7 +480,7 @@ describe("Mesh canvas wiring", () => {
     const more = button("More for MacBook")!;
     more.focus();
     await act(async () => more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(document.activeElement?.textContent).toBe("Change icon and colour");
+    expect(document.activeElement?.textContent).toBe("Change icon");
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     expect(document.activeElement?.textContent).toBe("Sign out this machine");
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
@@ -564,7 +569,7 @@ describe("Mesh canvas wiring", () => {
     const remoteCard = host.querySelector('[role="group"][aria-label^="BLACKSTAR #1,"]')!;
     expect(localCard.textContent).toContain("Same name as 1 other");
     expect(remoteCard.textContent).toContain("Same name as 1 other");
-    expect(localCard.querySelector('button[aria-label="Rename BLACKSTAR #2 in Icon and colour"]')).not.toBeNull();
+    expect(localCard.querySelector('button[aria-label="Rename BLACKSTAR #2 in Machine icon"]')).not.toBeNull();
     const more = button("More for BLACKSTAR #2")!;
     await act(async () => more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     const rename = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent?.startsWith("Rename…"));
@@ -594,9 +599,9 @@ describe("Mesh canvas wiring", () => {
     const cards = host.querySelectorAll('[aria-label^="BLACKSTAR #"][role="group"], section[aria-label^="BLACKSTAR #"]');
     expect(cards).toHaveLength(3);
     for (const card of cards) expect(card.textContent).toContain("Same name as 2 others");
-    const local = button("Rename BLACKSTAR #3 in Icon and colour")!;
+    const local = button("Rename BLACKSTAR #3 in Machine icon")!;
     expect(local.getAttribute("aria-disabled")).toBeNull();
-    await expectUnavailableRename("Rename BLACKSTAR #1 in Icon and colour");
+    await expectUnavailableRename("Rename BLACKSTAR #1 in Machine icon");
     await click(local);
     expect(document.activeElement).toBe(document.querySelector("[data-machine-name]"));
   });

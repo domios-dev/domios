@@ -17,3 +17,4 @@ export function getCachedShellModel(
 
 export const subscribeShellModel = resource.subscribe;
 export const fetchShellSessionModel = resource.load;
+export const setCachedShellModel = resource.set;

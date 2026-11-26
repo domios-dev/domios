@@ -593,48 +593,32 @@ pub fn launch(
     tab: &str,
     config: Value,
 ) -> Result<(), String> {
-    launch_with_fork(svc, provider, tab, config, None, None, None)
+    launch_with_context(svc, provider, tab, config, LaunchContext::default())
 }
 
-pub(crate) fn launch_fork(
+#[derive(Default)]
+pub(crate) struct LaunchContext<'a> {
+    pub(crate) fork: Option<(&'a str, &'a str)>,
+    pub(crate) boundary: Option<&'a std::sync::atomic::AtomicBool>,
+    pub(crate) cron_owner: Option<&'a crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
+    pub(crate) require_signed_in: bool,
+}
+
+pub fn is_sign_in_required_launch_error(error: &str) -> bool {
+    error.contains(&RuntimeFailure::SignInRequired.to_string())
+}
+
+pub(crate) fn launch_with_context(
     svc: &ServiceContext,
     provider: &str,
     tab: &str,
     config: Value,
-    source_thread_id: &str,
-    turn_id: &str,
-) -> Result<(), String> {
-    launch_with_fork(
-        svc,
-        provider,
-        tab,
-        config,
-        Some((source_thread_id, turn_id)),
-        None,
-        None,
-    )
-}
-
-pub(crate) fn launch_with_boundary(
-    svc: &ServiceContext,
-    provider: &str,
-    tab: &str,
-    config: Value,
-    fork: Option<(&str, &str)>,
-    boundary: Option<&std::sync::atomic::AtomicBool>,
-    cron_owner: Option<&crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
-) -> Result<(), String> {
-    launch_with_fork(svc, provider, tab, config, fork, boundary, cron_owner)
-}
-
-fn launch_with_fork(
-    svc: &ServiceContext,
-    provider: &str,
-    tab: &str,
-    config: Value,
-    fork: Option<(&str, &str)>,
-    boundary: Option<&std::sync::atomic::AtomicBool>,
-    cron_owner: Option<&crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
+    LaunchContext {
+        fork,
+        boundary,
+        cron_owner,
+        require_signed_in,
+    }: LaunchContext<'_>,
 ) -> Result<(), String> {
     let nonce = if let Some(owner) = cron_owner {
         svc.capture_cron_pad(owner)?;
@@ -700,12 +684,15 @@ fn launch_with_fork(
             }
         })
     }
-    .or_else(|error| match fork {
-        None if cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read())) => {
+    .or_else(|error| {
+        if !require_signed_in
+            && fork.is_none()
+            && cron_owner.is_none_or(|owner| owner.matches(&svc.mux.read()))
+        {
             engine::login_pending_session(svc, tab, error)
+        } else {
+            Err(error)
         }
-        None => Err(error),
-        Some(_) => Err(error),
     })
     .and_then(|session| {
         if cron_owner.is_some() && session.context.lock().binding_nonce != nonce {

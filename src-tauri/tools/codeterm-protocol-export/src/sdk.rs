@@ -98,6 +98,7 @@ pub(super) fn export_sdk(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_plugin::provider::AuthStatusProbe::export_all(config)?;
     codeterm_plugin::provider::PermissionHookCapability::export_all(config)?;
     codeterm_types::agent::background_work::BackgroundWorkObservation::export_all(config)?;
+    codeterm_types::agent::background_work::BackgroundToolCall::export_all(config)?;
     codeterm_plugin::js_runtime::manifest::SerdeModelInfo::export_all(config)?;
     codeterm_types::agent::context::TurnContext::export_all(config)?;
     codeterm_types::agent::LaunchSpec::export_all(config)?;

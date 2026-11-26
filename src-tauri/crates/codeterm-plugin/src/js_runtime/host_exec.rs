@@ -18,7 +18,10 @@ use parking_lot::{Condvar, Mutex};
 use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
 
-use super::bin_resolve::{resolve_bin, well_known_bin_dirs};
+use super::bin_resolve::{
+    merged_search_path_with_extra_dirs, resolve_bin, resolve_bin_with_extra_dirs,
+    well_known_bin_dirs,
+};
 use super::host_api::PluginSandbox;
 
 const MAX_EXEC_JOBS_PER_PLUGIN: usize = 128;
@@ -124,6 +127,27 @@ pub(super) fn run(opts_json: &str) -> String {
     run_with_host_env(opts_json, &HashMap::new(), &PluginSandbox::unrestricted())
 }
 
+fn apply_search_path(
+    command: &mut std::process::Command,
+    resolved: &std::path::Path,
+    env: &HashMap<String, String>,
+    extra_bin_dirs: &[std::path::PathBuf],
+) {
+    if env.keys().any(|key| key.eq_ignore_ascii_case("PATH")) {
+        return;
+    }
+    let mut extra = extra_bin_dirs.to_vec();
+    if let Some(parent) = resolved
+        .parent()
+        .filter(|dir| dir.is_absolute() && !dir.as_os_str().is_empty())
+    {
+        extra.push(parent.to_path_buf());
+    }
+    if let Some(path) = merged_search_path_with_extra_dirs(&extra) {
+        command.env("PATH", path);
+    }
+}
+
 pub(super) fn run_with_host_env(
     opts_json: &str,
     host_env: &HashMap<String, String>,
@@ -138,9 +162,9 @@ pub(super) fn run_with_host_env(
         return err(&error);
     }
     if let Some(conversation) = opts.conversation.as_deref() {
-        return run_conversation(&opts, conversation);
+        return run_conversation(&opts, conversation, sandbox.extra_bin_dirs());
     }
-    let resolved = resolve_bin(&opts.bin, &well_known_bin_dirs());
+    let resolved = resolve_bin_with_extra_dirs(&opts.bin, sandbox.extra_bin_dirs());
 
     if opts.detach {
         let log = |p: &str| {
@@ -162,6 +186,7 @@ pub(super) fn run_with_host_env(
             Err(error) => return err(&error),
         };
         codeterm_util::process_util::no_window_std(&mut command);
+        apply_search_path(&mut command, &resolved, &opts.env, sandbox.extra_bin_dirs());
         return match command
             .args(&opts.args)
             .envs(&opts.env)
@@ -185,6 +210,7 @@ pub(super) fn run_with_host_env(
         Ok(command) => command,
         Err(error) => return err(&error),
     };
+    apply_search_path(&mut command, &resolved, &opts.env, sandbox.extra_bin_dirs());
     let mut child = match child::Owned::spawn(
         command
             .args(&opts.args)
@@ -248,7 +274,11 @@ pub(super) fn run_with_host_env(
         .unwrap_or_else(|_| "null".into())
 }
 
-fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> String {
+fn run_conversation(
+    opts: &ExecOpts,
+    conversation: &[ExecConversationStep],
+    extra_bin_dirs: &[std::path::PathBuf],
+) -> String {
     if opts.detach || opts.stdin.is_some() || conversation.is_empty() {
         return err("exec conversation requires stages, piped stdin, and a foreground process");
     }
@@ -259,11 +289,12 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
         return err("exec conversation stage has no awaited response ids");
     }
 
-    let resolved = resolve_bin(&opts.bin, &well_known_bin_dirs());
+    let resolved = resolve_bin_with_extra_dirs(&opts.bin, extra_bin_dirs);
     let mut command = match crate::provider_command::command(&resolved) {
         Ok(command) => command,
         Err(error) => return err(&error),
     };
+    apply_search_path(&mut command, &resolved, &opts.env, extra_bin_dirs);
     let mut child = match child::Owned::spawn(
         command
             .args(&opts.args)

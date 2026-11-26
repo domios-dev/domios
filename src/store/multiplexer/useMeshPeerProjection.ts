@@ -1,6 +1,9 @@
 import { useEffect, type RefObject } from "react";
 import { invoke, listen } from "../../lib/bridge";
+import { resumeRemoteOutputStreams } from "../../lib/outputStream";
+import { isMeshDisabledError } from "../../lib/remoteChatState";
 import { updateRemoteChatPeers } from "../../lib/remoteChatStatus";
+import { resumeRemoteTabEvents } from "../../lib/remoteTabEvents";
 import type { MeshPeersResponse } from "../../lib/types";
 import type { AccountMeshSnapshot } from "../../components/MeshPanel/accountMeshClient";
 import { rememberAccountMachineNames, rememberMachineIdentities } from "../../lib/useMeshMachineIdentities";
@@ -8,6 +11,14 @@ import { rememberAccountMachineNames, rememberMachineIdentities } from "../../li
 export interface PairedRoster {
   peers: MeshPeersResponse;
   revision: number;
+}
+
+function offlineMeshPeers(previous: MeshPeersResponse): MeshPeersResponse {
+  return {
+    ...previous,
+    paired: previous.paired.map(peer => (peer.online ? { ...peer, online: false } : peer)),
+    installations: previous.installations?.map(row => (row.online ? { ...row, online: false } : row)),
+  };
 }
 
 export function useMeshPeerProjection(
@@ -23,6 +34,7 @@ export function useMeshPeerProjection(
     let active = true;
     let peerReadGeneration = 0;
     let identityReadGeneration = 0;
+    let lastPeers: MeshPeersResponse | null = null;
     let meshUnlisten: (() => void) | undefined;
     let identityUnlisten: (() => void) | undefined;
     const accountUnlisteners: Array<() => void> = [];
@@ -49,20 +61,38 @@ export function useMeshPeerProjection(
       const identityGeneration = ++identityReadGeneration;
       const generation = identityOnly ? peerReadGeneration : ++peerReadGeneration;
       if (!identityOnly) hasPairedPeersRef.current = null;
+      let meshDisabled = false;
       try {
         const peers = await invoke<MeshPeersResponse>("mesh_list_peers");
         if (active && generation === peerReadGeneration && Array.isArray(peers?.paired)) {
+          lastPeers = peers;
           if (identityGeneration === identityReadGeneration) rememberMachineIdentities(peers);
           if (!identityOnly) {
             hasPairedPeersRef.current = peers.paired.length > 0;
             updateRemoteChatPeers(peers);
             acceptPairedPeers({ peers, revision: generation });
+            const onlinePeers = peers.paired.filter(peer => peer.online);
+            if (onlinePeers.length > 0) {
+              resumeRemoteOutputStreams();
+              for (const peer of onlinePeers) resumeRemoteTabEvents(peer.instance_id);
+            }
           }
         }
-      } catch {}
+      } catch (error) {
+        if (active && !identityOnly && generation === peerReadGeneration && isMeshDisabledError(error)) {
+          meshDisabled = true;
+          if (lastPeers) {
+            const offline = offlineMeshPeers(lastPeers);
+            lastPeers = offline;
+            hasPairedPeersRef.current = offline.paired.length > 0;
+            updateRemoteChatPeers(offline);
+            acceptPairedPeers({ peers: offline, revision: generation });
+          }
+        }
+      }
       if (!identityOnly && active && generation === peerReadGeneration) {
         settleInitialRoster();
-        void requestRemoteRefresh();
+        if (!meshDisabled) void requestRemoteRefresh();
       }
     };
     const onMeshStateChanged = () => {

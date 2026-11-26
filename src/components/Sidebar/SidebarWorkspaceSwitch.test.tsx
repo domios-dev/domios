@@ -15,11 +15,17 @@ import { invoke } from "../../lib/bridge";
 import { subscribeTabOutput } from "../../lib/outputStream";
 import type { Terminal } from "@xterm/xterm";
 import type { RemoteWorkspaceCloseConfirmation, RemoteWorkspaceCloseTarget } from "./useRemoteWorkspaceClose";
+import type { RemoteTeamClosePreview, RemoteTeamCloseTarget } from "./useRemoteTeamClose";
 
-const mux = vi.hoisted(() => ({ state: {} as Record<string, unknown>, listeners: new Set<() => void>() }));
+const mux = vi.hoisted(() => ({ state: {} as Record<string, unknown>, listeners: new Set<() => void>(), closeTab: vi.fn(), upsertToast: vi.fn() }));
 const remoteCloseCalls = vi.hoisted(() => ({
   requested: [] as Array<{ peerId: string; workspaceId: string; availability: string; protected: boolean }>,
   confirmed: [] as Array<{ peerId: string; workspaceId: string }>,
+}));
+const remoteCreateCalls = vi.hoisted(() => [] as Array<{ peerId: string; cwd: string; name?: string }>);
+const remoteTeamCloseCalls = vi.hoisted(() => ({
+  requested: [] as Array<{ peerId: string; workspaceId: string; teamId: string; availability: string }>,
+  confirmed: [] as Array<{ peerId: string; workspaceId: string; teamId: string }>,
 }));
 const remotePlanCalls = vi.hoisted(() => ({
   peerIds: [] as Array<string | null>,
@@ -41,7 +47,8 @@ vi.mock("../../store/multiplexer/hooks", async () => {
         mux.state = { ...mux.state, active_workspace_id: workspaceId, activeTabIds: { ...mux.state.activeTabIds as Record<string, string>, [workspaceId]: tabId } };
         for (const listener of [...mux.listeners]) listener();
       },
-      upsertToast: vi.fn(),
+      closeTab: mux.closeTab,
+      upsertToast: mux.upsertToast,
     }),
     useMuxSelector: (select: (state: object) => unknown) => select(useSyncExternalStore(subscribe, () => mux.state)),
   };
@@ -103,6 +110,68 @@ vi.mock("./useRemoteWorkspaceClose", async (importOriginal) => {
     },
   };
 });
+vi.mock("./useRemoteWorkspaceCreate", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./useRemoteWorkspaceCreate")>();
+  return {
+    ...original,
+    useRemoteWorkspaceCreate: (
+      availabilityForPeer: Parameters<typeof original.useRemoteWorkspaceCreate>[0],
+      onCreated: Parameters<typeof original.useRemoteWorkspaceCreate>[1],
+    ) => ({
+      create: async (peerId: string, cwd: string, explicitName?: string) => {
+        if (availabilityForPeer(peerId) !== "online") return { kind: "unavailable" as const, peerId, reason: "offline" };
+        remoteCreateCalls.push({ peerId, cwd, name: explicitName });
+        const workspace = { id: "ws-created", name: explicitName ?? "created" };
+        onCreated(peerId, workspace);
+        return { kind: "created" as const, peerId, workspace };
+      },
+    }),
+  };
+});
+vi.mock("./useRemoteTeamClose", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./useRemoteTeamClose")>();
+  const { useState } = await import("react");
+  return {
+    ...original,
+    useRemoteTeamClose: (
+      availabilityForPeer: Parameters<typeof original.useRemoteTeamClose>[0],
+      onClosed: Parameters<typeof original.useRemoteTeamClose>[1],
+    ) => {
+      const [pending, setPending] = useState<RemoteTeamClosePreview | null>(null);
+      return {
+        pending,
+        closingTeamKeys: new Set<string>(),
+        request: async (target: RemoteTeamCloseTarget, isStillSelected: () => boolean) => {
+          if (target.availability !== "online" || availabilityForPeer(target.peerId) !== "online" || !isStillSelected()) return;
+          remoteTeamCloseCalls.requested.push({
+            peerId: target.peerId, workspaceId: target.workspaceId, teamId: target.teamId, availability: target.availability,
+          });
+          setPending({
+            ...target,
+            phase: "ready",
+            id: target.teamId,
+            name: target.teamName,
+            crons: [],
+            blueprints: [],
+            lanes: [],
+          });
+        },
+        cancel: () => setPending(null),
+        confirm: async () => {
+          if (!pending || pending.phase !== "ready") return;
+          const target = pending;
+          setPending(null);
+          remoteTeamCloseCalls.confirmed.push({ peerId: target.peerId, workspaceId: target.workspaceId, teamId: target.teamId });
+          onClosed(target.peerId, target.teamId);
+        },
+      };
+    },
+  };
+});
+vi.mock("../Automation/blueprintOwner", () => ({
+  readTabCloseBlueprints: vi.fn(async () => []),
+  readWorkspaceBlueprints: vi.fn(async () => []),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const config = { general_agent: { first_run_complete: true }, agent: {}, mesh: { enabled: false } } as AppConfig;
@@ -132,6 +201,12 @@ afterEach(async () => {
   setSidebarMachineFilter("local");
   remoteCloseCalls.requested.length = 0;
   remoteCloseCalls.confirmed.length = 0;
+  remoteCreateCalls.length = 0;
+  remoteTeamCloseCalls.requested.length = 0;
+  remoteTeamCloseCalls.confirmed.length = 0;
+  mux.closeTab.mockReset();
+  mux.upsertToast.mockReset();
+  vi.mocked(invoke).mockReset().mockResolvedValue([]);
   remotePlanCalls.peerIds.length = 0;
   remotePlanCalls.result = {
     plans: [], available: false, loading: false, reconnecting: false, error: null, refetch: async () => {},
@@ -485,7 +560,11 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   const hand = worker("other-worker", remoteId);
   const { host, root } = mountHost();
   await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
-    generals: [], browse: null, peerWorkspaces: [{
+    generals: [
+      { peerId: "blackstar", name: "BLACKSTAR", availability: "online", sessions: [] },
+      { peerId: "air", name: "AIR", availability: "online", sessions: [] },
+    ],
+    browse: null, peerWorkspaces: [{
       peerId: "blackstar", workspace: workspaceOf(remoteId, [lead, hand]), teams: [{ ...team(remoteId), name: null }],
       planTitles: new Map([[team(remoteId).id, "Peer plan title"]]),
       tabs: [{ viewerId: "mesh:blackstar/peer-lead", tab: lead }, { viewerId: "mesh:air/other-worker", tab: hand, peerId: "air" }],
@@ -802,4 +881,144 @@ it("closes the selected online remote workspace from its accessible read-only he
   await act(async () => confirm?.click());
   expect(remoteCloseCalls.confirmed).toEqual([{ peerId, workspaceId: remoteId }]);
   expect(host.querySelector('[data-testid="workspace-detail"]')).toBeNull();
+});
+
+it("creates a remote workspace, closes a remote Team without Save as template, and closes a remote tab on an online peer", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  vi.mocked(invoke).mockImplementation(async (command: string) => {
+    if (command === "fs_list_dir") return { path: "/srv/remote-app", parent: "/srv", home: "/srv", roots: [], entries: [] };
+    return [];
+  });
+  const localTabs = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", localTabs)], localTabs, "Local home");
+  const peerId = "blackstar";
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const protectedTab = member("peer-protected", remoteId, { protected: true });
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [{ peerId, name: "BLACKSTAR", availability: "online", sessions: [] }],
+    browse: null,
+    peerWorkspaces: [{
+      peerId,
+      workspace: workspaceOf(remoteId, [lead, hand, protectedTab]),
+      teams: [{ ...team(remoteId), name: "Remote Crew" }],
+      planTitles: new Map(),
+      tabs: [
+        { viewerId: `mesh:${peerId}/${lead.id}`, tab: lead },
+        { viewerId: `mesh:${peerId}/${hand.id}`, tab: hand },
+        { viewerId: `mesh:${peerId}/${protectedTab.id}`, tab: protectedTab },
+      ],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+
+  await act(async () => setSidebarMachineFilter({ id: peerId, name: "BLACKSTAR" }));
+
+  const createButton = host.querySelector<HTMLButtonElement>('[data-testid="workspace-card-create"]')!;
+  expect(createButton).toBeTruthy();
+  expect(createButton.disabled).toBe(false);
+  await act(async () => createButton.click());
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith("fs_list_dir", { path: "", showHidden: false, peerId });
+  const selectFolderButton = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+    .find(button => button.textContent?.trim() === "Select Folder")!;
+  await act(async () => selectFolderButton.click());
+  expect(remoteCreateCalls).toEqual([{ peerId, cwd: "/srv/remote-app", name: "remote-app" }]);
+
+  const teamTrigger = host.querySelector<HTMLButtonElement>('[data-testid="team-menu-trigger"]')!;
+  await act(async () => teamTrigger.click());
+  const teamMenuButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="team-menu"] [role="menuitem"]')];
+  expect(teamMenuButtons.some(button => button.textContent?.includes("Save as template"))).toBe(false);
+  const closeTeamButton = teamMenuButtons.find(button => button.textContent?.includes("Close Team"))!;
+  expect(closeTeamButton).toBeTruthy();
+  expect(closeTeamButton.getAttribute("aria-disabled")).toBeNull();
+  await act(async () => closeTeamButton.click());
+  const teamDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Close Remote Crew on BLACKSTAR"]');
+  expect(teamDialog).not.toBeNull();
+  await act(async () => teamDialog?.querySelector<HTMLButtonElement>('[data-testid="group-close-confirm-button"]')?.click());
+  expect(remoteTeamCloseCalls.confirmed).toEqual([{ peerId, workspaceId: remoteId, teamId: `team-${remoteId}` }]);
+
+  const workerRow = row(host, `mesh:${peerId}/${hand.id}`)!;
+  const workerMenuTrigger = workerRow.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
+  await act(async () => workerMenuTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const workerMenu = document.getElementById(workerMenuTrigger.getAttribute("aria-controls")!)!;
+  const closeWorker = workerMenu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-close"]')!;
+  expect(closeWorker).toBeTruthy();
+  expect(closeWorker.getAttribute("aria-disabled")).toBeNull();
+  await act(async () => closeWorker.click());
+  expect(mux.closeTab).toHaveBeenCalledWith(remoteId, `mesh:${peerId}/${hand.id}`);
+
+  const protectedRow = row(host, `mesh:${peerId}/${protectedTab.id}`)!;
+  const protectedMenuTrigger = protectedRow.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
+  await act(async () => protectedMenuTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const protectedMenu = document.getElementById(protectedMenuTrigger.getAttribute("aria-controls")!)!;
+  expect(protectedMenu.querySelector('[data-testid="tab-menu-close"]')).toBeNull();
+});
+
+it.each([
+  ["offline", "offline"],
+  ["signed-out", "signed out"],
+  ["update-required", "update required"],
+] as const)("disables remote workspace, Team and tab actions with the %s status label and never sends", async (availability, label) => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localTabs = [worker("local-worker", "Local home")];
+  setMux([workspaceOf("Local home", localTabs)], localTabs, "Local home");
+  const peerId = "blackstar";
+  const remoteId = "Peer home";
+  const lead = manager("peer-lead", remoteId);
+  const hand = worker("other-worker", remoteId);
+  const { host, root } = mountHost();
+  await act(async () => root.render(<PairedWorkspaceInventoryContext.Provider value={{
+    generals: [{ peerId, name: "BLACKSTAR", availability, sessions: [] }],
+    browse: null,
+    peerWorkspaces: [{
+      peerId,
+      workspace: workspaceOf(remoteId, [lead, hand]),
+      teams: [{ ...team(remoteId), name: "Remote Crew" }],
+      planTitles: new Map(),
+      tabs: [
+        { viewerId: `mesh:${peerId}/${lead.id}`, tab: lead },
+        { viewerId: `mesh:${peerId}/${hand.id}`, tab: hand },
+      ],
+    }],
+  }}><Sidebar config={config} /></PairedWorkspaceInventoryContext.Provider>));
+
+  await act(async () => setSidebarMachineFilter({ id: peerId, name: "BLACKSTAR" }));
+
+  const createButton = host.querySelector<HTMLButtonElement>('[data-testid="workspace-card-create"]')!;
+  expect(createButton.disabled).toBe(true);
+  expect(createButton.getAttribute("aria-label")).toContain(label);
+  await act(async () => createButton.click());
+  expect(remoteCreateCalls).toEqual([]);
+
+  const wsTrigger = host.querySelector<HTMLButtonElement>('button[aria-label="Actions for Peer home"]')!;
+  await act(async () => wsTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const wsMenu = document.getElementById(wsTrigger.getAttribute("aria-controls")!)!;
+  const closeWs = [...wsMenu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')][0]!;
+  expect(closeWs.textContent).toContain("Close Workspace");
+  expect(closeWs.textContent).toContain(label);
+  expect(closeWs.getAttribute("aria-disabled")).toBe("true");
+  await act(async () => closeWs.click());
+  expect(remoteCloseCalls.requested).toEqual([]);
+
+  const teamTrigger = host.querySelector<HTMLButtonElement>('[data-testid="team-menu-trigger"]')!;
+  await act(async () => teamTrigger.click());
+  const closeTeam = document.querySelector<HTMLButtonElement>('[data-testid="team-menu-close"]')!;
+  expect(closeTeam.textContent).toContain("Close Team");
+  expect(closeTeam.textContent).toContain(label);
+  expect(closeTeam.getAttribute("aria-disabled")).toBe("true");
+  await act(async () => closeTeam.click());
+  expect(remoteTeamCloseCalls.requested).toEqual([]);
+
+  const workerRow = row(host, `mesh:${peerId}/${hand.id}`)!;
+  const workerMenuTrigger = workerRow.querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!;
+  await act(async () => workerMenuTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const workerMenu = document.getElementById(workerMenuTrigger.getAttribute("aria-controls")!)!;
+  const closeWorker = workerMenu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-close"]')!;
+  expect(closeWorker.getAttribute("aria-disabled")).toBe("true");
+  expect(closeWorker.textContent).toContain(label);
+  await act(async () => closeWorker.click());
+  expect(mux.closeTab).not.toHaveBeenCalled();
 });

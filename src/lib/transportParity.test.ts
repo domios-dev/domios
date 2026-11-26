@@ -5,8 +5,15 @@ import { rustRouteContracts, routeMatches } from "./transportRouteAudit";
 import type { TransportClient } from "./transportClient";
 import fixtures from "./transportCommandContracts.json";
 
-const usageReads = ["usage_history", "usage_latest", "usage_projection", "provider_model_usage"] as const;
-const localUsageCommands = new Set<string>([...usageReads, "usage_refresh"]);
+const peerScopedCommands = [
+  "usage_history", "usage_latest", "usage_projection", "provider_model_usage",
+  "provider_cli_status", "install_provider_in_tab",
+  "get_config", "list_agent_providers", "push_channel_roster", "check_provider_integration",
+] as const;
+const localScopedCommands = new Set<string>([
+  ...peerScopedCommands, "usage_refresh", "update_config", "restart_general_agent", "shell_profiles",
+  "fs_list_dir", "fs_mkdir",
+]);
 
 const result = { ok: true, status: 200, data: [], peer: { instance_id: "peer", instance_name: "Peer" }, paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
   tabs: {tab:{agent_session_id:"root",session_binding_nonce:"nonce",agent_runtime_state:{state:"loaded",epoch:4}}} };
@@ -32,7 +39,7 @@ describe("audited command registry", () => {
     const localSpawns = new Set(["spawn_general_agent_session", "mux_spawn_tab"]);
     for (const [command, expected] of Object.entries(fixtures.commands)) {
       calls.length = 0;
-      const args = localSpawns.has(command) ? localArgs : { ...localArgs, peerId: localUsageCommands.has(command) ? null : peerId };
+      const args = localSpawns.has(command) ? localArgs : { ...localArgs, peerId: localScopedCommands.has(command) ? null : peerId };
       await dispatchCommand(commands, command, args);
       expect.soft(calls, command).toEqual(expected);
     }
@@ -47,7 +54,7 @@ describe("audited command registry", () => {
       return reply(path, body) as T;
     };
     const commands = createCommandRegistry(client);
-    for (const command of usageReads) {
+    for (const command of peerScopedCommands) {
       const [[method, path]] = fixtures.commands[command];
       localCalls.length = 0;
       await dispatchCommand(commands, command, { ...fixtures.args, peerId: null });
@@ -57,6 +64,17 @@ describe("audited command registry", () => {
         ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method, path, body: null }],
       ]);
     }
+    localCalls.length = 0;
+    await dispatchCommand(commands, "update_config", { ...fixtures.args, peerId: null });
+    await dispatchCommand(commands, "update_config", fixtures.args);
+    await dispatchCommand(commands, "restart_general_agent", { peerId: "peer" });
+    await dispatchCommand(commands, "shell_profiles", { refresh: false, peerId: "peer" });
+    expect(localCalls).toEqual([
+      ["PATCH", "/api/config", {}],
+      ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method: "PATCH", path: "/api/config", body: {} }],
+      ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method: "POST", path: "/api/agents/general/restart", body: null }],
+      ["POST", "/api/mesh/relay-to", { target_instance_id: "peer", method: "GET", path: "/api/shells?refresh=false", body: null }],
+    ]);
     localCalls.length = 0;
     await dispatchCommand(commands, "usage_refresh", { ...fixtures.args, peerId: null });
     await expect(dispatchCommand(commands, "usage_refresh", fixtures.args)).rejects.toThrow("owning machine");

@@ -41,7 +41,13 @@ export function applyRemotePeerAgentStates(
     const tab = tabs[id];
     if (tab?.remote_peer_id !== peer.peer_id || tab.remote_tab_id !== source.id) continue;
     const current = projectAttachedRemoteTab(source, { peer_id: peer.peer_id, peer_name: tab.remote_peer_name ?? peer.peer_name }, tab.workspace_id ?? "");
-    tabs[id] = { ...current, workspace_id: tab.workspace_id, remote_channels: tab.remote_channels ?? current.remote_channels };
+    const channels = tab.remote_channels
+      ? {
+          ...tab.remote_channels,
+          ...(tab.remote_channels.control === "reconnecting" ? { control: "available" as const } : {}),
+        }
+      : current.remote_channels;
+    tabs[id] = { ...current, workspace_id: tab.workspace_id, remote_channels: channels };
   }
   return tabs;
 }

@@ -14,7 +14,7 @@ pub fn provider_cli_status_with_refresh(
     refresh: bool,
 ) -> Result<ProviderCliStatus, String> {
     if refresh {
-        registry.recheck_profiles(provider_id);
+        return registry.refresh_cli_status(provider_id, platform);
     }
     registry.cli_status(provider_id, platform)
 }

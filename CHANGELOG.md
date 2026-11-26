@@ -7,6 +7,48 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.23.3]
+
+### Highlights
+
+- Long chats scroll smoothly. Dragging the scrollbar, fast flicks, Home and End no longer show blank frames or jumps, End reaches the latest message, and older history loads automatically as you scroll up.
+- Manage another machine from the sidebar: create and close workspaces, and close Teams and agents on the machine you are viewing over the mesh.
+- OpenCode starts new users on a free model with a fresh model list. When an expired OpenCode Console key breaks the free model, Domios explains how to fix it.
+- Agents mention tabs as clickable chips, including tabs on other machines.
+
+### Changed
+
+- A restoring tab shows Restoring in its header subtitle.
+- General keeps a separate session for each provider, so switching providers and back resumes the earlier conversation.
+- The Background Processes box shows one card per command and collapses its helper processes.
+- Task history in Worker briefs is compact and collapsed in chat.
+- Chat bubbles follow the theme instead of a machine's mesh color.
+
+### Fixed
+
+- Jumping to the latest message in a long chat no longer crashes the view.
+- Browser surfaces and their Chrome pages close with the tab that owns them; startup removes any left behind.
+- Mesh commands accept every peer id that Domios prints, reconnect after the mesh is turned off and on, and deliver remote Worker acknowledgements and reports to the Orchestrator that dispatched them.
+- Settings changes and CLI updates apply to the remote machine you are viewing.
+- Remote chat attachments open and send correctly.
+- A General tab restored with a mismatched provider and session accepts messages again.
+- Live model switches work on Claude terminal tabs, and the chat snapshot survives switching General to a Claude terminal session.
+- Switching General's provider completes its install check without repeating onboarding.
+- The Codex CLI version check no longer stays pending. On Windows, CLI version checks wait on process completion instead of polling.
+- On Windows, version checks for agent CLIs installed as `.cmd` scripts work again and no longer create a stray `--version` folder. You can delete any `--version` folder left in the Domios install folder.
+- OpenCode without its CLI installed shows how to install it and offers a plain terminal.
+- Dreams writes complete, verified diaries with links into the Memory graph.
+- Cron runs report their real result instead of completing as failed.
+- The tab header's Chat/Terminal switch is no longer collapsed.
+- Numeric settings keep every step during rapid key presses, use the decimal point regardless of locale, and have accessible names.
+- Continue-task text no longer truncates the task name in the composer header.
+- Domios uses less CPU with many agent tabs: fewer WebView repaints and refetches, a smaller state payload, and faster plan reads.
+
+### Known issues
+
+- Browser clicks on an element whose role or name changed after the snapshot can target a stale element.
+- On a discrete 800px mouse-wheel step, a long chat can flash its top edge for a single frame.
+
 ## [1.23.2]
 
 ### Highlights

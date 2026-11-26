@@ -133,9 +133,21 @@ test('owned Browser selection clicks only exact workspace and tab and gates moun
   const tabButton = button('Open tab fixture',()=>{active=true;tabClicks++;},()=>active?'page':null);
   const row = {...node({tabId:'owned-tab'}),querySelectorAll:()=>[tabButton]};
   const detail = {...node({workspaceId:'owned-workspace'}),querySelectorAll:()=>[row]};
-  const card = {...node({workspaceId:'owned-workspace'}),querySelectorAll:()=>[workspaceButton]};
+  const card = {...node({workspaceId:'[null,"owned-workspace"]',get selected() { return String(selected); }}),querySelectorAll:()=>[workspaceButton]};
+  const peerButton = button('Select workspace fixture',()=>assert.fail('Selected peer workspace'));
+  const peerCard = {...node({workspaceId:'["peer","owned-workspace"]'}),querySelectorAll:()=>[peerButton]};
+  const peerDetail = {...node({workspaceId:'owned-workspace'}),querySelectorAll:()=>[]};
   const root = {...node({tabId:'owned-tab'}),querySelector:()=>mounted?{}:null};
-  const document = {querySelectorAll:selector=>selector.includes('workspace-detail')?(selected?[detail]:[]):selector.includes('workspace-card')?[card]:selector==='[data-tab-id]'?[root]:[]};
+  const document = {querySelectorAll:selector=>({
+    '[data-testid="workspace-detail"]': [selected ? detail : peerDetail],
+    '[data-testid="workspace-card"]': [peerCard,card],
+    '[data-tab-id]': [root],
+  })[selector] ?? []};
+  assert.equal(ownedBrowserSelection(document,'owned-workspace','owned-tab','workspace-reveal'),true);
+  assert.equal(ownedBrowserSelection(document,'owned-workspace','owned-tab','workspace-ready'),true);
+  assert.equal(workspaceClicks,0);
+  ownedBrowserSelection(document,'owned-workspace','owned-tab','workspace');
+  assert.equal(selected,true);
   ownedBrowserSelection(document,'owned-workspace','owned-tab','workspace');
   assert.equal(workspaceClicks,1);
   assert.equal(ownedBrowserSelection(document,'owned-workspace','owned-tab','mounted'),false);
@@ -151,29 +163,47 @@ test('owned Browser selection clicks only exact workspace and tab and gates moun
   assert.throws(()=>ownedBrowserSelection(document,'foreign-workspace','owned-tab','workspace'),/missing or ambiguous/);
 });
 
-test('owned Browser overflow reveals once and waits exact control without arbitrary clicks',() => {
-  let expanded=false, present=false, expansions=0, selections=0, duplicates=false;
-  const visible = {closest:()=>null,getClientRects:()=>[{}]};
-  const activation={...visible,getAttribute:()=> 'Select workspace fixture',click:()=>{selections++;}};
-  const row={...visible,dataset:{workspaceId:'owned'},querySelectorAll:()=>[activation]};
-  const overflow={...visible,getAttribute:()=>expanded?'true':'false',click:()=>{expanded=true;expansions++;}};
-  const document={querySelectorAll:selector=>selector.includes('workspace-card-more')?[overflow]:selector.includes('workspace-card')&&present?(duplicates?[row,row]:[row]):[]};
+test('owned Browser overflow reveals once and waits exact control without arbitrary clicks',async () => {
+  const {Window} = await import('happy-dom');
+  const window = new Window();
+  const {document} = window;
+  window.HTMLElement.prototype.getClientRects = () => [{}];
+  const createGrid = displayKey => {
+    const grid = document.createElement('div');
+    grid.dataset.testid = 'workspace-card-grid';
+    grid.innerHTML = `<div data-testid="workspace-card" data-workspace-id='${displayKey}'></div>
+      <button data-testid="workspace-card-more" aria-expanded="false">+1</button>`;
+    document.body.append(grid);
+    return grid;
+  };
+  const peer = createGrid('["peer","owned"]');
+  const local = createGrid('[null,"other"]');
+  peer.querySelector('button').onclick = event => event.currentTarget.remove();
+  let expansions=0, selections=0;
+  local.querySelector('button').onclick = event => { expansions++; event.currentTarget.remove(); };
   ownedBrowserSelection(document,'owned','tab','workspace-reveal');
   assert.equal(expansions,1);
   assert.equal(selections,0);
   assert.equal(ownedBrowserSelection(document,'owned','tab','workspace-ready'),false);
-  assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace-reveal'),/missing after expansion/);
+  assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace-reveal'),/missing or ambiguous/);
+  assert.equal(peer.querySelector('button').getAttribute('aria-expanded'),'false');
   assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace'),/missing or ambiguous/);
   assert.equal(expansions,1);
-  present=true;
+  const row = document.createElement('div');
+  row.dataset.testid = 'workspace-card';
+  row.dataset.workspaceId = '[null,"owned"]';
+  row.innerHTML = '<button aria-label="Select workspace fixture"></button>';
+  row.querySelector('button').onclick = () => { selections++; };
+  local.append(row);
   assert.equal(ownedBrowserSelection(document,'owned','tab','workspace-ready'),true);
   ownedBrowserSelection(document,'owned','tab','workspace-reveal');
   assert.equal(expansions,1);
   ownedBrowserSelection(document,'owned','tab','workspace');
   assert.equal(selections,1);
-  duplicates=true;
+  local.append(row.cloneNode(true));
   assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace-ready'),/ambiguous/);
   assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace-reveal'),/ambiguous/);
   assert.equal(expansions,1);
   assert.equal(selections,1);
+  await window.happyDOM.abort();
 });

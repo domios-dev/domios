@@ -118,6 +118,7 @@ export interface AgentProvider {
   authStatusProbe?(): import("./gen/AuthStatusProbe").AuthStatusProbe | null;
   tracksBackgroundWork?(): boolean;
   parseBackgroundWork?(record: unknown): import("./gen/BackgroundWorkObservation").BackgroundWorkObservation[];
+  parseBackgroundToolCalls?(record: unknown): import("./gen/BackgroundToolCall").BackgroundToolCall[];
   reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
   modelCatalogueSeed?(): ModelInfo[];
   parseAuthStatus?(record: unknown): ProviderAuthStatus | null;

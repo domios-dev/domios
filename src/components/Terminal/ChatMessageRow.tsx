@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { MessageMenuBridgeProvider, MessagePartsContext, useCompactCard, type ChatCardMenuItem, type MessageMenuBridge, type MessagePart, messageTimeLabels } from "@codeterm/chat-ui";
+import { MessageMenuBridgeProvider, MessagePartsContext, useChatBlockHost, useCompactCard, useLiveBinding, type ChatCardMenuItem, type MessageMenuBridge, type MessagePart, messageTimeLabels } from "@codeterm/chat-ui";
+import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import type { ClipMessage } from "@codeterm/chat-core";
 import { MessageActionsDot, messageMenuItems, type DotSide, type MessageMenuActions } from "./MessageActionsMenu";
 import { useMessageActionScope } from "./useMessageActionScope";
@@ -25,17 +26,33 @@ export interface MessageRowHandlers {
 const DOT_BOX_PX = 18;
 const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+function useMessageRowLabel(type: string, content: string, label?: string) {
+  const { mentions, mentionTabId } = useChatBlockHost();
+  const { source, initial } = useMemo(() => {
+    let hasTabReferences = false;
+    const read = () => label ?? chatMessageAccessibleName(type, content, id => {
+      hasTabReferences = true;
+      return mentions?.binding.read(JSON.stringify([mentionTabId ?? "", "tab", id]))?.title;
+    });
+    const initial = read();
+    const source = hasTabReferences && mentions ? { read, subscribe: mentions.binding.subscribe, refresh: () => {} } : undefined;
+    return { initial, source };
+  }, [type, content, label, mentions, mentionTabId]);
+  const live = useLiveBinding(source, "", initial);
+  return source ? live : initial;
+}
+
 function Gutter({ side, children }: { side: DotSide; children?: ReactNode }) {
   return <div className="ct-msg-gutter" data-side={side} data-message-gutter="">{children}</div>;
 }
 
 /** One chat row: the bubble, a quiet actions dot in its gutter that follows the pointer, and its place in a block selection. */
 export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, deliveryState, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, onDelete, onForkFromHere, onRevertToHere, children }: {
-  msg: { id: string; type: string; sourceMessageId?: string; toolFlowId?: string | null };
+  msg: { id: string; type: string; content?: string; sourceMessageId?: string; toolFlowId?: string | null };
   timestamp?: number;
   deliveryState?: string;
   sourceOrdinal?: number;
-  ariaLabel: string;
+  ariaLabel?: string;
   selected: boolean;
   joinNext: boolean;
   selecting: boolean;
@@ -47,6 +64,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
   onRevertToHere?: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
+  const rowLabel = useMessageRowLabel(msg.type, msg.content ?? "", ariaLabel);
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [touchMenu, setTouchMenu] = useState(false);
@@ -129,7 +147,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
       data-actions-open={menuOpen || undefined}
       data-preview-whole={menuOpen && (whole || parts.length <= 1) || undefined}
       role="article"
-      aria-label={ariaLabel}
+      aria-label={rowLabel}
       tabIndex={cursor ? 0 : -1}
       className="ct-msg-row"
       onPointerEnter={(event) => { if (event.pointerType === "mouse") { setHot(true); hint.enter(); } }}

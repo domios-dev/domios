@@ -109,3 +109,87 @@ fn mesh_remove_parses_machine_target_and_blocks_mesh_relay() {
     let (method, _, _) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
     assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
 }
+
+#[test]
+fn mesh_identity_set_accepts_kind_only_and_rejects_color() {
+    use clap::Parser;
+    let parsed =
+        crate::Cli::try_parse_from(["domios", "mesh", "identity", "set", "--kind", "laptop"])
+            .expect("mesh identity set --kind parses");
+    let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/mesh/identity");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(body.as_deref().unwrap()).unwrap(),
+        serde_json::json!({ "kind": "laptop", "color": "graphite" })
+    );
+
+    crate::Cli::try_parse_from([
+        "domios", "mesh", "identity", "set", "--kind", "server", "--peer", "ubunta",
+    ])
+    .expect("mesh identity set --peer parses");
+
+    assert!(crate::Cli::try_parse_from([
+        "domios", "mesh", "identity", "set", "--kind", "laptop", "--color", "teal",
+    ])
+    .is_err());
+}
+
+#[test]
+fn mesh_status_agrees_with_live_connection_when_cloud_endpoint_is_stale() {
+    use serde_json::json;
+    let state = json!({
+        "local_installation_id": "inst-local",
+        "publication": "published",
+        "membership_expires_at": u64::MAX,
+        "pairs": [
+            {
+                "instance_id": "66c926f1-peer",
+                "installation_id": "7a835b57-r161",
+                "online": true,
+                "name": "acceptance-r161"
+            }
+        ],
+        "registry": {
+            "rows": [
+                {
+                    "installation_id": "inst-local",
+                    "display_name": "w1221",
+                    "active": true,
+                    "presence": "present",
+                    "membership_expires_at": 1,
+                    "endpoint": null
+                },
+                {
+                    "installation_id": "7a835b57-r161",
+                    "display_name": "acceptance-r161",
+                    "active": true,
+                    "presence": "present",
+                    "membership_expires_at": u64::MAX,
+                    "endpoint": { "expires_at": 1 }
+                },
+                {
+                    "installation_id": "inst-offline",
+                    "display_name": "dormant",
+                    "active": true,
+                    "presence": "present",
+                    "membership_expires_at": u64::MAX,
+                    "endpoint": null
+                }
+            ]
+        }
+    });
+    let lines = super::account_mesh_status_lines(&state);
+    assert!(
+        lines.contains(&"  acceptance-r161: Connected".to_owned()),
+        "live connected peer must not appear Offline: {lines:?}"
+    );
+    assert!(
+        lines.contains(&"  w1221: This machine".to_owned()),
+        "published local machine must not appear Offline: {lines:?}"
+    );
+    assert!(
+        lines.contains(&"  dormant: Offline".to_owned()),
+        "unconnected machine without fresh endpoint remains Offline: {lines:?}"
+    );
+}

@@ -251,6 +251,12 @@ fn readiness_gate_unknown_provider() {
 #[test]
 fn chat_backend_cli_status_requires_no_binary_or_installer() {
     let (registry, _, _) = registry();
+    let descriptor = registry.describe_all().pop().unwrap();
+    assert_eq!(descriptor.cli_binary, None);
+    assert_eq!(
+        descriptor.availability,
+        crate::agent::provider::ProviderAvailability::Available
+    );
     let status = registry.cli_status("shell", "windows").unwrap();
     assert!(!status.required);
     assert_eq!(status.binary, None);
@@ -277,6 +283,7 @@ fn runtime_capability_selects_chat_transport_and_retains_cli_controls() {
         )
         .unwrap(),
     );
+    let backend = codeterm_plugin::js_runtime::JsChatBackend::from_manifest(vm.clone(), &manifest);
     let provider = codeterm_plugin::js_runtime::JsProvider::new(manifest, vm);
     assert_eq!(
         provider.describe().transport,
@@ -284,8 +291,16 @@ fn runtime_capability_selects_chat_transport_and_retains_cli_controls() {
     );
     assert!(provider.describe().agent_runtime.is_some());
     let agents = Arc::new(AgentRegistry::new());
+    let backends = Arc::new(ChatBackendRegistry::new());
+    backends.register("runtime-fixture", Arc::new(backend));
+    let registry = ProviderRegistry::new(agents.clone(), backends);
+    let only_backend = registry.describe_all().pop().unwrap();
+    assert_eq!(only_backend.cli_binary, None);
+    assert_eq!(
+        only_backend.availability,
+        crate::agent::provider::ProviderAvailability::Unknown
+    );
     agents.register_provider(Box::new(provider));
-    let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
     assert_eq!(
         registry.transport_of("runtime-fixture"),
         Some(ProviderTransport::ChatBackend)
@@ -391,7 +406,7 @@ fn plain_profile_status_reads_cache_and_explicit_recheck_only_invalidates_its_pr
         let profile = capability.launch_profiles.as_ref().unwrap()["selected"].clone();
         registry.profile_readiness_cache.lock().insert(
             format!("{id}:selected"),
-            (profile, before[index]),
+            (profile, before[index], Vec::new()),
             Some(true),
         );
     }

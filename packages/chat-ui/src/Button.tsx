@@ -55,7 +55,7 @@ export function Button({
       type={type}
       className={cls}
       disabled={disabled || loading}
-      aria-busy={loading || undefined}
+      aria-busy={loading ? true : rest["aria-busy"]}
       data-touch-mode={touchMode ? "true" : undefined}
       data-testid={testId}
     >

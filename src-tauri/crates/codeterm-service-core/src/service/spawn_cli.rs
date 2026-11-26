@@ -113,18 +113,30 @@ pub fn provider_launch_preflight(
     )
 }
 
+fn valid_runtime_binary(binary: &str) -> bool {
+    !binary.is_empty() && !binary.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
+}
+
 pub(crate) fn provider_launch_preflight_for_platform(
     registry: &AgentRegistry,
     provider_id: &str,
     _permission_bypassed: bool,
     platform: &str,
 ) -> Result<LaunchClearance, ProviderPreflightError> {
-    let Some((display_name, launch_binary, install_command)) =
-        registry.with_provider(provider_id, |p| {
+    let Some((display_name, launch_binary, is_runtime, install_command, install_dirs)) = registry
+        .with_provider(provider_id, |p| {
+            let runtime_binary = p
+                .agent_runtime()
+                .filter(|runtime| runtime.launch_profiles.is_none())
+                .map(|runtime| runtime.command.binary);
+            let is_runtime = runtime_binary.is_some();
+            let binary = runtime_binary.unwrap_or_else(|| p.binary_name().to_string());
             (
                 p.display_name().to_string(),
-                p.binary_name().to_string(),
+                binary,
+                is_runtime,
                 p.install_command(platform),
+                p.cli_install_dirs(platform),
             )
         })
     else {
@@ -134,13 +146,18 @@ pub(crate) fn provider_launch_preflight_for_platform(
         });
     };
     let binary = launch_binary;
-    if !valid_cli_binary(&binary) {
+    let valid = if is_runtime {
+        valid_runtime_binary(&binary)
+    } else {
+        valid_cli_binary(&binary)
+    };
+    if !valid {
         return Err(ProviderPreflightError::InvalidBinary {
             provider_id: provider_id.to_string(),
             binary,
         });
     }
-    let probe = codeterm_plugin::js_runtime::probe_bin(&binary);
+    let probe = codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(&binary, &install_dirs);
     let status = codeterm_plugin::provider_cli::status_from_probe(
         binary.clone(),
         probe,
@@ -200,3 +217,86 @@ pub fn create_cleared_agent_tab(
     crate::startup::boot_timing::bind_request(&tab_id);
     Ok(tab_id)
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderAuthPreflightOutcome {
+    Verified,
+    SkippedNoProbe,
+    Inconclusive(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderSignInRequired {
+    pub provider_id: String,
+    pub display_name: String,
+}
+
+pub(crate) fn classify_auth_probe_result(
+    provider_id: &str,
+    display_name: &str,
+    result: Result<
+        Option<crate::agent::provider::AuthStatus>,
+        crate::service::provider_signals_probe::ProbeFailure,
+    >,
+) -> Result<ProviderAuthPreflightOutcome, ProviderSignInRequired> {
+    match result {
+        Ok(Some(auth)) if !auth.logged_in => Err(ProviderSignInRequired {
+            provider_id: provider_id.to_string(),
+            display_name: display_name.to_string(),
+        }),
+        Ok(Some(_)) => Ok(ProviderAuthPreflightOutcome::Verified),
+        Ok(None) => Ok(ProviderAuthPreflightOutcome::Inconclusive(
+            "auth status probe returned unreadable status".into(),
+        )),
+        Err(crate::service::provider_signals_probe::ProbeFailure::TimedOut) => Ok(
+            ProviderAuthPreflightOutcome::Inconclusive("auth status probe timed out".into()),
+        ),
+        Err(crate::service::provider_signals_probe::ProbeFailure::Unavailable) => {
+            Ok(ProviderAuthPreflightOutcome::Inconclusive(
+                "auth status probe binary unavailable".into(),
+            ))
+        }
+    }
+}
+
+pub fn provider_auth_preflight(
+    svc: &crate::service::ServiceContext,
+    provider_id: &str,
+    workspace_id: Option<&str>,
+) -> Result<ProviderAuthPreflightOutcome, ProviderSignInRequired> {
+    let Some((display_name, binary, dirs, probe)) = svc
+        .agent_registry
+        .with_provider(provider_id, |provider| {
+            Some((
+                provider.display_name().to_string(),
+                provider.binary_name().to_string(),
+                provider.cli_search_dirs(),
+                provider.auth_status_probe()?,
+            ))
+        })
+        .flatten()
+    else {
+        return Ok(ProviderAuthPreflightOutcome::SkippedNoProbe);
+    };
+    let account =
+        crate::service::provider_accounts::starting_account(svc, provider_id, workspace_id, None)
+            .ok()
+            .flatten();
+    let invocation =
+        crate::service::provider_accounts::invocation(svc, provider_id, account.as_deref())
+            .ok()
+            .flatten();
+    let probe_result = codeterm_plugin::provider_account::with_context(invocation, || {
+        crate::service::provider_signals_probe::capture_result_in(&binary, &dirs, &probe).map(
+            |record| {
+                svc.agent_registry
+                    .with_provider(provider_id, |provider| provider.parse_auth_status(&record))
+                    .flatten()
+            },
+        )
+    });
+    classify_auth_probe_result(provider_id, &display_name, probe_result)
+}
+
+#[cfg(test)]
+mod tests;

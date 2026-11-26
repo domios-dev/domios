@@ -5,6 +5,7 @@ import modelRejections from "./modelRejections.json";
 import { modelMetadata, modelUnavailable, rejectedModelIds } from "./turnErrors";
 import type { FetchOpts, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 import { parseModelVariants } from "./modelVariants";
+import { orderOpencodeModels } from "./freeModel";
 import { bindingModelSwitchSource } from "./bindingModelSwitch";
 import { opencodeFileDiffs } from "./fileDiffs";
 import { fileDiffFromEdit, type FileDiff } from "@codeterm/chat-core";
@@ -387,7 +388,7 @@ export function parseOpencodeModels(stdout: string): ModelInfo[] | null {
       ...(efforts ? { reasoningEfforts: efforts, ...(efforts.length ? { defaultReasoningEffort: "default" } : {}) } : {}),
     });
   }
-  return models.length || metadata.size ? models : null;
+  return models.length || metadata.size ? orderOpencodeModels(models, metadata) : null;
 }
 
 export function groupFromModelId(id: string): string | undefined {

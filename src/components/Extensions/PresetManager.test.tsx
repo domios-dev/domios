@@ -13,6 +13,7 @@ import {
 import { PluginDetailPanel } from "./PluginDetailPanel";
 import type { CatalogEntry } from "./pluginCatalog";
 import { useAgentProviderCachePublisher } from "../../hooks/useAgentProviders";
+import { defaultConfig } from "../../hooks/useConfig";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
@@ -259,6 +260,44 @@ test("editing the name saves the updated preset", async () => {
   await act(async () => root.unmount());
 });
 
+test("temperature input uses locale-independent dot-decimal format and round-trips", async () => {
+  const { api, saves } = fakeApi(SEED);
+  __setPresetManagerApiForTest(api);
+  const { host, root } = await render(<PresetManager pluginId="lmstudio" models={MODELS} />);
+  await flush();
+
+  await act(async () => {
+    presetRows(host)[0].click();
+  });
+  const tempInput = byTestId(host, "preset-temperature") as HTMLInputElement;
+  assert(tempInput, "temperature input should render");
+  const wrappingLabel = tempInput.closest("label");
+  assert(wrappingLabel?.textContent?.includes("Temperature"), `temperature input must be associated with a 'Temperature' label, got '${wrappingLabel?.textContent}'`);
+  const readTempValue = () => tempInput.value;
+  const saveCount = () => saves.length;
+  assert(tempInput.type === "text" && tempInput.inputMode === "decimal", "temperature input should be decimal text input");
+  assert(readTempValue() === "0.2", `initial temperature should display '0.2', got '${readTempValue()}'`);
+
+  await setInputValue(tempInput, "0,7");
+  await flush();
+  assert(saveCount() === 0, "locale comma temperature must not persist");
+
+  await setInputValue(tempInput, "0.7");
+  await flush();
+  assert(saveCount() >= 1, "dot-decimal temperature should persist");
+  const updated = saves[saves.length - 1].presets.find((p: Preset) => p.id === "p1");
+  assert(updated?.params?.temperature === 0.7, `temperature should persist as 0.7, got ${updated?.params?.temperature}`);
+  assert(readTempValue() === "0.7", `temperature should display '0.7', got '${readTempValue()}'`);
+
+  await setInputValue(tempInput, "");
+  await flush();
+  const cleared = saves[saves.length - 1].presets.find((p: Preset) => p.id === "p1");
+  assert(cleared?.params?.temperature === undefined, "clearing temperature should remove params.temperature");
+
+  __setPresetManagerApiForTest(null);
+  await act(async () => root.unmount());
+});
+
 test("binding a model to a preset persists preset.model", async () => {
   const { api, saves } = fakeApi(SEED);
   __setPresetManagerApiForTest(api);
@@ -418,6 +457,56 @@ test("catalog refresh retains last good models after errors before publishing ne
   await act(async () => modelsUpdated?.());
   await flush();
   assert(presetModelIds(host).join(",") === "model-b", "explicit event publishes exact catalog B entries");
+
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+  __setPresetManagerApiForTest(null);
+  await act(async () => {
+    setAgentDescriptors([]);
+    root.unmount();
+  });
+});
+
+test("PresetManager and Temperature field are reachable through PluginDetailPanel for agent_provider plugins supporting presets", async () => {
+  const providerWithPresets = catalogProvider(MODELS, 1);
+  setAgentDescriptors([providerWithPresets]);
+  __setPresetManagerApiForTest(fakeApi(SEED).api);
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "list_agent_providers") return [providerWithPresets] as unknown as T;
+    return [] as unknown as T;
+  });
+  __setListenForTest(async () => () => {});
+
+  const agentEntry: CatalogEntry = {
+    ...CATALOG_ENTRY,
+    capabilities: { agent_provider: true, chat_backend: true },
+  };
+  const cfg = defaultConfig();
+  const { host, root } = await render(
+    <PluginDetailPanel
+      entry={agentEntry}
+      config={cfg as never}
+      busy={null}
+      onAction={() => {}}
+      onHostGrant={() => {}}
+      onSave={async () => {}}
+      onUpdateFullConfig={() => {}}
+      onGone={() => {}}
+      activityDisplayMap={new Map()}
+    />,
+  );
+  await flush();
+
+  assert(
+    byTestId(host, "settings-agent-provider-screen"),
+    "agent_provider plugin detail should render AgentProviderScreen",
+  );
+  assert(
+    byTestId(host, "extensions-presets"),
+    "PresetManager must be reachable inside AgentProviderScreen when behavior_config supports presets",
+  );
+  const tempInput = byTestId(host, "preset-temperature") as HTMLInputElement | null;
+  assert(tempInput && tempInput.value === "0.2", `preset temperature input must render with '0.2', got '${tempInput?.value}'`);
 
   __setInvokeForTest(null);
   __setListenForTest(null);

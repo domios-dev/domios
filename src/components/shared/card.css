@@ -135,6 +135,7 @@
   color: var(--ct-muted-fg);
   font-size: 11px;
   line-height: 1.4;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -201,7 +202,7 @@ button.ct-card__head {
 
 .ct-card__chip {
   display: inline-block;
-  max-width: 10rem;
+  max-width: min(10rem, 100%);
   flex: none;
   padding: 1px 7px;
   border-radius: calc(999px * var(--ct-roundness, 1));
@@ -434,6 +435,7 @@ button.ct-card__head {
 }
 
 .ct-communication-card .ct-card__header { padding-bottom: 6px; }
+.ct-communication-card[data-compact="true"] > .ct-card__header { padding-block: 6px; }
 .ct-communication-card [data-testid="codeterm-message-content"] :is(h1, h2, h3, h4, h5, h6, p):first-child {
   margin-top: 0;
 }

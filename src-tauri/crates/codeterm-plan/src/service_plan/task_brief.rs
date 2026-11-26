@@ -1,8 +1,10 @@
 use crate::plan::Task;
 
+use super::stride_context::WorkerStrideRef;
 use super::task_queries::TaskSection;
 
 pub struct TaskBriefInput<'a> {
+    id: &'a str,
     name: &'a str,
     parent_task_id: Option<&'a str>,
     body: &'a str,
@@ -12,12 +14,13 @@ pub struct TaskBriefInput<'a> {
     test_plan: Option<&'a str>,
     role_guidance: Option<&'a str>,
     executor_role: Option<&'a str>,
-    strides: Vec<(&'a str, &'a str)>,
+    strides: Vec<WorkerStrideRef<'a>>,
 }
 
 impl<'a> From<&'a Task> for TaskBriefInput<'a> {
     fn from(task: &'a Task) -> Self {
         Self {
+            id: &task.id,
             name: &task.name,
             parent_task_id: task.parent_task_id.as_deref(),
             body: &task.body,
@@ -27,11 +30,7 @@ impl<'a> From<&'a Task> for TaskBriefInput<'a> {
             test_plan: task.test_plan.as_deref(),
             role_guidance: task.role_guidance.as_deref(),
             executor_role: task.executor_role.as_deref(),
-            strides: task
-                .milestones
-                .iter()
-                .map(|stride| (stride.kind.as_str(), stride.text.as_str()))
-                .collect(),
+            strides: task.milestones.iter().map(WorkerStrideRef::from).collect(),
         }
     }
 }
@@ -39,6 +38,7 @@ impl<'a> From<&'a Task> for TaskBriefInput<'a> {
 impl<'a> From<&'a super::WorkerTaskBriefRead> for TaskBriefInput<'a> {
     fn from(task: &'a super::WorkerTaskBriefRead) -> Self {
         Self {
+            id: &task.id,
             name: &task.name,
             parent_task_id: task.parent_task_id.as_deref(),
             body: &task.body,
@@ -51,7 +51,12 @@ impl<'a> From<&'a super::WorkerTaskBriefRead> for TaskBriefInput<'a> {
             strides: task
                 .strides
                 .iter()
-                .map(|stride| (stride.kind.as_str(), stride.text.as_str()))
+                .map(|stride| WorkerStrideRef {
+                    id: stride.id.as_str(),
+                    kind: stride.kind.as_str(),
+                    text: stride.text.as_str(),
+                    ts: stride.ts,
+                })
                 .collect(),
         }
     }
@@ -113,6 +118,7 @@ pub fn render_task_brief<'a>(
         plan_id,
         plan_skills,
         authorized_gates,
+        true,
     );
     super::worker_identity::attach_worker_identity(&identity, &assignment)
 }
@@ -130,8 +136,15 @@ pub fn render_tool_less_task_brief<'a>(
         task.executor_role,
         task.name,
     );
-    let assignment =
-        render_task_assignment(&task, sections, orchestrator_instruction, None, &[], &[]);
+    let assignment = render_task_assignment(
+        &task,
+        sections,
+        orchestrator_instruction,
+        None,
+        &[],
+        &[],
+        false,
+    );
     [identity, assignment].join("\n\n")
 }
 
@@ -142,6 +155,7 @@ fn render_task_assignment(
     plan_id: Option<&str>,
     plan_skills: &[crate::plan::PlanSkillManifestEntry],
     authorized_gates: &[String],
+    include_read_command: bool,
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!("# {}\n\n", task.name));
@@ -194,11 +208,13 @@ fn render_task_assignment(
         out.push('\n');
     }
 
-    if !task.strides.is_empty() {
-        out.push_str("## Strides\n");
-        for (kind, text) in &task.strides {
-            out.push_str(&format!("- [{}] {}\n", kind, text));
-        }
+    if let Some(strides) = super::stride_context::render_worker_strides_from_refs(
+        &task.strides,
+        plan_id,
+        Some(task.id),
+        include_read_command,
+    ) {
+        out.push_str(&strides);
         out.push('\n');
     }
 

@@ -12,7 +12,7 @@ export const SCHEDULE_PRESETS = [
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // Dates sit inside English UI copy, so they must not follow the OS locale.
-const UI_LOCALE = "en";
+export const UI_LOCALE = "en";
 const EPOCH_MS = /^\d{13}$/;
 
 function wholeNumberInRange(value: string, min: number, max: number): boolean {
@@ -75,13 +75,13 @@ export function formatTime(ms: number): string {
 }
 
 /** Relative future time — "in 5m", "in 2h", "tomorrow 14:30", or absolute date. */
-export function formatFuture(ms: number): string {
-  const diff = ms - Date.now();
-  if (diff < 0) return "overdue";
-  if (diff < 86_400_000) return formatUntil(ms, Date.now());
-  if (diff < 2 * 86_400_000) {
-    const d = new Date(ms);
-    return `tomorrow ${d.toLocaleTimeString(UI_LOCALE, { hour: "2-digit", minute: "2-digit" })}`;
-  }
-  return formatTime(ms);
+export function formatFuture(ms: number, includeTimestamp = false): string {
+  const now = Date.now();
+  const diff = ms - now;
+  if (diff >= 2 * 86_400_000) return formatTime(ms);
+  let relative: string;
+  if (diff < 0) relative = "overdue";
+  else if (diff < 86_400_000) relative = formatUntil(ms, now);
+  else relative = `tomorrow ${new Date(ms).toLocaleTimeString(UI_LOCALE, { hour: "2-digit", minute: "2-digit" })}`;
+  return includeTimestamp ? `${relative} · ${formatTime(ms)}` : relative;
 }

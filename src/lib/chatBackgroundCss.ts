@@ -83,7 +83,7 @@ function translucent(color: string, opacity: number): string {
 
 function svgTile(art: string, scale: number, color: string, opacity: number, angle: number): string {
   const middle = scale / 2;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scale} ${scale}"><g color="${color}" fill="${color}" opacity="${opacity}" transform="rotate(${angle} ${middle} ${middle})">${art}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${scale}" height="${scale}" viewBox="0 0 ${scale} ${scale}"><g color="${color}" fill="${color}" opacity="${opacity}" transform="rotate(${angle} ${middle} ${middle})">${art}</g></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 0 0 / ${scale}px ${scale}px repeat`;
 }
 
@@ -98,7 +98,7 @@ export function chatPatternTile(background: NonNullable<ThemeConfig["chat_backgr
   if (!art) return undefined;
   const middle = scale / 2;
   const angle = bounded(background.rotation, -360, 360, 0);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scale} ${scale}"><g transform="rotate(${angle} ${middle} ${middle})">${art}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${scale}" height="${scale}" viewBox="0 0 ${scale} ${scale}"><g transform="rotate(${angle} ${middle} ${middle})">${art}</g></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 

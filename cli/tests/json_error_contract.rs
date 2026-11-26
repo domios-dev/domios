@@ -490,3 +490,29 @@ fn exact_quit_uses_its_finite_refusal_envelope_without_authorizing_replacement()
     );
     assert!(!String::from_utf8_lossy(&output.stdout).contains("stub-token"));
 }
+
+#[test]
+fn local_only_mesh_command_returns_typed_refused_code() {
+    let env = CliEnv::new(None);
+    let output = run_cli(
+        &env,
+        &json_args(&["agent", "cli", "status", "claude", "--mesh", "peer-target"]),
+    );
+    assert!(
+        !output.status.success(),
+        "local-only command over --mesh must fail"
+    );
+    let envelope = check_contract(&output).expect("refusal uses the shared JSON error envelope");
+    assert_eq!(envelope["error"]["code"], "refused");
+    assert!(
+        envelope["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("local-only"),
+        "expected local-only explanation: {envelope}"
+    );
+    assert_ne!(
+        envelope["error"]["hint"].as_str().unwrap_or_default(),
+        "check the daemon log for the failure"
+    );
+}

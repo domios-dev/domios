@@ -28,9 +28,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // `debug` refuses with its own message and exit code rather than a
         // verdict; the table declares that shape instead of normalising it.
         ApiVerdict::RefusedInPlace => {
-            crate::cmd::print::fail(
+            crate::cmd::print::fail_refused(
                 2,
                 "`debug` is local-only — refusing to crash a remote peer via --mesh",
+                Some("run this command on the target machine without --mesh"),
             );
         }
         ApiVerdict::Rest => rest_request(cmd),
@@ -725,10 +726,12 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             }
         }
         Commands::Mesh { action } => match action {
-            MeshAction::Identity { action: super::MeshIdentityAction::Set { kind, color, peer: None } } => (
+            MeshAction::Identity {
+                action: super::MeshIdentityAction::Set { kind, peer: None },
+            } => (
                 "POST".into(),
                 "/api/mesh/identity".into(),
-                Some(serde_json::json!({ "kind": kind, "color": color }).to_string()),
+                Some(serde_json::json!({ "kind": kind, "color": "graphite" }).to_string()),
             ),
             MeshAction::Identity { .. } => unsupported("Use either --mesh or --peer for the target"),
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),

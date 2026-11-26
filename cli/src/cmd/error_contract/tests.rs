@@ -263,3 +263,46 @@ fn typed_template_outcomes_keep_their_body_and_never_read_as_internal() {
         assert_ne!(envelope["error"]["hint"], ErrorCode::Internal.hint());
     }
 }
+
+#[test]
+fn local_only_mesh_refusal_is_typed_refused_not_internal() {
+    let error = CliError::refused(
+        "agent cli is local-only: run it on the target peer",
+        Some("run this command on the target machine without --mesh"),
+    );
+    let envelope = envelope_of(&error);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["error"]["code"], "refused");
+    assert_eq!(
+        envelope["error"]["hint"],
+        "run this command on the target machine without --mesh"
+    );
+    assert_ne!(envelope["error"]["hint"], ErrorCode::Internal.hint());
+}
+
+#[test]
+fn migration_errors_classify_as_migration_failed_not_internal() {
+    let typed = CliError::typed(
+        ErrorCode::MigrationFailed,
+        "migrations: sqlite: database is locked",
+    );
+    let typed_envelope = envelope_of(&typed);
+    assert_eq!(typed_envelope["ok"], false);
+    assert_eq!(typed_envelope["error"]["code"], "migration_failed");
+    assert_eq!(
+        typed_envelope["error"]["hint"],
+        ErrorCode::MigrationFailed.hint()
+    );
+
+    for message in [
+        "migrations: sqlite: database is locked",
+        "migrations: sqlite: no such table: mem_items",
+    ] {
+        let envelope = envelope_of(&CliError::new(message));
+        assert_eq!(envelope["error"]["code"], "migration_failed", "{message}");
+        assert_ne!(envelope["error"]["code"], "internal", "{message}");
+    }
+
+    let locked = envelope_of(&CliError::new("sqlite: database is locked"));
+    assert_eq!(locked["error"]["code"], "unavailable");
+}

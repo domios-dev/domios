@@ -176,3 +176,163 @@ fn graph_mux_snapshot_includes_cron_workers_and_excludes_foreign_tabs() {
     )
     .unwrap();
 }
+
+fn fixture_watch(store: &Store, name: &str, owner: Owner) -> Sentinel {
+    store
+        .prepare_document(
+            json!(codeterm_sentinel::test_support::watch(
+                json!(name),
+                json!({"uses":"probe","with":{"command":{"lit":"fixture"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+                json!({"with":{"question":{"lit":"State"}},"buckets":["done"],"matches":{"done":{"lit":"done"}}}),
+                Value::Null,
+                Value::Null,
+            )),
+            owner,
+            false,
+        )
+        .unwrap()
+}
+
+fn graph_changed_events(
+    ui: &codeterm_service_core::service::test_fixture::RecordedUiEvents,
+) -> Vec<Value> {
+    ui.0.lock()
+        .iter()
+        .filter(|(event, _)| event == "automation-graph-changed")
+        .map(|(_, payload)| payload.clone())
+        .collect()
+}
+
+#[test]
+fn invalidate_dedupes_unchanged_revision_and_emits_only_changed_scopes() {
+    let (mux, creator) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
+    let mut store = Store::new(fixture.temp.path().join("dedupe.json"), clock);
+    let ws_job = fixture_watch(
+        &store,
+        "Workspace watch",
+        Owner {
+            creator_tab_id: creator.clone(),
+            team_id: None,
+            workspace_id: workspace.clone(),
+            cwd: ".".into(),
+        },
+    );
+    let team_job = fixture_watch(
+        &store,
+        "Team watch",
+        Owner {
+            creator_tab_id: creator.clone(),
+            team_id: Some("team-a".into()),
+            workspace_id: workspace.clone(),
+            cwd: ".".into(),
+        },
+    );
+    store.insert(ws_job.clone()).unwrap();
+    store.insert(team_job.clone()).unwrap();
+    let ws_rev_1 = store
+        .committed_revision(&workspace, None)
+        .unwrap()
+        .to_owned();
+    let team_rev_1 = store
+        .committed_revision(&workspace, Some("team-a"))
+        .unwrap()
+        .to_owned();
+    let store = std::sync::Arc::new(parking_lot::Mutex::new(store));
+
+    // Initial invalidation emits once per uncommitted-emit scope.
+    invalidate("mux-state-changed", &store, fixture.service.ui.as_ref());
+    assert_eq!(
+        graph_changed_events(&fixture.ui),
+        vec![
+            json!({"workspace_id": workspace, "team_id": Value::Null, "revision": ws_rev_1}),
+            json!({"workspace_id": workspace, "team_id": "team-a", "revision": team_rev_1}),
+        ]
+    );
+    fixture.ui.0.lock().clear();
+
+    // Subsequent invalidation events with unchanged revisions emit nothing.
+    for event in INVALIDATION_EVENTS {
+        invalidate(event, &store, fixture.service.ui.as_ref());
+    }
+    assert!(graph_changed_events(&fixture.ui).is_empty());
+
+    // Mutating only team-a emits only team-a and clears the matching pending change.
+    store.lock().stop(&team_job.id, "stopped_by_host").unwrap();
+    let team_rev_2 = store
+        .lock()
+        .committed_revision(&workspace, Some("team-a"))
+        .unwrap()
+        .to_owned();
+    assert_ne!(team_rev_2, team_rev_1);
+    invalidate("tab-status-changed", &store, fixture.service.ui.as_ref());
+    assert_eq!(
+        graph_changed_events(&fixture.ui),
+        vec![json!({"workspace_id": workspace, "team_id": "team-a", "revision": team_rev_2})]
+    );
+    fixture.ui.0.lock().clear();
+    crate::scheduler::emit_changes(&store, fixture.service.ui.as_ref());
+    assert!(graph_changed_events(&fixture.ui).is_empty());
+
+    // Emitting via scheduler::emit_changes also records last_emitted_revisions for invalidate.
+    store.lock().stop(&ws_job.id, "stopped_by_host").unwrap();
+    let ws_rev_2 = store
+        .lock()
+        .committed_revision(&workspace, None)
+        .unwrap()
+        .to_owned();
+    assert_ne!(ws_rev_2, ws_rev_1);
+    crate::scheduler::emit_changes(&store, fixture.service.ui.as_ref());
+    assert_eq!(
+        graph_changed_events(&fixture.ui),
+        vec![json!({"workspace_id": workspace, "team_id": Value::Null, "revision": ws_rev_2})]
+    );
+    fixture.ui.0.lock().clear();
+    for event in INVALIDATION_EVENTS {
+        invalidate(event, &store, fixture.service.ui.as_ref());
+    }
+    assert!(graph_changed_events(&fixture.ui).is_empty());
+}
+
+#[test]
+fn invalidate_skips_persisted_baseline_and_prunes_deleted_scopes() {
+    let (mux, creator) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let path = fixture.temp.path().join("baseline.json");
+    let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
+    let job_id = {
+        let mut initial = Store::new(path.clone(), clock.clone());
+        let job = fixture_watch(
+            &initial,
+            "Persisted watch",
+            Owner {
+                creator_tab_id: creator,
+                team_id: None,
+                workspace_id: workspace.clone(),
+                cwd: ".".into(),
+            },
+        );
+        let id = job.id.clone();
+        initial.insert(job).unwrap();
+        id
+    };
+
+    // Reloaded baseline matches committed_revisions, so unchanged invalidation emits nothing.
+    let store = std::sync::Arc::new(parking_lot::Mutex::new(Store::new(path, clock)));
+    for event in INVALIDATION_EVENTS {
+        invalidate(event, &store, fixture.service.ui.as_ref());
+    }
+    assert!(graph_changed_events(&fixture.ui).is_empty());
+
+    // Deleting the last blueprint in the scope prunes last_emitted_revisions.
+    store
+        .lock()
+        .locked(|current| current.stage_delete_scenario(&job_id, &workspace, None))
+        .unwrap();
+    crate::scheduler::emit_changes(&store, fixture.service.ui.as_ref());
+    assert_eq!(graph_changed_events(&fixture.ui).len(), 1);
+    assert!(store.lock().last_emitted_revisions.is_empty());
+}

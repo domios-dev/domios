@@ -13,6 +13,7 @@ import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 import { scheduleXtermInit } from "./xtermInitScheduler";
 import { terminalXtermOptions } from "./terminalXtermOptions";
 import { knownWindowsBuildNumber, readWindowsBuildNumber } from "./windowsBuildNumber";
+import { findAddedWebglCanvas, observeXtermWebglViewport } from "./xtermWebglViewport";
 import { DEV_BUILD } from "../../lib/devBuild";
 
 // Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
@@ -59,6 +60,7 @@ export function useXterm({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const webglRef = useRef<WebglAddon | null>(null);
+  const webglViewportCleanupRef = useRef<(() => void) | null>(null);
   const initialized = useRef(false);
   const viewerLocalGeometryRef = useRef(viewerLocalGeometry);
   viewerLocalGeometryRef.current = viewerLocalGeometry;
@@ -147,6 +149,8 @@ export function useXterm({
 
     return () => {
       cancel();
+      webglViewportCleanupRef.current?.();
+      webglViewportCleanupRef.current = null;
       webglRef.current?.dispose();
       webglRef.current = null;
       created?.dispose();
@@ -168,14 +172,26 @@ export function useXterm({
     if (!renderEnabled || webglRef.current) return;
 
     try {
+      const screen = containerRef.current?.querySelector(".xterm-screen") ?? null;
+      const priorCanvases = new Set(screen ? screen.querySelectorAll("canvas") : []);
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => {
+        webglViewportCleanupRef.current?.();
+        webglViewportCleanupRef.current = null;
         webgl.dispose();
         webglRef.current = null;
         invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
       });
       term.loadAddon(webgl);
       webglRef.current = webgl;
+      const webglCanvas = findAddedWebglCanvas(screen, priorCanvases);
+      if (webglCanvas) {
+        webglViewportCleanupRef.current?.();
+        webglViewportCleanupRef.current = observeXtermWebglViewport(
+          webglCanvas,
+          () => { if (term.rows > 0) term.refresh(0, term.rows - 1); },
+        );
+      }
       invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
     } catch (e) {
       const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);

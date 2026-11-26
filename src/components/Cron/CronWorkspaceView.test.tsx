@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { formatTime } from "../../lib/formatters";
 import type { CronJob, CronRunInfo } from "../../lib/types";
 import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import type { InventoryOperation, Service } from "../MeshPanel/types";
@@ -36,6 +37,7 @@ function setupDom() {
 }
 
 const CRON_ID = "cron-1";
+const futureRun = Date.now() + 7 * 86_400_000;
 let failCronRead = false;
 let cronReadAttempts = 0;
 let cronRunFinished: (() => void) | null = null;
@@ -79,6 +81,7 @@ function projectedCronService(lastRunStatus = "Success"): Service {
     push_enabled: false,
     schedule: "*/5 * * * *",
     last_run_status: lastRunStatus,
+    next_run: futureRun,
     registered_at: 1,
     updated_at: 1,
     enabled: true,
@@ -184,6 +187,9 @@ async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, 
 test("a cron with no report_target_tab_id renders schedule, history and controls with nothing unavailable", async () => {
   const calls: string[] = [];
   const { host, root } = await render(CRON_ID, adapter({}, calls), calls);
+
+  const nextRun = [...host.querySelectorAll("dt")].find(term => term.textContent === "Next run")?.nextElementSibling;
+  assert(nextRun?.textContent === formatTime(futureRun), "a distant next run shows its timestamp once");
 
   const unavailable = host.querySelectorAll('[data-testid^="mesh-operation-unavailable-"]');
   assert(unavailable.length === 0, `no unavailable operations rendered, found ${unavailable.length}`);

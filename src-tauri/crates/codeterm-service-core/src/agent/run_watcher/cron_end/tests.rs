@@ -409,7 +409,8 @@ fn report_persistence_refusal_keeps_delivery_continuation_without_replay() {
         .fixture
         .service
         .run_watcher
-        .resume_cron_finalizer_for_run(&run.fixture.service, &run.run_id, None, None, true));
+        .resume_cron_finalizer_for_run(&run.fixture.service, &run.run_id, None, None, true)
+        .is_some());
     done.recv_timeout(std::time::Duration::from_secs(5))
         .unwrap();
     assert_eq!(deliveries.lock().len(), 1, "resume must not deliver again");

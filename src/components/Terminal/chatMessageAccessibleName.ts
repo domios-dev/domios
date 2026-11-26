@@ -9,7 +9,8 @@ export function chatMessageAccessibleName(type: string, content: string, resolve
   const display = (text: string) => {
     let result = text;
     for (const marker of referenceMarkers(text).reverse()) {
-      if (marker.kind === "tab") result = result.slice(0, marker.start) + `@${resolveTabName(marker.id) ?? "Unknown tab"}` + result.slice(marker.end);
+      const id = marker.peer ? `mesh:${marker.peer}/${marker.id}` : marker.id;
+      if (marker.kind === "tab") result = result.slice(0, marker.start) + `@${resolveTabName(id) ?? "Unknown tab"}` + result.slice(marker.end);
     }
     return attachmentTagsAsLabels(result).replace(/\s+/g, " ").trim();
   };

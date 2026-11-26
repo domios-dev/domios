@@ -12,7 +12,21 @@ pub struct BackgroundWorkObservation {
     pub kind: Option<BackgroundWorkKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tool_use_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub output_path: Option<String>,
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct BackgroundToolCall {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<BackgroundWorkKind>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -52,6 +66,20 @@ pub struct BackgroundRoster {
     output_paths: BTreeMap<String, String>,
 }
 impl BackgroundRoster {
+    fn resolve_label(observation: &BackgroundWorkObservation, fallback: &str) -> String {
+        let candidate = observation
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .or_else(|| {
+                let trimmed = fallback.trim();
+                (!trimmed.is_empty()).then_some(trimmed)
+            })
+            .unwrap_or("");
+        candidate.chars().take(256).collect()
+    }
+
     fn prune_details(&mut self, id: &str) {
         if !self.running.contains_key(id)
             && !self.unknown.contains_key(id)
@@ -91,6 +119,7 @@ impl BackgroundRoster {
             self.overflow = true;
             return;
         }
+        let resolved_label = Self::resolve_label(observation, label);
         match observation.state {
             BackgroundWorkState::Running => {
                 if self.completed.contains(&observation.id)
@@ -107,8 +136,8 @@ impl BackgroundRoster {
                     .running
                     .entry(observation.id.clone())
                     .or_insert(previous_label);
-                if !label.is_empty() {
-                    *value = label.chars().take(256).collect();
+                if !resolved_label.is_empty() {
+                    *value = resolved_label;
                 }
             }
             BackgroundWorkState::Unknown => {
@@ -120,9 +149,10 @@ impl BackgroundRoster {
                             self.prune_details(&removed);
                         }
                     }
-                    self.unknown
-                        .entry(observation.id.clone())
-                        .or_insert_with(|| label.chars().take(256).collect());
+                    let entry = self.unknown.entry(observation.id.clone()).or_default();
+                    if !resolved_label.is_empty() {
+                        *entry = resolved_label;
+                    }
                 }
             }
             _ => {
@@ -130,7 +160,8 @@ impl BackgroundRoster {
                     .running
                     .remove(&observation.id)
                     .or_else(|| self.unknown.remove(&observation.id))
-                    .unwrap_or_else(|| label.chars().take(256).collect());
+                    .filter(|existing| !existing.is_empty())
+                    .unwrap_or(resolved_label);
                 if self.ended.len() >= LIMIT && !self.ended.contains_key(&observation.id) {
                     if let Some((removed, _)) = self.ended.pop_first() {
                         self.prune_details(&removed);

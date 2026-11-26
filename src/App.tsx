@@ -49,6 +49,7 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { useAppNotices } from "./hooks/useAppNotices";
+import { useDocumentPerfState } from "./hooks/useDocumentPerfState";
 import { StorageUnavailableToast } from "./components/StorageUnavailableToast";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
@@ -147,6 +148,7 @@ function useStableJsonValue<T>(value: T): T {
 const selectWholeState = (state: ExtendedState) => state;
 
 function AppInner() {
+  useDocumentPerfState();
   useAppNotices();
   useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
@@ -793,13 +795,12 @@ function AppInner() {
   const wallpaper = (projected?.look ?? appliedAppearance.look).wallpaper ?? undefined;
   const wallAsset = projected ? stagedWallpaper.asset ?? (wallpaper?.asset === appliedAppearance.look.wallpaper?.asset
     ? appliedAppearance.asset : undefined) : appliedAppearance.asset;
-  const identityColor = machineAppearance.identity?.color;
   const { background, foreground, chat_background: chatBackground } = stableTheme;
   const wallpaperStyle = useMemo(() => ({
     "--ct-bg": background,
     "--ct-fg": foreground,
-    ...wallpaperRenderStyle({ foreground, chat_background: chatBackground }, wallpaper, isLightColor(background), wallAsset?.url, identityColor),
-  } as React.CSSProperties), [background, foreground, chatBackground, wallpaper, wallAsset?.url, identityColor]);
+    ...wallpaperRenderStyle({ foreground, chat_background: chatBackground }, wallpaper, isLightColor(background), wallAsset?.url),
+  } as React.CSSProperties), [background, foreground, chatBackground, wallpaper, wallAsset?.url]);
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
@@ -948,6 +949,8 @@ function AppInner() {
               style={viewLayerStyle(mainView === "memory")}
               aria-hidden={mainView !== "memory"}
               inert={mainView !== "memory" || undefined}
+              data-motion={mainView !== "memory" ? "paused" : undefined}
+              data-layer-hidden={mainView !== "memory" ? "true" : undefined}
             >
               <MemoryPanel
                 api={stableApiConfig}
@@ -966,6 +969,8 @@ function AppInner() {
               style={viewLayerStyle(mainView === "mesh")}
               aria-hidden={mainView !== "mesh"}
               inert={mainView !== "mesh" || undefined}
+              data-motion={mainView !== "mesh" ? "paused" : undefined}
+              data-layer-hidden={mainView !== "mesh" ? "true" : undefined}
             >
               <MeshPanel
                 api={stableApiConfig}
@@ -987,6 +992,8 @@ function AppInner() {
               style={viewLayerStyle(mainView === "neighbors")}
               aria-hidden={mainView !== "neighbors"}
               inert={mainView !== "neighbors" || undefined}
+              data-motion={mainView !== "neighbors" ? "paused" : undefined}
+              data-layer-hidden={mainView !== "neighbors" ? "true" : undefined}
             >
               <NeighborsView config={config} />
             </div>
@@ -997,6 +1004,8 @@ function AppInner() {
               style={viewLayerStyle(mainView === "extensions")}
               aria-hidden={mainView !== "extensions"}
               inert={mainView !== "extensions" || undefined}
+              data-motion={mainView !== "extensions" ? "paused" : undefined}
+              data-layer-hidden={mainView !== "extensions" ? "true" : undefined}
             >
               <ExtensionsView
                 visible={mainView === "extensions"}
@@ -1092,6 +1101,8 @@ function AppInner() {
                 key={tabId}
                 className="absolute inset-0"
                 data-appearance-lab-chat={isVisible ? "" : undefined}
+                data-motion={isVisible ? undefined : "paused"}
+                data-layer-hidden={isVisible ? undefined : "true"}
                 inert={!isVisible || !!automationWorkspaceId || undefined}
                 style={{
                   zIndex: isVisible ? 1 : 0,

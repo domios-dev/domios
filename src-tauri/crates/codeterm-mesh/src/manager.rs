@@ -27,6 +27,7 @@ pub struct MeshManager {
     machine_identity_writer: Arc<parking_lot::Mutex<()>>,
     pub paired_peers: HashMap<String, PairedPeer>,
     pub account_installations: Vec<types::AccountInstallation>,
+    pub registry_names: Vec<types::RegistryMachineName>,
     pub(crate) announce_slots: Arc<tokio::sync::Semaphore>,
     pub(crate) address_refresh: crate::broadcast::refresh::RefreshState,
     pub(crate) address_announcements: Arc<crate::broadcast::coalesce::AddressAnnouncements>,
@@ -61,10 +62,21 @@ pub struct MeshManager {
     pending_links: HashMap<String, account_admission::PendingLink>,
     account_ready: bool,
     remote_access_epoch: u64,
+    mesh_enable_generation: u64,
     peer_grant_epochs: HashMap<String, u64>,
 }
 
 impl MeshManager {
+    pub fn mesh_enable_generation(&self) -> u64 {
+        self.mesh_enable_generation
+    }
+
+    pub fn note_mesh_enabled(&mut self) -> u64 {
+        self.peer_request_retry.clear();
+        self.mesh_enable_generation = self.mesh_enable_generation.wrapping_add(1);
+        self.mesh_enable_generation
+    }
+
     pub fn record_announce_outcome(&mut self, peer_id: &str, acknowledged: bool) {
         if acknowledged {
             self.unacked_announce.remove(peer_id);
@@ -104,7 +116,6 @@ impl MeshManager {
         let ident = identity::IdentityManager::new(identity, instance_name);
         let machine_identity = crate::machine_identity::Revision {
             identity: crate::machine_identity::MachineIdentity::inferred(
-                &ident.identity.instance_id,
                 std::env::consts::OS,
                 std::env::var_os("DISPLAY").is_none()
                     && std::env::var_os("WAYLAND_DISPLAY").is_none(),
@@ -118,6 +129,7 @@ impl MeshManager {
             machine_identity_writer: Default::default(),
             paired_peers: HashMap::new(),
             account_installations: Vec::new(),
+            registry_names: Vec::new(),
             announce_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             address_refresh: Default::default(),
             address_announcements: Default::default(),
@@ -151,6 +163,7 @@ impl MeshManager {
             pending_links: HashMap::new(),
             account_ready: true,
             remote_access_epoch: 0,
+            mesh_enable_generation: 0,
             peer_grant_epochs: HashMap::new(),
         }
     }
@@ -318,6 +331,42 @@ impl MeshManager {
             local_instance_name: self.ident.instance_name.clone(),
             local_last_active_ms: self.last_activity.read_for_gossip(),
             local_dev: codeterm_paths::is_dev_instance(),
+        }
+    }
+
+    pub fn resolve_peer(
+        &self,
+        target: &str,
+    ) -> Result<&PairedPeer, crate::paired_resolve::ResolvePairedError> {
+        crate::paired_resolve::resolve_paired_peer_with_registry_names(
+            &self.paired_peers,
+            &self.account_installations,
+            &self.registry_names,
+            |instance_id| {
+                self.links
+                    .get(instance_id)
+                    .and_then(|r| r.installation_id())
+            },
+            target,
+        )
+    }
+
+    /// Resolves a peer like [`Self::resolve_peer`], also accepting a unique
+    /// offline match for local peer-maintenance operations (`set-addr`, `announce --to`).
+    pub fn resolve_peer_including_offline(
+        &self,
+        target: &str,
+    ) -> Result<&PairedPeer, crate::paired_resolve::ResolvePairedError> {
+        match self.resolve_peer(target) {
+            Ok(peer) => Ok(peer),
+            Err(crate::paired_resolve::ResolvePairedError::NoOnlineCandidate {
+                candidates,
+                ..
+            }) if candidates.len() == 1 => self
+                .paired_peers
+                .get(&candidates[0].instance_id)
+                .ok_or(crate::paired_resolve::ResolvePairedError::NotFound),
+            Err(error) => Err(error),
         }
     }
 

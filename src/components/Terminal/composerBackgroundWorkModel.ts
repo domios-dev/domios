@@ -1,6 +1,7 @@
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import { reduceToolEvents, toolCommand } from "@codeterm/chat-core";
+import type { NormalizedChatMessage, ToolEvent } from "@codeterm/chat-core";
+import { materializeToolEvent, reduceToolEvents, toolCommand } from "@codeterm/chat-core";
 import type { BackgroundProcessEntry } from "../../lib/backgroundProcesses";
+import { groupBackgroundProcesses, type BackgroundProcessMember } from "../../lib/backgroundProcessGroups";
 import type { ChildTranscriptAuthority } from "../../lib/childTranscript";
 import type { ProviderBackgroundRoster } from "../../lib/providerSignals";
 import { activityLabel } from "../../../packages/plugin-sdk/src/activityLabel";
@@ -23,6 +24,10 @@ export interface ComposerBackgroundWorkItem {
   sourceItemId?: string;
   cwd?: string;
   osPid?: number | null;
+  processes?: readonly BackgroundProcessMember[];
+  helperCount?: number;
+  memberProcessIds?: readonly string[];
+  memberItemIds?: readonly string[];
   /** Set when the provider gave nothing readable. */
   ordinal?: number;
   /** The provider's own id, kept for the tooltip and the accessible description. */
@@ -30,6 +35,8 @@ export interface ComposerBackgroundWorkItem {
 }
 
 export const SUBAGENT_NAME = "Sub-agent";
+export const BACKGROUND_PROCESS_NAME = "Background process";
+export const BACKGROUND_TASK_NAME = "Background task";
 
 export interface ComposerBackgroundWorkBubble {
   count: number;
@@ -59,15 +66,140 @@ function shortName(value: string | undefined, fallback: string): string {
   return candidate.length > 24 ? `${candidate.slice(0, 23)}…` : candidate;
 }
 
+const SHELL_INTERPRETERS = new Set(["sh", "bash", "zsh", "dash"]);
+const POWERSHELL_INTERPRETERS = new Set(["pwsh", "powershell"]);
+const SCRIPT_INTERPRETERS = new Set(["node", "npx", "bun", "bunx", "deno", "python", "python3", "py", "ruby", "perl", "tsx", "ts-node"]);
+const CODE_FLAGS = new Set(["-e", "--eval", "-c", "-p", "--print"]);
+const VALUE_FLAGS = new Set(["-o", "-p", "--package", "-executionpolicy", "-windowstyle", "--import", "-r", "--require", "-m"]);
+
+function truncateLabel(value: string, max = 24): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function executableLeaf(raw: string): string {
+  const parts = raw.split(/[\\/]/).filter(Boolean);
+  const leaf = parts[parts.length - 1] ?? raw;
+  return leaf.replace(/\.(?:exe|cmd|bat)$/i, "");
+}
+
+function tokenizeShell(input: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === "\\" && quote === '"' && input[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (/\s/.test(ch)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function firstPipelineSegment(input: string): string {
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === "\\" && quote === '"' && input[i + 1] === '"') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === "|" || ch === ";" || (ch === "&" && input[i + 1] === "&")) {
+      return input.slice(0, i).trim();
+    }
+  }
+  return input.trim();
+}
+
+function unwrapShellWrapper(command: string): string {
+  const tokens = tokenizeShell(command.trim());
+  if (tokens.length < 3) return command.trim();
+  const exe = executableLeaf(tokens[0]).toLowerCase();
+  const prev = tokens[tokens.length - 2].toLowerCase();
+  const isWrapper = (SHELL_INTERPRETERS.has(exe) && (prev === "-c" || prev === "-lc" || prev === "-cl"))
+    || (POWERSHELL_INTERPRETERS.has(exe) && (prev === "-command" || prev === "-c"))
+    || (exe === "cmd" && prev === "/c");
+  return isWrapper ? tokens[tokens.length - 1].trim() : command.trim();
+}
+
+function isRedirectionToken(token: string): boolean {
+  return /^[0-9]*[<>]/.test(token) || token === "&";
+}
+
 export function backgroundCommandName(command: string): string {
-  if (!command.trim()) return "Command unavailable";
-  const script = command.match(/([^\s"'\\/]+\.(?:ps1|sh|mjs|cjs|js|py))(?=["'\s]|$)/i)?.[1];
-  return script ? shortName(script, "Terminal") : activityLabel({toolKind:"command",toolInput:{command}});
+  const trimmed = command.trim();
+  if (!trimmed) return "Command unavailable";
+  const unwrapped = unwrapShellWrapper(trimmed);
+  const segment = firstPipelineSegment(unwrapped);
+  const rawTokens = tokenizeShell(segment).filter((token) => !isRedirectionToken(token));
+  let index = 0;
+  while (index < rawTokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(rawTokens[index]) || rawTokens[index] === "env" || rawTokens[index] === "nohup")) {
+    index++;
+  }
+  if (index >= rawTokens.length) return activityLabel({ toolKind: "command", toolInput: { command } });
+
+  const head = executableLeaf(rawTokens[index]).toLowerCase();
+  const isInterpreter = SHELL_INTERPRETERS.has(head) || POWERSHELL_INTERPRETERS.has(head) || SCRIPT_INTERPRETERS.has(head);
+  if (isInterpreter) {
+    let probe = index + 1;
+    let inlineCode = false;
+    while (probe < rawTokens.length && rawTokens[probe].startsWith("-")) {
+      const flag = rawTokens[probe].toLowerCase();
+      if (SCRIPT_INTERPRETERS.has(head) && CODE_FLAGS.has(flag)) {
+        inlineCode = true;
+        break;
+      }
+      probe++;
+      if (VALUE_FLAGS.has(flag) && probe < rawTokens.length) probe++;
+    }
+    if (!inlineCode && probe < rawTokens.length) {
+      index = probe;
+    }
+  }
+
+  const target = executableLeaf(rawTokens[index]);
+  if (!target) return activityLabel({ toolKind: "command", toolInput: { command } });
+  const next = rawTokens[index + 1];
+  const includeArg = Boolean(
+    next
+    && !next.startsWith("-")
+    && !isRedirectionToken(next)
+    && !/[\r\n]/.test(next)
+    && !/[\\/]/.test(next),
+  );
+  const label = includeArg ? `${target} ${next}` : target;
+  return truncateLabel(label, 24);
 }
 
 export function backgroundOwnsTool(tool: { id?: string; sourceSessionId?: string } | undefined, items: readonly ComposerBackgroundWorkItem[]): boolean {
-  return tool?.id !== undefined && items.some(item => item.kind === "terminal" && item.sourceItemId === tool.id
-    && (!tool.sourceSessionId || tool.sourceSessionId === item.threadId));
+  const toolId = tool?.id;
+  const sessionId = tool?.sourceSessionId;
+  return toolId !== undefined && items.some(item => item.kind === "terminal"
+    && (item.sourceItemId === toolId || item.memberItemIds?.includes(toolId) === true)
+    && (!sessionId || sessionId === item.threadId));
 }
 
 function messageOutput(message: NormalizedChatMessage | undefined): string | undefined {
@@ -148,11 +280,13 @@ export function composerBackgroundWorkItems(
   options: { subagentsVisible?: boolean; rootThreadId?: string; authority?: ChildTranscriptAuthority } = {},
 ): ComposerBackgroundWorkItem[] {
   const { subagentsVisible = false, rootThreadId } = options;
-  const messagesById = new Map(messages.map((message) => [message.id, message]));
-  const uniqueTerminals = new Map(terminals.map(terminal => [JSON.stringify([terminal.threadId,terminal.processId]),terminal]));
-  const terminalItems = [...uniqueTerminals.values()].map((terminal): ComposerBackgroundWorkItem => {
-    const message = messagesById.get(terminal.itemId);
-    const sourceMessage = !message?.sourceSessionId || message.sourceSessionId === terminal.threadId ? message : undefined;
+  const groups = terminals.length > 0 ? groupBackgroundProcesses(terminals) : [];
+  const messagesById = groups.length > 0 ? new Map(messages.map((message) => [message.id, message])) : null;
+  const terminalItems = groups.map((group): ComposerBackgroundWorkItem => {
+    const terminal = group.primary;
+    const sourceMessage = group.itemIds
+      .map((itemId) => messagesById?.get(itemId))
+      .find((message) => message && (!message.sourceSessionId || message.sourceSessionId === terminal.threadId));
     const startedAtMs = timestampMs(sourceMessage?.timestamp);
     return {
       id: `terminal:${terminal.threadId}:${terminal.processId}`,
@@ -168,6 +302,10 @@ export function composerBackgroundWorkItems(
       status: "running",
       cwd: terminal.cwd,
       osPid: terminal.osPid,
+      processes: group.members,
+      helperCount: group.helperCount,
+      memberProcessIds: group.processIds,
+      memberItemIds: group.itemIds,
     };
   });
   return [...terminalItems, ...(subagentsVisible && rootThreadId ? agentWork(messages, rootThreadId, nowMs, options.authority) : [])]
@@ -189,6 +327,12 @@ function numberUnnamedSubagents(items: ComposerBackgroundWorkItem[]): ComposerBa
   return items.map((item) => item.kind === "agent" && item.name === SUBAGENT_NAME ? { ...item, ordinal: ++ordinal } : item);
 }
 
+function unwrapToolEvents(event: ToolEvent): ToolEvent[] {
+  if (event.stream?.members.length) return event.stream.members.flatMap(unwrapToolEvents);
+  if (event.commandBatch?.length) return event.commandBatch.flatMap(unwrapToolEvents);
+  return [event];
+}
+
 function providerBackgroundCommands(messages: readonly NormalizedChatMessage[], rootThreadId: string, ids: ReadonlySet<string>): Map<string, string> {
   const results = messages.filter(message => message.sourceSessionId === rootThreadId
     && message.toolBackgroundTaskId && ids.has(message.toolBackgroundTaskId));
@@ -199,8 +343,32 @@ function providerBackgroundCommands(messages: readonly NormalizedChatMessage[], 
   const relevant = messages.filter(message => message.sourceSessionId === rootThreadId && (outcomes.has(message)
     || message.type === "tool_call" && message.toolKind === "command"
       && (message.toolCallSourceId && sourceIds.has(message.toolCallSourceId) || message.toolId && toolIds.has(message.toolId))));
-  return new Map(reduceToolEvents(relevant).flatMap(item => item.kind === "tool" && item.event.kind === "command" && item.event.backgroundTaskId
-    ? [[item.event.backgroundTaskId, toolCommand(item.event).command] as const] : []));
+  const commands = new Map<string, string>();
+  for (const item of reduceToolEvents(relevant)) {
+    if (item.kind !== "tool") continue;
+    for (const event of unwrapToolEvents(item.event)) {
+      if (event.kind !== "command" || !event.backgroundTaskId) continue;
+      const command = toolCommand(event).command.trim();
+      if (command) commands.set(event.backgroundTaskId, command);
+    }
+  }
+  const callsByToolId = new Map<string, NormalizedChatMessage[]>();
+  for (const message of relevant) {
+    if (message.type !== "tool_call" || message.toolKind !== "command" || !message.toolId) continue;
+    const list = callsByToolId.get(message.toolId);
+    if (list) list.push(message);
+    else callsByToolId.set(message.toolId, [message]);
+  }
+  for (const result of results) {
+    const taskId = result.toolBackgroundTaskId;
+    if (!taskId || commands.has(taskId) || !result.toolId) continue;
+    const matches = callsByToolId.get(result.toolId);
+    if (matches?.length !== 1) continue;
+    const event = materializeToolEvent(matches[0]);
+    const command = event ? toolCommand(event).command.trim() : "";
+    if (command) commands.set(taskId, command);
+  }
+  return commands;
 }
 
 export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], roster: ProviderBackgroundRoster | undefined, rootThreadId?: string, messages: readonly NormalizedChatMessage[] = []): ComposerBackgroundWorkItem[] {
@@ -208,17 +376,26 @@ export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], 
   const { running, unknown = {}, kinds = {} } = roster;
   const shellIds = new Set([...Object.keys(running), ...Object.keys(unknown)].filter(id => kinds[id] === "shell"));
   const commands = shellIds.size ? providerBackgroundCommands(messages, rootThreadId, shellIds) : new Map<string, string>();
-  const known = new Set(items.map(item => item.processId ?? item.rawId ?? item.threadId));
+  const known = new Set(items.flatMap(item => [
+    ...(item.memberProcessIds ?? []),
+    item.processId ?? item.rawId ?? item.threadId,
+  ]));
   return numberUnnamedSubagents([...items, ...[
     ...Object.entries(running).map(([id, label]) => ({id, label: label.trim(), status: "running"})),
     ...Object.entries(unknown).map(([id, label]) => ({id, label: label.trim(), status: "unknown"})),
   ].filter(({id}) => !known.has(id)).map(({id, label, status}): ComposerBackgroundWorkItem => {
     const kind = kinds[id] === "shell" ? "shell" : kinds[id] === "subagent" ? "agent" : "unknown";
-    const command = commands.get(id);
+    const command = kind === "shell" ? (commands.get(id) || (label || undefined)) : undefined;
+    const name = kind === "shell"
+      ? (command ? backgroundCommandName(command) : BACKGROUND_PROCESS_NAME)
+      : kind === "agent"
+        ? (label || SUBAGENT_NAME)
+        : (label || BACKGROUND_TASK_NAME);
     return {
       id: `provider:${rootThreadId}:${id}`, kind, rawId: id,
-      name: command ? backgroundCommandName(command) : label || (kind === "agent" ? SUBAGENT_NAME : id),
-      command, threadId: id, elapsed: "", status, prompt: label || undefined,
+      name,
+      command, threadId: id, elapsed: "", status,
+      prompt: kind === "shell" ? undefined : (label || undefined),
     };
   })]);
 }

@@ -18,6 +18,7 @@ import { Button } from "../shared/Button";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
 import { LiquidToggle } from "../shared/LiquidToggle";
+import { NumericInput } from "../shared/NumericInput";
 import { mapQueryResultToVariantId, SchemaActionBar, segmentActionRuns } from "./SchemaActions";
 
 import type {
@@ -25,6 +26,7 @@ import type {
   BadgeStyle,
   BadgeVariant,
   ProviderConfig,
+  ProviderDescriptor,
   SettingField,
 } from "../../lib/types";
 
@@ -34,6 +36,7 @@ type ObjectArrayItemField = ArraySettingField["item"]["fields"][number];
 interface SchemaRendererProps {
   schema: SettingField[];
   providerId: string;
+  providerDescriptor?: ProviderDescriptor;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
   /**
@@ -44,16 +47,21 @@ interface SchemaRendererProps {
    */
   values?: Record<string, unknown>;
   hideActions?: boolean;
+  disableActions?: boolean;
+  remoteMachineName?: string;
   hidePathLinks?: boolean;
 }
 
 export function SchemaRenderer({
   schema,
   providerId,
+  providerDescriptor,
   config,
   onChange,
   values,
   hideActions,
+  disableActions,
+  remoteMachineName,
   hidePathLinks,
 }: SchemaRendererProps) {
   const providerConfig = (values ?? config.agents?.[providerId] ?? {}) as ProviderConfig;
@@ -62,11 +70,14 @@ export function SchemaRenderer({
       <FieldList
         fields={schema}
         providerId={providerId}
+        providerDescriptor={providerDescriptor}
         providerConfig={providerConfig}
         config={config}
         onChange={onChange}
         agentNamespace={values === undefined}
         hideActions={hideActions}
+        disableActions={disableActions}
+        remoteMachineName={remoteMachineName}
         hidePathLinks={hidePathLinks}
       />
     </div>
@@ -83,11 +94,14 @@ function globalToggleFallback(key: string, config: AppConfig, agentNamespace: bo
 interface FieldRendererProps {
   field: SettingField;
   providerId: string;
+  providerDescriptor?: ProviderDescriptor;
   providerConfig: ProviderConfig;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
   agentNamespace: boolean;
   hideActions?: boolean;
+  disableActions?: boolean;
+  remoteMachineName?: string;
   hidePathLinks?: boolean;
 }
 
@@ -100,7 +114,7 @@ function FieldList({ fields, ...rest }: FieldListProps) {
     <>
       {segmentActionRuns(fields).map((segment, i) =>
         segment.kind === "actions"
-          ? (rest.hideActions ? null : <SchemaActionBar key={i} actions={segment.actions} />)
+          ? (rest.hideActions ? null : <SchemaActionBar key={i} actions={segment.actions} disabled={rest.disableActions} remoteMachineName={rest.remoteMachineName} />)
           : <FieldRenderer key={i} field={segment.field} {...rest} />,
       )}
     </>
@@ -110,11 +124,14 @@ function FieldList({ fields, ...rest }: FieldListProps) {
 function FieldRenderer({
   field,
   providerId,
+  providerDescriptor,
   providerConfig,
   config,
   onChange,
   agentNamespace,
   hideActions,
+  disableActions,
+  remoteMachineName,
   hidePathLinks,
 }: FieldRendererProps) {
   const fieldId = useId();
@@ -136,11 +153,14 @@ function FieldRenderer({
                 <div className="flex flex-none items-center gap-1.5">
                   <FieldList fields={badges}
                     providerId={providerId}
+                    providerDescriptor={providerDescriptor}
                     providerConfig={providerConfig}
                     config={config}
                     onChange={onChange}
                     agentNamespace={agentNamespace}
                     hideActions={hideActions}
+                    disableActions={disableActions}
+                    remoteMachineName={remoteMachineName}
                     hidePathLinks={hidePathLinks}
                   />
                 </div>
@@ -153,11 +173,14 @@ function FieldRenderer({
           <FieldList
             fields={body}
             providerId={providerId}
+            providerDescriptor={providerDescriptor}
             providerConfig={providerConfig}
             config={config}
             onChange={onChange}
             agentNamespace={agentNamespace}
             hideActions={hideActions}
+            disableActions={disableActions}
+            remoteMachineName={remoteMachineName}
             hidePathLinks={hidePathLinks}
           />
         </section>
@@ -203,15 +226,14 @@ function FieldRenderer({
       return (
         <div data-testid="settings-schema-field" data-settings-field={field.key}>
           <FormRow label={field.label} htmlFor={fieldId} hint={field.description}>
-            <input
+            <NumericInput
               id={fieldId}
-              type="number"
               data-testid="settings-schema-number"
               data-settings-field={field.key}
               value={value}
               min={field.min}
               max={field.max}
-              onChange={(e) => onChange(providerId, { [field.key]: Number(e.target.value) })}
+              onValueChange={(n) => onChange(providerId, { [field.key]: n })}
               className="ct-input ct-input--compact w-full"
             />
           </FormRow>
@@ -224,7 +246,7 @@ function FieldRenderer({
       if (agentNamespace && field.key === "default_model") {
         return <div data-testid="settings-schema-field" data-settings-field={field.key}>
           <FormRow label={field.label} hint={field.description}>
-            <DefaultModelPicker providerId={providerId} value={value} serviceTier={typeof providerConfig.default_service_tier === "string" ? {id:providerConfig.default_service_tier || null} : undefined}
+            <DefaultModelPicker providerId={providerId} descriptor={providerDescriptor} value={value} serviceTier={typeof providerConfig.default_service_tier === "string" ? {id:providerConfig.default_service_tier || null} : undefined}
               onChange={(model, serviceTier) => onChange(providerId, { [field.key]: model, ...(serviceTier !== undefined ? { default_service_tier: serviceTier.id ?? "" } : {}) })} />
           </FormRow>
         </div>;
@@ -294,6 +316,7 @@ function FieldRenderer({
       return <PathLinkField label={field.label} path={field.path} />;
 
     case "badge":
+      if (disableActions) return null;
       return (
         <BadgeField
           queryCommand={field.query_command}
@@ -304,7 +327,7 @@ function FieldRenderer({
 
     case "action":
       if (hideActions) return null;
-      return <SchemaActionBar actions={[field]} />;
+      return <SchemaActionBar actions={[field]} disabled={disableActions} remoteMachineName={remoteMachineName} />;
 
     case "when": {
       const dependent = providerConfig[field.field];
@@ -315,11 +338,14 @@ function FieldRenderer({
           <FieldList
             fields={field.then}
             providerId={providerId}
+            providerDescriptor={providerDescriptor}
             providerConfig={providerConfig}
             config={config}
             onChange={onChange}
             agentNamespace={agentNamespace}
             hideActions={hideActions}
+            disableActions={disableActions}
+            remoteMachineName={remoteMachineName}
             hidePathLinks={hidePathLinks}
           />
         </>
@@ -519,15 +545,14 @@ function CompactPairInput({
   if (field.kind === "number") {
     const numberValue = typeof value === "number" ? value : field.default ?? 0;
     return (
-      <input
-        type="number"
+      <NumericInput
         aria-label={ariaLabel}
         data-testid="settings-schema-array-number"
         data-settings-field={dataField}
         value={numberValue}
         min={field.min}
         max={field.max}
-        onInput={(e) => onChange(Number(e.currentTarget.value))}
+        onValueChange={onChange}
         className="ct-input ct-input--compact w-full"
       />
     );
@@ -584,21 +609,20 @@ function ObjectArrayItemInput({
   onChange: (next: unknown) => void;
 }) {
   const dataField = `${parentKey}.${index}.${field.key}`;
-  const label = <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{field.label}</div>;
+  const label = <span className="block text-[11px] font-medium text-[var(--ct-muted-fg)]">{field.label}</span>;
 
   if (field.kind === "number") {
     const numberValue = typeof value === "number" ? value : field.default ?? 0;
     return (
       <label className="block space-y-1">
         {label}
-        <input
-          type="number"
+        <NumericInput
           data-testid="settings-schema-array-number"
           data-settings-field={dataField}
           value={numberValue}
           min={field.min}
           max={field.max}
-          onInput={(e) => onChange(Number(e.currentTarget.value))}
+          onValueChange={onChange}
           className="ct-input ct-input--compact w-full"
         />
       </label>

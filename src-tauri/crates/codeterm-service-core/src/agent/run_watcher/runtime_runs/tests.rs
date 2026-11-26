@@ -286,7 +286,7 @@ impl Scene {
 
 #[test]
 fn runtime_oneshot_explicit_complete_retains_final_answer_then_closes_in_both_event_orders() {
-    for idle_first in [true, false] {
+    for (idle_first, success) in [(true, true), (false, true), (true, false), (false, false)] {
         let scene = Scene::new();
         let (job, run) = scene.cron();
         let tab = run.tab_id.as_ref().unwrap();
@@ -300,7 +300,10 @@ fn runtime_oneshot_explicit_complete_retains_final_answer_then_closes_in_both_ev
                 &scene.cron,
                 &scene.wake,
                 &run.run_id,
-                Some("opaque report"),
+                CronSettlement {
+                    success,
+                    summary: "opaque report".into(),
+                },
                 Some(tab),
                 Some(&nonce),
                 false,
@@ -324,7 +327,15 @@ fn runtime_oneshot_explicit_complete_retains_final_answer_then_closes_in_both_ev
         let ended = scene.ended("cron-run-finished");
         scene.idle(tab, true, idle_first);
         scene.await_cron_end(&ended, &run);
-        scene.assert_cron_end(&job, &run, CronRunStatus::Success);
+        scene.assert_cron_end(
+            &job,
+            &run,
+            if success {
+                CronRunStatus::Success
+            } else {
+                CronRunStatus::Failed
+            },
+        );
         let path = scene.cron.lock().log_file(&job, &run.run_id).unwrap();
         let log = std::fs::read_to_string(path).unwrap();
         assert!(log.contains("opaque report"));

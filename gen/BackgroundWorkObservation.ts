@@ -2,4 +2,4 @@
 import type { BackgroundWorkKind } from "./BackgroundWorkKind";
 import type { BackgroundWorkState } from "./BackgroundWorkState";
 
-export type BackgroundWorkObservation = { id: string, state: BackgroundWorkState, kind?: BackgroundWorkKind, output_path?: string, };
+export type BackgroundWorkObservation = { id: string, state: BackgroundWorkState, kind?: BackgroundWorkKind, label?: string, tool_use_id?: string, output_path?: string, };
