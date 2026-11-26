@@ -316,7 +316,8 @@ async fn every_outbound_operation_maps_to_registered_outer_and_inner_router_entr
             OutboundOperation::Notification => {
                 assert_eq!(response["ok"], true, "{response}");
                 assert_eq!(response["status"], 200, "{response}");
-                let notifs = target.svc.notif.lock().list(false);
+                let notif = target.svc.notif.lock();
+                let notifs = notif.list(false);
                 assert!(
                     notifs.iter().any(|n| n.title == "Cloud worker status"
                         && n.peer_name.as_deref() == Some("source")),
