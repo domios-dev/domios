@@ -7,7 +7,10 @@ use zeroize::Zeroizing;
 
 use super::held_sends::{FlushWriteOutcome, HeldCloudSend};
 use super::idle_drain::{DrainToken, PeerBusySnapshot};
-use super::types::{CloudError, CloudMachineRecord, CloudRate, CloudSleepMode, CloudUsageSummary};
+use super::types::{
+    CloudError, CloudMachineRecord, CloudPromoRedemption, CloudRate, CloudSleepMode,
+    CloudUsageSummary,
+};
 
 pub trait Clock: Send + Sync {
     fn now_ms(&self) -> u64;
@@ -77,6 +80,11 @@ pub trait CloudProvisioningPort: Send + Sync {
         request_id: &str,
     ) -> Result<ProvisionedLease, CloudError>;
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError>;
+    async fn redeem_promo(&self, _code: &str) -> Result<CloudPromoRedemption, CloudError> {
+        Err(CloudError::ProviderUnavailable(
+            "promo code redemption unavailable".into(),
+        ))
+    }
 }
 
 pub struct EnrollmentBinding {

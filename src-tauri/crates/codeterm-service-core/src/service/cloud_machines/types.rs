@@ -103,6 +103,17 @@ pub struct CloudUsageSummary {
     pub period_end_at: Option<u64>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CloudPromoRedemption {
+    pub schema_version: u8,
+    pub status: String,
+    pub already_redeemed: bool,
+    pub hours: f64,
+    pub expires_at: Option<u64>,
+    pub remaining: f64,
+    pub purchased: f64,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CloudOwnershipReceipt {
     pub provider_machine_id: String,
@@ -277,6 +288,11 @@ pub enum CloudError {
     },
     LeaseRequired,
     CreditsExhausted,
+    PromoInvalidCode,
+    PromoExpired,
+    PromoDisabled,
+    PromoExhausted,
+    PromoSpendCapExceeded,
     ImplicitCreateRefused,
     MachineNotFound(String),
     MachineAmbiguous(String),
@@ -323,6 +339,11 @@ impl CloudError {
             Self::LimitReached { .. } => "limit_reached",
             Self::LeaseRequired => "lease_required",
             Self::CreditsExhausted | Self::MachineOutOfCredits { .. } => "credits_exhausted",
+            Self::PromoInvalidCode => "invalid_code",
+            Self::PromoExpired => "expired",
+            Self::PromoDisabled => "disabled",
+            Self::PromoExhausted => "exhausted",
+            Self::PromoSpendCapExceeded => "spend_cap_exceeded",
             Self::ImplicitCreateRefused => "implicit_create_refused",
             Self::MachineNotFound(_) => "machine_not_found",
             Self::MachineAmbiguous(_) => "machine_ambiguous",
@@ -382,6 +403,13 @@ impl std::fmt::Display for CloudError {
             }
             Self::CreditsExhausted => {
                 write!(f, "Out of credits: top up to wake or create a cloud machine")
+            }
+            Self::PromoInvalidCode => write!(f, "Promo code is not valid"),
+            Self::PromoExpired => write!(f, "Promo code has expired"),
+            Self::PromoDisabled => write!(f, "Promo code is disabled"),
+            Self::PromoExhausted => write!(f, "Promo code has no redemptions remaining"),
+            Self::PromoSpendCapExceeded => {
+                write!(f, "Monthly cloud credit spend cap exceeded")
             }
             Self::ImplicitCreateRefused => {
                 write!(

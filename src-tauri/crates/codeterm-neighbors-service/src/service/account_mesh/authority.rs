@@ -105,6 +105,11 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::CloudMachineLimit { .. }
         | AccountMeshRefusal::LeaseRequired
         | AccountMeshRefusal::CreditsExhausted
+        | AccountMeshRefusal::PromoInvalidCode
+        | AccountMeshRefusal::PromoExpired
+        | AccountMeshRefusal::PromoDisabled
+        | AccountMeshRefusal::PromoExhausted
+        | AccountMeshRefusal::PromoSpendCapExceeded
         | AccountMeshRefusal::NotFound
         | AccountMeshRefusal::ProviderRefused
         | AccountMeshRefusal::ProviderUnavailable

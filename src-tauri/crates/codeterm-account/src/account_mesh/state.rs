@@ -123,6 +123,16 @@ pub enum AccountMeshRefusal {
     LeaseRequired,
     #[serde(rename = "credits_exhausted")]
     CreditsExhausted,
+    #[serde(rename = "invalid_code")]
+    PromoInvalidCode,
+    #[serde(rename = "expired")]
+    PromoExpired,
+    #[serde(rename = "disabled")]
+    PromoDisabled,
+    #[serde(rename = "exhausted")]
+    PromoExhausted,
+    #[serde(rename = "spend_cap_exceeded")]
+    PromoSpendCapExceeded,
     #[serde(rename = "not_found")]
     NotFound,
     #[serde(rename = "provider_refused")]
@@ -177,6 +187,11 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             },
             RegistryRefusal::LeaseRequired => Self::LeaseRequired,
             RegistryRefusal::CreditsExhausted => Self::CreditsExhausted,
+            RegistryRefusal::PromoInvalidCode => Self::PromoInvalidCode,
+            RegistryRefusal::PromoExpired => Self::PromoExpired,
+            RegistryRefusal::PromoDisabled => Self::PromoDisabled,
+            RegistryRefusal::PromoExhausted => Self::PromoExhausted,
+            RegistryRefusal::PromoSpendCapExceeded => Self::PromoSpendCapExceeded,
             RegistryRefusal::NotFound => Self::NotFound,
             RegistryRefusal::ProviderRefused => Self::ProviderRefused,
             RegistryRefusal::ProviderUnavailable => Self::ProviderUnavailable,

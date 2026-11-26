@@ -67,6 +67,13 @@ pub trait MeshRegistry: Send + Sync {
     ) -> RegistryResult<super::cloud_provisioning::CloudUsageReply> {
         Err(RegistryRefusal::Unavailable)
     }
+    async fn redeem_cloud_promo(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::RedeemCloudCreditPromoRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RedeemCloudCreditPromoReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     fn handles_call_deadline(&self) -> bool {
         false
     }

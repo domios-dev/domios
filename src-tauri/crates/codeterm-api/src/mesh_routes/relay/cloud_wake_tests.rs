@@ -343,6 +343,7 @@ async fn post_relay_to(app: axum::Router, token: &str, payload: &Value) -> (Stat
 
 #[tokio::test]
 async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_before_holding() {
+    crate::register_api_extensions();
     let (mux, agent_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 30), 7687);
@@ -420,6 +421,7 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
 #[tokio::test]
 async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failure_blocks_release()
 {
+    crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 31), 7687);
     let (home, _home_pub, _dir, controller, provisioning, channel) =

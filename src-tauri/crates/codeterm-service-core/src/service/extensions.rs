@@ -130,6 +130,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
         self.insert_late::<crate::service::durable_delivery::DurableDeliveryRuntime>();
         self.insert_late::<crate::service::model_providers::ModelProviderClientState>();
+        self.insert_late::<crate::service::cloud_machines::CloudMachinesHandle>();
     }
 
     pub fn finish(self) -> Extensions {
