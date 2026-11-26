@@ -17,14 +17,20 @@ use codeterm_account::account_mesh::{
 use codeterm_mesh::cloud_ingress::CloudRoute;
 use codeterm_neighbors_service::service::{
     account_mesh::NeighborsExt,
-    cloud_installation::controller::{enroll as baker_enroll, ControllerError, CreationBinding},
+    cloud_installation::controller::{
+        enroll as baker_enroll, publish_direct_endpoint as ferry_publish_direct_endpoint,
+        ControllerError, CreationBinding,
+    },
 };
-use codeterm_service_core::service::cloud_machines::{
-    CloudError, CloudMachineRecord, CloudPeerControlPort, CloudProvisioningPort, CloudRate,
-    CloudRouteSpec, CloudSleepMode, CloudTarget, CloudUsageSummary, CreateCloudMachineParams,
-    DrainToken, EnrollmentBinding, EnrollmentOutcome, FlushWriteOutcome, HeldCloudSend,
-    PeerBusySnapshot, ProvisionedLease, ProvisionedMachine, ProvisioningCreateRequest,
-    DEFAULT_WAKE_HOLD_DEADLINE_MS,
+use codeterm_service_core::{
+    mesh::crown::AuthenticatedOrigin,
+    service::cloud_machines::{
+        CloudError, CloudMachineRecord, CloudPeerControlPort, CloudProvisioningPort, CloudRate,
+        CloudRouteSpec, CloudSleepMode, CloudTarget, CloudUsageSummary, CreateCloudMachineParams,
+        DrainToken, EnrollmentBinding, EnrollmentOutcome, FlushWriteOutcome, HeldCloudSend,
+        PeerBusySnapshot, ProvisionedLease, ProvisionedMachine, ProvisioningCreateRequest,
+        DEFAULT_WAKE_HOLD_DEADLINE_MS,
+    },
 };
 use serde::Deserialize;
 
@@ -294,6 +300,20 @@ impl codeterm_service_core::service::cloud_machines::CloudEnrollmentPort
 #[derive(Clone)]
 pub struct CloudProvisioningOverride(pub Arc<dyn CloudProvisioningPort>);
 
+/// Optional host extension allowing tests to intercept `publish_direct_endpoint`
+/// without opening a live enrolled cloud channel.
+#[derive(Clone)]
+pub struct CloudEndpointPublisherOverride(
+    pub  Arc<
+        dyn Fn(
+                SocketAddrV4,
+                String,
+            ) -> codeterm_mesh::account_mesh::BoxFuture<'static, Result<(), String>>
+            + Send
+            + Sync,
+    >,
+);
+
 pub struct MeshPeerControlAdapter {
     state: AppState,
 }
@@ -321,10 +341,32 @@ impl MeshPeerControlAdapter {
             .ok_or_else(|| CloudError::ProviderUnavailable(format!("peer {target} has no route")))
     }
 
-    fn cloud_ingress_target(
+    fn resolve_installation_id(&self, record: &CloudMachineRecord) -> Option<String> {
+        let mesh = self.state.mesh.lock();
+        for selector in [
+            record.peer_instance_id.as_deref(),
+            record.installation_id.as_deref(),
+            Some(record.machine_id.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Ok(peer) = mesh.resolve_peer_including_offline(selector) {
+                if let Some(id) = mesh
+                    .link_record(&peer.instance_id)
+                    .and_then(|link| link.installation_id())
+                {
+                    return Some(id.to_owned());
+                }
+            }
+        }
+        record.installation_id.clone()
+    }
+
+    fn cloud_ingress_route(
         &self,
         record: &CloudMachineRecord,
-    ) -> Option<(String, String, Option<std::net::SocketAddrV4>, String)> {
+    ) -> Option<(String, String, Option<std::net::SocketAddrV4>)> {
         let mesh = self.state.mesh.lock();
         let mut resolved_peer_id = None;
         for selector in [
@@ -355,21 +397,21 @@ impl MeshPeerControlAdapter {
         if known_address.is_none() && mesh.peer_route_endpoints(&peer_id).is_some() {
             return None;
         }
-        let token = mesh.sign_request().ok()?;
-        Some((peer_id, installation_id, known_address, token))
+        Some((peer_id, installation_id, known_address))
     }
 
-    async fn send_cloud_relay(
+    async fn send_cloud_relay_with_token(
         &self,
         record: &CloudMachineRecord,
         cmd: codeterm_service_core::mesh::types::RelayCommand,
+        token: String,
     ) -> Option<
         Result<
             codeterm_service_core::mesh::types::RelayResponse,
             crate::mesh_routes::relay::CloudIngressSendError,
         >,
     > {
-        let (peer_id, installation_id, known, token) = self.cloud_ingress_target(record)?;
+        let (peer_id, installation_id, known) = self.cloud_ingress_route(record)?;
         let address = crate::mesh_routes::relay::resolve_cloud_ingress_address(
             &self.state,
             &peer_id,
@@ -386,6 +428,22 @@ impl MeshPeerControlAdapter {
             )
             .await,
         )
+    }
+
+    async fn send_controller_cloud_relay(
+        &self,
+        record: &CloudMachineRecord,
+        cmd: codeterm_service_core::mesh::types::RelayCommand,
+    ) -> Option<
+        Result<
+            codeterm_service_core::mesh::types::RelayResponse,
+            crate::mesh_routes::relay::CloudIngressSendError,
+        >,
+    > {
+        let token =
+            crate::mesh_routes::relay::sign_caller(&self.state, AuthenticatedOrigin::Mesh, None)
+                .ok()?;
+        self.send_cloud_relay_with_token(record, cmd, token).await
     }
 
     fn peer_is_online(&self, record: &CloudMachineRecord) -> bool {
@@ -416,7 +474,7 @@ impl MeshPeerControlAdapter {
 impl CloudPeerControlPort for MeshPeerControlAdapter {
     async fn read_idle(&self, record: &CloudMachineRecord) -> Result<PeerBusySnapshot, CloudError> {
         let value = if let Some(cloud_result) = self
-            .send_cloud_relay(
+            .send_controller_cloud_relay(
                 record,
                 codeterm_service_core::mesh::types::RelayCommand {
                     method: "GET".into(),
@@ -447,7 +505,7 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
 
     async fn enter_drain(&self, record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
         let value = if let Some(cloud_result) = self
-            .send_cloud_relay(
+            .send_controller_cloud_relay(
                 record,
                 codeterm_service_core::mesh::types::RelayCommand {
                     method: "POST".into(),
@@ -495,7 +553,7 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
 
     async fn reopen_drain(&self, record: &CloudMachineRecord) -> Result<(), CloudError> {
         if let Some(cloud_result) = self
-            .send_cloud_relay(
+            .send_controller_cloud_relay(
                 record,
                 codeterm_service_core::mesh::types::RelayCommand {
                     method: "POST".into(),
@@ -539,13 +597,49 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
             .resolve_peer_including_offline(target)
             .map(|peer| peer.instance_id.clone())
         {
-            let _ = mesh.set_peer_addr_override(
+            if let Err(error) = mesh.set_peer_addr_override(
                 &peer_id,
                 &endpoint.ip().to_string(),
                 Some(endpoint.port()),
-            );
+            ) {
+                log::warn!("[cloud] failed to set peer addr override for {peer_id}: {error}");
+            }
         }
         Ok(())
+    }
+
+    async fn publish_direct_endpoint(
+        &self,
+        record: &CloudMachineRecord,
+        endpoint: SocketAddrV4,
+    ) -> Result<(), CloudError> {
+        let installation_id = self.resolve_installation_id(record).ok_or_else(|| {
+            CloudError::ProviderUnavailable(format!(
+                "cloud machine {} has no installation id for endpoint publication",
+                record.machine_id
+            ))
+        })?;
+        if let Some(override_pub) = self.state.svc.try_ext::<CloudEndpointPublisherOverride>() {
+            return (override_pub.0)(endpoint, installation_id)
+                .await
+                .map_err(CloudError::ProviderUnavailable);
+        }
+        // Registered-router fake-ingress tests install a connector override without a live TCP peer.
+        if self
+            .state
+            .svc
+            .try_ext::<crate::mesh_routes::relay::CloudIngressConnectorOverride>()
+            .is_some()
+        {
+            return Ok(());
+        }
+        ferry_publish_direct_endpoint(&self.state.svc, endpoint, &installation_id)
+            .await
+            .map_err(|error| {
+                CloudError::ProviderUnavailable(format!(
+                    "publish_direct_endpoint failed: {error:?}"
+                ))
+            })
     }
 
     async fn await_peer_ready(
@@ -591,19 +685,93 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         record: &CloudMachineRecord,
         send: &HeldCloudSend,
     ) -> FlushWriteOutcome {
+        if send.body["require_agent"].as_bool() == Some(true) {
+            let identify_token = match crate::mesh_routes::relay::sign_caller(
+                &self.state,
+                send.origin,
+                send.agent.as_ref(),
+            ) {
+                Ok(token) => token,
+                Err((_, detail)) => return FlushWriteOutcome::RefusedPreWrite(detail),
+            };
+            let identify_cmd = codeterm_service_core::mesh::types::RelayCommand {
+                method: "GET".into(),
+                path: "/api/identify".into(),
+                body: serde_json::Value::Null,
+                delivery_id: None,
+            };
+            let identify = if let Some(cloud_result) = self
+                .send_cloud_relay_with_token(record, identify_cmd, identify_token.clone())
+                .await
+            {
+                match cloud_result {
+                    Ok(resp) if resp.ok => resp.data,
+                    Ok(_) => None,
+                    Err(crate::mesh_routes::relay::CloudIngressSendError::ConnectUnavailable(
+                        _,
+                    )) => return FlushWriteOutcome::RefusedMachineSleeping,
+                    Err(_) => None,
+                }
+            } else {
+                let Ok(client) = self.peer_client(record) else {
+                    return FlushWriteOutcome::RefusedMachineSleeping;
+                };
+                match client
+                    .with_signed_token(identify_token)
+                    .auth_get_json("/api/identify")
+                    .await
+                {
+                    Ok(value) => Some(value),
+                    Err(_) => return FlushWriteOutcome::RefusedMachineSleeping,
+                }
+            };
+            let supported = identify.as_ref().is_some_and(|id| {
+                crate::mesh_routes::relay::identify_supports_feature(
+                    id,
+                    crate::mesh_routes::relay::REQUIRE_AGENT_SEND_FEATURE,
+                )
+            });
+            if !supported {
+                return FlushWriteOutcome::RefusedPreWrite("peer_lacks_agent_only_send".into());
+            }
+        }
+
+        let token = match crate::mesh_routes::relay::sign_caller(
+            &self.state,
+            send.origin,
+            send.agent.as_ref(),
+        ) {
+            Ok(token) => token,
+            Err((_, detail)) => return FlushWriteOutcome::RefusedPreWrite(detail),
+        };
         let cmd = codeterm_service_core::mesh::types::RelayCommand {
             method: send.method.clone(),
             path: send.path.clone(),
             body: send.body.clone(),
             delivery_id: Some(send.delivery_id.clone()),
         };
-        let result = if let Some(cloud_result) = self.send_cloud_relay(record, cmd.clone()).await {
-            cloud_result.map_err(|error| (error.bytes_written(), error.to_string()))
+        let result = if let Some(cloud_result) = self
+            .send_cloud_relay_with_token(record, cmd.clone(), token.clone())
+            .await
+        {
+            match cloud_result {
+                Ok(resp) => Ok(resp),
+                Err(crate::mesh_routes::relay::CloudIngressSendError::ConnectUnavailable(_)) => {
+                    return FlushWriteOutcome::RefusedMachineSleeping;
+                }
+                Err(crate::mesh_routes::relay::CloudIngressSendError::AdmissionRejected(
+                    detail,
+                )) => return FlushWriteOutcome::RefusedPreWrite(detail),
+                Err(crate::mesh_routes::relay::CloudIngressSendError::Transport(error)) => {
+                    Err((error.bytes_written(), error.to_string()))
+                }
+            }
         } else {
             let Ok(client) = self.peer_client(record) else {
                 return FlushWriteOutcome::RefusedMachineSleeping;
             };
             client
+                .with_signed_token(token)
                 .send_relay(&cmd)
                 .await
                 .map_err(|error| (error.bytes_written(), error.to_string()))
@@ -774,6 +942,7 @@ async fn create_machine(
     let enrollment = BakerEnrollmentAdapter {
         svc: state.svc.clone(),
     };
+    let peer_ctrl = MeshPeerControlAdapter::new(state.clone());
     let receipt = state
         .svc
         .cloud_machines()
@@ -786,6 +955,7 @@ async fn create_machine(
             },
             &provisioning,
             &enrollment,
+            &peer_ctrl,
         )
         .await
         .map_err(error_response)?;

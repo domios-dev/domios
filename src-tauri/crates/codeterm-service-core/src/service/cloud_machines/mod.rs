@@ -1,4 +1,5 @@
 pub mod controller;
+mod enrichment;
 pub mod held_sends;
 pub mod idle_drain;
 pub mod placement;
@@ -30,7 +31,7 @@ pub use state::{
     can_issue_enrollment_apply, ownership_labels, reconcile_provider_machines, transition,
     LifecycleEvent, ObservedProviderMachine, ObservedProviderState, ReconcileOutcome,
 };
-pub use store::CloudMachineStore;
+pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{
     CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
     CloudRate, CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
@@ -123,3 +124,5 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wake_queue_tests;

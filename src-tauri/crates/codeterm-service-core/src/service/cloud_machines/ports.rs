@@ -118,6 +118,11 @@ pub trait CloudPeerControlPort: Send + Sync {
         record: &CloudMachineRecord,
         endpoint: SocketAddrV4,
     ) -> Result<(), CloudError>;
+    async fn publish_direct_endpoint(
+        &self,
+        record: &CloudMachineRecord,
+        endpoint: SocketAddrV4,
+    ) -> Result<(), CloudError>;
     async fn await_peer_ready(
         &self,
         record: &CloudMachineRecord,

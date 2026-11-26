@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use zeroize::Zeroizing;
 
 use super::*;
+use crate::mesh::crown::AuthenticatedOrigin;
 use crate::service::chat_send_transaction::ChatSendState;
 
 struct FakeClock(AtomicU64);
@@ -278,6 +279,7 @@ struct FakePeerControl {
     flushed_payloads: Mutex<Vec<(String, String, Option<SocketAddrV4>)>>,
     events: Mutex<Vec<String>>,
     endpoint_updates: Mutex<Vec<SocketAddrV4>>,
+    published_endpoints: Mutex<Vec<(String, SocketAddrV4)>>,
 }
 
 impl FakePeerControl {
@@ -289,6 +291,7 @@ impl FakePeerControl {
             flushed_payloads: Mutex::new(Vec::new()),
             events: Mutex::new(Vec::new()),
             endpoint_updates: Mutex::new(Vec::new()),
+            published_endpoints: Mutex::new(Vec::new()),
         })
     }
 }
@@ -319,6 +322,18 @@ impl CloudPeerControlPort for FakePeerControl {
     ) -> Result<(), CloudError> {
         self.endpoint_updates.lock().push(endpoint);
         self.events.lock().push(format!("endpoint:{endpoint}"));
+        Ok(())
+    }
+
+    async fn publish_direct_endpoint(
+        &self,
+        record: &CloudMachineRecord,
+        endpoint: SocketAddrV4,
+    ) -> Result<(), CloudError> {
+        self.published_endpoints
+            .lock()
+            .push((record.installation_id.clone().unwrap_or_default(), endpoint));
+        self.events.lock().push(format!("publish:{endpoint}"));
         Ok(())
     }
 
@@ -398,6 +413,7 @@ async fn create_reuse_backend_refusals_sleep_wake_and_uptime_accounting() {
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap_err();
@@ -417,6 +433,7 @@ async fn create_reuse_backend_refusals_sleep_wake_and_uptime_accounting() {
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap_err();
@@ -433,6 +450,7 @@ async fn create_reuse_backend_refusals_sleep_wake_and_uptime_accounting() {
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap();
@@ -465,6 +483,7 @@ async fn create_reuse_backend_refusals_sleep_wake_and_uptime_accounting() {
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap_err();
@@ -540,6 +559,7 @@ async fn uncertain_create_reuses_persisted_request_id_on_retry_and_creates_once(
     let (_dir, ctrl) = temp_controller(clock.clone());
     let prov = FakeProvisioningPort::new(CloudSleepMode::DeleteRecreate, clock.clone());
     let enrollment = FakeEnrollment::ok("inst-retry", "peer-retry");
+    let peer_ctrl = FakePeerControl::new();
 
     prov.create_outcomes
         .lock()
@@ -556,6 +576,7 @@ async fn uncertain_create_reuses_persisted_request_id_on_retry_and_creates_once(
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap_err();
@@ -583,6 +604,7 @@ async fn uncertain_create_reuses_persisted_request_id_on_retry_and_creates_once(
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap();
@@ -615,6 +637,7 @@ async fn busy_guard_renews_credit_lease_by_deadline_and_refused_renewal_finishes
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap();
@@ -765,6 +788,7 @@ async fn idle_machine_does_not_renew_lease_and_sleeps_after_idle_window() {
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap();
@@ -826,16 +850,18 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap();
+    let initial_addr = SocketAddrV4::new(Ipv4Addr::new(198, 51, 100, 10), CLOUD_INGRESS_PORT);
+    assert_eq!(created.endpoint_addr, Some(initial_addr));
     assert_eq!(
-        created.endpoint_addr,
-        Some(SocketAddrV4::new(
-            Ipv4Addr::new(198, 51, 100, 10),
-            CLOUD_INGRESS_PORT
-        ))
+        peer_ctrl.published_endpoints.lock().as_slice(),
+        &[("inst-wake".into(), initial_addr)]
     );
+    peer_ctrl.events.lock().clear();
+    peer_ctrl.endpoint_updates.lock().clear();
     ctrl.sleep(&created.machine_id, prov.as_ref(), peer_ctrl.as_ref(), true)
         .await
         .unwrap();
@@ -849,6 +875,8 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
             "POST".into(),
             "/api/tabs/tab-1/send".into(),
             serde_json::json!({"text": "first-opaque"}),
+            AuthenticatedOrigin::Owner,
+            None,
             60_000,
         )
         .unwrap();
@@ -860,6 +888,8 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
             "POST".into(),
             "/api/tabs/tab-1/send".into(),
             serde_json::json!({"text": "first-opaque"}),
+            AuthenticatedOrigin::Owner,
+            None,
             60_000,
         )
         .unwrap();
@@ -873,6 +903,8 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
             "POST".into(),
             "/api/tabs/tab-1/send".into(),
             serde_json::json!({"text": "second-opaque"}),
+            AuthenticatedOrigin::Owner,
+            None,
             60_000,
         )
         .unwrap();
@@ -907,12 +939,13 @@ async fn delete_recreate_wake_updates_endpoint_before_releasing_held_sends_once_
     assert_eq!(woken1.endpoint_addr, Some(new_addr));
     assert_eq!(peer_ctrl.endpoint_updates.lock().as_slice(), &[new_addr]);
 
-    // Endpoint update strictly precedes ready and flush; sends flush once each with new endpoint.
+    // Endpoint update and direct endpoint publication strictly precede ready and flush.
     let events = peer_ctrl.events.lock().clone();
     assert_eq!(
         events,
         vec![
             format!("endpoint:{new_addr}"),
+            format!("publish:{new_addr}"),
             "ready".into(),
             "flush:first-opaque".into(),
             "flush:second-opaque".into(),
@@ -951,6 +984,7 @@ async fn uncertain_flush_becomes_submit_unconfirmed_and_never_replays_and_drain_
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap();
@@ -964,6 +998,8 @@ async fn uncertain_flush_becomes_submit_unconfirmed_and_never_replays_and_drain_
             "POST".into(),
             "/api/tabs/tab-r/send".into(),
             serde_json::json!({"text": "uncertain-payload"}),
+            AuthenticatedOrigin::Owner,
+            None,
             60_000,
         )
         .unwrap();
@@ -992,6 +1028,8 @@ async fn uncertain_flush_becomes_submit_unconfirmed_and_never_replays_and_drain_
             "POST".into(),
             "/api/tabs/tab-r/send".into(),
             serde_json::json!({"text": "race-payload"}),
+            AuthenticatedOrigin::Owner,
+            None,
             60_000,
         )
         .unwrap();
@@ -1024,6 +1062,7 @@ async fn apply_unconfirmed_prevents_reapply_and_peer_drain_gate_refuses_writes_a
     let (_dir, ctrl) = temp_controller(clock.clone());
     let prov = FakeProvisioningPort::new(CloudSleepMode::Stop, clock.clone());
     let enrollment = FakeEnrollment::unconfirmed("inst-unconfirmed");
+    let peer_ctrl = FakePeerControl::new();
 
     let err = ctrl
         .create(
@@ -1034,6 +1073,7 @@ async fn apply_unconfirmed_prevents_reapply_and_peer_drain_gate_refuses_writes_a
             },
             prov.as_ref(),
             enrollment.as_ref(),
+            peer_ctrl.as_ref(),
         )
         .await
         .unwrap_err();

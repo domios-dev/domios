@@ -10,6 +10,8 @@ mod caller;
 mod capability;
 mod cloud_producer;
 mod cloud_wake;
+#[cfg(test)]
+mod cloud_wake_tests;
 mod observation_limit;
 mod origin;
 mod peer_asset;
@@ -242,7 +244,7 @@ fn identify_supports_delayed_recurrence(identify: &serde_json::Value) -> bool {
 
 pub(crate) const REQUIRE_AGENT_SEND_FEATURE: &str = "mesh_send_require_agent";
 
-fn identify_supports_feature(identify: &serde_json::Value, name: &str) -> bool {
+pub(crate) fn identify_supports_feature(identify: &serde_json::Value, name: &str) -> bool {
     identify
         .get("features")
         .and_then(serde_json::Value::as_array)
@@ -317,6 +319,14 @@ fn spawn_registration_from_relay(
     ))
 }
 
+pub(crate) fn sign_caller(
+    state: &AppState,
+    origin: crate::auth::AuthenticatedOrigin,
+    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+) -> Result<String, (StatusCode, String)> {
+    origin::sign(state, origin, agent)
+}
+
 pub async fn mesh_relay_to_peer(
     AxumState(state): AxumState<AppState>,
     Extension(identity): Extension<crate::auth::CallerIdentity>,
@@ -328,7 +338,7 @@ pub async fn mesh_relay_to_peer(
         caller::bind(caller, &req.method, &req.path, &mut req.body)
             .map_err(|message| (StatusCode::FORBIDDEN, message))?;
     }
-    if let Some(early) = cloud_wake::preflight_cloud_wake(&state, &req).await? {
+    if let Some(early) = cloud_wake::preflight_cloud_wake(&state, &headers, &req).await? {
         return Ok(Json(early));
     }
     let inbound_only = cloud_producer::has_cloud_outbox(&state);
@@ -465,6 +475,10 @@ pub async fn mesh_relay_to_peer(
         body: relay_body,
         delivery_id,
     };
+    let drain_agent = match &transport {
+        cloud_producer::ReadyOutboundTransport::CloudIngress { agent, .. } => agent.clone(),
+        cloud_producer::ReadyOutboundTransport::Http(_) => None,
+    };
     // The sender hop's own transport failure classifies into the same
     // relay_failure() vocabulary the receiving hop uses (see relay_error_summary).
     let resp = match transport.send_relay(&state, &cmd).await {
@@ -472,7 +486,19 @@ pub async fn mesh_relay_to_peer(
         Err(failure) => return Ok(answered_by(failure)),
     };
 
-    if let Some(held) = cloud_wake::hold_if_drain_raced(&state, &peer_id, &cmd, &resp) {
+    let drain_agent = match drain_agent {
+        Some(agent) => Some(agent),
+        None if request_origin == crate::auth::AuthenticatedOrigin::Agent => {
+            crate::auth::off_runtime(&state, &headers, origin::authenticated_local_caller)
+                .await
+                .ok()
+                .and_then(|(_, agent)| agent)
+        }
+        None => None,
+    };
+    if let Some(held) =
+        cloud_wake::hold_if_drain_raced(&state, &peer_id, &cmd, &resp, request_origin, drain_agent)
+    {
         return Ok(answered_by(held));
     }
 
