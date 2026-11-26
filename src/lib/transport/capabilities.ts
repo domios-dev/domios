@@ -269,7 +269,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     get_shell_diagnostics: () => webJson("GET", "/api/system/shell-diagnostics"),
     suggest_install_pwsh: () => webJson("POST", "/api/system/install-pwsh"),
     get_themes_dir: () => webJson("GET", "/api/themes/location"),
-    attachment_path_kinds: (a) => webJson("POST", "/api/attachments/path-kinds", { paths: a.paths }),
+    attachment_path_kinds: (a) => (a.local === true ? localJson : webJson)("POST", "/api/attachments/path-kinds", { paths: a.paths }),
     report_webgl_status: (a) => webJson("POST", "/api/diagnostics/webgl", { state: a.state, detail: a.detail }),
   } satisfies Record<string, CapabilityMapper>;
 }

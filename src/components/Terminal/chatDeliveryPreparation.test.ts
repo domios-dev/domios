@@ -99,12 +99,16 @@ test("draft-less remote send with an inline attachment marker transfers before d
   const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
   __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
     calls.push({ command, args });
+    if (command === "attachment_path_kinds") {
+      assert.deepEqual(args, { paths: [localImg], local: true });
+      return ["file"] as T;
+    }
     assert.equal(command, "mesh_transfer_attachment");
     return { path: remoteImg, kind: "file", size: 42, reference: null } as T;
   });
   try {
     const composed = await prepareChatDelivery(tab, original, expansion);
-    assert.equal(calls.length, 1);
+    assert.deepEqual(calls.map((call) => call.command), ["attachment_path_kinds", "mesh_transfer_attachment"]);
     assert.ok(!composed.includes(localImg), "viewer-local path is removed");
     assert.ok(composed.includes(remoteImg), "target-local path replaces it");
     assert.equal(readChatSends(tab)[0].content, composed);

@@ -229,9 +229,11 @@ describe("capabilities HTTP transport", () => {
   it("keeps local daemon attachment handoff and model provider operations local", async () => {
     const { transport, calls } = fixture();
     await transport.mesh_transfer_attachment({ ordinaryTabId: "mesh:peer/tab", peerId: "peer", path: "/file", kind: "image" });
+    await transport.attachment_path_kinds({ paths: ["/file"], local: true });
     await transport.model_provider_manage({ providerId: "provider/a", request: { action: "list" } });
     expect(calls).toEqual([
       ["local", "POST", "/api/mesh/attachments/transfer", { ordinary_tab_id: "mesh:peer/tab", peer_id: "peer", path: "/file", kind: "image" }],
+      ["local", "POST", "/api/attachments/path-kinds", { paths: ["/file"] }],
       ["local", "POST", "/api/model-providers?provider=provider%2Fa", { action: "list" }],
     ]);
   });
