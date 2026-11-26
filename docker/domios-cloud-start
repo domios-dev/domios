@@ -1,23 +1,47 @@
 #!/usr/bin/python3
+import importlib.util
 import os
 import re
+import sys
 from pathlib import Path
 
 server = "/opt/domios/domios-server/domios-server"
+container_lib = "/usr/local/lib/domios-container.py"
 profile = Path("/etc/domios-cloud-profile").read_text().strip()
 selectors = {"qa": ["--development", "--port", "7686"], "release": ["--production"]}[profile]
+platform = os.environ.get("DOMIOS_CLOUD_PLATFORM")
 controller = os.environ.pop("DOMIOS_BOOTSTRAP_CONTROLLER_KEY", None)
 nonce = os.environ.pop("DOMIOS_BOOTSTRAP_NONCE", None)
 os.environ.pop("DOMIOS_CLOUD_BINDING_PIPE", None)
+binding_fd = None
 if controller is not None or nonce is not None:
-    if not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", v) for v in (controller, nonce)):
+    valid = all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", v) for v in (controller, nonce))
+    if not valid and platform != "fly_machines":
         raise SystemExit("Invalid cloud creation binding")
+    payload = (controller + "\n" + nonce + "\n").encode("ascii") if valid else b"invalid\n"
     reader, writer = os.pipe()
     with os.fdopen(writer, "wb") as stream:
-        stream.write((controller + "\n" + nonce + "\n").encode("ascii"))
+        stream.write(payload)
     os.dup2(reader, 9, inheritable=True)
     os.set_inheritable(9, True)
     if reader != 9:
         os.close(reader)
     os.environ["DOMIOS_CLOUD_BINDING_PIPE"] = "9"
+    binding_fd = 9
+if platform == "fly_machines":
+    instance = (
+        {"kind": "development", "instance": None, "port": 7686}
+        if profile == "qa"
+        else {"kind": "production"}
+    )
+    data_dir = Path.home() / (".domios-dev" if profile == "qa" else ".domios")
+    spec = importlib.util.spec_from_file_location("domios_container", container_lib)
+    container = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(container)
+    pass_fds = (binding_fd,) if binding_fd is not None else ()
+    sys.exit(
+        container.Supervisor(
+            container.ProcessRuntime(data=data_dir, instance=instance, pass_fds=pass_fds)
+        ).run(lambda: None)
+    )
 os.execv(server, [server, "start", *selectors, "--pid-file", "/run/domios/server.pid"])

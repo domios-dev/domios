@@ -76,18 +76,53 @@ impl CloudInstallation {
         mesh_instance_id: String,
         mesh_public_key: [u8; 32],
     ) -> Result<Self, String> {
-        Self::restore(root, mesh_instance_id, mesh_public_key, creation::take()?)
+        Self::restore_with(
+            root,
+            mesh_instance_id,
+            mesh_public_key,
+            creation::take,
+            creation::discard,
+        )
     }
 
+    #[cfg(test)]
     fn restore(
         root: &Path,
         mesh_instance_id: String,
         mesh_public_key: [u8; 32],
         supplied: Option<(String, Zeroizing<String>)>,
     ) -> Result<Self, String> {
+        Self::restore_with(
+            root,
+            mesh_instance_id,
+            mesh_public_key,
+            || Ok(supplied),
+            || {},
+        )
+    }
+
+    fn restore_with(
+        root: &Path,
+        mesh_instance_id: String,
+        mesh_public_key: [u8; 32],
+        take_binding: impl FnOnce() -> Result<Option<(String, Zeroizing<String>)>, String>,
+        discard_binding: impl FnOnce(),
+    ) -> Result<Self, String> {
         let unavailable = || "Cloud installation identity unavailable".to_owned();
         let store = ProtectedCredentials::new(root);
-        let existing = store.load(RECORD).map_err(|_| unavailable())?;
+        let existing = match store.load(RECORD) {
+            Ok(record) => record,
+            Err(_) => {
+                discard_binding();
+                return Err(unavailable());
+            }
+        };
+        let supplied = if existing.is_some() {
+            discard_binding();
+            None
+        } else {
+            take_binding()?
+        };
         let signer = match store
             .load(MESH_INSTALLATION_KEY)
             .map_err(|_| unavailable())?

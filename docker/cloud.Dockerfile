@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global @openai/codex@0.172.0 @anthropic-ai/claude-code@2.1.332 opencode-ai@1.19.6 \
     && npm cache clean --force \
-    && install -d -m 0700 -o node -g node /home/node/.domios
+    && install -d -m 0700 -o node -g node /home/node/.domios /var/lib/domios-cloud
 COPY --from=assets /verified/ /opt/domios/
 COPY --from=assets /models/ /opt/domios-models/
 COPY packaging/docker/container.py /usr/local/lib/domios-container.py
@@ -52,7 +52,8 @@ COPY docker/cloud-config.toml /usr/local/share/domios-container.toml
 COPY --chmod=0755 docker/domios-cloud-start /usr/local/bin/domios-cloud-start
 RUN touch /opt/domios/.domios-container-managed && ln -s /opt/domios/cli/codeterm /usr/local/bin/domios
 ENV HF_HOME=/opt/domios-models HF_HUB_OFFLINE=1 HOME=/home/node DOMIOS_CLOUD_MACHINE=1
-USER node
+# Fly mounts volumes root-owned; start as root so the entrypoint prepares /var/lib/domios-cloud and drops to node.
+USER root
 WORKDIR /home/node
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["python3", "/usr/local/lib/domios-container.py"]
