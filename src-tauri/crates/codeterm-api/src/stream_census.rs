@@ -29,6 +29,7 @@ impl StreamKind {
 pub(crate) enum StreamScope {
     Local,
     PeerRelayed { peer_instance_id: String },
+    NonOwner,
 }
 
 #[derive(Default)]
@@ -41,6 +42,7 @@ struct Counters {
 pub(crate) struct StreamCensus {
     local: [Arc<Counters>; 4],
     peers: RwLock<BTreeMap<(StreamKind, String), Arc<Counters>>>,
+    non_owner: RwLock<BTreeMap<StreamKind, Arc<Counters>>>,
 }
 
 impl Default for StreamCensus {
@@ -48,6 +50,7 @@ impl Default for StreamCensus {
         Self {
             local: std::array::from_fn(|_| Arc::new(Counters::default())),
             peers: RwLock::default(),
+            non_owner: RwLock::default(),
         }
     }
 }
@@ -84,6 +87,10 @@ impl StreamCensus {
                 let existing = self.peers.read().get(&key).cloned();
                 existing.unwrap_or_else(|| self.peers.write().entry(key).or_default().clone())
             }
+            StreamScope::NonOwner => {
+                let existing = self.non_owner.read().get(&kind).cloned();
+                existing.unwrap_or_else(|| self.non_owner.write().entry(kind).or_default().clone())
+            }
         };
         counters.opened.fetch_add(1, Ordering::Relaxed);
         counters.live.fetch_add(1, Ordering::Relaxed);
@@ -93,7 +100,7 @@ impl StreamCensus {
         }
     }
 
-    pub(crate) fn live_count(&self) -> usize {
+    pub(crate) fn live_count_matching_peers(&self, allow_peer: impl Fn(&str) -> bool) -> usize {
         let local: u64 = self
             .local
             .iter()
@@ -102,10 +109,11 @@ impl StreamCensus {
         let peers: u64 = self
             .peers
             .read()
-            .values()
-            .map(|c| c.live.load(Ordering::Relaxed))
+            .iter()
+            .filter(|((_, peer_id), _)| allow_peer(peer_id))
+            .map(|(_, c)| c.live.load(Ordering::Relaxed))
             .sum();
-        (local.saturating_add(peers)) as usize
+        local.saturating_add(peers) as usize
     }
 
     pub(crate) fn snapshot(&self) -> StreamSnapshot {
@@ -129,6 +137,16 @@ impl StreamCensus {
                     counts: counters.snapshot(),
                 }),
         );
+        entries.extend(
+            self.non_owner
+                .read()
+                .iter()
+                .map(|(kind, counters)| StreamEntry {
+                    kind: *kind,
+                    scope: StreamScope::NonOwner,
+                    counts: counters.snapshot(),
+                }),
+        );
         let mut totals = Counts::default();
         for entry in &entries {
             totals.live += entry.counts.live;
@@ -136,6 +154,20 @@ impl StreamCensus {
             totals.closed += entry.counts.closed;
         }
         StreamSnapshot { totals, entries }
+    }
+}
+
+pub(crate) fn stream_scope_for_caller(caller: Option<&crate::auth::CallerIdentity>) -> StreamScope {
+    match caller {
+        None | Some(crate::auth::CallerIdentity::Local) => StreamScope::Local,
+        Some(crate::auth::CallerIdentity::Peer { instance_id, .. }) => StreamScope::PeerRelayed {
+            peer_instance_id: instance_id.clone(),
+        },
+        Some(
+            crate::auth::CallerIdentity::Tab(_)
+            | crate::auth::CallerIdentity::ServicePush { .. }
+            | crate::auth::CallerIdentity::Relayed,
+        ) => StreamScope::NonOwner,
     }
 }
 
@@ -155,8 +187,11 @@ pub(crate) struct StreamGuard {
 }
 
 impl StreamGuard {
-    pub(crate) fn local(kind: StreamKind) -> Self {
-        STREAMS.open(kind, StreamScope::Local)
+    pub(crate) fn for_caller(
+        kind: StreamKind,
+        caller: Option<&crate::auth::CallerIdentity>,
+    ) -> Self {
+        STREAMS.open(kind, stream_scope_for_caller(caller))
     }
 
     pub(crate) fn relayed(kind: StreamKind, peer_instance_id: String) -> Self {

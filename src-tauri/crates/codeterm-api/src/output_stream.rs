@@ -199,6 +199,7 @@ pub struct StreamQuery {
 
 pub async fn stream_tab_output(
     AxumState(state): AxumState<AppState>,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
     _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<StreamQuery>,
@@ -235,10 +236,8 @@ pub async fn stream_tab_output(
         Ok(Event::default()
             .data(serde_json::json!({"output": frame.output, "offset": frame.offset}).to_string()))
     });
-    Ok(
-        Sse::new(track(stream, StreamGuard::local(StreamKind::TabOutput)))
-            .keep_alive(KeepAlive::default()),
-    )
+    let guard = StreamGuard::for_caller(StreamKind::TabOutput, caller.as_ref().map(|c| &c.0));
+    Ok(Sse::new(track(stream, guard)).keep_alive(KeepAlive::default()))
 }
 
 fn build_stream_diagnostics(
@@ -718,6 +717,7 @@ fn sweep(
 /// `{boot_changed, boot}` once on a boot mismatch. Disposed tabs go silent.
 pub async fn output_stream(
     AxumState(state): AxumState<AppState>,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
     _headers: HeaderMap,
     Query(q): Query<OutputStreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
@@ -734,7 +734,7 @@ pub async fn output_stream(
     let diagnostic_level = configured_level(state.config.lock().diagnostics.terminal_transport);
     let session_id = diagnostic_level.map(|_| uuid::Uuid::new_v4().simple().to_string());
 
-    let mut guard = StreamGuard::local(StreamKind::Output);
+    let mut guard = StreamGuard::for_caller(StreamKind::Output, caller.as_ref().map(|c| &c.0));
     guard.diagnostics = build_stream_diagnostics(
         diagnostic_level,
         session_id,

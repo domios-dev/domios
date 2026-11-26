@@ -99,6 +99,7 @@ pub fn transition(
             next.apply_unconfirmed = false;
             next.state = Awake;
             next.last_awake_at_ms = Some(now_ms);
+            next.last_owner_interaction_at_ms = Some(now_ms);
             next.idle_since_ms = None;
             next.exhaustion_pending = false;
             next.last_error = None;
@@ -126,6 +127,7 @@ pub fn transition(
         (Waking, LifecycleEvent::WakeReady) => {
             next.state = Awake;
             next.last_awake_at_ms = Some(now_ms);
+            next.last_owner_interaction_at_ms = Some(now_ms);
             next.idle_since_ms = None;
             next.exhaustion_pending = false;
             next.last_error = None;
@@ -285,6 +287,9 @@ pub fn reconcile_provider_machines(
                 }
                 if mapped_state == CloudLifecycleState::Awake && rec.last_awake_at_ms.is_none() {
                     rec.last_awake_at_ms = Some(now_ms);
+                    if rec.last_owner_interaction_at_ms.is_none() {
+                        rec.last_owner_interaction_at_ms = Some(now_ms);
+                    }
                 }
                 rec.state = mapped_state;
                 updated_ids.push(rec.machine_id.clone());
@@ -321,6 +326,8 @@ pub fn reconcile_provider_machines(
                 rate_per_hour: default_rate.clone(),
                 created_at_ms: now_ms,
                 last_awake_at_ms: (initial_state == CloudLifecycleState::Awake).then_some(now_ms),
+                last_owner_interaction_at_ms: (initial_state == CloudLifecycleState::Awake)
+                    .then_some(now_ms),
                 accumulated_awake_secs: 0,
                 period_start_ms: now_ms,
                 lease_id: None,

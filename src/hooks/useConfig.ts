@@ -138,6 +138,7 @@ export function defaultConfig(): AppConfig {
       enabled: false,
       instance_name: "",
       cloud_idle_sleep_minutes: 15,
+      cloud_max_awake_without_owner_minutes: 0,
     },
     ui: {
       memory_tab_enabled: true,

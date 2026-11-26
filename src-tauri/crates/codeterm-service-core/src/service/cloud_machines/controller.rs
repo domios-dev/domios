@@ -13,10 +13,7 @@ use super::held_sends::{
     CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, SingleFlightWakes, WakeSlot,
     DEFAULT_WAKE_HOLD_DEADLINE_MS,
 };
-use super::idle_drain::{
-    evaluate_idle_and_renewal, IdleDecision, IdleEvalInput, IdlePolicy, IdleSleepAction,
-    LocalPeerDrainGate, PeerBusySnapshot,
-};
+use super::idle_drain::{IdlePolicy, IdleSleepAction, LocalPeerDrainGate};
 use super::placement::{select_placement, CloudTarget, PlacementDecision};
 use super::ports::{
     Clock, CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, CloudRouteSpec,
@@ -53,7 +50,7 @@ pub struct CloudMachineController {
     wakes: Arc<SingleFlightWakes>,
     lifecycle_tx: tokio::sync::watch::Sender<u64>,
     local_drain_gate: Arc<LocalPeerDrainGate>,
-    clock: Arc<dyn Clock>,
+    pub(super) clock: Arc<dyn Clock>,
     controller_id: String,
 }
 
@@ -131,7 +128,7 @@ impl CloudMachineController {
             .map_err(|error| CloudError::Internal(format!("persist cloud wake queue: {error}")))
     }
 
-    fn find_record(&self, selector: &str) -> Result<CloudMachineRecord, CloudError> {
+    pub(super) fn find_record(&self, selector: &str) -> Result<CloudMachineRecord, CloudError> {
         let machines = self.machines.lock();
         let matches: Vec<&CloudMachineRecord> = machines
             .iter()
@@ -144,7 +141,7 @@ impl CloudMachineController {
         }
     }
 
-    fn update_record(
+    pub(super) fn update_record(
         &self,
         machine_id: &str,
         mutate: impl FnOnce(&CloudMachineRecord) -> Result<CloudMachineRecord, CloudError>,
@@ -177,7 +174,7 @@ impl CloudMachineController {
     }
 
     /// Persist a fresh request id before any backend call, or reuse the existing persisted id on retry.
-    fn begin_pending_request(
+    pub(super) fn begin_pending_request(
         &self,
         machine_id: &str,
         op: PendingProvisioningOp,
@@ -211,7 +208,12 @@ impl CloudMachineController {
         Ok(chosen)
     }
 
-    fn mark_pending_unconfirmed(&self, machine_id: &str, op: PendingProvisioningOp, reason: &str) {
+    pub(super) fn mark_pending_unconfirmed(
+        &self,
+        machine_id: &str,
+        op: PendingProvisioningOp,
+        reason: &str,
+    ) {
         let _ = self.update_record(machine_id, |rec| {
             let mut next = rec.clone();
             if let Some(pending) = next.pending_request.as_mut().filter(|p| p.op == op) {
@@ -222,7 +224,7 @@ impl CloudMachineController {
         });
     }
 
-    fn clear_pending_request(&self, machine_id: &str) {
+    pub(super) fn clear_pending_request(&self, machine_id: &str) {
         let _ = self.update_record(machine_id, |rec| {
             let mut next = rec.clone();
             next.pending_request = None;
@@ -357,6 +359,7 @@ impl CloudMachineController {
                     rate_per_hour: None,
                     created_at_ms: now_ms,
                     last_awake_at_ms: None,
+                    last_owner_interaction_at_ms: None,
                     accumulated_awake_secs: 0,
                     period_start_ms: now_ms,
                     lease_id: None,
@@ -553,6 +556,7 @@ impl CloudMachineController {
         let policy = IdlePolicy {
             idle_window_ms: 0,
             lease_renew_lead_ms: DEFAULT_LEASE_RENEW_LEAD_MS,
+            max_awake_without_owner_ms: None,
             sleep_mode: record.sleep_mode,
             delete_on_stop_billed,
         };
@@ -612,45 +616,6 @@ impl CloudMachineController {
                 let _ = self.update_record(&record.machine_id, |rec| {
                     transition(rec, LifecycleEvent::DrainAbortedBusy, self.clock.now_ms())
                 });
-                Err(error)
-            }
-        }
-    }
-
-    async fn sleep_for_exhaustion(
-        &self,
-        machine_id: &str,
-        provisioning: &dyn CloudProvisioningPort,
-        peer_control: &dyn CloudPeerControlPort,
-    ) -> Result<CloudReceipt, CloudError> {
-        let record = self.find_record(machine_id)?;
-        let _ = peer_control.enter_drain(&record).await;
-        let request_id =
-            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
-        match provisioning
-            .sleep(record.backend_machine_id(), &request_id)
-            .await
-        {
-            Ok(sleep_mode) => {
-                let now_ms = self.clock.now_ms();
-                let exhausted = self.update_record(&record.machine_id, |rec| {
-                    let mut next = transition(rec, LifecycleEvent::CreditsExhausted, now_ms)?;
-                    next.sleep_mode = sleep_mode;
-                    next.pending_request = None;
-                    Ok(next)
-                })?;
-                Ok(exhausted.receipt(now_ms, Some("Out of credits: top up to wake".into())))
-            }
-            Err(error) => {
-                if error.is_uncertain_provisioning_outcome() {
-                    self.mark_pending_unconfirmed(
-                        &record.machine_id,
-                        PendingProvisioningOp::Sleep,
-                        &error.to_string(),
-                    );
-                } else {
-                    self.clear_pending_request(&record.machine_id);
-                }
                 Err(error)
             }
         }
@@ -1032,135 +997,5 @@ impl CloudMachineController {
             transition(rec, LifecycleEvent::CreditsRestored, now_ms)
         })?;
         Ok(updated.receipt(now_ms, None))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn evaluate_idle_tick(
-        &self,
-        machine_id: &str,
-        busy: PeerBusySnapshot,
-        idle_window_ms: u64,
-        lease_renew_lead_ms: u64,
-        delete_on_stop_billed: bool,
-        provisioning: &dyn CloudProvisioningPort,
-        peer_control: &dyn CloudPeerControlPort,
-    ) -> Result<IdleDecision, CloudError> {
-        let record = self.find_record(machine_id)?;
-        let now_ms = self.clock.now_ms();
-        let decision = evaluate_idle_and_renewal(IdleEvalInput {
-            state: record.state,
-            busy,
-            now_ms,
-            idle_since_ms: record.idle_since_ms,
-            lease_expires_at_ms: record.lease_expires_at_ms,
-            exhaustion_pending: record.exhaustion_pending,
-            policy: IdlePolicy {
-                idle_window_ms,
-                lease_renew_lead_ms,
-                sleep_mode: record.sleep_mode,
-                delete_on_stop_billed,
-            },
-        });
-        match decision {
-            IdleDecision::RenewLeaseNow {
-                lease_expires_at_ms,
-            } => {
-                let lease_id = record.lease_id.clone().unwrap_or_default();
-                let request_id = mint_request_id();
-                match provisioning
-                    .renew_lease(record.backend_machine_id(), &lease_id, &request_id)
-                    .await
-                {
-                    Ok(renewed) => {
-                        let _ = self.update_record(machine_id, |rec| {
-                            let mut next = rec.clone();
-                            next.lease_id = Some(renewed.lease_id.clone());
-                            next.lease_expires_at_ms = Some(renewed.lease_expires_at_ms);
-                            next.idle_since_ms = None;
-                            next.exhaustion_pending = false;
-                            Ok(next)
-                        });
-                        Ok(IdleDecision::ScheduleAt {
-                            at_ms: renewed
-                                .lease_expires_at_ms
-                                .saturating_sub(lease_renew_lead_ms),
-                            idle_since_ms: None,
-                        })
-                    }
-                    Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
-                        let _ = self.update_record(machine_id, |rec| {
-                            let mut next = rec.clone();
-                            next.exhaustion_pending = true;
-                            Ok(next)
-                        });
-                        if now_ms >= lease_expires_at_ms {
-                            let _ = self
-                                .sleep_for_exhaustion(machine_id, provisioning, peer_control)
-                                .await?;
-                            Ok(IdleDecision::BeginTwoPhaseDrain {
-                                action: IdleSleepAction::DeleteForRecreate,
-                                out_of_credits: true,
-                            })
-                        } else {
-                            // Finish the current prepaid lease, then sleep at its expiry.
-                            Ok(IdleDecision::ScheduleAt {
-                                at_ms: lease_expires_at_ms,
-                                idle_since_ms: None,
-                            })
-                        }
-                    }
-                    Err(CloudError::Conflict(_)) if now_ms >= lease_expires_at_ms => {
-                        // Backend reconciliation already slept this machine after lease expiry while home was offline.
-                        let _ = self.update_record(machine_id, |rec| {
-                            let mut next =
-                                transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
-                            next.lease_id = None;
-                            next.lease_expires_at_ms = None;
-                            next.pending_request = None;
-                            Ok(next)
-                        });
-                        Ok(IdleDecision::BeginTwoPhaseDrain {
-                            action: IdleSleepAction::StopProvider,
-                            out_of_credits: false,
-                        })
-                    }
-                    Err(error) => Err(error),
-                }
-            }
-            IdleDecision::BeginTwoPhaseDrain {
-                out_of_credits: true,
-                ..
-            } => {
-                let _ = self
-                    .sleep_for_exhaustion(machine_id, provisioning, peer_control)
-                    .await?;
-                Ok(decision)
-            }
-            IdleDecision::BeginTwoPhaseDrain {
-                out_of_credits: false,
-                ..
-            } => {
-                let _ = self
-                    .sleep(
-                        machine_id,
-                        provisioning,
-                        peer_control,
-                        delete_on_stop_billed,
-                    )
-                    .await?;
-                Ok(decision)
-            }
-            IdleDecision::ScheduleAt { idle_since_ms, .. } => {
-                if record.idle_since_ms != idle_since_ms {
-                    let _ = self.update_record(machine_id, |rec| {
-                        let mut next = rec.clone();
-                        next.idle_since_ms = idle_since_ms;
-                        Ok(next)
-                    });
-                }
-                Ok(decision)
-            }
-            IdleDecision::None => Ok(decision),
-        }
     }
 }
