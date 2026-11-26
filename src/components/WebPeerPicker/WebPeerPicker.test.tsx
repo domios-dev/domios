@@ -214,7 +214,7 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
   document.body.append(meshButton);
   const route = vi.fn((event: Event) => {
     const detail = (event as CustomEvent).detail;
-    if (detail.meshTab === "inventory") meshButton.focus();
+    if (detail.meshTab === "inventory" && !detail.newMachine) meshButton.focus();
   });
   window.addEventListener("codeterm:open-panel", route);
   try {
@@ -239,7 +239,7 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
     expect(document.activeElement).toBe(add);
     await press("Enter");
     expect(route).toHaveBeenCalledTimes(1);
-    expect(route.mock.lastCall?.[0]).toMatchObject({ detail: { panel: "mesh", meshTab: "network" } });
+    expect(route.mock.lastCall?.[0]).toMatchObject({ detail: { panel: "mesh", meshTab: "inventory", newMachine: true } });
     expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
     expect(chip.label()).toBe("Machine: Desk");
@@ -256,6 +256,50 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
   } finally {
     window.removeEventListener("codeterm:open-panel", route);
     meshButton.remove();
+    await chip.unmount();
+  }
+});
+
+it("renders kind=cloud rows with calm cloud states and never puts a usage meter inside the switcher", async () => {
+  peersResponse.mockResolvedValue({
+    local_instance_name: "Studio",
+    paired: [
+      {
+        instance_id: "cloud-awake",
+        instance_name: "Cloud box",
+        addresses: [],
+        api_port: 7687,
+        online: true,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        kind: "cloud",
+        cloud: { kind: "cloud", machine_id: "cm-1", name: "Cloud box", provider: "fly_machines", size: "small", state: "awake", sleep_mode: "stop_billed", uptime_secs: 600, billing_notice: "" },
+      },
+      {
+        instance_id: "cloud-waking",
+        instance_name: "Night runner",
+        addresses: [],
+        api_port: 7687,
+        online: false,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        kind: "cloud",
+        cloud: { kind: "cloud", machine_id: "cm-2", name: "Night runner", provider: "fly_machines", size: "large", state: "waking", sleep_mode: "stop_billed", uptime_secs: 0, billing_notice: "" },
+      },
+    ],
+    cloud_machines: [
+      { kind: "cloud", machine_id: "cm-3", name: "Render box", provider: "fly_machines", size: "small", state: "asleep", sleep_mode: "stop_billed", uptime_secs: 0, peer_instance_id: "cloud-asleep", billing_notice: "" },
+      { kind: "cloud", machine_id: "cm-4", name: "Scratch", provider: "fly_machines", size: "small", state: "out_of_credits", sleep_mode: "stop_billed", uptime_secs: 0, peer_instance_id: "cloud-ooc", billing_notice: "" },
+    ],
+  });
+  const chip = await mount();
+  try {
+    await act(async () => chip.host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!.click());
+    const menu = document.querySelector<HTMLElement>('[data-testid="peer-picker-menu"]')!;
+    expect(menu.querySelector('[data-testid="cloud-usage-meter"]')).toBeNull();
+    expect(menu.querySelector('[data-peer-id="cloud-awake"]')?.getAttribute("aria-label")).toBe("Cloud box, virtual machine, online");
+    expect(menu.querySelector('[data-peer-id="cloud-waking"]')?.getAttribute("aria-label")).toBe("Night runner, virtual machine, waking up");
+    expect(menu.querySelector('[data-peer-id="cloud-asleep"]')?.getAttribute("aria-label")).toBe("Render box, virtual machine, asleep");
+    expect(menu.querySelector('[data-peer-id="cloud-ooc"]')?.getAttribute("aria-label")).toBe("Scratch, virtual machine, asleep, out of cloud hours");
+  } finally {
     await chip.unmount();
   }
 });

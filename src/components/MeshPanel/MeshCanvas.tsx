@@ -5,8 +5,13 @@ import { REMOVED_COPY } from "./accountMachines";
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Globe, List, Network } from "lucide-react";
+import { Globe, List, Network, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
+import { CloudMachineCard } from "./CloudMachineCard";
+import { CloudMachineSlot } from "./CloudMachineSlot";
+import type { PendingCloudCreate } from "./useCloudMachines";
+import { cloudMachineCardView, type CloudFailurePresentation } from "../../lib/cloudMachines/stateModel";
+import type { CloudReceipt, CloudUsagePayload } from "../../lib/cloudMachines/types";
 import { lastSeenMs, type AccountCanvas, type AccountCanvasCard, type AccountMachineNode } from "./accountCanvas";
 import { AccountMachineCard, AccountNotes, AccountStateCard, MachineReauthentication, PeerAccountFooterView, type MachineNodeActions } from "./AccountCanvasNodes";
 import { formatAge } from "../../lib/timeLabels";
@@ -47,8 +52,34 @@ interface PeerLayout {
   pending?: boolean;
   accessLevel?: string;
   account?: { kind: "node"; node: AccountMachineNode } | { kind: "card"; card: AccountCanvasCard };
+  cloud?: {
+    kind: "machine";
+    machine: CloudReceipt;
+    peer?: PeerStatus;
+  } | {
+    kind: "pending";
+    pending: PendingCloudCreate;
+  } | {
+    kind: "slot";
+  };
   webUrl?: string | null;
   webUnavailableReason?: string;
+}
+
+export interface CanvasCloud {
+  machines: CloudReceipt[];
+  usage: CloudUsagePayload | null;
+  isFree: boolean;
+  slotOpen: boolean;
+  pendingCreate: PendingCloudCreate | null;
+  selectedMachineId?: string | null;
+  onOpenSlot: () => void;
+  onCloseSlot: () => void;
+  onCreateCloud: (size: string) => void;
+  onPairComputer: () => void;
+  onSelectMachine: (machineId: string) => void;
+  onTopUpMachine: (machine: CloudReceipt) => void;
+  onFailureAction: (action: CloudFailurePresentation["action"]) => void;
 }
 
 /** My machines on the canvas: account nodes, paired-card footers and the actions behind them. */
@@ -90,6 +121,7 @@ interface Props {
   width: number;
   height: number;
   account?: CanvasAccount;
+  cloud?: CanvasCloud;
   tailscale?: CanvasTailscale;
   meshEnabled?: boolean;
   onGoOnline?: () => void;
@@ -121,6 +153,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   width,
   height,
   account,
+  cloud,
   tailscale,
   meshEnabled = true,
   onGoOnline,
@@ -146,10 +179,31 @@ export const MeshCanvas = memo(function MeshCanvas({
     observer.observe(element);
     return () => observer.disconnect();
   }, [shown]);
-  const accountNodes = account?.canvas.nodes;
-  const accountCard = account?.canvas.card ?? null;
-  const extraCount = (accountNodes?.length ?? 0) + (accountCard ? 1 : 0);
-  const geometry = webGraphLayout(width, height, peers.length + 1 + extraCount, webHeight, machineHeights);
+  const cloudMachines = useMemo(
+    () => (cloud?.machines ?? []).filter((machine) => machine.state !== "deleted"),
+    [cloud?.machines],
+  );
+  const cloudPeerIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const machine of cloudMachines) {
+      if (machine.peer_instance_id) ids.add(machine.peer_instance_id);
+      if (machine.installation_id) ids.add(machine.installation_id);
+      ids.add(machine.machine_id);
+    }
+    return ids;
+  }, [cloudMachines]);
+  const nonCloudPeers = useMemo(
+    () => peers.filter((peer) => !cloudPeerIds.has(peer.instance_id)),
+    [peers, cloudPeerIds],
+  );
+  const accountNodes = useMemo(
+    () => (account?.canvas.nodes ?? []).filter((node) => !cloudPeerIds.has(node.key) && (!node.row.pairInstanceId || !cloudPeerIds.has(node.row.pairInstanceId))),
+    [account?.canvas.nodes, cloudPeerIds],
+  );
+  const showCloudSlot = Boolean(cloud && (cloud.pendingCreate || cloud.slotOpen));
+  const accountCard = cloudMachines.length > 0 || showCloudSlot ? null : (account?.canvas.card ?? null);
+  const extraCount = accountNodes.length + (accountCard ? 1 : 0) + cloudMachines.length + (showCloudSlot ? 1 : 0);
+  const geometry = webGraphLayout(width, height, nonCloudPeers.length + 1 + extraCount, webHeight, machineHeights);
   const layout = useMemo<PeerLayout[]>(() => {
     const items: PeerLayout[] = [
       {
@@ -164,7 +218,7 @@ export const MeshCanvas = memo(function MeshCanvas({
         webUnavailableReason: webUiBaseUrl ? undefined : "Web UI is not enabled on this machine",
       },
     ];
-    peers.forEach((p, i) => {
+    nonCloudPeers.forEach((p, i) => {
       const signedOut = account?.canvas.peerFooters.get(p.instance_id)?.row.status === "signed_out";
       items.push({
         id: p.instance_id,
@@ -189,14 +243,46 @@ export const MeshCanvas = memo(function MeshCanvas({
             : "The browser gateway is unavailable",
       });
     });
-    for (const node of accountNodes ?? []) {
+    for (const machine of cloudMachines) {
+      const matchedPeer = peers.find(
+        (candidate) =>
+          candidate.instance_id === machine.peer_instance_id ||
+          candidate.instance_id === machine.installation_id ||
+          candidate.instance_id === machine.machine_id,
+      );
+      items.push({
+        id: `cloud:${machine.machine_id}`,
+        name: machine.name,
+        ip: matchedPeer?.ip ?? "",
+        ...geometry.machines[items.length],
+        cloud: { kind: "machine", machine, peer: matchedPeer },
+      });
+    }
+    if (cloud?.pendingCreate) {
+      items.push({
+        id: "cloud:new-slot",
+        name: "Cloud machine",
+        ip: "",
+        ...geometry.machines[items.length],
+        cloud: { kind: "pending", pending: cloud.pendingCreate },
+      });
+    } else if (cloud?.slotOpen) {
+      items.push({
+        id: "cloud:new-slot",
+        name: "New machine",
+        ip: "",
+        ...geometry.machines[items.length],
+        cloud: { kind: "slot" },
+      });
+    }
+    for (const node of accountNodes) {
       items.push({ id: `account:${node.key}`, name: node.name, ip: "", ...geometry.machines[items.length], account: { kind: "node", node } });
     }
     if (accountCard) {
       items.push({ id: `account-card:${accountCard.kind}`, name: "My machines", ip: "", ...geometry.machines[items.length], account: { kind: "card", card: accountCard } });
     }
     return items;
-  }, [thisMachine, peers, account, accountNodes, accountCard, webUiBaseUrl, webUiToken, geometry.machines]);
+  }, [thisMachine, nonCloudPeers, peers, cloudMachines, cloud?.pendingCreate, cloud?.slotOpen, account, accountNodes, accountCard, webUiBaseUrl, webUiToken, geometry.machines]);
 
   useLayoutEffect(() => {
     const nodes = Array.from(machineLayerRef.current?.querySelectorAll<HTMLElement>("[data-machine-index]") ?? []);
@@ -212,7 +298,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   }, [layout.length, shown]);
 
   const gateway = { x: width / 2, y: height / 2 };
-  const gatewayGraph = webGatewayGraph(peers, meshEnabled);
+  const gatewayGraph = webGatewayGraph(nonCloudPeers, meshEnabled);
   const stage = useCanvasStage({
     initialSize: { width, height }, measureKey: shown,
     followFit: true,
@@ -265,6 +351,58 @@ export const MeshCanvas = memo(function MeshCanvas({
   };
 
   const machineCard = (p: PeerLayout) => {
+    if (p.cloud && cloud) {
+      if (p.cloud.kind === "slot") {
+        return (
+          <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
+            <CloudMachineSlot
+              usage={cloud.usage}
+              isFree={cloud.isFree}
+              onCreateCloud={cloud.onCreateCloud}
+              onPairComputer={cloud.onPairComputer}
+              onCancel={cloud.onCloseSlot}
+            />
+          </div>
+        );
+      }
+      if (p.cloud.kind === "pending") {
+        const pending = p.cloud.pending;
+        return (
+          <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
+            <CloudMachineCard
+              machine={{
+                machine_id: "pending",
+                name: "Cloud machine",
+                size: pending.size,
+                state: pending.status === "failed" ? "failed" : "creating",
+              }}
+              usage={cloud.usage}
+              failure={pending.failure ?? null}
+              onFailureAction={cloud.onFailureAction}
+            />
+          </div>
+        );
+      }
+      const { machine, peer } = p.cloud;
+      const row = peer ? account?.canvas.peerFooters.get(peer.instance_id)?.row : undefined;
+      const onRename = account?.actions.onRename;
+      return (
+        <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
+          <CloudMachineCard
+            machine={machine}
+            usage={cloud.usage}
+            version={peer?.domios_version}
+            build={peer?.domios_build}
+            reachabilityHint={peer?.reachabilityHint}
+            selected={cloud.selectedMachineId === machine.machine_id}
+            onClick={() => cloud.onSelectMachine(machine.machine_id)}
+            onTopUp={() => cloud.onTopUpMachine(machine)}
+            onRename={row?.target && onRename ? (name) => onRename(row, name) : undefined}
+            renameUnavailable={!row || !row.target || !peer?.online}
+          />
+        </div>
+      );
+    }
     const row = account?.canvas.peerFooters.get(p.id)?.row;
     const onRename = account?.actions.onRename;
     return (
@@ -324,23 +462,33 @@ export const MeshCanvas = memo(function MeshCanvas({
       onClick={account.onRetry} className="ct-btn ct-btn-compact absolute bottom-3 left-3 z-10">Load more machines</button>}
   </>;
 
+  const addMachinePill = cloud && !showCloudSlot
+    ? <button type="button" data-testid="mesh-add-machine" className="ct-bar-pill gap-1.5" onClick={cloud.onOpenSlot}>
+      <Plus size={13} aria-hidden="true" />Add machine
+    </button>
+    : undefined;
+
   const overview = account && meshOverviewState(account.canvas, peers, tailscale?.state, account.moreMachines);
-  const overviewAvailable = overview && overview.kind !== "inventory";
-  if (account && overview && overview.kind !== "inventory" && !showInventory) {
+  const overviewAvailable = overview && overview.kind !== "inventory" && cloudMachines.length === 0 && !showCloudSlot;
+  if (account && overview && overviewAvailable && !showInventory) {
     return <section aria-label="Mesh inventory" className="mesh-overview ct-canvas-background relative flex h-full w-full overflow-auto">
-      {(overview.kind === "unreachable" || overview.kind === "tailscale_off") &&
+      {(overview.kind === "unreachable" || overview.kind === "tailscale_off" || cloud) &&
         <CanvasToolbar label="Mesh inventory controls" onRefresh={onRefresh}
-          view={<button type="button" className="ct-bar-pill" aria-label="Show inventory" onClick={() => setShowInventory(true)}>
+          view={<>{addMachinePill}{(overview.kind === "unreachable" || overview.kind === "tailscale_off") && <button type="button" className="ct-bar-pill" aria-label="Show inventory" onClick={() => setShowInventory(true)}>
             <Network size={13} aria-hidden="true" />
-          </button>} />}
+          </button>}</>} />}
       <MeshOverview state={overview} account={account} name={account.selfName ?? thisMachine.name} tailscale={tailscale} />
       <AccountNotes notes={account.canvas.notes} />
       {accountActions}
     </section>;
   }
-  const inventoryToggle = overviewAvailable
-    ? <>{viewToggle}<button type="button" className="ct-bar-pill" onClick={() => setShowInventory(false)}>Overview</button></>
-    : viewToggle;
+  const inventoryToggle = (
+    <>
+      {addMachinePill}
+      {viewToggle}
+      {overviewAvailable && <button type="button" className="ct-bar-pill" onClick={() => setShowInventory(false)}>Overview</button>}
+    </>
+  );
 
   if (shown === "list") {
     const scale = listCardScale(width);
@@ -423,6 +571,28 @@ export const MeshCanvas = memo(function MeshCanvas({
                 <title>{label}</title>
                 <path d={paint.path} fill="none" stroke="var(--ct-muted-fg)" strokeWidth={1.2} strokeLinecap="round" opacity={paint.opacity} strokeDasharray={paint.dash} />
               </g>
+            );
+          })}
+          {layout.filter((item) => item.cloud).map((item) => {
+            const entry = item.cloud!;
+            const edgeKind = entry.kind === "slot"
+              ? "dashed"
+              : entry.kind === "pending"
+                ? entry.pending.status === "failed" ? "dashed" : "preparing"
+                : cloudMachineCardView(entry.machine, cloud?.usage).edgeKind;
+            const paint = meshEdgeModel(geometry.web, { ...item, width: MACHINE_CARD_WIDTH }, edgeKind === "solid");
+            return (
+              <path
+                key={item.id}
+                d={paint.path}
+                fill="none"
+                stroke={edgeKind === "preparing" ? "var(--ct-data-flow)" : "var(--ct-muted-fg)"}
+                strokeWidth={edgeKind === "preparing" ? 1.5 : 1.2}
+                strokeLinecap="round"
+                opacity={edgeKind === "preparing" ? 0.9 : paint.opacity}
+                strokeDasharray={edgeKind === "preparing" ? "4 6" : paint.dash}
+                className={edgeKind === "preparing" ? "ct-cloud-edge--preparing" : undefined}
+              />
             );
           })}
 

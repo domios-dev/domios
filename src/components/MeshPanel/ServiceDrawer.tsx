@@ -14,6 +14,8 @@ import type { PeerStatus } from "./useMeshData";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { CronDrawerSection } from "./CronDrawerSection";
 import { AddServiceWizard } from "./AddServiceWizard";
+import { CloudMachineDrawer } from "./CloudMachineDrawer";
+import type { CloudPromoRedemption, CloudReceipt, CloudUsagePayload } from "../../lib/cloudMachines/types";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
 import { useEscapeDismissal } from "../shared/useEscapeDismissal";
 import {
@@ -38,7 +40,25 @@ interface ServiceCtx {
   id: string;
   sourcePeerId?: string | null;
 }
-export type DrawerState = PeerCtx | ServiceCtx | null;
+interface CloudCtx {
+  kind: "cloud";
+  machineId: string;
+}
+export type DrawerState = PeerCtx | ServiceCtx | CloudCtx | null;
+
+export interface CloudDrawerControls {
+  machines: CloudReceipt[];
+  usage: CloudUsagePayload | null;
+  planId?: string | null;
+  idleSleepMinutes: number;
+  busyMachineId: string | null;
+  actionError: string | null;
+  onTopUp: (machine: CloudReceipt, forWake: boolean) => void;
+  onRedeem: (code: string) => Promise<CloudPromoRedemption>;
+  onSleep: (machineId: string) => Promise<unknown>;
+  onWake: (machineId: string) => Promise<unknown>;
+  onDelete: (machineId: string) => Promise<boolean>;
+}
 
 interface Props {
   state: DrawerState;
@@ -52,6 +72,7 @@ interface Props {
   onActionDone: () => void;
   actionAdapter?: MeshResourceActionAdapter;
   onAnnouncement?: (message: string) => void;
+  cloudDrawer?: CloudDrawerControls;
 }
 
 const PANEL_BASE = UI_PANEL.drawerBase;
@@ -82,6 +103,7 @@ export function ServiceDrawer({
   onActionDone,
   actionAdapter,
   onAnnouncement,
+  cloudDrawer,
 }: Props) {
   const [selectedResourceKey, setSelectedResource] = useState<string | null>(null);
   const selectedResource = services.find((service) => inventoryResourceKey(service) === selectedResourceKey);
@@ -103,7 +125,65 @@ export function ServiceDrawer({
 
   if (!state) return null;
 
+  if (state.kind === "cloud" && cloudDrawer) {
+    const machine = cloudDrawer.machines.find((item) => item.machine_id === state.machineId);
+    if (!machine) return null;
+    const matchedPeer = peers.find(
+      (candidate) =>
+        candidate.instance_id === machine.peer_instance_id ||
+        candidate.instance_id === machine.installation_id ||
+        candidate.instance_id === machine.machine_id,
+    );
+    return (
+      <CloudMachineDrawer
+        key={machine.machine_id}
+        machine={machine}
+        usage={cloudDrawer.usage}
+        planId={cloudDrawer.planId}
+        idleSleepMinutes={cloudDrawer.idleSleepMinutes}
+        reachabilityHint={matchedPeer?.reachabilityHint}
+        busy={cloudDrawer.busyMachineId === machine.machine_id}
+        actionError={cloudDrawer.actionError}
+        onClose={onClose}
+        onTopUp={(forWake) => cloudDrawer.onTopUp(machine, forWake)}
+        onRedeem={cloudDrawer.onRedeem}
+        onSleep={() => cloudDrawer.onSleep(machine.machine_id)}
+        onWake={() => cloudDrawer.onWake(machine.machine_id)}
+        onDelete={() => cloudDrawer.onDelete(machine.machine_id)}
+      />
+    );
+  }
+
   if (state.kind === "peer") {
+    if (cloudDrawer) {
+      const cloudMatch = cloudDrawer.machines.find(
+        (item) =>
+          item.machine_id === state.id ||
+          item.peer_instance_id === state.id ||
+          item.installation_id === state.id,
+      );
+      if (cloudMatch) {
+        const matchedPeer = peers.find((candidate) => candidate.instance_id === state.id);
+        return (
+          <CloudMachineDrawer
+            key={cloudMatch.machine_id}
+            machine={cloudMatch}
+            usage={cloudDrawer.usage}
+            planId={cloudDrawer.planId}
+            idleSleepMinutes={cloudDrawer.idleSleepMinutes}
+            reachabilityHint={matchedPeer?.reachabilityHint}
+            busy={cloudDrawer.busyMachineId === cloudMatch.machine_id}
+            actionError={cloudDrawer.actionError}
+            onClose={onClose}
+            onTopUp={(forWake) => cloudDrawer.onTopUp(cloudMatch, forWake)}
+            onRedeem={cloudDrawer.onRedeem}
+            onSleep={() => cloudDrawer.onSleep(cloudMatch.machine_id)}
+            onWake={() => cloudDrawer.onWake(cloudMatch.machine_id)}
+            onDelete={() => cloudDrawer.onDelete(cloudMatch.machine_id)}
+          />
+        );
+      }
+    }
     const isSelf = state.id === LOCAL_MACHINE_ID;
     const peer = isSelf
       ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full", last_seen: null, relay_protocol_version: RELAY_PROTOCOL_VERSION } satisfies PeerStatus
