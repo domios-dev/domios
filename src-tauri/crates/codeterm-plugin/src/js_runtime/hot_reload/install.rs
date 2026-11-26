@@ -36,8 +36,12 @@ impl HotReloadRegistry {
                 .map(|events| events.release_bundle(destination))
                 .transpose();
             if let Err(error) = released {
-                self.restore_install_watches()?;
-                return Err(format!("Release plugin directory watches: {error}"));
+                return match self.restore_install_watches(destination) {
+                    Ok(()) => Err(format!("Release plugin directory watches: {error}")),
+                    Err(restore) => Err(format!(
+                        "Release plugin directory watches: {error}; {restore}"
+                    )),
+                };
             }
             let access = crate::bundle_access::BundleAccess::for_plugin(id);
             let path = destination.join("plugin.json");
@@ -81,7 +85,7 @@ impl HotReloadRegistry {
                     Err(install_failure(id, error, &tabs))
                 }
             };
-            match (result, self.restore_install_watches()) {
+            match (result, self.restore_install_watches(destination)) {
                 (Err(error), Err(restore)) => Err(format!("{error}; {restore}")),
                 (Err(error), _) | (_, Err(error)) => Err(error),
                 (Ok(()), Ok(())) => Ok(()),
@@ -92,11 +96,11 @@ impl HotReloadRegistry {
         result
     }
 
-    fn restore_install_watches(&self) -> Result<(), String> {
+    fn restore_install_watches(&self, destination: &std::path::Path) -> Result<(), String> {
         self.file_events
             .lock()
             .as_mut()
-            .map(|events| events.refresh())
+            .map(|events| events.rearm_after_install(destination))
             .transpose()
             .map(|_| ())
             .map_err(|error| format!("Restore plugin directory watches: {error}"))

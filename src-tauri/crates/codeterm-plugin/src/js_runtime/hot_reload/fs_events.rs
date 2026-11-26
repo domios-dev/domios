@@ -98,6 +98,29 @@ fn relevant_with_case(event: &Event, roots: &[PathBuf], case: PathCase) -> bool 
         })
 }
 
+fn is_temp_install_name(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().ends_with(".tmp-install")
+}
+
+fn is_already_released(error: &notify::Error) -> bool {
+    match &error.kind {
+        notify::ErrorKind::WatchNotFound | notify::ErrorKind::PathNotFound => true,
+        notify::ErrorKind::Io(io) => matches!(
+            io.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+        ),
+        _ => false,
+    }
+}
+
+fn unwatch_idempotent(watcher: &mut dyn PathWatcher, path: &Path) -> notify::Result<()> {
+    match watcher.unwatch(path) {
+        Ok(()) => Ok(()),
+        Err(error) if is_already_released(&error) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 impl FileEvents {
     pub(super) fn take_receiver(&mut self) -> Receiver<()> {
         std::mem::replace(&mut self.receiver, mpsc::sync_channel(1).1)
@@ -122,25 +145,36 @@ impl FileEvents {
             .cloned()
             .collect();
         for path in paths {
-            self.watcher.unwatch(&path)?;
             self.watched.remove(&path);
+            unwatch_idempotent(self.watcher.as_mut(), &path)?;
         }
         let parent = destination
             .parent()
             .ok_or_else(|| notify::Error::generic("Plugin bundle has no parent"))?;
-        let mode = self
-            .watched
-            .get(parent)
-            .copied()
-            .unwrap_or(RecursiveMode::NonRecursive);
-        // Windows watch acknowledges queued removals; unwatch and Drop alone do not.
-        if self.watched.contains_key(parent) {
-            self.watcher.unwatch(parent)?;
-            self.watched.remove(parent);
+        if self.watched.remove(parent).is_some() {
+            unwatch_idempotent(self.watcher.as_mut(), parent)?;
         }
-        self.watcher.watch(parent, mode)?;
-        self.watched.insert(parent.to_path_buf(), mode);
+        // Windows watch acknowledges queued removals; unwatch and Drop alone do not.
+        if let Some(barrier) = parent.ancestors().find(|path| path.is_dir()) {
+            if barrier != parent && self.watched.remove(barrier).is_some() {
+                unwatch_idempotent(self.watcher.as_mut(), barrier)?;
+            }
+            self.watcher.watch(barrier, RecursiveMode::NonRecursive)?;
+            self.watched
+                .insert(barrier.to_path_buf(), RecursiveMode::NonRecursive);
+        }
         Ok(())
+    }
+
+    pub(super) fn rearm_after_install(&mut self, destination: &Path) -> notify::Result<()> {
+        if let Ok(destination) = canonical_root(destination) {
+            if let Some(parent) = destination.parent() {
+                if self.watched.remove(parent).is_some() {
+                    let _ = unwatch_idempotent(self.watcher.as_mut(), parent);
+                }
+            }
+        }
+        self.refresh()
     }
 
     pub(super) fn new(roots: Vec<PathBuf>) -> notify::Result<Self> {
@@ -253,16 +287,10 @@ fn desired_watches(roots: &[PathBuf]) -> notify::Result<HashMap<PathBuf, Recursi
                 .or_insert(RecursiveMode::NonRecursive);
         }
         if root.is_dir() {
-            for watch in codeterm_util::watch_plan::covering_set(root)
-                .map_err(|error| notify::Error::generic(&error))?
+            for watch in
+                codeterm_util::watch_plan::covering_set_excluding(root, true, is_temp_install_name)
+                    .map_err(|error| notify::Error::generic(&error))?
             {
-                if watch.path.strip_prefix(root).is_ok_and(|relative| {
-                    relative
-                        .components()
-                        .any(|part| part.as_os_str().to_string_lossy().ends_with(".tmp-install"))
-                }) {
-                    continue;
-                }
                 let mode = if watch.recursive {
                     RecursiveMode::Recursive
                 } else {

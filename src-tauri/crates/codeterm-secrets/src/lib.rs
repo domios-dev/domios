@@ -284,6 +284,28 @@ impl fmt::Display for SecretError {
 
 impl std::error::Error for SecretError {}
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackendFallback {
+    pub configured_backend: String,
+    pub active_backend: String,
+}
+
+pub fn fallback_reason(
+    configured_backend: &str,
+    active_backend: &str,
+    load_error: Option<&str>,
+) -> String {
+    if let Some(error) = load_error.filter(|message| !message.trim().is_empty()) {
+        format!(
+            "Plugin '{configured_backend}' could not load ({error}); '{active_backend}' secret storage is active until a compatible version is installed."
+        )
+    } else {
+        format!(
+            "Plugin '{configured_backend}' is not installed or unavailable; '{active_backend}' secret storage is active until a compatible version is installed."
+        )
+    }
+}
+
 /// Backend interface. Adapters implement this trait; everything else in
 /// Domios talks to `dyn SecretStore`.
 #[async_trait]
@@ -291,6 +313,10 @@ pub trait SecretStore: Send + Sync {
     /// Stable backend id — `"mock"`, `"bitwarden"`, `"keychain"`, …. An
     /// identifier for display and storage only; never branch behaviour on it.
     fn id(&self) -> &'static str;
+
+    fn fallback(&self) -> Option<BackendFallback> {
+        None
+    }
 
     fn allows_account_credentials(&self) -> bool {
         true
@@ -390,7 +416,15 @@ pub fn build_active_store(
         ));
     }
     let provider_cfg = provider_config_for(cfg);
-    factory::build_active(&cfg.backend, &provider_cfg)
+    if factory::factory(&cfg.backend).is_some() {
+        return factory::build_active(&cfg.backend, &provider_cfg);
+    }
+    let fallback = factory::build_active(&cfg.backend, &provider_cfg);
+    std::sync::Arc::new(active::FallbackStore::new(
+        registry.clone(),
+        cfg.backend.clone(),
+        fallback,
+    ))
 }
 
 fn provider_config_for(
