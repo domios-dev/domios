@@ -8830,6 +8830,24 @@
               "subcommands": []
             },
             {
+              "name": "redeem",
+              "about": "Redeem a cloud credit promo code into your account balance",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "code",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "CODE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Promo code to redeem",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "sleep",
               "about": "Drain an idle cloud machine and put it to sleep (refuses while work runs)",
               "aliases": [],

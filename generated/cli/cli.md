@@ -2019,6 +2019,12 @@ Permanently delete a cloud machine (warns about unpushed work without --confirm)
 
 List cloud machines with state, hourly rate, and uptime
 
+#### `domios mesh cloud redeem`
+
+Redeem a cloud credit promo code into your account balance
+
+- `<code>` — Promo code to redeem
+
 #### `domios mesh cloud sleep`
 
 Drain an idle cloud machine and put it to sleep (refuses while work runs)

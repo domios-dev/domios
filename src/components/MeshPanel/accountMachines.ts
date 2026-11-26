@@ -169,6 +169,11 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "cloud.machines": return `Your plan allows ${failure.limit} cloud ${failure.limit === 1 ? "machine" : "machines"}.`;
     case "lease_required": return "Cloud hours are needed to start this machine.";
     case "credits_exhausted": return "Out of cloud hours. Top up to continue.";
+    case "invalid_code": return "That code is not valid.";
+    case "expired": return "That code has expired.";
+    case "disabled": return "That code is no longer active.";
+    case "exhausted": return "That code has already been used up.";
+    case "spend_cap_exceeded": return "This would go over your monthly spending limit.";
     case "not_found": return "That cloud machine no longer exists.";
     case "provider_refused": return "The cloud provider refused the request.";
     case "provider_unavailable": return "The cloud provider is unavailable. Try again later.";
