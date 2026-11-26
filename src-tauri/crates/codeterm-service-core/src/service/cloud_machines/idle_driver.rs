@@ -107,7 +107,15 @@ pub fn spawn_cloud_idle_driver(
     config: CloudIdleDriverConfig,
 ) -> CloudIdleDriverHandle {
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
-    let active_machines = Arc::new(Mutex::new(HashSet::new()));
+    // Seed active machines synchronously from persisted awake records so callers observing
+    // `active_machine_ids()` immediately after startup never race ahead of the first supervisor pass.
+    let initial_awake: HashSet<String> = controller
+        .list_records()
+        .into_iter()
+        .filter(|rec| rec.state == CloudLifecycleState::Awake)
+        .map(|rec| rec.machine_id)
+        .collect();
+    let active_machines = Arc::new(Mutex::new(initial_awake));
     let active_for_supervisor = Arc::clone(&active_machines);
     let config = Arc::new(config);
 
@@ -136,7 +144,11 @@ pub fn spawn_cloud_idle_driver(
                 if let Some(entry) = tasks.remove(&id) {
                     entry.cancel();
                 }
+                active_for_supervisor.lock().remove(&id);
             }
+            active_for_supervisor
+                .lock()
+                .retain(|id| awake_ids.contains(id) || tasks.contains_key(id));
 
             // Spawn one per-machine loop for every awake cloud machine without an active driver.
             for machine_id in awake_ids {
