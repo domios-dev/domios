@@ -15,6 +15,9 @@ type SecretsBackend = "local" | "bitwarden" | "mock";
 
 interface SecretsStatus {
   backend: string;
+  configured_backend?: string;
+  fallback_active?: boolean;
+  fallback_reason?: string | null;
   status: {
     status: "logged_out" | "locked" | "unlocked" | "unavailable";
     user?: string | null;
@@ -258,7 +261,13 @@ function LocalSecretsTab({
           return;
         }
         const d = await r.json();
-        setStatus({ backend: d.backend, status: d.status });
+        setStatus({
+          backend: d.backend,
+          configured_backend: d.configured_backend,
+          fallback_active: d.fallback_active,
+          fallback_reason: d.fallback_reason,
+          status: d.status,
+        });
       } catch (e) {
         setError(String(e));
       }
@@ -288,7 +297,13 @@ function LocalSecretsTab({
         return;
       }
       const d = await r.json();
-      setStatus({ backend: d.backend, status: d.status });
+      setStatus({
+        backend: d.backend,
+        configured_backend: d.configured_backend,
+        fallback_active: d.fallback_active,
+        fallback_reason: d.fallback_reason,
+        status: d.status,
+      });
     } catch (e) {
       setError(String(e));
     }
@@ -387,8 +402,18 @@ function LocalSecretsTab({
     await refreshStatus();
   }, [apiBase, jsonHeaders, refreshStatus]);
 
+  const activeBackend = status?.backend ?? backend;
+  const fallbackActive = Boolean(
+    status &&
+      (status.fallback_active ?? (status.backend && status.backend !== backend)),
+  );
+  const configuredBackend = status?.configured_backend ?? backend;
+
   const statusBadge = useMemo(() => {
     if (!status) return null;
+    if (fallbackActive) {
+      return <SettingsPill tone="amber">{activeBackend} active (fallback)</SettingsPill>;
+    }
     const s = status.status;
     if (s.status === "unavailable") return <SettingsPill tone="red">unavailable</SettingsPill>;
     if (s.status === "logged_out") return <SettingsPill tone="muted">logged out</SettingsPill>;
@@ -398,7 +423,7 @@ function LocalSecretsTab({
         logged in{s.user ? ` as ${s.user}` : ""}
       </SettingsPill>
     );
-  }, [status]);
+  }, [status, fallbackActive, activeBackend]);
 
   const inputClass = `${UI_INPUT.full} text-xs`;
   const statusBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[10px]`;
@@ -453,6 +478,21 @@ function LocalSecretsTab({
                 ? "Vault accessed via the bw CLI. Supports vault.bitwarden.com and self-hosted Vaultwarden."
                 : "In-memory only. Data is wiped on daemon restart — for tests and local dev."}
           </div>
+          {fallbackActive && (
+            <div
+              role="status"
+              data-testid="settings-secrets-fallback-notice"
+              className="mt-2 text-[11px] rounded border border-[var(--ct-yellow)]/40 bg-[var(--ct-surface)] p-3 text-[var(--ct-fg)] space-y-1"
+            >
+              <div className="font-medium text-[var(--ct-yellow)]">
+                Local secret storage is active ({configuredBackend} unavailable)
+              </div>
+              <div className="text-[var(--ct-muted-fg)]">
+                {status?.fallback_reason ||
+                  `Configured backend "${configuredBackend}" is not loaded. Install or update a compatible plugin to activate it automatically.`}
+              </div>
+            </div>
+          )}
         </div>
 
         {backend === "bitwarden" && (
@@ -525,7 +565,7 @@ function LocalSecretsTab({
             )
           )}
 
-        {backend === "bitwarden" && status?.status?.status === "locked" && (
+        {activeBackend === "bitwarden" && status?.status?.status === "locked" && (
           <div className="flex items-center gap-2 pt-1">
             <button
               data-testid="settings-secrets-sign-out"
@@ -568,7 +608,7 @@ function LocalSecretsTab({
         )}
       </SettingsCard>
 
-      {status?.status?.status === "logged_out" && backend === "bitwarden" && (
+      {status?.status?.status === "logged_out" && activeBackend === "bitwarden" && (
         <SettingsCard icon={<LogIn size={16} />} title="Sign in to Bitwarden">
           <div className="flex gap-1 text-[11px]">
             <button
@@ -701,7 +741,7 @@ function LocalSecretsTab({
         <>
           <SettingsCard
             icon={<Settings2 size={16} />}
-            title={backend === "bitwarden" ? "Default scope" : "Connected"}
+            title={activeBackend === "bitwarden" ? "Default scope" : "Connected"}
             headerRight={
               status.status.endpoint ? (
                 <span className="text-[10px] font-mono text-[var(--ct-muted-fg)]">
@@ -710,7 +750,7 @@ function LocalSecretsTab({
               ) : undefined
             }
             description={
-              backend === "bitwarden" ? (
+              activeBackend === "bitwarden" ? (
                 <>
                   Where new secrets land when no <code className="font-mono">--org</code> /{" "}
                   <code className="font-mono">--collection</code> is given.
@@ -718,7 +758,7 @@ function LocalSecretsTab({
               ) : undefined
             }
           >
-            {backend === "bitwarden" && (
+            {activeBackend === "bitwarden" && (
               <>
                 <div className="space-y-1">
                   <div className={sectionLabelClass}>Organization</div>

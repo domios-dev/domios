@@ -180,3 +180,113 @@ fn sharing_refusal_names_provider_tabs_and_supported_close_action() {
         "bad manifest"
     );
 }
+
+#[test]
+fn two_consecutive_live_plugin_updates_in_one_session_succeed_without_gitignore() {
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    let first_dir = plugins.join("bitwarden");
+    let second_dir = plugins.join("git");
+    write_install_bundle(&first_dir, "bitwarden", "1.0.7", "bw-old");
+    write_install_bundle(&second_dir, "git", "1.0.0", "git-old");
+
+    let registrar = TestRegistrar::new();
+    let watcher = HotReloadRegistry::new(vec![plugins.clone()], registrar.clone(), test_caps());
+    let (events, holds) = super::fs_events::tests::install_fixture(&plugins);
+    *watcher.file_events.lock() = Some(events);
+    watcher.tick();
+
+    for (id, version, marker) in [
+        ("bitwarden", "1.0.12", "bw-new"),
+        ("git", "1.0.1", "git-new"),
+    ] {
+        let source = root.path().join(format!("source-{id}"));
+        write_install_bundle(&source, id, version, marker);
+        codeterm_plugins::with_install_lifecycle(
+            Arc::new(FixtureLifecycle(watcher.clone(), holds.clone())),
+            || {
+                codeterm_plugins::run(
+                    codeterm_plugins::PluginCtx {
+                        data_root: root.path().into(),
+                        version: None,
+                    },
+                    codeterm_plugins::PluginAction::Install {
+                        id: Some(id.into()),
+                        from_dir: Some(source.display().to_string()),
+                        id_override: None,
+                        channel: None,
+                    },
+                )
+            },
+        )
+        .unwrap();
+        let vm = watcher.existing_vm(id).unwrap();
+        assert_eq!(
+            crate::js_runtime::call_json::<String>(&vm, "marker", &[]).unwrap(),
+            marker
+        );
+        assert!(holds(&plugins.join(id).canonicalize().unwrap()));
+    }
+    assert_eq!(registrar.provider_count(), 2);
+}
+
+#[test]
+fn seed_from_startup_records_skipped_incompatible_plugin_errors_and_clears_on_live_update() {
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    let dir = plugins.join("bitwarden");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("plugin.json"),
+        serde_json::json!({
+            "id": "bitwarden",
+            "version": "1.0.7",
+            "displayName": "Bitwarden",
+            "entry": "plugin.js",
+            "hostApi": 2,
+            "capabilities": {"secretBackend": true}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(dir.join("plugin.js"), "module.exports.default = {};").unwrap();
+
+    let (providers, report) = super::super::loader::scan_roots(&[plugins.clone()]);
+    assert!(providers.is_empty());
+    assert!(report.iter().any(|outcome| matches!(
+        outcome,
+        super::super::LoadOutcome::Skipped { reason, .. } if reason.contains("hostIoJobs")
+    )));
+
+    let watcher = HotReloadRegistry::new(vec![plugins.clone()], TestRegistrar::new(), test_caps());
+    watcher.seed_from_startup(&report);
+    assert!(watcher.tracked_ids().is_empty());
+    let errors = watcher.load_errors();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].id, "bitwarden");
+    assert!(
+        errors[0].message.contains("hostIoJobs"),
+        "{}",
+        errors[0].message
+    );
+
+    let next_mtime = mtime_or_epoch(&dir.join("plugin.json")) + std::time::Duration::from_secs(2);
+    std::fs::write(
+        dir.join("plugin.json"),
+        serde_json::json!({
+            "id": "bitwarden",
+            "version": "1.0.12",
+            "displayName": "Bitwarden",
+            "entry": "plugin.js",
+            "hostApi": super::super::host_api::HOST_API_VERSION,
+            "hostIoJobs": true,
+            "capabilities": {"secretBackend": true}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    super::tests::set_mtime(&dir.join("plugin.json"), next_mtime);
+    watcher.tick();
+    assert!(watcher.load_errors().is_empty());
+    assert_eq!(watcher.tracked_ids(), vec!["bitwarden"]);
+}

@@ -61,6 +61,10 @@ impl SecretStore for InitializedStore {
         self.store.id()
     }
 
+    fn fallback(&self) -> Option<crate::BackendFallback> {
+        self.store.fallback()
+    }
+
     fn allows_account_credentials(&self) -> bool {
         self.store.allows_account_credentials()
     }

@@ -103,3 +103,59 @@ async fn plugin_reload_uses_new_vm_without_reselecting_active_store() {
         "second"
     );
 }
+
+#[tokio::test]
+async fn missing_configured_backend_falls_back_to_local_and_activates_live_on_registration() {
+    let registry = Arc::new(SecretRegistry::new());
+    let registered_events = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    {
+        let events = registered_events.clone();
+        registry.on_register(Arc::new(move |id| events.lock().push(id.to_string())));
+    }
+    let caps = registries(registry.clone());
+    let state = crate::new_state(
+        &codeterm_config::schema::SecretsConfig {
+            backend: "reload-vault".into(),
+            ..Default::default()
+        },
+        &registry,
+    );
+    let active = state.read().await.clone();
+    assert_eq!(active.id(), "local");
+    assert_eq!(
+        active.fallback(),
+        Some(crate::BackendFallback {
+            configured_backend: "reload-vault".into(),
+            active_backend: "local".into(),
+        })
+    );
+
+    let manifest: PluginManifest = serde_json::from_value(serde_json::json!({
+        "id": "reload-vault", "version": "1.0.12", "displayName": "Reload vault",
+        "entry": "plugin.js", "capabilities": {"secretBackend": true}
+    }))
+    .unwrap();
+    let first = plugin_vm("live-v1");
+    caps.register_plugin(&manifest, &first);
+
+    assert_eq!(*registered_events.lock(), vec!["reload-vault".to_string()]);
+    assert!(Arc::ptr_eq(&active, &*state.read().await));
+    assert_eq!(active.id(), "reload-vault");
+    assert_eq!(active.fallback(), None);
+    assert_eq!(
+        active.get("token").await.unwrap().value.expose_secret(),
+        "live-v1"
+    );
+    assert!(matches!(
+        active.status().await,
+        StoreStatus::Unlocked { user: Some(user), .. } if user == "live-v1"
+    ));
+
+    caps.deregister_plugin(&manifest.id);
+    assert_eq!(active.id(), "reload-vault");
+    assert_eq!(active.fallback(), None);
+    assert!(matches!(
+        active.status().await,
+        StoreStatus::Unavailable { .. }
+    ));
+}

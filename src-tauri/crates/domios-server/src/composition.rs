@@ -327,7 +327,7 @@ pub(crate) fn compose_observed(
             agent_registry.clone(),
             cap_registries.clone(),
         );
-        watcher.seed();
+        watcher.seed_from_startup(&report);
         for vm in &plugin_vms {
             watcher.register_vm(vm.plugin_id(), vm);
         }
@@ -516,6 +516,7 @@ pub(crate) fn compose_observed(
             vm.set_service(Arc::downgrade(&host));
         }
         plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+        bind_secret_backend_fallback(&service_state, &secret_registry);
         service_state.restore_local_recording_plugins();
         codeterm_service_core::service::plugin_prompt::refresh(
             service_state
@@ -730,4 +731,70 @@ pub(crate) fn compose_observed(
         service: service_state,
         frontend_bundles: bundles,
     })
+}
+
+fn bind_secret_backend_fallback(
+    service_state: &ServiceState,
+    secret_registry: &Arc<codeterm_service_core::secrets::SecretRegistry>,
+) {
+    let fallback_notice_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    {
+        let service = service_state.clone();
+        let notice_slot = fallback_notice_id.clone();
+        codeterm_service_core::async_runtime::spawn(async move {
+            let store = service.secrets.read().await.clone();
+            if let Some(fallback) = store.fallback() {
+                let errors = plugin::js_runtime::plugin_load_errors();
+                let load_error = errors
+                    .iter()
+                    .find(|error| error.id == fallback.configured_backend)
+                    .map(|error| error.message.as_str());
+                let detail = codeterm_service_core::secrets::fallback_reason(
+                    &fallback.configured_backend,
+                    &fallback.active_backend,
+                    load_error,
+                );
+                let id = service.create_local_warning_notice(
+                    format!(
+                        "Secret backend '{}' unavailable — using {}",
+                        fallback.configured_backend, fallback.active_backend
+                    ),
+                    Some(detail),
+                );
+                *notice_slot.lock() = Some(id);
+                if store.fallback().is_none() {
+                    if let Some(id) = notice_slot.lock().take() {
+                        service.clear_notifications(Some(&id));
+                    }
+                }
+            }
+        });
+    }
+    {
+        let service = service_state.clone();
+        secret_registry.on_register(Arc::new(move |plugin_id| {
+            let service = service.clone();
+            let notice_slot = fallback_notice_id.clone();
+            let plugin_id = plugin_id.to_string();
+            codeterm_service_core::async_runtime::spawn(async move {
+                let store = service.secrets.read().await.clone();
+                if store.id() == plugin_id {
+                    if let Err(error) = store.init().await {
+                        log::warn!(
+                            "[secrets] live activation init for '{plugin_id}' failed: {error}"
+                        );
+                    }
+                    let previous_notice = notice_slot.lock().take();
+                    if let Some(id) = previous_notice {
+                        service.clear_notifications(Some(&id));
+                    }
+                    service
+                        .events
+                        .publish(codeterm_events::SystemEvent::ContributionsChanged {
+                            kind: "secrets".into(),
+                        });
+                }
+            });
+        }));
+    }
 }

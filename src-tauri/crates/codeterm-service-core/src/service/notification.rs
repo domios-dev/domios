@@ -143,6 +143,24 @@ impl ServiceContext {
         )
     }
 
+    pub fn create_local_warning_notice(&self, title: String, body: Option<String>) -> String {
+        create_notification_with_delivery(
+            NotificationAdmission::LocalEvent,
+            &self.notif,
+            |_, _| {},
+            title,
+            body,
+            Some("warning"),
+            Ask::default(),
+            Some(true),
+            NotificationOrigin::default(),
+            |_| None,
+            PushDispatch::inert(),
+            SurfaceDispatch::silent(),
+            |payload| self.notify_created(payload),
+        )
+    }
+
     /// The same explicit notification, plus the honest answer to "will anyone
     /// see this". The record is opened either way — the report is information
     /// for the caller, never a refusal.
