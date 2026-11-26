@@ -353,10 +353,16 @@ pub(super) fn run_dispatch(
         execution_intent,
         sandbox,
         provider_reserve_pct,
+        cloud,
     } = action
     else {
         unreachable!()
     };
+    let resolved_cloud = super::mesh_dispatch::resolve_dispatch_cloud_target(cloud, mesh_peer)?;
+    let effective_mesh_peer = resolved_cloud
+        .as_ref()
+        .map(|(peer, _)| peer.as_str())
+        .or(mesh_peer);
     let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
     let mut params = json!({
         "task_id": task_ref,
@@ -404,7 +410,7 @@ pub(super) fn run_dispatch(
     }
     if let Some(cwd) = cwd {
         // A peer resolves its own paths; only a local daemon needs the caller's directory.
-        let cwd = match mesh_peer {
+        let cwd = match effective_mesh_peer {
             Some(_) => cwd,
             None => crate::cmd::agent::caller_resolved_spawn_cwd(
                 &cwd,
@@ -413,11 +419,12 @@ pub(super) fn run_dispatch(
         };
         params["cwd"] = json!(cwd);
     }
-    if let Some(peer) = mesh_peer {
+    if let Some(peer) = effective_mesh_peer {
         params["mesh_peer"] = json!(peer);
     }
     inject_trusted_session(&mut params);
-    let val = call_plan_rpc_detailed(client, "plan.task.dispatch", params)?;
+    let mut val = call_plan_rpc_detailed(client, "plan.task.dispatch", params)?;
+    super::mesh_dispatch::attach_cloud_receipt(&mut val, resolved_cloud.as_ref());
     if json {
         return Ok(Some(val));
     }
@@ -433,6 +440,7 @@ pub(super) fn run_dispatch(
             val["placement"].as_str().unwrap_or("unknown")
         );
     }
+    super::mesh_dispatch::print_cloud_dispatch_notice(resolved_cloud.as_ref());
     print!("{}", render_dispatch_response(&val));
     Ok(None)
 }

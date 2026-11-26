@@ -17,6 +17,11 @@ import {
   type RemoteTeamClosePort,
   type RemoteTeamCloseTarget,
 } from "./useRemoteTeamClose";
+import {
+  remoteWorkspaceManagementPort,
+  useRemoteWorkspaceManagement,
+  type RemoteWorkspaceManagementPort,
+} from "./remoteWorkspaceManagement";
 
 const transportMocks = vi.hoisted(() => ({
   json: vi.fn(),
@@ -241,5 +246,96 @@ describe("remote workspace create and team close hooks", () => {
     state = reducer(state, { type: "DISMISS_TOAST", id: refusal.id });
     expect(state.toasts.some((t) => t.id === refusal.id)).toBe(false);
     expect(state.notifications.some((n) => n.id === refusal.id)).toBe(true);
+  });
+
+  it("renames remote workspaces and creates remote terminal tabs via the exact selected peer transport", async () => {
+    transportMocks.daemonTransportForPeer.mockReturnValue({ json: transportMocks.json });
+    transportMocks.json.mockResolvedValueOnce({ ok: true });
+    await remoteWorkspaceManagementPort.renameWorkspace("peer-b", "ws-remote", "Renamed");
+    expect(transportMocks.daemonTransportForPeer).toHaveBeenCalledWith("peer-b");
+    expect(transportMocks.json).toHaveBeenCalledWith(
+      "POST",
+      "/api/workspaces/ws-remote/rename",
+      { name: "Renamed" },
+      { signal: undefined, callerTabId: undefined },
+    );
+
+    transportMocks.json.mockResolvedValueOnce({ id: "team-remote", name: "Renamed Crew" });
+    await remoteWorkspaceManagementPort.renameTeam("peer-b", "team-remote", "Renamed Crew");
+    expect(transportMocks.daemonTransportForPeer).toHaveBeenLastCalledWith("peer-b");
+    expect(transportMocks.json).toHaveBeenLastCalledWith(
+      "POST",
+      "/api/teams/team-remote/rename",
+      expect.objectContaining({ name: "Renamed Crew" }),
+    );
+
+    transportMocks.json.mockResolvedValueOnce({ id: "term-9", title: "zsh" });
+    const created = await remoteWorkspaceManagementPort.createTerminalTab("peer-b", "ws-remote", "/srv/app", "zsh");
+    expect(created).toEqual({ id: "term-9", title: "zsh" });
+    expect(transportMocks.json).toHaveBeenLastCalledWith(
+      "POST",
+      "/api/workspaces/ws-remote/tabs",
+      expect.objectContaining({ cwd: "/srv/app", shell: "zsh" }),
+      { signal: undefined, callerTabId: undefined },
+    );
+  });
+
+  it("attaches created remote terminal tabs with remote_workspace_id and refuses remote actions when offline", async () => {
+    const notices: Notice[] = [];
+    const attached: unknown[] = [];
+    const refreshed: string[] = [];
+    const port: RemoteWorkspaceManagementPort = {
+      renameWorkspace: vi.fn(async () => {}),
+      renameTeam: vi.fn(async () => {}),
+      createTerminalTab: vi.fn(async () => ({ id: "term-9", title: "bash" })),
+      listPeerTabs: vi.fn(async () => ({
+        peer_id: "peer-b",
+        peer_name: "Desk B",
+        tabs: [{ id: "term-9", pty_id: "pty-9", tab_type: "Terminal" as const, title: "bash", cwd: "/srv/app", workspace_id: "ws-remote" }],
+      })),
+    };
+    let availability: GeneralAvailability = "offline";
+    let hook!: ReturnType<typeof useRemoteWorkspaceManagement>;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    function Harness() {
+      hook = useRemoteWorkspaceManagement({
+        availabilityForPeer: () => availability,
+        machineNameForPeer: () => "Desk B",
+        generalWorkspaceId: "local-general",
+        attachRemoteTab: (ws, peer, tab) => attached.push({ ws, peerId: peer.peer_id, tab }),
+        refreshPeerInventory: (peerId) => refreshed.push(peerId),
+        notify: (notice) => notices.push(notice),
+        port,
+      });
+      return null;
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      expect(await hook.renameRemoteWorkspace("peer-b", "ws-remote", "Renamed")).toBe(false);
+      await expect(hook.renameRemoteTeam("peer-b", "team-remote", "Renamed Crew")).rejects.toThrow("Desk B is offline.");
+      expect(await hook.createRemoteTerminalTab("peer-b", "ws-remote", "/srv/app")).toBeNull();
+      expect(port.renameWorkspace).not.toHaveBeenCalled();
+      expect(port.renameTeam).not.toHaveBeenCalled();
+      expect(port.createTerminalTab).not.toHaveBeenCalled();
+      expect(notices).toHaveLength(2);
+
+      availability = "online";
+      expect(await hook.renameRemoteWorkspace("peer-b", "ws-remote", "Renamed")).toBe(true);
+      await hook.renameRemoteTeam("peer-b", "team-remote", "Renamed Crew");
+      expect(port.renameTeam).toHaveBeenCalledWith("peer-b", "team-remote", "Renamed Crew");
+      const created = await hook.createRemoteTerminalTab("peer-b", "ws-remote", "/srv/app");
+      expect(created).toEqual({ tabId: "mesh:peer-b/term-9" });
+      expect(refreshed).toEqual(["peer-b", "peer-b", "peer-b"]);
+      expect(attached).toEqual([{
+        ws: "local-general",
+        peerId: "peer-b",
+        tab: expect.objectContaining({ id: "term-9", workspace_id: "ws-remote" }),
+      }]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 });

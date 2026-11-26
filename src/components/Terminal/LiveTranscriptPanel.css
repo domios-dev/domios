@@ -226,11 +226,11 @@
   animation: ct-live-review 1.2s ease-in-out infinite alternate;
 }
 
-.ct-live-concierge-bar[data-activity="stuck"] :is(.ct-live-dot, .ct-live-concierge-activity) {
+.ct-live-concierge-bar:is([data-activity="stuck"], [data-activity="needs_attachment"]) :is(.ct-live-dot, .ct-live-concierge-activity) {
   color: var(--ct-yellow);
 }
 
-.ct-live-concierge-bar[data-activity="stuck"] .ct-live-dot {
+.ct-live-concierge-bar:is([data-activity="stuck"], [data-activity="needs_attachment"]) .ct-live-dot {
   background: currentColor;
 }
 

@@ -99,6 +99,85 @@ fn fixed_server_vector_verifies_exact_canonical_bytes() {
 }
 
 #[tokio::test]
+async fn registry_publication_serializes_commit_through_broadcast() {
+    use crate::account_mesh::tests::support::wait_for_event;
+    let harness = replica("installation-a").await;
+    let issuer = Issuer::new();
+    let first = issuer.sign(&payload(&harness, 40, false));
+    let next = issuer.sign(&payload(&harness, 41, true));
+    harness.transport.snapshots.lock().unwrap().clear();
+    let gate = std::sync::Arc::new(tokio::sync::Notify::new());
+    *harness.transport.broadcast_gate.lock().unwrap() = Some(gate.clone());
+    let publish = |grant: DetachedGrant| {
+        let mesh = harness.mesh.clone();
+        tokio::spawn(async move { mesh.receive_registry_snapshot(&grant).await.unwrap() })
+    };
+    let older = publish(first.clone());
+    wait_for_event(harness.transport.broadcast_entered.notified()).await;
+    let newer = publish(next.clone());
+    assert!(harness.mesh.registry_publication.try_lock().is_err());
+    gate.notify_one();
+    assert!(wait_for_event(older).await.unwrap());
+    assert!(wait_for_event(newer).await.unwrap());
+    assert_eq!(
+        *harness.transport.snapshots.lock().unwrap(),
+        vec![first, next.clone()]
+    );
+    assert_eq!(
+        harness.state().signed_registry.as_ref().unwrap().grant,
+        next
+    );
+    assert_eq!(
+        harness.store.record.lock().unwrap().signed_registries[&account_id("alice")],
+        next
+    );
+}
+
+#[tokio::test]
+async fn renewal_reply_accepts_newer_registry_only_for_the_same_active_slot() {
+    use crate::account_mesh::delegated_renewal::renewal_registries_admit;
+    let harness = replica("installation-a").await;
+    let issuer = Issuer::new();
+    let account = account_id("alice");
+    let trust = issuer.trust();
+    let membership = crate::account_mesh::verify_membership(
+        &issuer.sign(&{
+            let mut p = Issuer::membership_payload("alice", &"c".repeat(64), 1, 1, START);
+            p["installation_id"] = json!(PEER);
+            p
+        }),
+        &trust,
+        &crate::account_mesh::MembershipExpectation {
+            account_id: &account,
+            ..Default::default()
+        },
+        START,
+    )
+    .unwrap();
+    let verified = |value| verify_registry(&issuer.sign(&value), &trust, &account, START).unwrap();
+    let issued = verified(payload(&harness, 40, false));
+    let newer = verified(payload(&harness, 41, false));
+    assert!(renewal_registries_admit(&issued, &newer, &membership));
+    assert!(!renewal_registries_admit(&newer, &issued, &membership));
+    assert!(!renewal_registries_admit(
+        &issued,
+        &verified(payload(&harness, 41, true)),
+        &membership
+    ));
+    let mut changed = payload(&harness, 41, false);
+    for row in changed["members"].as_array_mut().unwrap() {
+        if row["installation_id"] == PEER {
+            row["slot_revision"] = json!(2);
+        }
+    }
+    assert!(!renewal_registries_admit(
+        &issued,
+        &verified(changed),
+        &membership
+    ));
+}
+
+#[tokio::test]
 async fn rotated_cached_registry_does_not_reject_a_current_snapshot() {
     for rotation in ["key", "epoch"] {
         let mut harness = Harness::new().await;

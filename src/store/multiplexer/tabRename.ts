@@ -3,6 +3,7 @@ import { plansAction } from "../../components/billing/purchaseSwitch";
 import type { LocalLimitKey } from "../../components/billing/freeLimitModel";
 import { describeError } from "../../lib/describeError";
 import type { Notice } from "../../lib/notices";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { TitleLevel } from "../../lib/types";
 import { uid } from "../../lib/uid";
 import type { Action } from "./reducer";
@@ -12,6 +13,7 @@ export interface TabRenamePorts {
   dispatch: (action: Action) => void;
   persist: (args: { workspaceId: string; tabId: string; title: string }) => Promise<unknown>;
   notify: (notice: Notice) => void;
+  onRemoteRenamed?: (peerId: string) => void;
 }
 
 export function tabRenameFailureNotice(workspaceId: string, tabId: string, error: unknown): Notice {
@@ -40,7 +42,18 @@ export function commitTabRename(
   tabId: string,
   title: string,
 ): Promise<void> {
+  const remote = parseCompositeTabId(tabId);
   const tab = state.tabs[tabId];
+  if (remote) {
+    if (tab) ports.dispatch({ type: "SET_TAB_TITLE", tabId, title, level: TitleLevel.User });
+    return ports.persist({ workspaceId, tabId, title }).then(
+      () => { ports.onRemoteRenamed?.(remote.peerId); },
+      (error: unknown) => {
+        if (tab) ports.dispatch({ type: "REVERT_TAB_TITLE", tabId, attempted: title, title: tab.title, level: tab.title_level });
+        ports.notify(tabRenameFailureNotice(workspaceId, tabId, error));
+      },
+    );
+  }
   const workspace = state.workspaces.find((ws) => ws.id === workspaceId);
   if (!tab || !workspace?.tabs.includes(tabId)) return Promise.resolve();
   ports.dispatch({ type: "SET_TAB_TITLE", tabId, title, level: TitleLevel.User });

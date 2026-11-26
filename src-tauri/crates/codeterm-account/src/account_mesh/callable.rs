@@ -141,7 +141,18 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
         return RegistryRefusal::Unauthenticated;
     }
     match status {
-        404 => return RegistryRefusal::Unavailable,
+        404 => {
+            return if body
+                .as_ref()
+                .and_then(|body| body.pointer("/error/details"))
+                .map(RegistryRefusal::from_details)
+                == Some(RegistryRefusal::NotFound)
+            {
+                RegistryRefusal::NotFound
+            } else {
+                RegistryRefusal::Unavailable
+            };
+        }
         403 => {
             let typed = body
                 .as_ref()
@@ -187,15 +198,17 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
                 .unwrap_or(RegistryRefusal::Unauthenticated);
         }
         500..=599 => {
-            return if body
+            return match body
                 .as_ref()
                 .and_then(|body| body.pointer("/error/details"))
                 .map(RegistryRefusal::from_details)
-                == Some(RegistryRefusal::AuthorityUnavailable)
             {
-                RegistryRefusal::AuthorityUnavailable
-            } else {
-                RegistryRefusal::Unavailable
+                Some(
+                    reason @ (RegistryRefusal::AuthorityUnavailable
+                    | RegistryRefusal::ProviderUnavailable
+                    | RegistryRefusal::ProviderUnconfirmed),
+                ) => reason,
+                _ => RegistryRefusal::Unavailable,
             };
         }
         _ => {}
@@ -205,6 +218,15 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
         .and_then(|body| body.pointer("/error/details"))
     {
         return RegistryRefusal::from_details(details);
+    }
+    if status == 400
+        && body
+            .as_ref()
+            .and_then(|body| body.pointer("/error/status"))
+            .and_then(Value::as_str)
+            == Some("FAILED_PRECONDITION")
+    {
+        return RegistryRefusal::Unavailable;
     }
     match status {
         400 => RegistryRefusal::Invalid,
@@ -324,6 +346,117 @@ impl<T: CallableTransport> CallableRegistry<T> {
 
 #[async_trait]
 impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
+    async fn enroll_cloud(
+        &self,
+        session: &Session,
+        request: &super::cloud_enrollment::EnrollmentRequest,
+    ) -> RegistryResult<super::cloud_enrollment::EnrollmentReply> {
+        self.call("enrollDelegatedCloudInstallation", session, request)
+            .await
+    }
+    async fn renew_cloud(
+        &self,
+        session: &Session,
+        request: &super::delegated_renewal::RenewalRequest,
+    ) -> RegistryResult<super::delegated_renewal::RenewalReply> {
+        self.call("renewDelegatedCloudInstallation", session, request)
+            .await
+    }
+    async fn create_cloud_machine(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::CreateCloudMachineRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ProvisionedMachineReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_CREATE,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn wake_cloud_machine(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ProvisionedMachineReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_WAKE,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn sleep_cloud_machine(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::SleepMachineReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_SLEEP,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn delete_cloud_machine(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::DeleteMachineReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_DELETE,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn renew_cloud_lease(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::RenewLeaseRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RenewLeaseReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_LEASE_RENEW,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn cloud_usage(
+        &self,
+        session: &Session,
+    ) -> RegistryResult<super::cloud_provisioning::CloudUsageReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_USAGE,
+            session,
+            &serde_json::json!({}),
+        )
+        .await
+    }
+    async fn redeem_cloud_promo(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::RedeemCloudCreditPromoRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RedeemCloudCreditPromoReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn create_cloud_checkout(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::CreateCloudCreditPackCheckoutRequest,
+    ) -> RegistryResult<super::cloud_provisioning::CreateCloudCreditPackCheckoutReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_CHECKOUT,
+            session,
+            request,
+        )
+        .await
+    }
     fn handles_call_deadline(&self) -> bool {
         true
     }
@@ -478,7 +611,26 @@ impl CallableTransport for HttpCallable {
         id_token: &str,
         data: Value,
     ) -> Result<Value, CallableFailure> {
-        let url = callable_url(&self.base, route)?;
+        let endpoints = crate::firebase_endpoints::current();
+        let url = if matches!(
+            route,
+            "enrollDelegatedCloudInstallation"
+                | "renewDelegatedCloudInstallation"
+                | super::cloud_provisioning::ROUTE_CLOUD_CREATE
+                | super::cloud_provisioning::ROUTE_CLOUD_WAKE
+                | super::cloud_provisioning::ROUTE_CLOUD_SLEEP
+                | super::cloud_provisioning::ROUTE_CLOUD_DELETE
+                | super::cloud_provisioning::ROUTE_CLOUD_LEASE_RENEW
+                | super::cloud_provisioning::ROUTE_CLOUD_USAGE
+                | super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO
+                | super::cloud_provisioning::ROUTE_CLOUD_CHECKOUT
+        ) && !endpoints.emulator
+        {
+            let redeem = url::Url::parse(endpoints.redeem).map_err(|_| CallableFailure::Offline)?;
+            redeem.join(route).map_err(|_| CallableFailure::Offline)?
+        } else {
+            callable_url(&self.base, route)?
+        };
         let response = self
             .client
             .post(url)

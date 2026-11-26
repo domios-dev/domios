@@ -460,6 +460,7 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         mesh.paired_peers["air"].relay_protocol_version
     };
     let announce = |relay_protocol_version| PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -798,4 +799,167 @@ fn only_agent_isolated_peers_narrow_the_tab_listing() {
     ] {
         assert_eq!(isolated_peer_id(&identity), None);
     }
+}
+
+#[tokio::test]
+async fn refusal_storm_coalesces_logs_and_does_not_block_concurrent_requests() {
+    use axum::{body::Body, extract::ConnectInfo, http::Request, routing::get, Router};
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use std::net::SocketAddr;
+    use std::time::Duration;
+    use tower::ServiceExt;
+
+    refusal_log::reset_global_for_test();
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    state.config.lock().mesh.enabled = true;
+    state.config.lock().api.token = Some("local-owner-token".into());
+
+    let app = Router::new()
+        .route("/api/events/stream", get(|| async { StatusCode::OK }))
+        .route("/api/ok", get(|| async { StatusCode::OK }))
+        .route("/api/health", get(|| async { StatusCode::OK }))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+
+    let (rogue_key, _) = codeterm_service_core::mesh::crown::generate_peer_keypair();
+    let peer_addr: SocketAddr = "100.96.129.45:56834".parse().unwrap();
+    let local_addr: SocketAddr = "127.0.0.1:49000".parse().unwrap();
+
+    let mut storm = tokio::task::JoinSet::new();
+    for _ in 0..120 {
+        let token = codeterm_service_core::mesh::crown::sign_request(
+            &rogue_key,
+            "06531b5a-971a-4e7a-87c3-32fa76a83d96",
+        )
+        .unwrap();
+        let router = app.clone();
+        storm.spawn(async move {
+            let mut request = Request::get("/api/events/stream")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(peer_addr));
+            router.oneshot(request).await.unwrap().status()
+        });
+    }
+
+    let mut legitimate = tokio::task::JoinSet::new();
+    for idx in 0..12 {
+        let router = app.clone();
+        legitimate.spawn(async move {
+            let path = if idx % 2 == 0 {
+                "/api/ok"
+            } else {
+                "/api/health"
+            };
+            let mut request = Request::get(path)
+                .header("authorization", "Bearer local-owner-token")
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(local_addr));
+            router.oneshot(request).await.unwrap().status()
+        });
+    }
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(status) = legitimate.join_next().await {
+            assert_eq!(status.unwrap(), StatusCode::OK);
+        }
+        while let Some(status) = storm.join_next().await {
+            assert_eq!(status.unwrap(), StatusCode::UNAUTHORIZED);
+        }
+    })
+    .await
+    .expect("concurrent requests must complete promptly during a refusal storm");
+
+    assert_eq!(
+        refusal_log::snapshot_suppressed_for_test(
+            "100.96.129.45",
+            "/api/events/stream",
+            "mesh-signature",
+            "unknown_or_invalid_credential",
+        ),
+        119
+    );
+}
+
+#[tokio::test]
+async fn mesh_signature_returns_retryable_503_while_account_admission_is_pending() {
+    use axum::{body::Body, extract::ConnectInfo, http::Request, routing::get, Router};
+    use codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use std::net::SocketAddr;
+    use tower::ServiceExt;
+
+    refusal_log::reset_global_for_test();
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    state.config.lock().mesh.enabled = true;
+    state.mesh.lock().await_account_state();
+
+    let app = Router::new()
+        .route("/api/events/stream", get(|| async { StatusCode::OK }))
+        .route("/api/config", get(|| async { StatusCode::OK }))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+
+    let (peer_key, _) = codeterm_service_core::mesh::crown::generate_peer_keypair();
+    let token = codeterm_service_core::mesh::crown::sign_request(&peer_key, "peer-rog").unwrap();
+    let peer_addr: SocketAddr = "100.96.129.45:56834".parse().unwrap();
+
+    for with_tailnet in [true, false] {
+        let mut req = Request::get("/api/events/stream")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(peer_addr));
+        if with_tailnet {
+            req.extensions_mut().insert(TailnetListener);
+        }
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "with_tailnet={with_tailnet}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok()),
+            Some("2")
+        );
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "mesh_not_ready");
+    }
+
+    assert_eq!(
+        refusal_log::snapshot_suppressed_for_test(
+            "100.96.129.45",
+            "/api/events/stream",
+            "mesh-signature",
+            "mesh_not_ready",
+        ),
+        1
+    );
+
+    let mut local_req = Request::get("/api/config")
+        .header("authorization", "Bearer preview-test-token")
+        .body(Body::empty())
+        .unwrap();
+    local_req.extensions_mut().insert(TailnetListener);
+    assert_eq!(
+        app.oneshot(local_req).await.unwrap().status(),
+        StatusCode::OK
+    );
 }

@@ -413,7 +413,7 @@ pub(crate) fn start_servers(
         });
     }
 
-    let bundles = {
+    let (bundles, cloud_driver_state) = {
         let api_config = states.config.lock().api.clone();
         if let Some(bundles) = &bundles {
             codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
@@ -435,6 +435,7 @@ pub(crate) fn start_servers(
             events: states.event_broadcaster.clone(),
             web_dist: resolve_web_dist(resources),
         };
+        let cloud_driver_state = rest_inputs.clone();
         let router =
             codeterm_api::routes::create_router_with_frontend(rest_inputs, bundles.clone());
         let router = match quit_port {
@@ -487,7 +488,7 @@ pub(crate) fn start_servers(
                 .listeners
                 .publish(states.rest_api.listeners.ready());
         }
-        bundles
+        (bundles, cloud_driver_state)
     };
 
     let (general_ready, general_initialized) = std::sync::mpsc::channel();
@@ -533,6 +534,10 @@ pub(crate) fn start_servers(
         }
     }
     service_state.start_account_mesh_transport();
+    codeterm_api::cloud_mesh_runtime::start(service_state, states.mesh.clone());
+    if let Some(driver) = codeterm_api::cloud_routes::start_idle_driver(cloud_driver_state) {
+        std::mem::forget(driver);
+    }
     service_state.start_purchase_switch();
 
     let integrations = states.config.lock().integrations.clone();

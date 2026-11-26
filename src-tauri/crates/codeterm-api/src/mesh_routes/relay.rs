@@ -8,11 +8,36 @@ use std::sync::LazyLock;
 
 mod caller;
 mod capability;
+mod cloud_producer;
+mod cloud_wake;
+#[cfg(test)]
+mod cloud_wake_tests;
 mod observation_limit;
-mod origin;
+pub(crate) mod origin;
 mod peer_asset;
 mod peer_rail;
 mod peer_stream;
+mod peer_stream_backoff;
+pub(crate) use cloud_producer::{
+    cloud_outbox_announce, resolve_cloud_ingress_endpoint, send_via_cloud_ingress,
+};
+pub use cloud_producer::{
+    CloudIngressConnector, CloudIngressSendError, CLOUD_NOTIFICATION_RELAY_REFUSED,
+    CLOUD_OUTBOUND_OPERATION_UNSUPPORTED,
+};
+#[cfg(any(test, feature = "test-support"))]
+pub use cloud_producer::{CloudIngressConnectorOverride, CloudOutboxOverride};
+
+pub(crate) fn register_extensions(
+    #[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables))]
+    builder: &mut codeterm_service_core::service::ExtensionsBuilder,
+) {
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        builder.insert_late::<CloudIngressConnectorOverride>();
+        builder.insert_late::<CloudOutboxOverride>();
+    }
+}
 #[cfg(test)]
 use peer_asset::is_relay_asset_path;
 pub use peer_asset::mesh_relay_asset;
@@ -25,6 +50,7 @@ pub use sync::mesh_sync;
 #[cfg(test)]
 use sync::{sync_input_for_access, sync_output_for_access};
 
+pub(crate) use origin::sign as sign_caller;
 pub(super) use origin::{authenticate_signed_mesh_request, SignedMeshRequest};
 
 /// Verify relay sender: must be paired. Paired = trusted.
@@ -233,7 +259,7 @@ fn identify_supports_delayed_recurrence(identify: &serde_json::Value) -> bool {
 
 pub(crate) const REQUIRE_AGENT_SEND_FEATURE: &str = "mesh_send_require_agent";
 
-fn identify_supports_feature(identify: &serde_json::Value, name: &str) -> bool {
+pub(crate) fn identify_supports_feature(identify: &serde_json::Value, name: &str) -> bool {
     identify
         .get("features")
         .and_then(serde_json::Value::as_array)
@@ -319,22 +345,22 @@ pub async fn mesh_relay_to_peer(
         caller::bind(caller, &req.method, &req.path, &mut req.body)
             .map_err(|message| (StatusCode::FORBIDDEN, message))?;
     }
+    if let Some(early) = cloud_wake::preflight_cloud_wake(&state, &headers, &req).await? {
+        return Ok(Json(early));
+    }
+    let inbound_only = cloud_producer::has_cloud_outbox(&state);
     let target = (req.target_instance_id.clone(), req.target_peer_id.clone());
-    let (request_origin, client, peer_id, peer_name, peer_version) =
+    let (request_origin, transport, peer_id, peer_name, peer_version) =
         crate::auth::off_runtime(&state, &headers, move |state, headers| {
-            let ((primary, alternatives), peer_id, peer_name, peer_version) = {
-                let mesh = state.mesh.lock();
-                match &target {
-                    (Some(id), None) => resolve_exact_relay_peer_route(&mesh, id)?,
-                    (None, Some(target)) => resolve_relay_peer_route(&mesh, target)?,
-                    _ => return Err((StatusCode::BAD_REQUEST, "Provide one relay target".into())),
-                }
-            };
-            let (request_origin, client) =
-                origin::signed_peer_client(state, headers, primary, alternatives)?;
-            Ok((request_origin, client, peer_id, peer_name, peer_version))
+            cloud_producer::resolve_outbound_transport(state, headers, &target, inbound_only)
         })
         .await?;
+    if request_origin == crate::auth::AuthenticatedOrigin::Owner {
+        state
+            .svc
+            .cloud_machines()
+            .record_owner_interaction(&peer_id);
+    }
     let actor =
         crate::auth::ActorHeaders::authenticated(&identity, request_origin, headers.clone());
     let answered_by = |response| {
@@ -346,8 +372,28 @@ pub async fn mesh_relay_to_peer(
             },
         })
     };
+    if let cloud_producer::OutboundRelayTransport::CloudOutbox {
+        target,
+        origin,
+        agent,
+    } = transport
+    {
+        let resp = cloud_producer::relay_via_cloud_outbox(
+            &state,
+            target,
+            origin,
+            agent,
+            &req.method,
+            &req.path,
+            req.body,
+        )
+        .await?;
+        return Ok(answered_by(resp));
+    }
+    let transport =
+        cloud_producer::ReadyOutboundTransport::prepare(&state, &peer_id, &peer_name, transport)?;
     if is_tab_send(&req.method, &req.path) && req.body["require_agent"].as_bool() == Some(true) {
-        let identify = client.auth_get_json("/api/identify").await.ok();
+        let identify = transport.fetch_identify(&state).await;
         if !identify
             .as_ref()
             .is_some_and(|identify| identify_supports_feature(identify, REQUIRE_AGENT_SEND_FEATURE))
@@ -361,7 +407,7 @@ pub async fn mesh_relay_to_peer(
         }
     }
     if is_recurring_delayed_relay(&req.method, &req.path, &req.body) {
-        let identify = client.auth_get_json("/api/identify").await.ok();
+        let identify = transport.fetch_identify(&state).await;
         if let Some(refusal) = recurrence_capability_refusal_response(
             &peer_name,
             identify.as_ref(),
@@ -408,19 +454,19 @@ pub async fn mesh_relay_to_peer(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .map_err(|error| (StatusCode::FORBIDDEN, error))?;
     }
-    codeterm_service_core::service::mesh_artifacts_transfer(
-        &state.svc,
-        actor
-            .as_ref()
-            .map(crate::tab_routes::caller_tab_header)
-            .map_err(|(_, message)| message.clone()),
-        &client,
-        &req.method,
-        &req.path,
-        &mut relay_body,
-    )
-    .await
-    .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
+    transport
+        .transfer_artifacts(
+            &state,
+            actor
+                .as_ref()
+                .map(crate::tab_routes::caller_tab_header)
+                .map_err(|(_, message)| message.clone()),
+            &req.method,
+            &req.path,
+            &mut relay_body,
+        )
+        .await
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
     crate::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &relay_body)
         .await
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
@@ -442,19 +488,32 @@ pub async fn mesh_relay_to_peer(
         body: relay_body,
         delivery_id,
     };
+    let drain_agent = match &transport {
+        cloud_producer::ReadyOutboundTransport::CloudIngress { agent, .. } => agent.clone(),
+        cloud_producer::ReadyOutboundTransport::Http(_) => None,
+    };
     // The sender hop's own transport failure classifies into the same
     // relay_failure() vocabulary the receiving hop uses (see relay_error_summary).
-    let resp = match client.send_relay(&cmd).await {
+    let resp = match transport.send_relay(&state, &cmd).await {
         Ok(resp) => resp,
-        Err(err) => {
-            return Ok(answered_by(relay_failure(
-                err.http_status(),
-                err.code(),
-                err.bytes_written(),
-                err.to_string(),
-            )));
-        }
+        Err(failure) => return Ok(answered_by(failure)),
     };
+
+    let drain_agent = match drain_agent {
+        Some(agent) => Some(agent),
+        None if request_origin == crate::auth::AuthenticatedOrigin::Agent => {
+            crate::auth::off_runtime(&state, &headers, origin::authenticated_local_caller)
+                .await
+                .ok()
+                .and_then(|(_, agent)| agent)
+        }
+        None => None,
+    };
+    if let Some(held) =
+        cloud_wake::hold_if_drain_raced(&state, &peer_id, &cmd, &resp, request_origin, drain_agent)
+    {
+        return Ok(answered_by(held));
+    }
 
     // sidebar ghosts it under the report target immediately (no report yet).
     if let Some((report_to, remote_tab, title, model)) =
@@ -895,38 +954,32 @@ async fn perform_relay_unredacted(
     tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, sender_id, &sender_name);
     tag_relay_notification_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 
-    log::debug!(
-        "[mesh/relay] branch=loopback method={} path={} source={sender_name}",
-        cmd.method,
-        cmd.path
-    );
-    let request = if sender_id == "local" {
+    let auth_header = if sender_id == "local" {
         let loopback_state = state.clone();
-        let loopback_cmd = cmd.clone();
         let loopback_agent = agent.cloned();
-        tokio::task::spawn_blocking(move || {
-            origin::loopback_request(
-                &loopback_state,
-                origin,
-                &loopback_cmd,
-                &body,
-                loopback_agent.as_ref(),
-            )
+        let token = tokio::task::spawn_blocking(move || {
+            origin::sign(&loopback_state, origin, loopback_agent.as_ref())
         })
         .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
+        format!("Bearer {token}").parse().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid signed authorization".into(),
+            )
+        })?
     } else if let Some(authorization) = authorization {
-        origin::loopback_request_with_auth(state, cmd, &body, authorization.clone())?
+        authorization.clone()
     } else {
         return Ok((grant_refusal(), true));
     };
+    let forward_target = origin::build_local_forward(state, cmd, &body, auth_header, &sender_name)?;
     if admitted_grant
         .as_ref()
         .is_some_and(|grant| !grant.current(&state.mesh.lock()))
     {
         return Ok((grant_refusal(), true));
     }
-    let client = local_forward_http_client()?;
 
     let observation =
         codeterm_service_core::api_support::access_policy::is_observation(&cmd.method, &cmd.path);
@@ -941,19 +994,19 @@ async fn perform_relay_unredacted(
     if let Some(refusal) = relay_prewrite_refusal(state, sender_id) {
         return Ok((refusal, true));
     }
-    let resp = match client.execute(request).await {
-        Ok(resp) => resp,
-        Err(error) => return Ok((local_forward_failure(&error), true)),
+    let (status, is_json, result) = match origin::execute_local_forward(
+        forward_target,
+        local_forward_deadline(&cmd.method, &cmd.path),
+    )
+    .await?
+    {
+        origin::LocalForwardOutcome::Response {
+            status,
+            is_json,
+            body,
+        } => (status, is_json, body),
+        origin::LocalForwardOutcome::Failed(failure) => return Ok((failure, true)),
     };
-
-    let status = resp.status().as_u16();
-    let is_json = resp
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-        .is_some_and(|value| value.eq_ignore_ascii_case("application/json"));
-    let result = resp.bytes().await;
     if observation
         && admitted_grant
             .as_ref()
@@ -1073,18 +1126,21 @@ fn copy_content_type(from: &reqwest::Response, fallback: &'static str) -> Header
 mod path_guard;
 mod peer_authorization;
 mod peer_resolution;
+mod remote_notification;
 use path_guard::validate_relay_path;
 use peer_authorization::authorize_peer_relay;
 #[cfg(test)]
 use peer_authorization::PeerRelayAuthorization;
 use peer_resolution::{
-    peer_not_paired_error, peer_unroutable_error, resolve_exact_relay_peer_route,
-    resolve_relay_peer_route, AnsweringPeer, PeerRelayResponse,
+    peer_not_paired_error, peer_unroutable_error, AnsweringPeer, PeerRelayResponse,
 };
 #[cfg(test)]
 use peer_resolution::{
     resolve_exact_relay_peer, resolve_relay_peer, PEER_NAME_AMBIGUOUS_REASON,
     PEER_NAME_NO_ONLINE_RECORD_REASON, PEER_NOT_PAIRED_REASON, PEER_UNROUTABLE_REASON,
+};
+pub use remote_notification::{
+    MAX_PER_PEER_NOTIFICATIONS, PEER_NOTIFICATION_RATE_LIMITED, REMOTE_NOTIFICATION_REJECTED,
 };
 
 #[cfg(test)]

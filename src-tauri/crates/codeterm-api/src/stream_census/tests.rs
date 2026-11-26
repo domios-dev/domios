@@ -261,3 +261,28 @@ fn concurrent_peer_opens_share_one_counter_and_balance_after_join() {
     });
     assert_closed(&census, 8);
 }
+
+#[test]
+fn live_count_matching_peers_counts_local_and_allowed_peers_only() {
+    let census = StreamCensus::default();
+    let _local = census.open(StreamKind::Events, StreamScope::Local);
+    let _full = census.open(
+        StreamKind::Events,
+        StreamScope::PeerRelayed {
+            peer_instance_id: "full-peer".into(),
+        },
+    );
+    let _readonly = census.open(
+        StreamKind::Output,
+        StreamScope::PeerRelayed {
+            peer_instance_id: "ro-peer".into(),
+        },
+    );
+    let _non_owner = census.open(StreamKind::TabOutput, StreamScope::NonOwner);
+
+    assert_eq!(
+        census.live_count_matching_peers(|peer_id| peer_id == "full-peer"),
+        2
+    );
+    assert_eq!(census.live_count_matching_peers(|_| false), 1);
+}

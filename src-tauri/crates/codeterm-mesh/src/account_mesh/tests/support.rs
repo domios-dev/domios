@@ -46,6 +46,12 @@ pub fn membership(account: &str, installation: &str, expires_at: u64) -> SignedM
 
 /// Deterministic possession proofs with a locally cached registry.
 pub struct FakeAuthority {
+    pub renewal: Mutex<
+        Option<(
+            codeterm_entitlements::DetachedGrant,
+            codeterm_entitlements::DetachedGrant,
+        )>,
+    >,
     pub snapshots: Mutex<Vec<codeterm_entitlements::DetachedGrant>>,
     pub installation_id: String,
     pub online: AtomicBool,
@@ -57,6 +63,7 @@ pub struct FakeAuthority {
 impl FakeAuthority {
     pub fn new(installation_id: &str) -> Arc<Self> {
         Arc::new(Self {
+            renewal: Mutex::new(None),
             snapshots: Mutex::default(),
             installation_id: installation_id.into(),
             online: AtomicBool::new(true),
@@ -68,6 +75,26 @@ impl FakeAuthority {
 }
 
 impl AccountMeshAuthority for FakeAuthority {
+    fn renew_cloud<'a>(
+        &'a self,
+        _: &'a VerifiedMembership,
+    ) -> BoxFuture<
+        'a,
+        Result<
+            (
+                codeterm_entitlements::DetachedGrant,
+                codeterm_entitlements::DetachedGrant,
+            ),
+            AdmissionRefusal,
+        >,
+    > {
+        Box::pin(async move {
+            self.renewal
+                .lock()
+                .clone()
+                .ok_or(AdmissionRefusal::AuthRefused)
+        })
+    }
     fn accept_endpoint_sequence<'a>(
         &'a self,
         _membership: &'a VerifiedMembership,
@@ -105,6 +132,11 @@ impl AccountMeshAuthority for FakeAuthority {
 
     fn sign_possession(&self, transcript: &[u8; 32]) -> Result<String, AdmissionRefusal> {
         Ok(format!("p|{}|{}", self.installation_id, hex(transcript)))
+    }
+
+    fn verify_key_possession(&self, key: &str, digest: &[u8; 32], signature: &str) -> bool {
+        key.strip_prefix("key-")
+            .is_some_and(|id| signature == format!("p|{id}|{}", hex(digest)))
     }
 
     fn verify_possession(

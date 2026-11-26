@@ -12,6 +12,75 @@ pub type RegistryResult<T> = std::result::Result<T, RegistryRefusal>;
 /// Server registry seam; the HTTP adapter binds the reviewed callable names.
 #[async_trait]
 pub trait MeshRegistry: Send + Sync {
+    async fn enroll_cloud(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_enrollment::EnrollmentRequest,
+    ) -> RegistryResult<super::cloud_enrollment::EnrollmentReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn renew_cloud(
+        &self,
+        _session: &Session,
+        _request: &super::delegated_renewal::RenewalRequest,
+    ) -> RegistryResult<super::delegated_renewal::RenewalReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn create_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::CreateCloudMachineRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ProvisionedMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn wake_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ProvisionedMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn sleep_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::SleepMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn delete_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::DeleteMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn renew_cloud_lease(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::RenewLeaseRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RenewLeaseReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn cloud_usage(
+        &self,
+        _session: &Session,
+    ) -> RegistryResult<super::cloud_provisioning::CloudUsageReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn redeem_cloud_promo(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::RedeemCloudCreditPromoRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RedeemCloudCreditPromoReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn create_cloud_checkout(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::CreateCloudCreditPackCheckoutRequest,
+    ) -> RegistryResult<super::cloud_provisioning::CreateCloudCreditPackCheckoutReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     fn handles_call_deadline(&self) -> bool {
         false
     }

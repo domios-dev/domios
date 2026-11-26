@@ -188,8 +188,10 @@ impl NeighborsExt for ServiceContext {
                     observers.push(Arc::new(AnalyticsIdentity(worker.clone())));
                 }
                 // Mesh is optional: its unavailability never prevents the account from starting.
-                if let Ok(mesh) = self.account_mesh().await {
-                    observers.insert(0, mesh.mesh.clone());
+                if self.try_ext::<super::cloud_installation::CloudInstallation>().is_none() {
+                    if let Ok(mesh) = self.account_mesh().await {
+                        observers.insert(0, mesh.mesh.clone());
+                    }
                 }
                 let credential_provider = provider.id().to_owned();
                 let credentials = self.account_credentials().await?;
@@ -243,7 +245,12 @@ impl NeighborsExt for ServiceContext {
                 Ok::<_, String>(account)
             })
             .await?;
-        self.account_mesh_restored();
+        if self
+            .try_ext::<super::cloud_installation::CloudInstallation>()
+            .is_none()
+        {
+            self.account_mesh_restored();
+        }
         self.restore_neighbor_updates_once();
         #[cfg(not(any(test, feature = "test-support")))]
         self.restore_neighbors_once();

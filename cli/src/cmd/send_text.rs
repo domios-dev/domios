@@ -117,7 +117,7 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
                 |id| {
                     let inspection =
                         format!("send_id={id}: {message}\ninspect: domios tab send-status {id}");
-                    if id.starts_with("agent-pty:") {
+                    if id.starts_with("agent-pty:") || id.starts_with("cloud-wake:") {
                         format!("{inspection}\ncancel held input: domios tab send-cancel {id}")
                     } else {
                         inspection

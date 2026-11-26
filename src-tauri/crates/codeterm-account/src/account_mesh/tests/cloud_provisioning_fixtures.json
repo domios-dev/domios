@@ -1,0 +1,458 @@
+{
+  "schema": "domios.cloud-provisioning.fixtures.v1",
+  "test_context": {
+    "project": "demo-domios",
+    "env": "test",
+    "policy_epoch": "cloud-fixture-v1",
+    "uid": "fixture-uid-1",
+    "account_id": "0c85ace070bfba3c2c7a9eab7bed0af4ffb4ff9f5289e88237cef6da8e92de28",
+    "controller_key": "0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc",
+    "controller_key_spki_base64": "MCowBQYDK2VwAyEA0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc=",
+    "trust_key_id": "fixture-trust-key",
+    "trust_key_spki_base64": "MCowBQYDK2VwAyEAF8t5+ytBIPKx7GXkGY1uCLKOgT/rAeSkAIObheGAgM4=",
+    "bootstrap_nonce_sha256": "bb391415c05e39d77ca17381d3be3f7d0cd5e5332e5a579311adaa0aa62106e9"
+  },
+  "routes": {
+    "create": "createManagedCloudMachine",
+    "wake": "wakeManagedCloudMachine",
+    "sleep": "sleepManagedCloudMachine",
+    "delete": "deleteManagedCloudMachine",
+    "enroll": "enrollDelegatedCloudInstallation",
+    "renew": "renewDelegatedCloudInstallation",
+    "usage": "getManagedCloudUsage",
+    "create_pack_checkout": "createCloudCreditPackCheckout"
+  },
+  "domains": {
+    "create": "domios.cloud-create.v1",
+    "wake": "domios.cloud-wake.v1",
+    "sleep": "domios.cloud-sleep.v1",
+    "delete": "domios.cloud-delete.v1",
+    "enroll": "domios.cloud-enroll.v1",
+    "renew": "domios.cloud-renew.v1"
+  },
+  "requests": {
+    "create": {
+      "body": {
+        "schema_version": 1,
+        "controller_installation_id": "desk-ctrl-1",
+        "controller_key": "0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc",
+        "creation_psk": "REREREREREREREREREREREREREREREREREREREREREQ",
+        "size": "small",
+        "request_id": "oaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaE",
+        "timestamp": 1795700000
+      },
+      "controller_signature": "MUWY1TpPRSP8YVrewQ9kd5yflUmknDiYmnUDArf08b48HhnytugoJLF01o-uTQvUKXvOCyy7vaBzSStHtx6ICg"
+    },
+    "wake": {
+      "body": {
+        "schema_version": 1,
+        "controller_installation_id": "desk-ctrl-1",
+        "machine_id": "cm_fixture0000000000000001",
+        "request_id": "oqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqI",
+        "timestamp": 1795700060
+      },
+      "controller_signature": "DsJna8EPerp4GLsDp9u287qlcQjALcAP28g-Wm_AVacfguDk6rIqDqGvn3MLiUy0J-UqQ_EFm0EpBNImzMgqAg"
+    },
+    "sleep": {
+      "body": {
+        "schema_version": 1,
+        "controller_installation_id": "desk-ctrl-1",
+        "machine_id": "cm_fixture0000000000000001",
+        "request_id": "o6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6M",
+        "timestamp": 1795700120
+      },
+      "controller_signature": "dhSwkw2RO1lZyvK9cIfXb91kTJjnIilWwkj44tM9phf6lIKBptCLcLQ_yv3wsraaPPWevdFgqiWntENMwotsCQ"
+    },
+    "delete": {
+      "body": {
+        "schema_version": 1,
+        "controller_installation_id": "desk-ctrl-1",
+        "machine_id": "cm_fixture0000000000000001",
+        "request_id": "pKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKQ",
+        "timestamp": 1795700180
+      },
+      "controller_signature": "r8qWyf7Cc1_x93yAwJJEdL2w2Y8__lDO8VhVpIkhJjfqzQErRrb_ZR0kiultou5lB121lGRyDd2gLD4VjufMBQ"
+    },
+    "enroll": {
+      "body": {
+        "schema_version": 1,
+        "controller_installation_id": "desk-ctrl-1",
+        "cloud_installation_id": "cloud-inst-1",
+        "cloud_installation_key": "oJql9HpnWYAv-VX43C0qFKXJnSO-l_hkEn_5ODRVpPA",
+        "mesh_instance_id": "mesh-cloud-1",
+        "mesh_public_key": "ZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmY",
+        "bootstrap_nonce_sha256": "bb391415c05e39d77ca17381d3be3f7d0cd5e5332e5a579311adaa0aa62106e9",
+        "channel_binding": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU",
+        "provider": "timeweb",
+        "size": "small",
+        "request_id": "paWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaU",
+        "timestamp": 1795700010
+      },
+      "controller_signature": "9tDiACFB2HY2ZoGLypLCxaLgLmekqsdkPRpJSVgzM_-gG1VzVbNG0G15f110FOsiws0DpyQ-Tk9lhywYPSVjAA"
+    },
+    "renew": {
+      "body": {
+        "schema_version": 1,
+        "controller_installation_id": "desk-ctrl-1",
+        "cloud_installation_id": "cloud-inst-1",
+        "key_generation": 1,
+        "slot_revision": 1,
+        "request_id": "pqampqampqampqampqampqampqampqampqampqampqY",
+        "timestamp": 1795700300
+      },
+      "controller_signature": "JmlGEjp8B_owUluvvl1oaYYYn1LjB7H_jRQKeAR4uvsmYqtbKjuw2TE_xDOzgQ1RsG4gZXof3B8bthq4-8hlDg"
+    },
+    "create_pack_checkout": {
+      "pack_id": "pack_5"
+    },
+    "create_pack_checkout_custom": {
+      "pack_id": "custom",
+      "amount_cents": 700
+    }
+  },
+  "replies": {
+    "create": {
+      "machine_id": "cm_fixture0000000000000001",
+      "provider": "timeweb",
+      "endpoint": {
+        "kind": "dedicated_ipv4",
+        "ipv4": "198.51.100.10",
+        "port": 7687
+      },
+      "size": "small",
+      "rate": {
+        "amount": 0.2,
+        "currency": "USD",
+        "basis": "managed",
+        "credits_per_hour": 1
+      },
+      "sleep_mode": "delete_recreate",
+      "state": "awake",
+      "lease_id": "lease_fixture_1",
+      "lease_expires_at": 1795700600
+    },
+    "create_provider_proxy": {
+      "machine_id": "cm_fixture0000000000000002",
+      "provider": "fly_machines",
+      "endpoint": {
+        "kind": "provider_proxy",
+        "host": "domios-a1b2c3d4.fly.dev",
+        "port": 443,
+        "scheme": "wss"
+      },
+      "size": "small",
+      "rate": {
+        "amount": 0.2,
+        "currency": "USD",
+        "basis": "managed",
+        "credits_per_hour": 1
+      },
+      "sleep_mode": "stop_billed",
+      "state": "awake",
+      "lease_id": "lease_fixture_3",
+      "lease_expires_at": 1795700600
+    },
+    "wake": {
+      "machine_id": "cm_fixture0000000000000001",
+      "provider": "timeweb",
+      "endpoint": {
+        "kind": "dedicated_ipv4",
+        "ipv4": "198.51.100.42",
+        "port": 7687
+      },
+      "size": "small",
+      "rate": {
+        "amount": 0.2,
+        "currency": "USD",
+        "basis": "managed",
+        "credits_per_hour": 1
+      },
+      "sleep_mode": "delete_recreate",
+      "state": "awake",
+      "lease_id": "lease_fixture_2",
+      "lease_expires_at": 1795700660
+    },
+    "wake_provider_proxy": {
+      "machine_id": "cm_fixture0000000000000002",
+      "provider": "fly_machines",
+      "endpoint": {
+        "kind": "provider_proxy",
+        "host": "domios-a1b2c3d4.fly.dev",
+        "port": 443,
+        "scheme": "wss"
+      },
+      "size": "small",
+      "rate": {
+        "amount": 0.2,
+        "currency": "USD",
+        "basis": "managed",
+        "credits_per_hour": 1
+      },
+      "sleep_mode": "stop_billed",
+      "state": "awake",
+      "lease_id": "lease_fixture_4",
+      "lease_expires_at": 1795700660
+    },
+    "sleep": {
+      "machine_id": "cm_fixture0000000000000001",
+      "sleep_mode": "delete_recreate",
+      "state": "asleep"
+    },
+    "delete": {
+      "machine_id": "cm_fixture0000000000000001",
+      "state": "deleted"
+    },
+    "enroll": {
+      "membership": {
+        "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHlfZmluZ2VycHJpbnQiOiJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwiZXhwaXJlc19hdCI6MTc5NTcwMzYxMCwiaW5zdGFsbGF0aW9uX2lkIjoiY2xvdWQtaW5zdC0xIiwiaXNzIjoiZG9taW9zLW1lc2gtbWVtYmVyc2hpcCIsImlzc3VlZF9hdCI6MTc5NTcwMDAxMCwia2V5X2dlbmVyYXRpb24iOjEsImtleV9pZCI6Ijc0NGYzNmNjYTY3ZWIxOTEyY2IyODJlMDhlODZiZDJmZTBkMDkwMDRhMjhjZjZlN2M2YmQ1NmNkZDZiZjY1YWEiLCJwb2xpY3lfZXBvY2giOiJjbG91ZC1maXh0dXJlLXYxIiwic2NoZW1hX3ZlcnNpb24iOjEsInNsb3RfcmV2aXNpb24iOjEsInN1YiI6ImZpeHR1cmUtdWlkLTEifQ",
+        "key_id": "fixture-trust-key",
+        "alg": "Ed25519",
+        "signature": "VJPMRP53aUvHMCkFOCv1tWUNvhT6xlPhYiw1A7Kh1jIkDxtq8ROYKRdO5UNh2XBfSS7ByRS0HrR1woin-yGyCg"
+      },
+      "binding": {
+        "payload": "eyJhY2NvdW50X2lkIjoiMGM4NWFjZTA3MGJmYmEzYzJjN2E5ZWFiN2JlZDBhZjRmZmI0ZmY5ZjUyODllODgyMzdjZWY2ZGE4ZTkyZGUyOCIsImF1ZCI6eyJlbnYiOiJ0ZXN0IiwicHJvamVjdCI6ImRlbW8tZG9taW9zIn0sImJvZHkiOnsiYm9vdHN0cmFwX25vbmNlX3NoYTI1NiI6ImJiMzkxNDE1YzA1ZTM5ZDc3Y2ExNzM4MWQzYmUzZjdkMGNkNWU1MzMyZTVhNTc5MzExYWRhYTBhYTYyMTA2ZTkiLCJjaGFubmVsX2JpbmRpbmciOiJWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZVIiwiY2xvdWRfaW5zdGFsbGF0aW9uX2lkIjoiY2xvdWQtaW5zdC0xIiwiY2xvdWRfaW5zdGFsbGF0aW9uX2tleSI6Im9KcWw5SHBuV1lBdi1WWDQzQzBxRktYSm5TTy1sX2hrRW5fNU9EUlZwUEEiLCJjb250cm9sbGVyX2luc3RhbGxhdGlvbl9pZCI6ImRlc2stY3RybC0xIiwibWVzaF9pbnN0YW5jZV9pZCI6Im1lc2gtY2xvdWQtMSIsIm1lc2hfcHVibGljX2tleSI6IlptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVkiLCJwcm92aWRlciI6InRpbWV3ZWIiLCJyZXF1ZXN0X2lkIjoicGFXbHBhV2xwYVdscGFXbHBhV2xwYVdscGFXbHBhV2xwYVdscGFXbHBhVSIsInNjaGVtYV92ZXJzaW9uIjoxLCJzaXplIjoic21hbGwiLCJ0aW1lc3RhbXAiOjE3OTU3MDAwMTB9LCJjb250cm9sbGVyX2tleSI6IjBFcXlNblFydEtzNkUyaTlSaFhrNXRBaVNyY2FBV3V2aFNDak1zbDNoemMiLCJleHBpcmVzX2F0IjoxNzk1NzAwMzEwLCJpc3MiOiJkb21pb3MtY2xvdWQtZW5yb2xsbWVudCIsImlzc3VlZF9hdCI6MTc5NTcwMDAxMCwibWVtYmVyc2hpcF9zaGEyNTYiOiIwZDZlOGMzOTQxYzhjZTAwYzgwMTdiYmZmYTJhNjgxZWY1ZTY1ODU0ZjJjNmJjNGVhOWQyMjFjZDk0ZTQwZjBkIiwicG9saWN5X2Vwb2NoIjoiY2xvdWQtZml4dHVyZS12MSIsInNjaGVtYV92ZXJzaW9uIjoxLCJzaWduZWRfcmVnaXN0cnlfc2hhMjU2IjoiMzhlYjAzN2MwMGYxYTRmYWMzYzY2MWZmYzEyNDk2NmE2NTc3YTBiMDZmNTc1NjVkMmUxODMwOGZmMTNmNGM2ZSJ9",
+        "key_id": "fixture-trust-key",
+        "alg": "Ed25519",
+        "signature": "WptB0ApLpYvxRKm8b3k_ZjRqvDHBXYjDs-Wcaek9NHDjcGN-no5UoLcTNWjoIWpV43qoP4RppqlP6yQjRVnbBA"
+      },
+      "signed_registry": {
+        "payload": "eyJhY2NvdW50X2lkIjoiMGM4NWFjZTA3MGJmYmEzYzJjN2E5ZWFiN2JlZDBhZjRmZmI0ZmY5ZjUyODllODgyMzdjZWY2ZGE4ZTkyZGUyOCIsImF1ZCI6eyJlbnYiOiJ0ZXN0IiwicHJvamVjdCI6ImRlbW8tZG9taW9zIn0sImlzcyI6ImRvbWlvcy1tZXNoLXJlZ2lzdHJ5IiwiaXNzdWVkX2F0IjoxNzk1NzAwMDEwLCJtZW1iZXJzIjpbeyJhY3RpdmUiOnRydWUsImFkbWl0dGVkX2F0IjoxNzk1NzAwMDEwLCJhdXRoZW50aWNhdGVkX2F0IjoxNzk1NzAwMDAwLCJkaXNwbGF5X25hbWUiOm51bGwsImVsaWdpYmlsaXR5IjoiZWxpZ2libGUiLCJlbmRwb2ludCI6bnVsbCwiaW5zdGFsbGF0aW9uX2lkIjoiY2xvdWQtaW5zdC0xIiwia2V5X2dlbmVyYXRpb24iOjEsImtleV9pZCI6Ijc0NGYzNmNjYTY3ZWIxOTEyY2IyODJlMDhlODZiZDJmZTBkMDkwMDRhMjhjZjZlN2M2YmQ1NmNkZDZiZjY1YWEiLCJtZW1iZXJzaGlwX2V4cGlyZXNfYXQiOjE3OTU3MDM2MTAsIm1ldGFkYXRhX3JldmlzaW9uIjowLCJwcmVzZW5jZSI6InByZXNlbnQiLCJwdWJsaWNhdGlvbiI6ImNvbXBsZXRlIiwic2xvdF9yZXZpc2lvbiI6MX0seyJhY3RpdmUiOnRydWUsImFkbWl0dGVkX2F0IjoxNzk1Njk5OTAwLCJhdXRoZW50aWNhdGVkX2F0IjoxNzk1Njk5OTAwLCJkaXNwbGF5X25hbWUiOiJEZXNrIiwiZWxpZ2liaWxpdHkiOiJlbGlnaWJsZSIsImVuZHBvaW50IjpudWxsLCJpbnN0YWxsYXRpb25faWQiOiJkZXNrLWN0cmwtMSIsImtleV9nZW5lcmF0aW9uIjoxLCJrZXlfaWQiOiI1MDNkOGVlNDZkNTgxYzY0OTk2NjU2OWFlMDk1ZTI3MDQxZGU4MzMyMmU4ZTA0ODBlNTUzOWUwMGQyZDVkODc0IiwibWVtYmVyc2hpcF9leHBpcmVzX2F0IjoxNzk1NzAzNTAwLCJtZXRhZGF0YV9yZXZpc2lvbiI6MCwicHJlc2VuY2UiOiJwcmVzZW50IiwicHVibGljYXRpb24iOiJjb21wbGV0ZSIsInNsb3RfcmV2aXNpb24iOjF9XSwicG9saWN5X2Vwb2NoIjoiY2xvdWQtZml4dHVyZS12MSIsInJldmlzaW9uIjozLCJyZXZva2VkX2luc3RhbGxhdGlvbnMiOltdLCJzY2hlbWFfdmVyc2lvbiI6MX0",
+        "key_id": "fixture-trust-key",
+        "alg": "Ed25519",
+        "signature": "RBpANczNKNZuz-Fia2JAbssG7YeZwukglWko4k5p3yIXrgdLE77yQkXpMA3tmD9O9IFdExxFrEJ1WgZXwsngDA"
+      }
+    },
+    "renew": {
+      "membership": {
+        "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHlfZmluZ2VycHJpbnQiOiJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwiZXhwaXJlc19hdCI6MTc5NTcwMzYxMCwiaW5zdGFsbGF0aW9uX2lkIjoiY2xvdWQtaW5zdC0xIiwiaXNzIjoiZG9taW9zLW1lc2gtbWVtYmVyc2hpcCIsImlzc3VlZF9hdCI6MTc5NTcwMDAxMCwia2V5X2dlbmVyYXRpb24iOjEsImtleV9pZCI6Ijc0NGYzNmNjYTY3ZWIxOTEyY2IyODJlMDhlODZiZDJmZTBkMDkwMDRhMjhjZjZlN2M2YmQ1NmNkZDZiZjY1YWEiLCJwb2xpY3lfZXBvY2giOiJjbG91ZC1maXh0dXJlLXYxIiwic2NoZW1hX3ZlcnNpb24iOjEsInNsb3RfcmV2aXNpb24iOjEsInN1YiI6ImZpeHR1cmUtdWlkLTEifQ",
+        "key_id": "fixture-trust-key",
+        "alg": "Ed25519",
+        "signature": "VJPMRP53aUvHMCkFOCv1tWUNvhT6xlPhYiw1A7Kh1jIkDxtq8ROYKRdO5UNh2XBfSS7ByRS0HrR1woin-yGyCg"
+      },
+      "signed_registry": {
+        "payload": "eyJhY2NvdW50X2lkIjoiMGM4NWFjZTA3MGJmYmEzYzJjN2E5ZWFiN2JlZDBhZjRmZmI0ZmY5ZjUyODllODgyMzdjZWY2ZGE4ZTkyZGUyOCIsImF1ZCI6eyJlbnYiOiJ0ZXN0IiwicHJvamVjdCI6ImRlbW8tZG9taW9zIn0sImlzcyI6ImRvbWlvcy1tZXNoLXJlZ2lzdHJ5IiwiaXNzdWVkX2F0IjoxNzk1NzAwMDEwLCJtZW1iZXJzIjpbeyJhY3RpdmUiOnRydWUsImFkbWl0dGVkX2F0IjoxNzk1NzAwMDEwLCJhdXRoZW50aWNhdGVkX2F0IjoxNzk1NzAwMDAwLCJkaXNwbGF5X25hbWUiOm51bGwsImVsaWdpYmlsaXR5IjoiZWxpZ2libGUiLCJlbmRwb2ludCI6bnVsbCwiaW5zdGFsbGF0aW9uX2lkIjoiY2xvdWQtaW5zdC0xIiwia2V5X2dlbmVyYXRpb24iOjEsImtleV9pZCI6Ijc0NGYzNmNjYTY3ZWIxOTEyY2IyODJlMDhlODZiZDJmZTBkMDkwMDRhMjhjZjZlN2M2YmQ1NmNkZDZiZjY1YWEiLCJtZW1iZXJzaGlwX2V4cGlyZXNfYXQiOjE3OTU3MDM2MTAsIm1ldGFkYXRhX3JldmlzaW9uIjowLCJwcmVzZW5jZSI6InByZXNlbnQiLCJwdWJsaWNhdGlvbiI6ImNvbXBsZXRlIiwic2xvdF9yZXZpc2lvbiI6MX0seyJhY3RpdmUiOnRydWUsImFkbWl0dGVkX2F0IjoxNzk1Njk5OTAwLCJhdXRoZW50aWNhdGVkX2F0IjoxNzk1Njk5OTAwLCJkaXNwbGF5X25hbWUiOiJEZXNrIiwiZWxpZ2liaWxpdHkiOiJlbGlnaWJsZSIsImVuZHBvaW50IjpudWxsLCJpbnN0YWxsYXRpb25faWQiOiJkZXNrLWN0cmwtMSIsImtleV9nZW5lcmF0aW9uIjoxLCJrZXlfaWQiOiI1MDNkOGVlNDZkNTgxYzY0OTk2NjU2OWFlMDk1ZTI3MDQxZGU4MzMyMmU4ZTA0ODBlNTUzOWUwMGQyZDVkODc0IiwibWVtYmVyc2hpcF9leHBpcmVzX2F0IjoxNzk1NzAzNTAwLCJtZXRhZGF0YV9yZXZpc2lvbiI6MCwicHJlc2VuY2UiOiJwcmVzZW50IiwicHVibGljYXRpb24iOiJjb21wbGV0ZSIsInNsb3RfcmV2aXNpb24iOjF9XSwicG9saWN5X2Vwb2NoIjoiY2xvdWQtZml4dHVyZS12MSIsInJldmlzaW9uIjozLCJyZXZva2VkX2luc3RhbGxhdGlvbnMiOltdLCJzY2hlbWFfdmVyc2lvbiI6MX0",
+        "key_id": "fixture-trust-key",
+        "alg": "Ed25519",
+        "signature": "RBpANczNKNZuz-Fia2JAbssG7YeZwukglWko4k5p3yIXrgdLE77yQkXpMA3tmD9O9IFdExxFrEJ1WgZXwsngDA"
+      }
+    },
+    "create_pack_checkout": {
+      "url": "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5",
+      "session_id": "cs_test_fixture_pack_5",
+      "pack_id": "pack_5",
+      "credits": 25,
+      "amount_cents": 500,
+      "currency": "USD"
+    },
+    "usage": {
+      "used": 1.5,
+      "allowance": 10,
+      "purchased": 25,
+      "remaining": 33.5,
+      "cap": 50,
+      "burn_per_size": {
+        "small": 1
+      },
+      "currency": "USD",
+      "period_end_at": 1798761600,
+      "custom_min_cents": 500,
+      "custom_max_cents": 4500,
+      "plan": "pro",
+      "sizes": [
+        {
+          "id": "small",
+          "cpu": 2,
+          "ram_gb": 4,
+          "hourly_rate_cents": 20,
+          "credits_per_hour": 1
+        }
+      ],
+      "packs": [
+        {
+          "pack_id": "pack_5",
+          "price_cents": 500,
+          "hours": 25
+        },
+        {
+          "pack_id": "pack_10",
+          "price_cents": 1000,
+          "hours": 50
+        },
+        {
+          "pack_id": "pack_25",
+          "price_cents": 2500,
+          "hours": 125
+        }
+      ],
+      "purchased_expiry_days": 365,
+      "allowance_hours": {
+        "free": 0,
+        "pro": 10,
+        "max": 40,
+        "sponsor": 120
+      }
+    }
+  },
+  "refusals": {
+    "invalid": {
+      "http_status": 400,
+      "grpc_status": "INVALID_ARGUMENT",
+      "details": {
+        "reason": "invalid"
+      }
+    },
+    "unauthenticated": {
+      "http_status": 401,
+      "grpc_status": "UNAUTHENTICATED",
+      "details": {
+        "reason": "unauthenticated"
+      }
+    },
+    "app_check": {
+      "http_status": 401,
+      "grpc_status": "UNAUTHENTICATED",
+      "details": {
+        "reason": "app-check"
+      }
+    },
+    "session_revoked": {
+      "http_status": 401,
+      "grpc_status": "UNAUTHENTICATED",
+      "details": {
+        "reason": "session_revoked"
+      }
+    },
+    "forbidden": {
+      "http_status": 403,
+      "grpc_status": "PERMISSION_DENIED",
+      "details": {
+        "reason": "forbidden"
+      }
+    },
+    "revoked": {
+      "http_status": 403,
+      "grpc_status": "PERMISSION_DENIED",
+      "details": {
+        "reason": "revoked"
+      }
+    },
+    "proof_invalid": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "proof_invalid"
+      }
+    },
+    "cloud_machines_free": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "cloud.machines",
+        "limit": 0,
+        "active_count": 0
+      }
+    },
+    "cloud_machines_pro": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "cloud.machines",
+        "limit": 1,
+        "active_count": 1
+      }
+    },
+    "lease_required": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "lease_required"
+      }
+    },
+    "credits_exhausted": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "credits_exhausted"
+      }
+    },
+    "not_found": {
+      "http_status": 404,
+      "grpc_status": "NOT_FOUND",
+      "details": {
+        "reason": "not_found"
+      }
+    },
+    "conflict": {
+      "http_status": 409,
+      "grpc_status": "ABORTED",
+      "details": {
+        "reason": "conflict"
+      }
+    },
+    "replay": {
+      "http_status": 409,
+      "grpc_status": "ABORTED",
+      "details": {
+        "reason": "replay"
+      }
+    },
+    "rate_limited": {
+      "http_status": 429,
+      "grpc_status": "RESOURCE_EXHAUSTED",
+      "details": {
+        "reason": "rate-limited",
+        "retry_after_seconds": 60
+      }
+    },
+    "endpoint_kind_unsupported": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "endpoint_kind_unsupported"
+      }
+    },
+    "provider_refused": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "provider_refused",
+        "provider_reason": "quota"
+      }
+    },
+    "provider_unavailable": {
+      "http_status": 503,
+      "grpc_status": "UNAVAILABLE",
+      "details": {
+        "reason": "provider_unavailable"
+      }
+    },
+    "provider_unconfirmed": {
+      "http_status": 503,
+      "grpc_status": "UNAVAILABLE",
+      "details": {
+        "reason": "provider_unconfirmed"
+      }
+    },
+    "authority_unavailable": {
+      "http_status": 503,
+      "grpc_status": "UNAVAILABLE",
+      "details": {
+        "reason": "authority-unavailable"
+      }
+    },
+    "apply_too_large": {
+      "http_status": 400,
+      "grpc_status": "FAILED_PRECONDITION",
+      "details": {
+        "reason": "apply_too_large"
+      }
+    },
+    "unavailable": {
+      "http_status": 503,
+      "grpc_status": "UNAVAILABLE",
+      "details": {
+        "reason": "unavailable"
+      }
+    }
+  }
+}

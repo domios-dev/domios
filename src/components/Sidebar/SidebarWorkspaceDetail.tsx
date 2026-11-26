@@ -1,6 +1,7 @@
 import type { PlanView as Plan } from "../Canvas/planProjection";
 import { useCallback, useMemo, type ReactNode } from "react";
 import type { ProviderDescriptor, Tab, TabStatus, Team, Workspace } from "../../lib/types";
+import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TeamMemberRole } from "../../lib/teamActions";
@@ -39,7 +40,8 @@ export interface SidebarWorkspaceDetailData {
 export interface SidebarWorkspaceDetailActions {
   activateWorkspace: (workspaceId: string) => void;
   activateTab: (workspaceId: string, tabId: string) => void;
-  closeTab: (workspaceId: string, tabId: string) => void;
+  closeTab: (workspaceId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => void;
+  closeObservedTab?: (workspaceId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => void;
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
   renameWorkspace: (workspaceId: string, name: string) => void;
   closeWorkspace: (workspaceId: string) => void;
@@ -74,12 +76,14 @@ export function useWorkspaceTabActions(workspaceId: string, cwd: string | null, 
 }
 
 /** The selected workspace's header and tab tree. */
-export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent, allowObservedWorkspaceClose, observedWorkspaceCloseDisabledReason }: {
+export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent, observedPeerId, observedAvailability, allowObservedWorkspaceClose, observedWorkspaceCloseDisabledReason }: {
   workspace: Workspace;
   status: TabStatus | null;
   data: SidebarWorkspaceDetailData;
   actions: SidebarWorkspaceDetailActions;
   observedContent?: ReactNode;
+  observedPeerId?: string | null;
+  observedAvailability?: GeneralAvailability;
   allowObservedWorkspaceClose?: boolean;
   observedWorkspaceCloseDisabledReason?: string | null;
 }) {
@@ -115,6 +119,8 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions, obser
         canClose={!readOnly || canCloseObservedWorkspace}
         allowReadOnlyClose={canCloseObservedWorkspace}
         readOnlyCloseDisabledReason={readOnly && !workspace.protected ? observedWorkspaceCloseDisabledReason ?? null : null}
+        observedPeerId={readOnly ? observedPeerId ?? null : null}
+        observedAvailability={readOnly ? observedAvailability : undefined}
         readOnly={readOnly}
         status={status}
         showDisclosure={false}

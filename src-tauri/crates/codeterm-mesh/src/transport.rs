@@ -100,11 +100,16 @@ pub struct TransportError {
 }
 
 impl TransportError {
-    fn new(kind: TransportErrorKind, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: TransportErrorKind, detail: impl Into<String>) -> Self {
         Self {
             kind,
             detail: detail.into(),
         }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new_for_test(kind: TransportErrorKind, detail: impl Into<String>) -> Self {
+        Self::new(kind, detail)
     }
 
     /// Classifies a `reqwest::Error` from `.send()`. Only a connect-phase

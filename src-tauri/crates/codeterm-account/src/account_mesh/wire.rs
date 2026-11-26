@@ -549,6 +549,44 @@ pub enum RegistryRefusal {
     ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
+    #[serde(rename = "replay")]
+    Replay,
+    #[serde(rename = "nonce_reused")]
+    NonceReused,
+    #[serde(rename = "apply_too_large")]
+    ApplyTooLarge,
+    #[serde(rename = "cloud.machines")]
+    CloudMachineLimit { limit: u32, active_count: u32 },
+    #[serde(rename = "lease_required")]
+    LeaseRequired,
+    #[serde(rename = "credits_exhausted")]
+    CreditsExhausted,
+    #[serde(rename = "invalid_code")]
+    PromoInvalidCode,
+    #[serde(rename = "expired")]
+    PromoExpired,
+    #[serde(rename = "disabled")]
+    PromoDisabled,
+    #[serde(rename = "exhausted")]
+    PromoExhausted,
+    #[serde(rename = "spend_cap_exceeded")]
+    PromoSpendCapExceeded,
+    #[serde(rename = "below_min")]
+    CheckoutBelowMin,
+    #[serde(rename = "above_max")]
+    CheckoutAboveMax,
+    #[serde(rename = "territory")]
+    CheckoutTerritory,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "endpoint_kind_unsupported")]
+    EndpointKindUnsupported,
+    #[serde(rename = "provider_refused")]
+    ProviderRefused,
+    #[serde(rename = "provider_unavailable")]
+    ProviderUnavailable,
+    #[serde(rename = "provider_unconfirmed")]
+    ProviderUnconfirmed,
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
     #[serde(rename = "authority-unavailable")]
@@ -562,6 +600,36 @@ pub enum RegistryRefusal {
 impl RegistryRefusal {
     /// Unknown or malformed details are an outage, never a plan-limit refusal.
     pub fn from_details(details: &serde_json::Value) -> Self {
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("provider_refused") {
+            return Self::ProviderRefused;
+        }
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("spend_cap_exceeded") {
+            return match serde_json::from_value::<super::cloud_provisioning::CloudCheckoutRefusal>(
+                details.clone(),
+            ) {
+                Ok(super::cloud_provisioning::CloudCheckoutRefusal::SpendCapExceeded {
+                    ..
+                }) => Self::PromoSpendCapExceeded,
+                _ => Self::Unavailable,
+            };
+        }
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("rate_limited") {
+            let seconds = details
+                .get("retry_after_seconds")
+                .and_then(|value| {
+                    value
+                        .as_f64()
+                        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
+                })
+                .filter(|seconds| {
+                    seconds.is_finite() && *seconds > 0.0 && *seconds <= u64::MAX as f64
+                })
+                .map(|seconds| seconds.ceil() as u64)
+                .unwrap_or(1);
+            return Self::RateLimited {
+                retry_after_seconds: seconds,
+            };
+        }
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("enrollment_budget") {
             let seconds = details
                 .get("retry_after_seconds")

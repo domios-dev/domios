@@ -1,0 +1,9 @@
+**
+!docker/
+!docker/cloud-config.toml
+!docker/domios-cloud-start
+!packaging/
+!packaging/docker/
+!packaging/docker/container.py
+!packaging/docker/release.pub
+!packaging/docker/verify.py

@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { invoke, webCapability } from "../../lib/bridge";
-import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus, AlertTriangle } from "lucide-react";
+import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus, AlertTriangle, Pencil } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useWorkspaceAccounts } from "../../hooks/useAccountSelectors";
@@ -20,7 +20,9 @@ import { openLockedPlans } from "../billing/freeLimitGate";
 import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
 import { LiveWorkspaceNavigationActions, WorkspaceNavigationActions } from "./WorkspaceNavigationActions";
 import type { TabStatus, Workspace } from "../../lib/types";
+import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
+import { remoteWorkspaceMenuActions } from "./remoteSidebarActionsModel";
 
 interface WorkspaceItemProps {
   workspace: Workspace;
@@ -39,6 +41,8 @@ interface WorkspaceItemProps {
   canClose: boolean;
   allowReadOnlyClose?: boolean;
   readOnlyCloseDisabledReason?: string | null;
+  observedPeerId?: string | null;
+  observedAvailability?: GeneralAvailability;
   readOnly?: boolean;
   status: TabStatus | null;
   showDisclosure?: boolean;
@@ -65,6 +69,8 @@ function WorkspaceItemInner({
   canClose,
   allowReadOnlyClose = false,
   readOnlyCloseDisabledReason = null,
+  observedPeerId = null,
+  observedAvailability,
   readOnly = false,
   status: _status,
   showDisclosure = true,
@@ -99,7 +105,7 @@ function WorkspaceItemInner({
     if (e.key === "Escape") { setEditing(false); }
   }, [commitRename]);
 
-  const { profiles, refresh: refreshShells, loading: shellsLoading, error: shellsError } = useShellProfiles();
+  const { profiles, refresh: refreshShells, loading: shellsLoading, error: shellsError } = useShellProfiles(observedPeerId ?? undefined);
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
   // plugins with a `src/index.ts` FE module, which left drop-in `~/.domios/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
@@ -109,9 +115,93 @@ function WorkspaceItemInner({
   const workspaceTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
   const workspaceCountText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
   const canCloseObservedWorkspace = readOnly && allowReadOnlyClose && canClose && !workspace.protected;
+  const canRenameObservedWorkspace = Boolean(readOnly && observedPeerId && !workspace.protected && observedAvailability === "online");
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     if (readOnly) {
+      if (observedPeerId) {
+        const remote = remoteWorkspaceMenuActions({
+          workspaceProtected: workspace.protected === true,
+          cwdMissing: workspace.cwd_missing === true,
+          availability: observedAvailability,
+        });
+        const items: DropdownMenuItem[] = [];
+        if (remote.newSession.visible) {
+          items.push(remote.newSession.disabled ? {
+            label: "New session",
+            icon: <SquarePlus size={11} strokeWidth={1.6} />,
+            unavailable: true,
+            description: remote.newSession.reason ?? undefined,
+            title: remote.newSession.reason ?? undefined,
+            "data-testid": "workspace-new-session",
+          } : {
+            label: "New session",
+            icon: <SquarePlus size={11} strokeWidth={1.6} />,
+            disabled: newSessionDisabled,
+            title: newSessionDisabled ? "Finish Get started before creating another session" : undefined,
+            onClick: newSessionDisabled ? undefined : onNewSession,
+            "data-testid": "workspace-new-session",
+          });
+        }
+        if (remote.newTerminal.visible) {
+          items.push(remote.newTerminal.disabled ? {
+            label: "New Terminal",
+            icon: <TerminalSquare size={11} strokeWidth={1.5} />,
+            unavailable: true,
+            description: remote.newTerminal.reason ?? undefined,
+            title: remote.newTerminal.reason ?? undefined,
+            "data-testid": "workspace-new-terminal",
+          } : {
+            label: "New Terminal",
+            icon: <TerminalSquare size={11} strokeWidth={1.5} />,
+            "data-testid": "workspace-new-terminal",
+            submenu: {
+              label: "New Terminal",
+              items: [
+                { label: "Default shell", onClick: () => onNewTerminal() },
+                ...profiles.map((profile) => ({ label: profile.name, onClick: () => onNewTerminal(profile.id) })),
+                { label: shellsError ? "Retry shell detection" : "Refresh shells", disabled: shellsLoading, onClick: () => void refreshShells() },
+              ],
+            },
+          });
+        }
+        if (remote.renameWorkspace.visible) {
+          items.push(remote.renameWorkspace.disabled ? {
+            label: "Rename",
+            icon: <Pencil size={11} strokeWidth={1.6} />,
+            unavailable: true,
+            description: remote.renameWorkspace.reason ?? undefined,
+            title: remote.renameWorkspace.reason ?? undefined,
+            "data-testid": "workspace-rename",
+          } : {
+            label: "Rename",
+            icon: <Pencil size={11} strokeWidth={1.6} />,
+            onClick: () => {
+              setEditName(workspace.name);
+              setEditing(true);
+            },
+            "data-testid": "workspace-rename",
+          });
+        }
+        if (remote.closeWorkspace.visible) {
+          items.push(remote.closeWorkspace.disabled ? {
+            label: "Close Workspace",
+            icon: <X size={11} strokeWidth={2} />,
+            unavailable: true,
+            description: remote.closeWorkspace.reason ?? undefined,
+            title: remote.closeWorkspace.reason ?? undefined,
+            danger: true,
+            "data-testid": "workspace-close",
+          } : {
+            label: "Close Workspace",
+            icon: <X size={11} strokeWidth={2} />,
+            onClick: onClose,
+            danger: true,
+            "data-testid": "workspace-close",
+          });
+        }
+        return items;
+      }
       if (workspace.protected) return [];
       if (canCloseObservedWorkspace) {
         return [{
@@ -217,7 +307,7 @@ function WorkspaceItemInner({
       });
     }
     return workspace.cwd_missing ? items.filter((item) => !["New session", "Quick spawn", "New Terminal"].includes(item.label ?? "")) : items;
-  }, [readOnly, canCloseObservedWorkspace, readOnlyCloseDisabledReason, canClose, onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.id, workspace.protected, workspace.cwd, workspace.cwd_missing, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError, accounts.providers, accounts.choose]);
+  }, [readOnly, observedPeerId, observedAvailability, canCloseObservedWorkspace, readOnlyCloseDisabledReason, canClose, onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.id, workspace.name, workspace.protected, workspace.cwd, workspace.cwd_missing, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError, accounts.providers, accounts.choose]);
 
   return <>
     <div
@@ -272,7 +362,7 @@ function WorkspaceItemInner({
           >
             <span
               className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`}
-              onDoubleClick={readOnly ? undefined : handleDoubleClick}
+              onDoubleClick={!readOnly || canRenameObservedWorkspace ? handleDoubleClick : undefined}
               title={workspace.cwd || undefined}
               role="heading"
               aria-level={3}
@@ -333,6 +423,8 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.canClose === next.canClose &&
     prev.allowReadOnlyClose === next.allowReadOnlyClose &&
     prev.readOnlyCloseDisabledReason === next.readOnlyCloseDisabledReason &&
+    prev.observedPeerId === next.observedPeerId &&
+    prev.observedAvailability === next.observedAvailability &&
     prev.readOnly === next.readOnly &&
     prev.showDisclosure === next.showDisclosure &&
     prev.detailHeader === next.detailHeader &&

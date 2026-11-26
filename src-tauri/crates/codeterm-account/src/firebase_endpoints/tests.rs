@@ -98,7 +98,7 @@ fn debug_qa_builds_one_isolated_endpoint_set() {
     );
     assert_eq!(
         endpoints.redeem,
-        format!("{}redeemDesktopLoginCode", endpoints.functions)
+        "https://qa-auth.domios.dev/api/redeemDesktopLoginCode"
     );
     assert_eq!(endpoints.signin, "https://domios-signin-qa.web.app/signin/");
     assert!(endpoints.qa && !endpoints.emulator);

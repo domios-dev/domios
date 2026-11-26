@@ -5,6 +5,9 @@ mod admission;
 mod cache;
 pub mod callable;
 mod callable_budget;
+pub mod cloud_enrollment;
+pub mod cloud_provisioning;
+pub mod delegated_renewal;
 mod endpoint_sequence;
 mod key;
 mod lease_timer;
@@ -29,8 +32,9 @@ pub mod wire;
 pub use key::{verify_possession, InstallationKey, ProofContext};
 pub use lifecycle::{AccountMesh, AccountMeshConfig, AccountMeshPorts};
 pub use membership::{
-    account_id, membership_token, parse_membership_token, verify_membership, MembershipExpectation,
-    MembershipRefusal, MembershipTrust, VerifiedMembership, NOT_BEFORE_SKEW_SECONDS,
+    account_id, membership_token, parse_membership_token, verify_enrollment_record,
+    verify_membership, MembershipExpectation, MembershipRefusal, MembershipTrust,
+    VerifiedMembership, NOT_BEFORE_SKEW_SECONDS,
 };
 pub use operations::{LinkTarget, RemovedResult};
 pub use ports::{

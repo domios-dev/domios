@@ -33,6 +33,8 @@ pub mod chat_history_routes;
 pub(crate) mod cli_rpc_routes;
 mod client_selection_routes;
 pub mod clipboard_routes;
+pub mod cloud_mesh_runtime;
+pub mod cloud_routes;
 pub mod config_routes;
 pub mod cron_routes;
 pub mod debug_routes;
@@ -123,3 +125,12 @@ pub mod app_quit_routes;
 mod ui_status_tests;
 
 pub mod blueprint_viewer_routes;
+
+pub fn register_api_extensions() {
+    codeterm_service_core::ports::rest::register_rest_extensions(register_extensions);
+}
+
+fn register_extensions(builder: &mut codeterm_service_core::service::ExtensionsBuilder) {
+    crate::mesh_routes::relay::register_extensions(builder);
+    crate::cloud_routes::register_extensions(builder);
+}

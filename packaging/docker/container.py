@@ -2,6 +2,10 @@ import http.client
 import json
 import os
 import pathlib
+try:
+    import pwd
+except ImportError:
+    pwd = None
 import re
 import selectors
 import signal
@@ -15,6 +19,10 @@ import urllib.parse
 
 DATA = pathlib.Path.home() / ".domios"
 SERVER = "/opt/domios/domios-server/domios-server"
+CLOUD_HOME = pathlib.Path("/var/lib/domios-cloud")
+CLOUD_START = "/usr/local/bin/domios-cloud-start"
+CLOUD_PROFILE = pathlib.Path("/etc/domios-cloud-profile")
+CLOUD_USER = "node"
 
 
 def migrate_memory(backend):
@@ -110,10 +118,11 @@ def private(path, mode, directory=False):
         raise RuntimeError(f"Refusing unsafe owner, type, links or mode: {path}")
 
 
-def prepare(postgres=False):
+def prepare(postgres=False, data=None):
+    data = DATA if data is None else pathlib.Path(data)
     os.umask(0o077)
-    private(DATA, 0o700, directory=True)
-    config = DATA / "config.toml"
+    private(data, 0o700, directory=True)
+    config = data / "config.toml"
     if not config.exists() and not config.is_symlink():
         with config.open("xb") as output:
             template = "domios-container-postgres.toml" if postgres else "domios-container.toml"
@@ -125,7 +134,7 @@ def prepare(postgres=False):
         raise RuntimeError('Container requires explicit neighbors.key_store = "file"')
     if postgres and settings.get("memory", {}).get("backend") != "postgres":
         raise RuntimeError('Compose requires memory.backend = "postgres"; finish bootstrap first')
-    keys = DATA / "neighbor-keys"
+    keys = data / "neighbor-keys"
     if keys.exists() or keys.is_symlink():
         private(keys, 0o700, directory=True)
         for key in keys.iterdir():
@@ -133,7 +142,10 @@ def prepare(postgres=False):
 
 
 class ProcessRuntime:
-    def __init__(self):
+    def __init__(self, data=None, instance=None, pass_fds=()):
+        self.data = DATA if data is None else pathlib.Path(data)
+        self.instance = {"kind": "production"} if instance is None else instance
+        self.pass_fds = tuple(pass_fds)
         self.child = None
         self.pidfd = None
         self.watcher = selectors.DefaultSelector()
@@ -154,16 +166,25 @@ class ProcessRuntime:
             pass
 
     def start(self):
-        log = DATA / "logs/domios.log"
+        log = self.data / "logs/domios.log"
         self.log_offset = log.stat().st_size if log.exists() else 0
-        self.child = subprocess.Popen(
-            [SERVER, "serve"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True,
-        )
+        pass_fds = self.pass_fds
+        self.pass_fds = ()
+        try:
+            self.child = subprocess.Popen(
+                [SERVER, "serve"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True,
+                pass_fds=pass_fds,
+            )
+        finally:
+            for descriptor in pass_fds:
+                os.close(descriptor)
+            if pass_fds:
+                os.environ.pop("DOMIOS_CLOUD_BINDING_PIPE", None)
         self.pidfd = os.pidfd_open(self.child.pid)
         self.watcher.register(self.pidfd, selectors.EVENT_READ, "exit")
         self.watcher.register(self.child.stdout, selectors.EVENT_READ, "ready")
-        options = {"instance": {"kind": "production"}, "resources": "/opt/domios",
+        options = {"instance": self.instance, "resources": "/opt/domios",
                    "probe_sink": None, "probe_identity_alias": None}
         self.child.stdin.write((json.dumps(options) + "\n").encode())
         self.child.stdin.close()
@@ -173,15 +194,15 @@ class ProcessRuntime:
         if self.log_offset is None:
             return
         try:
-            private(DATA / "logs", 0o700, directory=True)
-            log = DATA / "logs/domios.log"
+            private(self.data / "logs", 0o700, directory=True)
+            log = self.data / "logs/domios.log"
             private(log, 0o600)
             with log.open("rb") as stream:
                 size = os.fstat(stream.fileno()).st_size
                 offset = self.log_offset if size >= self.log_offset else 0
                 stream.seek(max(offset, size - 65536))
                 text = stream.read(65536).decode("utf-8", errors="replace")
-            secrets_path = DATA / ".secrets"
+            secrets_path = self.data / ".secrets"
             secrets = {}
             if secrets_path.exists():
                 private(secrets_path, 0o600)
@@ -240,9 +261,10 @@ class ProcessRuntime:
         for signum, previous in self.previous.items():
             signal.signal(signum, previous)
         self.watcher.close()
-        for descriptor in (self.pidfd, self.wake_read, self.wake_write):
+        for descriptor in (self.pidfd, self.wake_read, self.wake_write, *self.pass_fds):
             if descriptor is not None:
                 os.close(descriptor)
+        self.pass_fds = ()
         if self.child is not None:
             self.child.stdout.close()
             self.child.stdin.close()
@@ -310,7 +332,94 @@ def run(postgres=False):
     return Supervisor(ProcessRuntime()).run(lambda: prepare(postgres))
 
 
+def drop_privileges(username=CLOUD_USER):
+    if pwd is None:
+        raise RuntimeError("POSIX privilege drop is unavailable")
+    pw = pwd.getpwnam(username)
+    os.initgroups(pw.pw_name, pw.pw_gid)
+    os.setgid(pw.pw_gid)
+    os.setuid(pw.pw_uid)
+    if (os.getuid() != pw.pw_uid or os.geteuid() != pw.pw_uid
+            or os.getgid() != pw.pw_gid or os.getegid() != pw.pw_gid):
+        raise RuntimeError("Failed to drop root privileges")
+    return pw
+
+
+def stage_cloud_binding_pipe(env, *, strict=False):
+    controller = env.pop("DOMIOS_BOOTSTRAP_CONTROLLER_KEY", None)
+    nonce = env.pop("DOMIOS_BOOTSTRAP_NONCE", None)
+    env.pop("DOMIOS_CLOUD_BINDING_PIPE", None)
+    if controller is None and nonce is None:
+        return None
+    valid = all(
+        isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", value)
+        for value in (controller, nonce)
+    )
+    if not valid and strict:
+        raise SystemExit("Invalid cloud creation binding")
+    payload = (controller + "\n" + nonce + "\n").encode("ascii") if valid else b"invalid\n"
+    reader, writer = os.pipe()
+    with os.fdopen(writer, "wb") as stream:
+        stream.write(payload)
+    os.dup2(reader, 9, inheritable=True)
+    os.set_inheritable(9, True)
+    if reader != 9:
+        os.close(reader)
+    env["DOMIOS_CLOUD_BINDING_PIPE"] = "9"
+    return 9
+
+
+def run_fly_machines(args):
+    if args:
+        raise ValueError("Fly Machines entrypoint accepts no command arguments")
+    if pwd is None:
+        raise RuntimeError("Fly Machines entrypoint requires POSIX")
+    info = CLOUD_HOME.lstat()
+    if not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError(f"Refusing non-directory cloud volume mount: {CLOUD_HOME}")
+    pw = pwd.getpwnam(CLOUD_USER)
+    if os.geteuid() == 0:
+        os.chown(CLOUD_HOME, pw.pw_uid, pw.pw_gid)
+        os.chmod(CLOUD_HOME, 0o700)
+        drop_privileges(CLOUD_USER)
+    os.umask(0o077)
+    private(CLOUD_HOME, 0o700, directory=True)
+    os.environ["HOME"] = str(CLOUD_HOME)
+    os.environ["USER"] = pw.pw_name
+    os.environ["LOGNAME"] = pw.pw_name
+    os.environ["XDG_CONFIG_HOME"] = str(CLOUD_HOME / ".config")
+    os.environ["XDG_DATA_HOME"] = str(CLOUD_HOME / ".local/share")
+    os.environ["XDG_CACHE_HOME"] = str(CLOUD_HOME / ".cache")
+    os.environ["XDG_STATE_HOME"] = str(CLOUD_HOME / ".local/state")
+    path_entries = [entry for entry in os.environ.get("PATH", "").split(":") if entry]
+    if "/opt/domios/cli" not in path_entries:
+        os.environ["PATH"] = ":".join(["/opt/domios/cli", *path_entries])
+    os.chdir(CLOUD_HOME)
+    profile = CLOUD_PROFILE.read_text().strip()
+    data_name = {"qa": ".domios-dev", "release": ".domios"}.get(profile)
+    if data_name is None:
+        raise RuntimeError(f"Unknown cloud profile: {profile}")
+    data_dir = CLOUD_HOME / data_name
+    if not data_dir.exists() and not data_dir.is_symlink():
+        os.mkdir(data_dir, 0o700)
+    prepare(postgres=False, data=data_dir)
+    # Stage fd 9 and scrub secrets before execve so /proc/<pid>/environ never retains them.
+    stage_cloud_binding_pipe(os.environ, strict=False)
+    os.execve(CLOUD_START, [CLOUD_START], dict(os.environ))
+
+
 def command(args):
+    platform = os.environ.get("DOMIOS_CLOUD_PLATFORM")
+    if platform is not None:
+        if platform != "fly_machines":
+            raise ValueError(f"Unsupported DOMIOS_CLOUD_PLATFORM: {platform}")
+        return run_fly_machines(args)
+    if hasattr(os, "geteuid") and os.geteuid() == 0 and os.environ.get("DOMIOS_CLOUD_MACHINE") == "1":
+        pw = drop_privileges(CLOUD_USER)
+        os.environ.setdefault("HOME", pw.pw_dir)
+        os.environ["USER"] = pw.pw_name
+        os.environ["LOGNAME"] = pw.pw_name
+        os.chdir(pw.pw_dir)
     if args == ["health"]:
         health()
         return 0

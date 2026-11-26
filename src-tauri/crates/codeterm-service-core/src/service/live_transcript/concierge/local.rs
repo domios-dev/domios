@@ -6,9 +6,9 @@ use serde_json::{json, Value};
 use super::super::{BindingTarget, CursorStart, RoutedAction, TranscriptBinding, TranscriptOwners};
 use super::training_log::{Decision, RoutingInput, RoutingSample, Source};
 use super::{
-    default_trigger, forward, scout_model, training_log, wake_word, ConciergeEpoch,
-    ConciergeStatus, RouterActivity, RoutingState, ScoutStatus, ServiceContext, TranscriptRange,
-    TranscriptRouterInfo, TranscriptStore, TranscriptTrigger,
+    default_trigger, forward, scout, training_log, wake_word, ConciergeEpoch, ConciergeStatus,
+    RouterActivity, RoutingState, ServiceContext, TranscriptRange, TranscriptRouterInfo,
+    TranscriptStore, TranscriptTrigger,
 };
 use crate::service::{message_gateway::DeliveryClass, messenger::MessageEnvelope};
 
@@ -209,11 +209,10 @@ impl ServiceContext {
     }
 
     pub fn live_transcript_setup(&self) -> serde_json::Value {
-        let scout = if scout_model(self).is_some() {
-            ScoutStatus::Ready
-        } else {
-            ScoutStatus::Unavailable
-        };
+        let scout_decision =
+            scout::resolve(self, false, TranscriptTrigger::ScoutThenConcierge).decision;
+        let scout = scout_decision.status();
+        let scout_reason = scout_decision.reason();
         let local = endpoint(self);
         let router = self.preview_transcript_router(local.as_ref()).map(|router| {
             let mut ids = self.agent_registry.provider_ids();
@@ -241,6 +240,7 @@ impl ServiceContext {
         let setup = self.configuration().live_transcript;
         json!({
             "scout": scout,
+            "scoutReason": scout_reason,
             "concierge": concierge,
             "configured": setup.configured,
             "defaultMicTap": setup.default_mic_tap,

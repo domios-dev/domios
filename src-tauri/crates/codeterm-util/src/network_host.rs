@@ -1,6 +1,34 @@
 use std::net::{IpAddr, Ipv6Addr};
 use std::str::FromStr;
 
+pub fn public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
+            !(a == 0
+                || a == 10
+                || a == 127
+                || a >= 224
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 169 && b == 254)
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192
+                    && (b == 168 || (b == 0 && (c == 0 || c == 2)) || (b == 88 && c == 99)))
+                || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
+                || (a == 203 && b == 0 && c == 113))
+        }
+        IpAddr::V6(ip) => {
+            if let Some(v4) = ip.to_ipv4_mapped() {
+                return public_ip(IpAddr::V4(v4));
+            }
+            let words = ip.segments();
+            words[0] & 0xe000 == 0x2000
+                && words[0] != 0x2002
+                && !(words[0] == 0x2001 && matches!(words[1], 0 | 0x10 | 0x20 | 0xdb8))
+        }
+    }
+}
+
 pub fn normalize_network_host(value: &str) -> Result<String, String> {
     let (host, port) = parse_authority(value)?;
     let host = normalize_host(host)?;

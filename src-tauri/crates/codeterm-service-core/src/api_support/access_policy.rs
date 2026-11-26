@@ -174,6 +174,10 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
         }
         (&Method::PATCH, "/api/config") => PeerScope::new(FullAccess, Host),
         (&Method::POST, "/api/mesh/rpc") => PeerScope::new(FullAccess, Host),
+        (&Method::GET, "/api/mesh/cloud/peer/idle")
+        | (&Method::POST, "/api/mesh/cloud/peer/drain" | "/api/mesh/cloud/peer/reopen") => {
+            PeerScope::new(FullAccess, Host)
+        }
         (&Method::POST, "/api/mesh/announce") => PeerScope::new(Announce, Host),
         (&Method::POST, "/api/mesh/sync") => PeerScope::new(Sync, Host),
         (&Method::GET, "/api/mesh/inventory") => PeerScope::new(Inventory, Host),
@@ -445,6 +449,7 @@ pub fn is_local_only_path(path: &str) -> bool {
         )
         || path.starts_with("/api/mesh/peers/disconnect/")
         || path.starts_with("/api/mesh/peers/") && path.ends_with("/access")
+        || (path.starts_with("/api/mesh/cloud/") && !path.starts_with("/api/mesh/cloud/peer/"))
         // Canvas write-back belongs to the owner on this machine; peers only read previews.
         || (path.starts_with("/api/tabs/") && path.contains("/preview/canvas/"))
         || (path.starts_with("/api/blueprints/") && path.ends_with("/webhook/configure"))

@@ -8,6 +8,8 @@ import { DEFAULT_THEME } from "./themeCss";
 import { relayTarget } from "./webApi";
 import { discardWorkspaceSwitchOrigin, useWorkspaceBrowseTarget } from "./workspaceBrowseTarget";
 
+export const PEER_APPEARANCE_TIMEOUT_MS = 6_000;
+
 export interface SelectedMachineAppearance {
   appearance: MachineAppearance;
   peerId?: string;
@@ -50,15 +52,23 @@ export function useMachineAppearance(config: AppConfig, ready: boolean): Selecte
       const request = new AbortController();
       readController = request;
       const requestVersion = ++version;
+      let timedOut = false;
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        request.abort(new DOMException("Peer appearance timed out", "TimeoutError"));
+      }, PEER_APPEARANCE_TIMEOUT_MS);
+      (timeout as unknown as { unref?: () => void }).unref?.();
       void readMachineAppearance(remoteId, request.signal).then(appearance => {
         if (!controller.signal.aborted && !request.signal.aborted && requestVersion === version) {
           publish(appearance);
         }
       }).catch(() => {
-        if (!controller.signal.aborted && !request.signal.aborted && !settled) {
+        if (!controller.signal.aborted && (!request.signal.aborted || timedOut) && !settled) {
           const current = targetRef.current;
           if (current?.id === remoteId) discardWorkspaceSwitchOrigin(current);
         }
+      }).finally(() => {
+        clearTimeout(timeout);
       });
     };
     const onAppearanceChanged = (event: Event) => {

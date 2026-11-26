@@ -182,7 +182,7 @@ describe("NewSessionPicker modal", () => {
     expect(spawn[10]).toBe("machine-x");
   });
 
-  it("keeps the General New session form local while the machine menu owns remote creation", async () => {
+  it("keeps the General New session form local without a machine selector", async () => {
     vi.mocked(invoke).mockImplementation(async (command) => command === "mesh_list_peers" ? {
       local_instance_name: "LOCAL",
       paired: [{ instance_id: "machine-x", instance_name: "BLACKSTAR", online: true, access_level: "full", relay_protocol_version: RELAY_PROTOCOL_VERSION }],

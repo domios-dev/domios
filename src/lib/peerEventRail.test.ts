@@ -66,4 +66,77 @@ it("invalidates an admitted rail closed before its replay boundary", () => {
   stop();
 });
 
+it("backs off exponentially with jitter on 401 refusal, refreshes credentials before retry, and blocks tight resume loops", async () => {
+  let clock = 1_000;
+  let nextHandle = 0;
+  const timers = new Map<number, { dueAt: number; callback: () => void }>();
+  const scheduler = {
+    schedule(callback: () => void, timeoutMs: number) {
+      const id = ++nextHandle;
+      timers.set(id, { dueAt: clock + timeoutMs, callback });
+      return id;
+    },
+    cancel(handle: unknown) {
+      timers.delete(handle as number);
+    },
+  };
+  const advance = async (ms: number) => {
+    clock += ms;
+    for (const [id, timer] of [...timers]) {
+      if (timer.dueAt <= clock) {
+        timers.delete(id);
+        timer.callback();
+      }
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  const calls: Parameters<TransportClient["subscribe"]>[] = [];
+  const subscribe: TransportClient["subscribe"] = (...args) => { calls.push(args); return () => {}; };
+  let refreshes = 0;
+  const rail = createPeerEventRail(() => ({ subscribe }) as TransportClient, {
+    now: () => clock,
+    random: () => 1,
+    scheduler,
+    firstMs: 1_000,
+    capMs: 30_000,
+    refreshCooldownMs: 5_000,
+    refreshCredentials: async () => { refreshes += 1; },
+  });
+
+  const stop = rail.subscribe("ubunta", "link-1", () => {});
+  expect(calls.length).toBe(1);
+
+  calls[0][2]?.onEnd?.({ reason: "http", status: 401 });
+  // Repeated resume() calls during backoff must never storm immediately.
+  for (let i = 0; i < 10; i++) rail.resume("ubunta");
+  expect(calls.length).toBe(1);
+
+  await advance(999);
+  expect(calls.length).toBe(1);
+  await advance(1);
+  expect(refreshes).toBe(1);
+  expect(calls.length).toBe(2);
+
+  // Second 401 doubles backoff to 2000ms and respects refresh cooldown.
+  calls[1][2]?.onEnd?.({ reason: "http", status: 401 });
+  rail.resume("ubunta");
+  await advance(1_999);
+  expect(calls.length).toBe(2);
+  await advance(1);
+  expect(refreshes).toBe(1);
+  expect(calls.length).toBe(3);
+
+  // Successful replay resets backoff back to 1000ms.
+  calls[2][1]("message", { event_type: "peer-replay-complete", boot: "boot-a", seq: 1, data: null });
+  calls[2][2]?.onEnd?.({ reason: "http", status: 503, retryAfterMs: 4_000 });
+  await advance(3_999);
+  expect(calls.length).toBe(3);
+  await advance(1);
+  expect(refreshes).toBe(2);
+  expect(calls.length).toBe(4);
+  stop();
+});
+
 void finish();

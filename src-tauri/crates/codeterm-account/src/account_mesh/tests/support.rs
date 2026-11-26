@@ -379,6 +379,8 @@ pub struct FakeTransport {
     pub peers_reachable: std::sync::atomic::AtomicBool,
     pub endpoints: Mutex<Vec<(Option<MeshEndpoint>, u64, String)>>,
     pub snapshots: Mutex<Vec<DetachedGrant>>,
+    pub broadcast_gate: Mutex<Option<Arc<Notify>>>,
+    pub broadcast_entered: Notify,
     log: Log,
     pub revoked: Mutex<Vec<String>>,
     pub last: Mutex<Option<LifecycleState>>,
@@ -402,6 +404,11 @@ impl MeshTransport for FakeTransport {
         true
     }
     async fn registry_changed(&self, snapshot: &DetachedGrant) {
+        let gate = self.broadcast_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            self.broadcast_entered.notify_one();
+            wait_for_event(gate.notified()).await;
+        }
         self.snapshots.lock().unwrap().push(snapshot.clone());
     }
     async fn presence_changed(&self, metadata_revision: u64) {
@@ -481,6 +488,8 @@ impl Harness {
             peers_reachable: Default::default(),
             endpoints: Default::default(),
             snapshots: Mutex::default(),
+            broadcast_gate: Default::default(),
+            broadcast_entered: Default::default(),
             log: log.clone(),
             revoked: Mutex::default(),
             last: Mutex::default(),

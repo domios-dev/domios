@@ -53,6 +53,10 @@ impl MeshManager {
         &self.account
     }
 
+    pub fn is_account_ready(&self) -> bool {
+        self.account_ready
+    }
+
     pub fn remote_access_epoch(&self) -> Option<u64> {
         (self.account_ready && !matches!(self.account.presence, AccountPresence::SignedOut))
             .then_some(self.remote_access_epoch)
@@ -309,6 +313,11 @@ impl MeshManager {
     pub fn insert_account_peer_for_test(&mut self, peer: crate::types::PairedPeer) {
         let installation_id = peer.instance_id.clone();
         self.insert_account_peer_with_installation_for_test(installation_id, peer);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_inbound_only_for_test(&mut self, inbound_only: bool) {
+        self.inbound_only = inbound_only;
     }
 
     #[cfg(any(test, feature = "test-support"))]

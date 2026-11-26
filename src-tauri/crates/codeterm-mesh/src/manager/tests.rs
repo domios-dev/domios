@@ -90,8 +90,8 @@ fn signed_machine_identity_interoperates_with_1_23_2_colored_announce_and_sync()
         })
     };
 
-    let mut target = make_mesh_with_peer("peer", vec![]);
-    target.paired_peers.get_mut("peer").unwrap().public_key = public_key.clone();
+    // Admit the peer with its real key: the identity sync is gated on the admitted key.
+    let mut target = make_mesh_with_keyed_peer("peer", vec![], &public_key);
 
     let announce_json = serde_json::json!({
         "machine_identity": sign_1_23_2("peer", "laptop", "teal", 2),
@@ -229,6 +229,10 @@ fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers
 }
 
 fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
+    make_mesh_with_keyed_peer(peer_id, addrs, "")
+}
+
+fn make_mesh_with_keyed_peer(peer_id: &str, addrs: Vec<&str>, public_key: &str) -> MeshManager {
     let mut m = MeshManager::new("test-host".into(), 7685);
     m.disk_persist = false;
     let peer = PairedPeer {
@@ -236,7 +240,7 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         instance_name: "TestPeer".into(),
         addresses: addrs.into_iter().map(PeerAddress::from_ip).collect(),
         api_port: 7685,
-        public_key: String::new(),
+        public_key: public_key.into(),
         paired_at: chrono::Utc::now().to_rfc3339(),
         last_seen: None,
         online: true,
@@ -319,6 +323,7 @@ fn peers_response_omits_inactive_installations_and_removes_installation_pairing(
 fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -347,6 +352,7 @@ fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
 fn apply_announce_stores_and_clears_web_ui() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let with_https = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -369,6 +375,7 @@ fn apply_announce_stores_and_clears_web_ui() {
     assert_eq!(m.paired_peers["peer-A"].web_ui, with_https.web_ui);
 
     let without = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         web_ui: None,
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
@@ -383,6 +390,7 @@ fn apply_announce_stores_and_clears_web_ui() {
 fn apply_announce_rejects_spoofed_sender() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -406,6 +414,7 @@ fn apply_announce_rejects_spoofed_sender() {
 fn apply_announce_empty_list_is_noop() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -426,6 +435,7 @@ fn apply_announce_empty_list_is_noop() {
 fn apply_announce_same_addrs_returns_no_change() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let ann = PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,
@@ -443,6 +453,7 @@ fn apply_announce_same_addrs_returns_no_change() {
 
 fn announce_with_protocol(relay_protocol_version: u16) -> PeerAnnounce {
     PeerAnnounce {
+        inbound_only: false,
         machine_identity: None,
         domios_version: None,
         domios_build: None,

@@ -8,7 +8,15 @@ export interface RemoteActionDecision {
 
 export interface RemoteTeamMenuDecision {
   canSaveTemplate: boolean;
+  renameTeam: RemoteActionDecision;
   closeTeam: RemoteActionDecision;
+}
+
+export interface RemoteWorkspaceMenuDecision {
+  newSession: RemoteActionDecision;
+  newTerminal: RemoteActionDecision;
+  renameWorkspace: RemoteActionDecision;
+  closeWorkspace: RemoteActionDecision;
 }
 
 export function remotePeerStatusLabel(availability: GeneralAvailability | undefined): string {
@@ -55,6 +63,34 @@ export function remoteWorkspaceCloseAction(
   return { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason };
 }
 
+export function remoteWorkspaceMenuActions({
+  workspaceProtected,
+  cwdMissing = false,
+  availability,
+}: {
+  workspaceProtected: boolean;
+  cwdMissing?: boolean;
+  availability?: GeneralAvailability;
+}): RemoteWorkspaceMenuDecision {
+  const eligibility = remotePeerActionEligibility(availability);
+  const spawnAction: RemoteActionDecision = cwdMissing
+    ? { visible: false, disabled: true, reason: null }
+    : { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason };
+  const closeWorkspace = remoteWorkspaceCloseAction(workspaceProtected, availability);
+  return {
+    newSession: spawnAction,
+    newTerminal: spawnAction,
+    renameWorkspace: workspaceProtected
+      ? { visible: false, disabled: true, reason: null }
+      : { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason },
+    closeWorkspace,
+  };
+}
+
+export function remoteObservedTabAllowedMenuIds(canOperate: boolean): readonly string[] {
+  return canOperate ? ["rename", "restart", "stop", "close"] : [];
+}
+
 export function remoteTeamMenuActions({
   hasTeam,
   ownedByPeer,
@@ -67,12 +103,14 @@ export function remoteTeamMenuActions({
   if (!hasTeam || !ownedByPeer) {
     return {
       canSaveTemplate: false,
+      renameTeam: { visible: false, disabled: true, reason: null },
       closeTeam: { visible: false, disabled: true, reason: null },
     };
   }
   const eligibility = remotePeerActionEligibility(availability);
   return {
     canSaveTemplate: false,
+    renameTeam: { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason },
     closeTeam: { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason },
   };
 }

@@ -369,14 +369,7 @@ impl ShadowHost for ServiceContext {
             && supporter::supporter_connected(&settings, &self.supporter_models, &token)
     }
     fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
-        #[cfg(test)]
-        if let Some((_, runtime)) = TEST_SUPPORTER_OVERRIDES
-            .lock()
-            .get(&(Arc::as_ptr(&self.mux) as usize))
-        {
-            return runtime.clone();
-        }
-        supporter::runtime_with_notifications(self)
+        self.supporter_decision_runtime()
     }
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String> {
         self.tab_transport(tab_id)
@@ -637,6 +630,17 @@ impl ServiceContext {
             return config.clone();
         }
         self.configuration().supporter
+    }
+
+    pub(crate) fn supporter_decision_runtime(&self) -> Arc<SupporterRuntime> {
+        #[cfg(test)]
+        if let Some((_, runtime)) = TEST_SUPPORTER_OVERRIDES
+            .lock()
+            .get(&(Arc::as_ptr(&self.mux) as usize))
+        {
+            return runtime.clone();
+        }
+        supporter::runtime_with_notifications(self)
     }
 
     #[cfg(test)]

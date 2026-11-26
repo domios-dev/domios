@@ -1,0 +1,171 @@
+#cloud-config
+write_files:
+  - path: /etc/cloud/cloud.cfg.d/99-domios-oracle-network.cfg
+    owner: root:root
+    permissions: '0600'
+    content: |
+      network: {config: disabled}
+  - path: /etc/netplan/99-domios-oracle-dhcp.yaml
+    owner: root:root
+    permissions: '0600'
+    content: |
+      network: {version: 2, ethernets: {uplink: {match: {name: "e*"}, dhcp4: true}}}
+  - path: /etc/domios-cloud/creation.env
+    owner: root:root
+    permissions: '0600'
+    content: |
+      DOMIOS_BOOTSTRAP_CONTROLLER_KEY=@@DOMIOS_BOOTSTRAP_CONTROLLER_KEY@@
+      DOMIOS_BOOTSTRAP_NONCE=@@DOMIOS_BOOTSTRAP_NONCE@@
+  - path: /etc/domios-cloud/image
+    owner: root:root
+    permissions: '0644'
+    content: |
+      @@DOMIOS_CLOUD_IMAGE@@
+  - path: /etc/systemd/system/domios-cloud.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Domios cloud installation
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=forking
+      User=domios-cloud
+      Group=domios-cloud
+      RootDirectory=/opt/domios-cloud/bundle/rootfs
+      MountAPIVFS=yes
+      BindReadOnlyPaths=/etc/resolv.conf
+      StateDirectory=domios-cloud
+      StateDirectoryMode=0700
+      RuntimeDirectory=domios
+      RuntimeDirectoryMode=0700
+      WorkingDirectory=/var/lib/domios-cloud
+      Environment=DOMIOS_CLOUD_MACHINE=1
+      Environment=HOME=/var/lib/domios-cloud
+      Environment=HF_HOME=/opt/domios-models
+      Environment=HF_HUB_OFFLINE=1
+      Environment=PATH=/opt/domios/cli:/usr/local/bin:/usr/bin:/bin
+      EnvironmentFile=-/etc/domios-cloud/creation.env
+      UMask=0077
+      ExecStart=/usr/local/bin/domios-cloud-start
+      PIDFile=/run/domios/server.pid
+      Restart=on-failure
+      KillMode=control-group
+      TimeoutStartSec=180
+      TimeoutStopSec=45
+      NoNewPrivileges=true
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/domios-clear-creation.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Retire the Domios provisioning copy of the creation binding
+      After=cloud-final.service domios-cloud.service
+      Requires=domios-cloud.service
+      ConditionPathExists=/etc/domios-cloud/creation.env
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/retire-domios-creation
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /usr/local/sbin/retire-domios-creation
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/usr/bin/python3
+      import base64
+      import os
+      import re
+      import stat
+      from pathlib import Path
+
+      source = Path("/etc/domios-cloud/creation.env")
+      nonce = re.search(rb"^DOMIOS_BOOTSTRAP_NONCE=([A-Za-z0-9_-]{43})$", source.read_bytes(), re.M).group(1)
+      redacted = b"_" * len(nonce)
+      substitutions = [(nonce, redacted)]
+      # Replace complete base64 groups at every possible alignment in encoded user data.
+      prefix = b"DOMIOS_BOOTSTRAP_NONCE="
+      for start in range(3):
+          marker = (prefix + nonce)[start:]
+          length = len(marker) - len(marker) % 3
+          cleared = (prefix + redacted)[start:start + length]
+          substitutions.append((base64.b64encode(marker[:length]), base64.b64encode(cleared)))
+      names_to_scrub = {"user-data", "user-data.txt", "user-data.txt.i", "cloud-config.txt",
+                        "obj.pkl", "instance-data.json", "instance-data-sensitive.json", "combined-cloud-config.json"}
+      for root in ("/var/lib/cloud", "/run/cloud-init"):
+          for directory, _, names in os.walk(root):
+              for name in names:
+                  if name not in names_to_scrub:
+                      continue
+                  path = Path(directory, name)
+                  info = path.lstat()
+                  if not stat.S_ISREG(info.st_mode) or info.st_uid != 0:
+                      continue
+                  fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                  with os.fdopen(fd, "rb") as stream:
+                      data = stream.read()
+                  offsets = [(m.start(), old, new) for old, new in substitutions
+                             for m in re.finditer(re.escape(old), data)]
+                  if not offsets:
+                      continue
+                  fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+                  with os.fdopen(fd, "r+b", buffering=0) as stream:
+                      if not os.path.samestat(info, os.fstat(fd)):
+                          raise RuntimeError("Cloud-init cache changed during retirement")
+                      for offset, old, new in offsets:
+                          if os.pread(fd, len(old), offset) != old:
+                              raise RuntimeError("Cloud-init cache changed during retirement")
+                          if os.pwrite(fd, new, offset) != len(new):
+                              raise RuntimeError("Incomplete cloud-init cache retirement")
+                      os.fsync(fd)
+      source.unlink()
+  - path: /usr/local/sbin/install-domios-cloud
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/bin/sh
+      set -eu
+      umask 077
+      /usr/lib/systemd/systemd-networkd-wait-online --any --ipv4 --timeout=180
+      archive=/etc/domios-cloud/original-netplan
+      install -d -m 0700 "$archive"
+      for config in /etc/netplan/*.yaml; do
+        [ -f "$config" ] || continue
+        [ "$config" != /etc/netplan/99-domios-oracle-dhcp.yaml ] || continue
+        mv -- "$config" "$archive/"
+      done
+      netplan generate
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends skopeo umoci ufw
+      image=$(cat /etc/domios-cloud/image)
+      printf '%s\n' "$image" | grep -Eq '^[a-z0-9.-]+(/[a-z0-9._-]+)+@sha256:[a-f0-9]{64}$'
+      install -d -m 0755 /opt/domios-cloud
+      skopeo copy --preserve-digests "docker://$image" oci:/opt/domios-cloud/oci:release
+      umoci unpack --image /opt/domios-cloud/oci:release /opt/domios-cloud/bundle
+      chmod 0755 /opt/domios-cloud/bundle
+      useradd --system --user-group --home-dir /var/lib/domios-cloud --shell /usr/sbin/nologin domios-cloud
+      case "$(cat /opt/domios-cloud/bundle/rootfs/etc/domios-cloud-profile)" in
+        release) data=/var/lib/domios-cloud/.domios ;;
+        qa) data=/var/lib/domios-cloud/.domios-dev ;;
+        *) exit 1 ;;
+      esac
+      install -d -m 0700 -o domios-cloud -g domios-cloud /var/lib/domios-cloud "$data"
+      install -m 0600 -o domios-cloud -g domios-cloud \
+        /opt/domios-cloud/bundle/rootfs/usr/local/share/domios-container.toml "$data/config.toml"
+      ufw default deny incoming
+      ufw allow 7687/tcp
+      ufw --force enable
+      systemctl daemon-reload
+      systemctl enable domios-clear-creation.service
+      systemctl enable --now domios-cloud.service
+      systemctl start --no-block domios-clear-creation.service
+runcmd:
+  - [/usr/local/sbin/install-domios-cloud]

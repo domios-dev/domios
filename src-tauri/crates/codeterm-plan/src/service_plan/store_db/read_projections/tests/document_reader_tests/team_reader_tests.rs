@@ -218,13 +218,17 @@ fn team_sql_filters_before_materializing_unrequested_history_and_bodies() {
         let metrics = take_metrics();
         let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
         let serialized = crate::service_plan::store_rows::take_serialized_row_bytes();
-        assert_eq!(metrics.queries, 4);
+        // Header, task counts and lifecycle reads, then the bounded event window: one
+        // cursor per event source, the author lookup with its owner fallback, and the count.
+        assert_eq!(metrics.queries, 10);
         assert!(metrics.materialized_bytes < 8192);
         assert!(decoded < 8192);
         assert_eq!(serialized, 0);
         assert!(fixtures::audit_counts(&database).is_empty());
         println!("fixture={} consumer=team_board tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra} unselected_target_history={history} rounds={rounds} baseline_decoded_json_bytes={baseline} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
-        let measured = (metrics, decoded, response);
+        // The event merge reads one head row per source, so history adds a fixed lookahead to
+        // materialized bytes (bounded above); queries, decoded rows and the response stay equal.
+        let measured = (metrics.queries, decoded, response);
         if let Some(prior) = &prior {
             assert_eq!(&measured, prior);
         }

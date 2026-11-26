@@ -1735,6 +1735,16 @@
               "aliases": []
             },
             {
+              "name": "cloud",
+              "positional": false,
+              "required": false,
+              "value_name": "TARGET",
+              "possible_values": [],
+              "default": null,
+              "help": "Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicitly create subject to limit), or a cloud machine ID/name",
+              "aliases": []
+            },
+            {
               "name": "cwd",
               "positional": false,
               "required": false,
@@ -8751,6 +8761,138 @@
           "subcommands": []
         },
         {
+          "name": "cloud",
+          "about": "Create, list, sleep, wake, or delete cloud machines on this controller. Local-only",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "create",
+              "about": "Create and enroll a new managed cloud machine",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Human-friendly machine name",
+                  "aliases": []
+                },
+                {
+                  "name": "size",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SIZE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Machine size profile (default: small)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "delete",
+              "about": "Permanently delete a cloud machine (warns about unpushed work without --confirm)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "confirm",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CONFIRM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Confirm permanent deletion of the machine and any unpushed work",
+                  "aliases": []
+                },
+                {
+                  "name": "machine",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MACHINE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Cloud machine ID, name, or peer ID",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List cloud machines with state, hourly rate, and uptime",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "redeem",
+              "about": "Redeem a cloud credit promo code into your account balance",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "code",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "CODE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Promo code to redeem",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "sleep",
+              "about": "Drain an idle cloud machine and put it to sleep (refuses while work runs)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "machine",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MACHINE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Cloud machine ID, name, or peer ID",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "usage",
+              "about": "Show managed cloud credit usage, allowance, remaining balance, cap, and burn per size",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "wake",
+              "about": "Wake a sleeping cloud machine (concurrent wakes join one wake)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "machine",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MACHINE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Cloud machine ID, name, or peer ID",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "identity",
           "about": "Manage the kind icon of an installation",
           "aliases": [],
@@ -14482,6 +14624,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred; needs a git repository with a commit",
+                  "aliases": []
+                },
+                {
+                  "name": "cloud",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TARGET",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicit create subject to limit), or a cloud machine ID/name",
                   "aliases": []
                 },
                 {

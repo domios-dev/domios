@@ -111,6 +111,42 @@ pub enum AccountMeshRefusal {
     ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
+    #[serde(rename = "replay")]
+    Replay,
+    #[serde(rename = "nonce_reused")]
+    NonceReused,
+    #[serde(rename = "apply_too_large")]
+    ApplyTooLarge,
+    #[serde(rename = "cloud.machines")]
+    CloudMachineLimit { limit: u32, active_count: u32 },
+    #[serde(rename = "lease_required")]
+    LeaseRequired,
+    #[serde(rename = "credits_exhausted")]
+    CreditsExhausted,
+    #[serde(rename = "invalid_code")]
+    PromoInvalidCode,
+    #[serde(rename = "expired")]
+    PromoExpired,
+    #[serde(rename = "disabled")]
+    PromoDisabled,
+    #[serde(rename = "exhausted")]
+    PromoExhausted,
+    #[serde(rename = "spend_cap_exceeded")]
+    PromoSpendCapExceeded,
+    #[serde(rename = "below_min")]
+    CheckoutBelowMin,
+    #[serde(rename = "above_max")]
+    CheckoutAboveMax,
+    #[serde(rename = "territory")]
+    CheckoutTerritory,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "provider_refused")]
+    ProviderRefused,
+    #[serde(rename = "provider_unavailable")]
+    ProviderUnavailable,
+    #[serde(rename = "provider_unconfirmed")]
+    ProviderUnconfirmed,
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
     /// Local refusal of link traffic while this machine is outside the machine limit.
@@ -145,6 +181,32 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::AppCheck => Self::AppCheck,
             RegistryRefusal::Forbidden => Self::Forbidden,
             RegistryRefusal::Conflict => Self::Conflict,
+            RegistryRefusal::Replay => Self::Replay,
+            RegistryRefusal::NonceReused => Self::NonceReused,
+            RegistryRefusal::ApplyTooLarge => Self::ApplyTooLarge,
+            RegistryRefusal::CloudMachineLimit {
+                limit,
+                active_count,
+            } => Self::CloudMachineLimit {
+                limit,
+                active_count,
+            },
+            RegistryRefusal::LeaseRequired => Self::LeaseRequired,
+            RegistryRefusal::CreditsExhausted => Self::CreditsExhausted,
+            RegistryRefusal::PromoInvalidCode => Self::PromoInvalidCode,
+            RegistryRefusal::PromoExpired => Self::PromoExpired,
+            RegistryRefusal::PromoDisabled => Self::PromoDisabled,
+            RegistryRefusal::PromoExhausted => Self::PromoExhausted,
+            RegistryRefusal::PromoSpendCapExceeded => Self::PromoSpendCapExceeded,
+            RegistryRefusal::CheckoutBelowMin => Self::CheckoutBelowMin,
+            RegistryRefusal::CheckoutAboveMax => Self::CheckoutAboveMax,
+            RegistryRefusal::CheckoutTerritory => Self::CheckoutTerritory,
+            RegistryRefusal::NotFound => Self::NotFound,
+            RegistryRefusal::EndpointKindUnsupported | RegistryRefusal::ProviderRefused => {
+                Self::ProviderRefused
+            }
+            RegistryRefusal::ProviderUnavailable => Self::ProviderUnavailable,
+            RegistryRefusal::ProviderUnconfirmed => Self::ProviderUnconfirmed,
             RegistryRefusal::KeyConflict => Self::KeyConflict,
             RegistryRefusal::GenerationMismatch => Self::GenerationMismatch,
             RegistryRefusal::ChallengeInvalid => Self::ChallengeInvalid,

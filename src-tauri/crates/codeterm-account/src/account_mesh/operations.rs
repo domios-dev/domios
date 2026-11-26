@@ -6,7 +6,7 @@ use super::membership::{
 };
 use super::ports::RegistryResult;
 use super::state::{
-    AccountMeshRefusal, Cleanup, EnrollTrigger, Enrollment, KeyBinding, Presence, Publication,
+    AccountMeshRefusal, Cleanup, EnrollTrigger, KeyBinding, Presence, Publication,
     SelfInstallation, SignedMembership,
 };
 use super::wire::*;

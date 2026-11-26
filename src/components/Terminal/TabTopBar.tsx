@@ -1,6 +1,8 @@
 import { createNoticePublisher } from "../../lib/notices";
 import { describeError } from "../../lib/describeError";
 import { useMultiplexer } from "../../store/multiplexer/hooks";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
+import { findObservedTabOwnerWorkspaceId } from "../Sidebar/remoteWorkspaceManagement";
 import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
@@ -34,10 +36,7 @@ import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
 import { readTabCloseBlueprints } from "../Automation/blueprintOwner";
-import { MachineProvenance } from "../shared/MachineProvenance";
-import { useRemoteViewerConnection } from "./useRemoteViewerConnection";
-import { remoteViewerStatusLabel } from "./remoteViewerStatus";
-import { classifyTabTarget, parseCompositeTabId } from "../../lib/remoteTabTransport";
+import { classifyTabTarget } from "../../lib/remoteTabTransport";
 import { useRemoteChatStatus } from "../../lib/remoteChatStatus";
 import { UsageMachineContext } from "../../hooks/usageMachine";
 import { directTranscriptAvailable } from "../../lib/transport/liveTranscript";
@@ -73,22 +72,6 @@ interface TabTopBarProps {
   workspaceId?: string | null;
   tabMenu?: HeaderTabMenu;
   restore?: RestoreStageView | null;
-}
-
-function RemoteViewerPill({ tabId, tab }: { tabId: string; tab?: Tab }) {
-  const viewer = useRemoteViewerConnection(tabId, tab);
-  if (!viewer.peerId) return null;
-  const status = remoteViewerStatusLabel(viewer.connectionState, viewer.observation?.status);
-  return <div
-    data-testid="remote-viewer-pill"
-    role="group"
-    aria-label={`Viewing ${viewer.machine}${status ? `, ${status}` : ""}`}
-    className="ct-bar-pill flex min-w-0 shrink-0 items-center gap-1.5 px-2"
-    style={{ height: TAB_BAR_CONTROL_H, maxWidth: "min(14rem, 46vw)" }}
-  >
-    <span className="min-w-0"><MachineProvenance peerId={viewer.peerId} name={viewer.machine} remote /></span>
-    {status && <span className="shrink-0 whitespace-nowrap text-[var(--ct-muted-fg)]">{status}</span>}
-  </div>;
 }
 
 function TabRenameField({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
@@ -139,6 +122,7 @@ export function TabTopBar({
   const [renaming, setRenaming] = useState(false);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
   const { upsertToast } = useMultiplexer();
+  const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
   const liveTranscript = useLiveTranscriptHost();
   const menuTab = tabMenu?.tab ?? null;
   const titleTab = shellTab ?? menuTab;
@@ -247,12 +231,16 @@ export function TabTopBar({
     if (action.type === "close") {
       void (async () => {
         if (!tabMenu?.onClose) return;
-        if (!workspaceId) {
+        const remote = classifyTabTarget(tabId).kind === "remote";
+        if (!workspaceId && !remote) {
           reportFailure(new Error("Could not read Blueprint close inventory: workspace unavailable."), "closing this tab");
           return;
         }
         try {
-          const running = await readTabCloseBlueprints(workspaceId, tabId);
+          const ownerWorkspaceId = remote
+            ? menuTab?.remote_workspace_id ?? shellTab?.remote_workspace_id ?? findObservedTabOwnerWorkspaceId(tabId, peerWorkspaces, generals)
+            : undefined;
+          const running = await readTabCloseBlueprints(workspaceId ?? "", tabId, ownerWorkspaceId);
           if (running.length > 0) setCloseBlueprints(running);
           else tabMenu.onClose?.();
         } catch (error) {
@@ -313,7 +301,6 @@ export function TabTopBar({
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
       <TabHeaderOverflow isActive={isActive}>
-        {Boolean(parseCompositeTabId(tabId)) && <RemoteViewerPill tabId={tabId} tab={shellTab} />}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
           <ShellStatus tab={shellTab} />

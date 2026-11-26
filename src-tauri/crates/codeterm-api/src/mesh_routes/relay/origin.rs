@@ -46,10 +46,16 @@ pub(super) fn signed_peer_client(
     ))
 }
 
-fn signed_token_for_local_caller(
+pub(super) fn authenticated_local_caller(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(AuthenticatedOrigin, String), (StatusCode, String)> {
+) -> Result<
+    (
+        AuthenticatedOrigin,
+        Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+    ),
+    (StatusCode, String),
+> {
     let (caller, origin) = crate::auth::authenticated_request(state, headers)?;
     if !matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_)) {
         return Err((
@@ -58,7 +64,32 @@ fn signed_token_for_local_caller(
         ));
     }
     let agent = crate::auth::authenticated_agent_for_origin(state, headers, origin)?;
-    Ok((origin, sign(state, origin, agent.as_ref())?))
+    Ok((origin, agent))
+}
+
+pub(super) fn signed_caller_token(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<
+    (
+        AuthenticatedOrigin,
+        Option<codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+        String,
+    ),
+    (StatusCode, String),
+> {
+    let (origin, agent) = authenticated_local_caller(state, headers)?;
+    let token = sign(state, origin, agent.as_ref())?;
+    Ok((origin, agent, token))
+}
+
+fn signed_token_for_local_caller(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(AuthenticatedOrigin, String), (StatusCode, String)> {
+    let (origin, agent) = authenticated_local_caller(state, headers)?;
+    let token = sign(state, origin, agent.as_ref())?;
+    Ok((origin, token))
 }
 
 /// Single-pass Ed25519 verification + nonce admission for inbound signed mesh requests.
@@ -137,6 +168,7 @@ pub(crate) fn authenticate_signed_mesh_request(
     })
 }
 
+#[cfg(test)]
 pub(super) fn loopback_request(
     state: &AppState,
     origin: AuthenticatedOrigin,
@@ -156,6 +188,155 @@ pub(super) fn loopback_request(
             )
         })?,
     )
+}
+
+pub(super) enum LocalForwardRequest {
+    InProcess(axum::Router, axum::http::Request<axum::body::Body>),
+    TcpLoopback(reqwest::Request),
+}
+
+pub(super) enum LocalForwardOutcome {
+    Response {
+        status: u16,
+        is_json: bool,
+        body: Result<axum::body::Bytes, String>,
+    },
+    Failed(codeterm_service_core::mesh::types::RelayResponse),
+}
+
+pub(super) fn build_local_forward(
+    state: &AppState,
+    cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    body: &serde_json::Value,
+    authorization: axum::http::HeaderValue,
+    sender_name: &str,
+) -> Result<LocalForwardRequest, (StatusCode, String)> {
+    if let Some(router) = state
+        .svc
+        .try_ext::<codeterm_service_core::ports::rest::LocalApiRouter>()
+        .map(|router| router.0.clone())
+    {
+        log::debug!(
+            "[mesh/relay] branch=in_process method={} path={} source={sender_name}",
+            cmd.method,
+            cmd.path
+        );
+        Ok(LocalForwardRequest::InProcess(
+            router,
+            in_process_request_with_auth(cmd, body, authorization)?,
+        ))
+    } else {
+        log::debug!(
+            "[mesh/relay] branch=loopback method={} path={} source={sender_name}",
+            cmd.method,
+            cmd.path
+        );
+        Ok(LocalForwardRequest::TcpLoopback(
+            loopback_request_with_auth(state, cmd, body, authorization)?,
+        ))
+    }
+}
+
+pub(super) async fn execute_local_forward(
+    target: LocalForwardRequest,
+    deadline: std::time::Duration,
+) -> Result<LocalForwardOutcome, (StatusCode, String)> {
+    match target {
+        LocalForwardRequest::InProcess(router, request) => {
+            use tower::ServiceExt as _;
+            const MAX_LOCAL_FORWARD_BODY_BYTES: usize = 64 * 1024 * 1024;
+            let forwarded = tokio::time::timeout(deadline, async move {
+                let resp = router
+                    .oneshot(request)
+                    .await
+                    .unwrap_or_else(|never| match never {});
+                let status = resp.status().as_u16();
+                let is_json = resp
+                    .headers()
+                    .get(axum::http::header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.split(';').next())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("application/json"));
+                let body = axum::body::to_bytes(resp.into_body(), MAX_LOCAL_FORWARD_BODY_BYTES)
+                    .await
+                    .map_err(|error| error.to_string());
+                (status, is_json, body)
+            })
+            .await;
+            match forwarded {
+                Ok((status, is_json, body)) => Ok(LocalForwardOutcome::Response {
+                    status,
+                    is_json,
+                    body,
+                }),
+                Err(_) => Ok(LocalForwardOutcome::Failed(
+                    super::forward_failure_response(
+                        false,
+                        true,
+                        "in-process local relay timed out".into(),
+                    ),
+                )),
+            }
+        }
+        LocalForwardRequest::TcpLoopback(request) => {
+            let client = super::local_forward_http_client()?;
+            let resp = match client.execute(request).await {
+                Ok(resp) => resp,
+                Err(error) => {
+                    return Ok(LocalForwardOutcome::Failed(super::local_forward_failure(
+                        &error,
+                    )))
+                }
+            };
+            let status = resp.status().as_u16();
+            let is_json = resp
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(';').next())
+                .is_some_and(|value| value.eq_ignore_ascii_case("application/json"));
+            let body = resp.bytes().await.map_err(|error| error.to_string());
+            Ok(LocalForwardOutcome::Response {
+                status,
+                is_json,
+                body,
+            })
+        }
+    }
+}
+
+pub(super) fn in_process_request_with_auth(
+    cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    body: &serde_json::Value,
+    authorization: axum::http::HeaderValue,
+) -> Result<axum::http::Request<axum::body::Body>, (StatusCode, String)> {
+    let method = cmd.method.to_ascii_uppercase();
+    if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Unsupported method: {}", cmd.method),
+        ));
+    }
+    let method = axum::http::Method::from_bytes(method.as_bytes())
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let mut builder = axum::http::Request::builder()
+        .method(method.clone())
+        .uri(&cmd.path)
+        .header(axum::http::header::AUTHORIZATION, authorization);
+    let body = if matches!(
+        method,
+        axum::http::Method::POST | axum::http::Method::PUT | axum::http::Method::PATCH
+    ) {
+        let bytes = serde_json::to_vec(body)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+        builder = builder.header(axum::http::header::CONTENT_TYPE, "application/json");
+        axum::body::Body::from(bytes)
+    } else {
+        axum::body::Body::empty()
+    };
+    builder
+        .body(body)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))
 }
 
 pub(super) fn loopback_request_with_auth(
@@ -188,7 +369,7 @@ pub(super) fn loopback_request_with_auth(
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))
 }
 
-pub(super) fn sign(
+pub(crate) fn sign(
     state: &AppState,
     origin: AuthenticatedOrigin,
     agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,

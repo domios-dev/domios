@@ -29,6 +29,18 @@ Verified HTTP works without Tailscale Serve HTTPS. The card prefers verified HTT
 
 Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
 
+## Cloud enrollment
+
+On Timeweb the system service starts at boot. Its public ingress listens on TCP 7687. Use the local command socket to inspect account status on the VPS. After enrollment the creation secret cannot authorize another Apply. If the controller loses the Apply reply, the result is unconfirmed until the enrolled installation confirms its identity.
+
+Cloud enrollment uses a dedicated listener on public IPv4 port 7687. The address in a signed endpoint record locates the installation. Peers discard older address records when a newer signed record arrives.
+
+Ordinary mesh traffic requires current membership and signatures from both the installation key and the mesh key, bound to the encrypted session. If membership expires during sleep, a previously paired home machine with current membership can deliver one signed renewal. Both installations prove possession of their pinned keys and check their slots against the live signed registry. The recovery connection closes after the renewal. A fresh enrolled connection must succeed before the peer can publish its address or exchange traffic. Revoked installations cannot recover this way.
+
+An inbound-only machine is reachable only while one of your machines is online. An attached home peer receives queued announcements, Worker acknowledgements and reports, notifications and plan RPCs. A full queue returns `outbox_full`. If a write may have reached the peer and its receipt is lost, the record stays `delivery_unconfirmed` and is never replayed automatically.
+
+The controller and cloud installation protect enrollment messages with Noise and prove possession of their installation keys. Applying enrollment consumes the creation secret. The ordinary API, health and ping routes stay off the public listener.
+
 ## Admission and sign-out
 
 Protected traffic requires current signed membership on both sides. Renewals travel in authenticated peer announcements. Expiry blocks requests, relays and open streams without a grace period. Signing out blocks every connection before endpoint cleanup; signing in to the same account restores account connections automatically. The backend authorizes membership but never carries Mesh traffic. Renewal includes the endpoint in the same transaction. Its lifetime comes from the signed membership; renewal starts one twelfth of that lifetime before expiry. Local registry views and signed peer gossip avoid periodic registry reads. Removing a machine blocks it locally before the server request, even offline; other machines require the server-signed revocation revision.
@@ -171,4 +183,21 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 83 -->
+## Cloud machines
+
+Cloud machines are provisioned through the Domios backend and cost credits while awake. Domios manages their lifecycle on the local controller and never creates a cloud machine implicitly.
+
+- `domios mesh cloud create` provisions and enrolls a new managed cloud machine through the Domios backend, enforcing account plan limits (`limit_reached` when full) and prepaid credit leases (`lease_required` / `credits_exhausted`). Every provisioning call persists a request id before calling the backend and reuses it on retry.
+- `domios mesh cloud list` shows each cloud machine with provider, size, hourly rate, lifecycle state, and period uptime.
+- `domios mesh cloud sleep` drains an idle cloud machine and puts it to sleep through the backend; active agent turns, running background jobs, held sends, or attached viewers refuse sleep (`machine_busy`).
+- `domios mesh cloud wake` wakes a sleeping cloud machine (concurrent wakes join one wake), updates the machine's IPv4 endpoint when recreated from an image (`delete_recreate`), and flushes held sends once ready.
+- `domios mesh cloud delete` warns about unpushed work unless `--confirm` is passed.
+- `domios mesh cloud usage` reports managed credit usage (`used`, `allowance`, `purchased`, `remaining`, `cap`, and `burn_per_size`).
+
+Reuse-first placement: `domios agent spawn --cloud auto` and `domios plan task dispatch --cloud auto` pick an awake cloud machine first, then wake a sleeping one, and refuse implicit creation when none exist. Pass `--cloud new` (or run `domios mesh cloud create`) to create explicitly.
+
+Idle sleep, lease renewal, and wake-on-use: after the idle window (`mesh.cloud_idle_sleep_minutes`, default 15) with no active agent turn, background job, held send, or attached viewer, the controller runs a two-phase drain on the cloud peer (`machine_sleeping` with `bytes_written=false` before sleep). While work runs, the controller renews the credit lease before its deadline (event- and deadline-driven); if renewal is refused (`credits_exhausted`), the machine finishes its current prepaid lease and then sleeps with files kept (`out_of_credits`). Sends to a sleeping or draining cloud machine are held on the origin (`domios tab send-status`, `domios tab send-cancel`) with release condition `peer_ready` and a bounded deadline, wake the machine once (updating its endpoint first on `delete_recreate`), and flush in admission order at most once (`submit_unconfirmed` outcomes are never replayed).
+
+Cost visibility: `domios mesh peers`, `domios tab list`, and cloud spawn/dispatch receipts surface `kind=cloud`, provider, size, rate per hour, state, uptime, and a cost notice.
+
+<!-- revision: 89 -->

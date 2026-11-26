@@ -143,6 +143,24 @@ impl ServiceContext {
         )
     }
 
+    pub fn create_local_warning_notice(&self, title: String, body: Option<String>) -> String {
+        create_notification_with_delivery(
+            NotificationAdmission::LocalEvent,
+            &self.notif,
+            |_, _| {},
+            title,
+            body,
+            Some("warning"),
+            Ask::default(),
+            Some(true),
+            NotificationOrigin::default(),
+            |_| None,
+            PushDispatch::inert(),
+            SurfaceDispatch::silent(),
+            |payload| self.notify_created(payload),
+        )
+    }
+
     /// The same explicit notification, plus the honest answer to "will anyone
     /// see this". The record is opened either way — the report is information
     /// for the caller, never a refusal.
@@ -192,6 +210,39 @@ impl ServiceContext {
             },
             sticky,
             origin,
+            intent,
+            None,
+        ))
+    }
+
+    /// Dedicated display-only notification admission for verified account-mesh
+    /// peers with `AccessLevel::Full`. Never accepts caller actions, offers, or
+    /// local navigation targets.
+    pub fn create_remote_peer_notification_reported(
+        &self,
+        title: String,
+        body: Option<String>,
+        severity: Option<&str>,
+        sticky: Option<bool>,
+        peer_name: String,
+        intent: PushIntent,
+    ) -> Result<(String, Option<Unseen>), String> {
+        let peer_name = peer_name.trim().to_string();
+        if peer_name.is_empty() {
+            return Err("Authenticated remote peer name is required".into());
+        }
+        Ok(self.create_notification_actions_reported(
+            title,
+            body,
+            severity,
+            Ask::default(),
+            sticky,
+            NotificationOrigin {
+                caller_tab_id: None,
+                claimed_tab_id: None,
+                peer_name: Some(peer_name),
+                target: Default::default(),
+            },
             intent,
             None,
         ))

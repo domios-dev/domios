@@ -169,4 +169,8 @@ Headless sign-in: `domios account login --no-browser` prints an authorization UR
 
 Browser sign-in progress and completion arrive through the `account-sign-in` event with `attempt_id`. Account status reports `pending` and `login_attempt_id`, so a reconnect can recover the current attempt.
 
-<!-- revision: 31 -->
+## Cloud installations
+
+An owner installation enrolls a new cloud machine through its authenticated creation channel. The cloud machine generates its own keys. A server-signed membership lets its local command socket report the account without a browser sign-in or a Firebase refresh credential. On that machine, `domios account status --json` includes `signed_in` and `installation_id`. Expired membership makes `signed_in` false. The original creation binding stays consumed across restarts.
+
+<!-- revision: 32 -->

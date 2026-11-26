@@ -10,6 +10,7 @@ import {
   reconnectTabSession,
   restartTabSession,
   setTabPermissionAutoConfirm,
+  stopTabSession,
 } from "./tabSessionActions";
 import { closeTelegramThread, openTelegramThread } from "./telegramThreadActions";
 
@@ -50,6 +51,8 @@ export async function performTabMenuAction(
       return reconnectTabSession(tabId);
     case "restart":
       return restartTabSession(tabId);
+    case "stop":
+      return stopTabSession(tabId);
     case "fork":
       await guardFreeLimit(["agent.tabs"], () => invoke("fork_agent_tab",{tabId}));
       return;

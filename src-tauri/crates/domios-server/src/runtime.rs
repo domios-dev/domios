@@ -115,6 +115,7 @@ pub fn run(
     codeterm_orchestration::register_orchestration();
     codeterm_agent_lifecycle::register_agent_lifecycle();
     codeterm_neighbors_service::register_neighbors();
+    codeterm_api::register_api_extensions();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -155,12 +156,14 @@ pub fn run(
         port: Arc::new(move || frontend_native.read().as_ref()?.frontend_port()),
         identifier: frontend_identifier,
     };
-    let prepared = crate::startup::early_api::PreparedStartup::new(
+    let runtime_context = runtime.enter();
+    let mut prepared = crate::startup::early_api::PreparedStartup::new(
         frontend_dev_url.as_ref(),
         diagnostics_port.clone(),
         frontend_identity.clone(),
     )
     .map_err(io::Error::other)?;
+    drop(runtime_context);
     let address = runtime
         .block_on(prepared.listening())
         .map_err(io::Error::other)?;

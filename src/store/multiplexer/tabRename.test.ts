@@ -90,6 +90,25 @@ async function main() {
     assert.equal(h.state.tabs.tab.title, "Bizet");
   }
 
+  {
+    const refreshed: string[] = [];
+    const h = harness(() => Promise.resolve({ ok: true }));
+    await commitTabRename(
+      h.state,
+      { ...h.ports, onRemoteRenamed: (peerId) => refreshed.push(peerId) },
+      "remote-ws",
+      "mesh:rog/plugin-tab",
+      "Renamed Remote",
+    );
+    assert.deepEqual(
+      h.persisted,
+      [{ workspaceId: "remote-ws", tabId: "mesh:rog/plugin-tab", title: "Renamed Remote" }],
+      "an observed remote tab persists its rename to the owning peer even before it is attached locally",
+    );
+    assert.deepEqual(refreshed, ["rog"], "renaming a remote tab refreshes the owning peer inventory");
+    assert.deepEqual(h.notices, []);
+  }
+
   console.log("tabRename.test.ts: ok");
 }
 

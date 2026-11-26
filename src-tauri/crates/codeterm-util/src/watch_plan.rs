@@ -1,4 +1,5 @@
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 mod path_case;
@@ -26,6 +27,14 @@ pub struct DirectoryPlan {
 
 pub fn covering_set(root: &Path) -> Result<Vec<DirectoryWatch>, String> {
     covering_set_preserving(root, &[])
+}
+
+pub fn covering_set_excluding(
+    root: &Path,
+    partition_root: bool,
+    exclude_name: impl Fn(&OsStr) -> bool,
+) -> Result<Vec<DirectoryWatch>, String> {
+    plan_with(root, &[], &[], MAX_WATCHES, partition_root, &exclude_name).map(|plan| plan.watches)
 }
 
 pub fn covering_set_preserving(
@@ -67,10 +76,31 @@ fn plan(
     sources: &[PathBuf],
     limit: usize,
 ) -> Result<DirectoryPlan, String> {
+    plan_with(root, tracked, sources, limit, false, &|_| false)
+}
+
+fn plan_with(
+    root: &Path,
+    tracked: &[PathBuf],
+    sources: &[PathBuf],
+    limit: usize,
+    partition_root: bool,
+    exclude_name: &dyn Fn(&OsStr) -> bool,
+) -> Result<DirectoryPlan, String> {
     let tracked: Vec<_> = tracked.iter().map(|path| root.join(path)).collect();
     let mut inherited = vec![rules(root, sources)?];
     let mut excluded = Vec::new();
-    let watches = classify(root, &mut inherited, &tracked, false, false, &mut excluded)?.0;
+    let watches = classify(
+        root,
+        &mut inherited,
+        &tracked,
+        false,
+        false,
+        partition_root,
+        exclude_name,
+        &mut excluded,
+    )?
+    .0;
     if watches.len() > limit {
         let error = format!("watch subscription limit exceeded for {}: {} directories, maximum {limit}; repository watching refused", root.display(), watches.len());
         log::warn!("{error}");
@@ -89,23 +119,31 @@ pub fn is_heavy_path(path: &Path) -> bool {
         .any(|component| heavy_name(Path::new(component.as_os_str())))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn classify(
     root: &Path,
     inherited: &mut Vec<Gitignore>,
     tracked: &[PathBuf],
     inside_ignored: bool,
     inside_heavy: bool,
+    partition_root: bool,
+    exclude_name: &dyn Fn(&OsStr) -> bool,
     excluded: &mut Vec<ExcludedDirectory>,
 ) -> Result<(Vec<DirectoryWatch>, bool), String> {
     inherited.push(rules(root, &[root.join(".gitignore")])?);
     let mut children = Vec::new();
-    let mut restricted = inside_ignored;
+    let mut restricted = inside_ignored || partition_root;
     let mut entries = std::fs::read_dir(root)
         .map_err(|error| format!("read {}: {error}", root.display()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
+        let file_name = entry.file_name();
+        if exclude_name(&file_name) {
+            restricted = true;
+            continue;
+        }
         let kind = entry.file_type().map_err(|error| error.to_string())?;
         if kind.is_symlink() {
             restricted = true;
@@ -120,9 +158,9 @@ fn classify(
             .rev()
             .map(|rules| rules.matched(&path, true))
             .find(|matched| !matched.is_none());
-        let heavy = inside_heavy || heavy_name(Path::new(&entry.file_name()));
+        let heavy = inside_heavy || heavy_name(Path::new(&file_name));
         let ignored = inside_ignored || heavy || matched.is_some_and(|matched| matched.is_ignore());
-        if entry.file_name() == ".git"
+        if file_name == ".git"
             || (ignored
                 && !tracked
                     .iter()
@@ -132,8 +170,16 @@ fn classify(
             restricted = true;
             continue;
         }
-        let (plans, child_restricted) =
-            classify(&path, inherited, tracked, ignored, heavy, excluded)?;
+        let (plans, child_restricted) = classify(
+            &path,
+            inherited,
+            tracked,
+            ignored,
+            heavy,
+            false,
+            exclude_name,
+            excluded,
+        )?;
         restricted |= child_restricted;
         children.extend(plans);
     }

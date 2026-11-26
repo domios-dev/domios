@@ -55,7 +55,12 @@ import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPrevie
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
 import { blockerView, startErrorView, templateTitle, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
 import { peerOutcomeError } from "../../lib/teamTemplates/peerStartOutcome";
-import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
+import { setSidebarMachineFilter, useSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
+import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import { createOrchestrationTransport } from "../../lib/transport/orchestration";
+import { remoteWorkspaceManagementPort } from "../Sidebar/remoteWorkspaceManagement";
+import type { OrchestrationPairResult } from "../../lib/types";
 
 const EMPTY_DISABLED_PROVIDERS: ReadonlySet<string> = new Set();
 
@@ -87,6 +92,9 @@ export function NewSessionPicker({
   agentsConfig,
   initialProviderId,
   section = "workspace",
+  remotePeerId,
+  remoteWorkspaceId,
+  remoteMachineName,
   onClose,
 }: {
   workspaceId: string;
@@ -94,16 +102,23 @@ export function NewSessionPicker({
   agentsConfig?: AppConfig["agents"];
   initialProviderId?: string;
   section?: NewSessionSection;
+  remotePeerId?: string;
+  remoteWorkspaceId?: string;
+  remoteMachineName?: string;
   onClose: () => void;
 }) {
-  const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders();
-  const { createTab, spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
+  const { createTab, attachRemoteTab, spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
+  const { refreshPeerInventory } = usePairedWorkspaceInventory();
   const state = useMuxState();
-  const machineInventory = useMachinePlacementInventory();
-  const [machineId, setMachineId] = useState(LOCAL_MACHINE_ID);
+  const machineFilter = useSidebarMachineFilter();
+  const machineInventory = useMachinePlacementInventory(section !== "general");
+  const [machineId, setMachineId] = useState(remotePeerId ?? LOCAL_MACHINE_ID);
   const selectedMachine = machineInventory.choices?.find((machine) => machine.id === machineId);
   const remoteMachineId = machineId === LOCAL_MACHINE_ID ? undefined : machineId;
-  const machineAvailable = !remoteMachineId || selectedMachine?.unavailableReason === null;
+  const targetRemoteWorkspaceId = remoteMachineId && remoteMachineId === remotePeerId ? remoteWorkspaceId : undefined;
+  const targetMachineName = selectedMachine?.name ?? (remoteMachineId === remotePeerId ? remoteMachineName : undefined) ?? "the selected machine";
+  const machineAvailable = !remoteMachineId || (selectedMachine ? selectedMachine.unavailableReason === null : Boolean(remotePeerId));
+  const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders(remoteMachineId);
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const menuProviders = useMemo(
     () => {
@@ -145,8 +160,8 @@ export function NewSessionPicker({
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
 
   const selectedWorkspace = useMemo(
-    () => state.workspaces.find((w) => w.id === workspaceId),
-    [state.workspaces, workspaceId],
+    () => (remotePeerId ? undefined : state.workspaces.find((w) => w.id === workspaceId)),
+    [remotePeerId, state.workspaces, workspaceId],
   );
 
   const seedPair = useCallback((seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => {
@@ -259,7 +274,10 @@ export function NewSessionPicker({
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     const probe = (refresh = false) => {
-      void probeProviderInstallMap(visibleProviders, refresh ? { refresh: true } : undefined).then((map) => {
+      const probeOptions = refresh || remoteMachineId
+        ? { ...(refresh ? { refresh: true } : {}), ...(remoteMachineId ? { peerId: remoteMachineId } : {}) }
+        : undefined;
+      void probeProviderInstallMap(visibleProviders, probeOptions).then((map) => {
         if (!cancelled) {
           installProbedRef.current = true;
           setInstallMap(map);
@@ -281,7 +299,7 @@ export function NewSessionPicker({
       unlisten?.();
       window.removeEventListener("focus", onFocus);
     };
-  }, [visibleProviders]);
+  }, [visibleProviders, remoteMachineId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -348,18 +366,21 @@ export function NewSessionPicker({
     if (!executionMode && disabledProviderIds.has(providerId)) return;
     const targetCwd = section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd;
     const machineCwd = remoteMachineId ? undefined : targetCwd ?? undefined;
-    const beforeRemoteTabSelect = remoteMachineId ? () => setSidebarMachineFilter("all") : undefined;
+    const stayOnPeer = Boolean(remoteMachineId && typeof machineFilter === "object" && machineFilter.peerId === remoteMachineId);
+    const beforeRemoteTabSelect = remoteMachineId && !stayOnPeer ? () => setSidebarMachineFilter("all") : undefined;
     if (executionMode) {
       await finishSpawn(() => remoteMachineId
-        ? spawnAgentTab(workspaceId, providerId, machineCwd, undefined, undefined, preset, undefined, executionMode, undefined, undefined, remoteMachineId, undefined, beforeRemoteTabSelect)
+        ? spawnAgentTab(workspaceId, providerId, machineCwd, undefined, undefined, preset, undefined, executionMode, undefined, undefined, remoteMachineId, targetRemoteWorkspaceId, beforeRemoteTabSelect)
         : spawnAgentTab(workspaceId, providerId, machineCwd, undefined, undefined, preset, undefined, executionMode));
+      if (remoteMachineId) refreshPeerInventory?.(remoteMachineId);
       return;
     }
     if (profile) {
       await finishSpawn(() => remoteMachineId
-        ? spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, undefined, undefined, profile, accountId, remoteMachineId, undefined, beforeRemoteTabSelect)
+        ? spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, undefined, undefined, profile, accountId, remoteMachineId, targetRemoteWorkspaceId, beforeRemoteTabSelect)
         : spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, undefined, undefined, profile,
           ...(accountId ? [accountId] as const : [] as const)));
+      if (remoteMachineId) refreshPeerInventory?.(remoteMachineId);
       return;
     }
     const intent = section === "general" ? "fresh_general" as const : undefined;
@@ -367,18 +388,14 @@ export function NewSessionPicker({
       ? [intent, undefined, undefined, accountId]
       : intent ? [intent] : [];
     await finishSpawn(() => remoteMachineId
-      ? spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, intent, undefined, undefined, accountId, remoteMachineId, undefined, beforeRemoteTabSelect)
+      ? spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, intent, undefined, undefined, accountId, remoteMachineId, targetRemoteWorkspaceId, beforeRemoteTabSelect)
       : spawnAgentTab(workspaceId, providerId, machineCwd, modelId, effortId, preset, ...selectionArgs));
-  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section, remoteMachineId]);
+    if (remoteMachineId) refreshPeerInventory?.(remoteMachineId);
+  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section, remoteMachineId, targetRemoteWorkspaceId, machineFilter, refreshPeerInventory]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
     if (accountProviderId && (accounts.loading || !accounts.snapshot || !accounts.selectedAccountId)) return;
-    if (section === "general" && remoteMachineId) {
-      await finishSpawn(() => spawnAgentTab(workspaceId, choice.providerId, undefined, undefined, undefined, undefined,
-        "fresh_general", undefined, undefined, undefined, remoteMachineId, undefined, () => setSidebarMachineFilter("all")));
-      return;
-    }
     if (location === "cloud") {
       const target = remoteSpawnSelection(menuProviders, choice.providerId, environmentId);
       await runProviderSpawn(target.providerId, undefined, undefined, target.preset, target.executionMode);
@@ -390,7 +407,7 @@ export function NewSessionPicker({
       return;
     }
     await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, undefined, accounts.explicitAccountId ?? undefined);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId, accounts.explicitAccountId, section, remoteMachineId, finishSpawn, spawnAgentTab, workspaceId]);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId, accounts.explicitAccountId]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")
@@ -412,10 +429,34 @@ export function NewSessionPicker({
       plannerModel: plannerProfile.profile ? plannerProfile.model || undefined : choice.plannerModelId,
       plannerReasoningEffort: plannerProfile.profile ? plannerProfile.effort || undefined : choice.plannerEffortId,
       plannerLaunchProfile: plannerProfile.profile || undefined,
-      workspaceId,
+      workspaceId: targetRemoteWorkspaceId ?? workspaceId,
     };
     const template = templates.startRequest();
     if (!template) {
+      if (remoteMachineId && targetRemoteWorkspaceId) {
+        await finishSpawn(async () => {
+          const transport = createOrchestrationTransport(daemonTransportForPeer(remoteMachineId));
+          const result = await transport.mux_create_orchestration_pair({ params: {
+            workspace_id: targetRemoteWorkspaceId,
+            orchestrator_agent: pair.orchestratorAgent,
+            orchestrator_model: pair.orchestratorModel,
+            orchestrator_reasoning_effort: pair.orchestratorReasoningEffort,
+            orchestrator_launch_profile: pair.orchestratorLaunchProfile,
+            planner_agent: pair.plannerAgent,
+            planner_model: pair.plannerModel,
+            planner_reasoning_effort: pair.plannerReasoningEffort,
+            planner_launch_profile: pair.plannerLaunchProfile,
+          } }) as OrchestrationPairResult;
+          refreshPeerInventory?.(remoteMachineId);
+          const listed = await remoteWorkspaceManagementPort.listPeerTabs(remoteMachineId).catch(() => null);
+          const orchestrator = listed?.tabs.find((candidate) => candidate.id === result.orchestrator_tab_id);
+          if (listed && orchestrator && attachRemoteTab) {
+            attachRemoteTab(workspaceId, listed, orchestrator.workspace_id ? orchestrator : { ...orchestrator, workspace_id: targetRemoteWorkspaceId });
+          }
+          return { workspaceId, tabId: `mesh:${remoteMachineId}/${result.orchestrator_tab_id}` };
+        });
+        return;
+      }
       await finishSpawn(async () => {
         const result = await createOrchestrationPair(pair);
         return { workspaceId, tabId: result.orchestrator_tab_id };
@@ -454,16 +495,33 @@ export function NewSessionPicker({
     } finally {
       setBusy(false);
     }
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile, orchestratorAccountId, plannerAccountId, templates, selectTabByTab, onClose, upsertToast]);
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile, orchestratorAccountId, plannerAccountId, templates, selectTabByTab, onClose, upsertToast, remoteMachineId, targetRemoteWorkspaceId, refreshPeerInventory, attachRemoteTab]);
 
   const runTerminalSpawn = useCallback(async () => {
     if (choice.mode !== "terminal") return;
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
+    if (remoteMachineId && targetRemoteWorkspaceId) {
+      await finishSpawn(async () => {
+        const created = await remoteWorkspaceManagementPort.createTerminalTab(remoteMachineId, targetRemoteWorkspaceId, targetCwd, choice.shellProfile);
+        refreshPeerInventory?.(remoteMachineId);
+        if (attachRemoteTab) {
+          const listed = await remoteWorkspaceManagementPort.listPeerTabs(remoteMachineId).catch(() => null);
+          const match = listed?.tabs.find((candidate) => candidate.id === created.id);
+          const peer = listed ?? { peer_id: remoteMachineId, peer_name: targetMachineName, tabs: [] };
+          const tab = match
+            ? (match.workspace_id ? match : { ...match, workspace_id: targetRemoteWorkspaceId })
+            : { id: created.id, pty_id: created.id, tab_type: "Terminal" as const, title: created.title, cwd: targetCwd ?? null, workspace_id: targetRemoteWorkspaceId };
+          attachRemoteTab(workspaceId, peer, tab);
+        }
+        return { workspaceId, tabId: `mesh:${remoteMachineId}/${created.id}` };
+      });
+      return;
+    }
     await finishSpawn(async () => {
       const created = await createTab(workspaceId, targetCwd, choice.shellProfile);
       return created ? { workspaceId, tabId: created.id } : null;
     });
-  }, [choice, createTab, finishSpawn, selectedWorkspace?.cwd, workspaceCwd, workspaceId]);
+  }, [choice, createTab, finishSpawn, selectedWorkspace?.cwd, workspaceCwd, workspaceId, remoteMachineId, targetRemoteWorkspaceId, refreshPeerInventory, attachRemoteTab, targetMachineName]);
 
   const handleStart = useCallback(() => {
     if (busy || dismissing || selectedWorkspace?.cwd_missing) return;
@@ -511,7 +569,6 @@ export function NewSessionPicker({
 
   const remoteCanStart = location === "cloud" && remote?.remote_task?.availability.status === "available"
     && remote.remote_task.environments.some(environment => environment.id === environmentId);
-  const peerGeneral = section === "general" && Boolean(remoteMachineId);
   const selectedTeamMachine = templates.remotePeer
     ? templates.placement.machines?.find((machine) => machine.id === templates.remotePeer?.id)
     : undefined;
@@ -519,7 +576,7 @@ export function NewSessionPicker({
   const canStart = choice.mode === "terminal"
     ? true
     : choice.mode === "single"
-      ? machineAvailable && (peerGeneral || (location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady))
+      ? machineAvailable && (location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady)
         && (!accountProviderId || (!accounts.loading && Boolean(accounts.snapshot && accounts.selectedAccountId)))
       : choice.orchestratorProviderId.length > 0
         && choice.plannerProviderId.length > 0
@@ -538,11 +595,11 @@ export function NewSessionPicker({
     ? blockerView(templates.blocker, (id) => visibleProviders.find((provider) => provider.id === id)?.display_name ?? id)
     : null;
   const confirmLabel = choice.mode === "terminal"
-    ? "Open terminal"
+    ? remoteMachineId ? `Open terminal on ${targetMachineName}` : "Open terminal"
     : choice.mode === "pair"
-      ? templates.remotePeer ? `Start Team on ${templates.remotePeer.name}` : "Start team"
+      ? templates.remotePeer ? `Start Team on ${templates.remotePeer.name}` : remoteMachineId ? `Start team on ${targetMachineName}` : "Start team"
       : remoteMachineId
-        ? section === "general" ? `Start General session on ${selectedMachine?.name ?? "the selected machine"}` : `Start agent on ${selectedMachine?.name ?? "the selected machine"}`
+        ? `Start agent on ${targetMachineName}`
         : "Start session";
 
   return createPortal(
@@ -592,9 +649,6 @@ export function NewSessionPicker({
           style={teamForm ? { minHeight: 0, flexShrink: 1, overflowY: "auto", overflowX: "hidden" } : undefined}>
           <div ref={modeContentRef} className={teamForm ? "pb-4" : undefined}>
             <div key={choice.mode} className="picker-mode-panel">
-              {choice.mode === "single" && section === "general" && remoteMachineId && <p role="status" className="mt-2 text-[11px] text-[var(--ct-muted-fg)]">
-                Uses {selectedMachine?.name ?? "the selected machine"}'s General defaults.
-              </p>}
               {choice.mode === "single" && !remoteMachineId && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
                 Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
                   const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
@@ -605,11 +659,11 @@ export function NewSessionPicker({
                   {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
                 </select>
               </label>}
-              {choice.mode === "single" && !(section === "general" && remoteMachineId) && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
+              {choice.mode === "single" && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
                 onLocation={next => setExecution({providerId: localId, location: next, environmentId})}
                 onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}
                 onRefresh={() => { void refreshRemoteProviders(); }} />}
-              {choice.mode === "single" && !(section === "general" && remoteMachineId) ? (
+              {choice.mode === "single" ? (
                 <><OrchestrationRoleRow
                   label="Agent"
                   modelControls={location === "local" && !selectedProvider?.agent_runtime?.launchProfiles}
@@ -645,6 +699,7 @@ export function NewSessionPicker({
               ) : choice.mode === "terminal" ? (
                 <TerminalModePanel
                   shellProfile={choice.shellProfile}
+                  peerId={remoteMachineId}
                   disabled={busy}
                   onShellChange={(shellProfile) => setChoice({ mode: "terminal", ...(shellProfile ? { shellProfile } : {}) })}
                 />
