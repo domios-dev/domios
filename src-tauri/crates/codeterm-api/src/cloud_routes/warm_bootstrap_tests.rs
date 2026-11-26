@@ -6,7 +6,7 @@ use axum::{
 };
 use codeterm_service_core::{
     mesh::{
-        account_mesh::{AccountMeshState, AccountPresence},
+        account_mesh::AccountPresence,
         crown::{generate_peer_keypair, sign_request_with_origin, AuthenticatedOrigin},
         types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION},
     },
@@ -106,15 +106,15 @@ async fn peer_warm_bootstrap_enforces_authority_provenance_idempotency_and_exclu
     crate::register_api_extensions();
     let temp = tempfile::tempdir().unwrap();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
-    fixture.svc.mem.seed_bundled_if_needed().unwrap();
+    let state = crate::test_support::app_state(&fixture);
+    state.svc.mem.seed_bundled_if_needed().unwrap();
     let controller = Arc::new(CloudMachineController::new(
         CloudMachineStore::new(temp.path().join("mesh").join("cloud_machines.json")),
         "cloud-target".into(),
         Arc::new(SystemClock),
     ));
-    fixture.svc.install_cloud_machines_for_test(controller);
+    state.svc.install_cloud_machines_for_test(controller);
 
-    let state = crate::test_support::app_state(&fixture);
     state.config.lock().api.token = Some("local-owner-secret".into());
 
     let target_instance_id = state.mesh.lock().status().instance_id.clone();
