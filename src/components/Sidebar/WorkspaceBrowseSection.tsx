@@ -30,6 +30,7 @@ interface WorkspaceBrowseSectionProps {
   onSelectViewer: (viewerId: string) => void;
   onRenameViewer: (tab: Tab, title: string) => void;
   onCloseViewer: (tabId: string, title: string, ownerWorkspaceId?: string) => void;
+  onRenameTeam?: (peerId: string, teamId: string, name: string) => void | Promise<void>;
   onCloseTeam?: (target: RemoteTeamCloseTarget) => void;
   onOpenCanvas?: () => void;
   onNewSession?: () => void;
@@ -39,7 +40,7 @@ interface WorkspaceBrowseSectionProps {
 
 export function WorkspaceBrowseSection({
   workspace: { workspace, peerId, teams, tabs, planTitles },
-  selectedViewerId, attachedTabs, touchMode, closingTeamKeys, onSelectViewer, onRenameViewer, onCloseViewer, onCloseTeam, onOpenCanvas, onNewSession, newSessionDisabledReason = null, sidebarActionText = "text-[11px]",
+  selectedViewerId, attachedTabs, touchMode, closingTeamKeys, onSelectViewer, onRenameViewer, onCloseViewer, onRenameTeam, onCloseTeam, onOpenCanvas, onNewSession, newSessionDisabledReason = null, sidebarActionText = "text-[11px]",
 }: WorkspaceBrowseSectionProps) {
   const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
   const machines = new Map(generals.map(machine => [machine.peerId, machine]));
@@ -152,6 +153,10 @@ export function WorkspaceBrowseSection({
               planSidePanelStore.open({ remoteTeam, planId: planId ?? "" });
             }
           } : undefined}
+          onRenameTeam={team && teamMenu.renameTeam.visible && !teamMenu.renameTeam.disabled && onRenameTeam
+            ? (_displayId, nextName) => onRenameTeam(peerId, team.id, nextName)
+            : undefined}
+          renameTeamDisabledReason={teamMenu.renameTeam.visible && teamMenu.renameTeam.disabled ? teamMenu.renameTeam.reason : null}
           onCloseTeam={teamCloseTarget && !teamMenu.closeTeam.disabled && onCloseTeam
             ? () => onCloseTeam(teamCloseTarget)
             : undefined}

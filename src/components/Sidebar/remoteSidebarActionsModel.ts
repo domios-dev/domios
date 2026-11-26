@@ -8,6 +8,7 @@ export interface RemoteActionDecision {
 
 export interface RemoteTeamMenuDecision {
   canSaveTemplate: boolean;
+  renameTeam: RemoteActionDecision;
   closeTeam: RemoteActionDecision;
 }
 
@@ -102,12 +103,14 @@ export function remoteTeamMenuActions({
   if (!hasTeam || !ownedByPeer) {
     return {
       canSaveTemplate: false,
+      renameTeam: { visible: false, disabled: true, reason: null },
       closeTeam: { visible: false, disabled: true, reason: null },
     };
   }
   const eligibility = remotePeerActionEligibility(availability);
   return {
     canSaveTemplate: false,
+    renameTeam: { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason },
     closeTeam: { visible: true, disabled: !eligibility.allowed, reason: eligibility.reason },
   };
 }

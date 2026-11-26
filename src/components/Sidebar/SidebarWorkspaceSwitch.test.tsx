@@ -934,6 +934,9 @@ it("creates a remote workspace, closes a remote Team without Save as template, a
   await act(async () => teamTrigger.click());
   const teamMenuButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="team-menu"] [role="menuitem"]')];
   expect(teamMenuButtons.some(button => button.textContent?.includes("Save as template"))).toBe(false);
+  const renameTeamButton = document.querySelector<HTMLButtonElement>('[data-testid="team-menu-rename"]')!;
+  expect(renameTeamButton).toBeTruthy();
+  expect(renameTeamButton.getAttribute("aria-disabled")).toBeNull();
   const closeTeamButton = teamMenuButtons.find(button => button.textContent?.includes("Close Team"))!;
   expect(closeTeamButton).toBeTruthy();
   expect(closeTeamButton.getAttribute("aria-disabled")).toBeNull();
@@ -1016,6 +1019,10 @@ it.each([
 
   const teamTrigger = host.querySelector<HTMLButtonElement>('[data-testid="team-menu-trigger"]')!;
   await act(async () => teamTrigger.click());
+  const renameTeam = document.querySelector<HTMLButtonElement>('[data-testid="team-menu-rename"]')!;
+  expect(renameTeam.textContent).toContain("Rename");
+  expect(renameTeam.textContent).toContain(label);
+  expect(renameTeam.getAttribute("aria-disabled")).toBe("true");
   const closeTeam = document.querySelector<HTMLButtonElement>('[data-testid="team-menu-close"]')!;
   expect(closeTeam.textContent).toContain("Close Team");
   expect(closeTeam.textContent).toContain(label);

@@ -980,6 +980,7 @@ export const Sidebar = memo(function Sidebar({
                         sidebarActionText={sidebarActionText}
                         onRenameViewer={(tab, title) => renameTab(tab.workspace_id || selectedWorkspace.id, tab.id, title)}
                         onCloseViewer={(tabId, title, ownerWorkspaceId) => closeObservedTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
+                        onRenameTeam={remoteWorkspace.renameRemoteTeam}
                         onCloseTeam={(target) => {
                           const targetKey = selectedWorkspaceKey;
                           void remoteTeamClose.request(target, () => selectedWorkspaceKeyRef.current === targetKey);

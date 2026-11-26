@@ -89,26 +89,51 @@ pub(crate) fn map_close_team_error(error: String) -> (StatusCode, String) {
     (status, error)
 }
 
-fn require_caller_tab_id(
+pub(crate) fn rename_team_caller(
     headers: &crate::auth::ActorHeaders,
-) -> Result<String, (StatusCode, String)> {
-    crate::tab_routes::caller_tab_header(headers).ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            "X-CodeTerm-Tab-Id is required".into(),
-        )
-    })
+) -> Result<codeterm_service_core::service::TeamMutationCaller, (StatusCode, String)> {
+    if let Some(caller_tab_id) =
+        crate::tab_routes::caller_tab_header(headers).filter(|tab_id| !tab_id.trim().is_empty())
+    {
+        return Ok(codeterm_service_core::service::TeamMutationCaller::AgentTab(caller_tab_id));
+    }
+    match &headers.actor {
+        crate::auth::RequestActor::Owner => {
+            Ok(codeterm_service_core::service::TeamMutationCaller::Human)
+        }
+        _ => Err((
+            StatusCode::FORBIDDEN,
+            "Caller is not authorized to rename this Team".into(),
+        )),
+    }
+}
+
+pub(crate) fn rename_team_with_caller(
+    state: &AppState,
+    team_id: String,
+    caller: codeterm_service_core::service::TeamMutationCaller,
+    body: RenameTeamBody,
+) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
+    validate_name(&body.name)?;
+    state
+        .svc
+        .rename_team(&team_id, body.name, caller)
+        .map_err(map_rename_error)
 }
 
 fn rename_team_adapter(
     headers: &crate::auth::ActorHeaders,
     team_id: String,
     body: RenameTeamBody,
-    rename: impl FnOnce(String, String, String) -> Result<codeterm_types::team::Team, String>,
+    rename: impl FnOnce(
+        String,
+        codeterm_service_core::service::TeamMutationCaller,
+        String,
+    ) -> Result<codeterm_types::team::Team, String>,
 ) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
     validate_name(&body.name)?;
-    let caller_tab_id = require_caller_tab_id(headers)?;
-    rename(team_id, caller_tab_id, body.name).map_err(map_rename_error)
+    let caller = rename_team_caller(headers)?;
+    rename(team_id, caller, body.name).map_err(map_rename_error)
 }
 
 pub async fn rename_team(
@@ -117,13 +142,8 @@ pub async fn rename_team(
     Path(team_id): Path<String>,
     Json(body): Json<RenameTeamBody>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
-    let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_tab_id, name| {
-        crate::mux_team::mux_rename_team_service_core(
-            &state.svc,
-            team_id,
-            name,
-            Some(caller_tab_id),
-        )
+    let team = rename_team_adapter(&headers, team_id, body, |team_id, caller, name| {
+        state.svc.rename_team(&team_id, name, caller)
     })?;
     Ok(Json(team))
 }

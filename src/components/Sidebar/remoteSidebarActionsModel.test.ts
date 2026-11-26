@@ -71,22 +71,26 @@ describe("remote sidebar actions decision model", () => {
     }
   });
 
-  it("never exposes local Save as template for remote Teams and scopes Close Team to peer-owned Teams", () => {
+  it("never exposes local Save as template for remote Teams and scopes Rename and Close Team to peer-owned Teams", () => {
     expect(remoteTeamMenuActions({ hasTeam: true, ownedByPeer: true, availability: "online" })).toEqual({
       canSaveTemplate: false,
+      renameTeam: { visible: true, disabled: false, reason: null },
       closeTeam: { visible: true, disabled: false, reason: null },
     });
     expect(remoteTeamMenuActions({ hasTeam: true, ownedByPeer: false, availability: "online" })).toEqual({
       canSaveTemplate: false,
+      renameTeam: { visible: false, disabled: true, reason: null },
       closeTeam: { visible: false, disabled: true, reason: null },
     });
     expect(remoteTeamMenuActions({ hasTeam: false, ownedByPeer: false, availability: "online" })).toEqual({
       canSaveTemplate: false,
+      renameTeam: { visible: false, disabled: true, reason: null },
       closeTeam: { visible: false, disabled: true, reason: null },
     });
     for (const [availability, label] of UNAVAILABLE_STATES) {
       expect(remoteTeamMenuActions({ hasTeam: true, ownedByPeer: true, availability })).toEqual({
         canSaveTemplate: false,
+        renameTeam: { visible: true, disabled: true, reason: label },
         closeTeam: { visible: true, disabled: true, reason: label },
       });
     }

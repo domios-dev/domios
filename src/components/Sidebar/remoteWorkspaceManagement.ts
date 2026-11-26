@@ -4,6 +4,7 @@ import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { authoredCause } from "../../lib/describeError";
 import type { Notice } from "../../lib/notices";
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
+import { createOrchestrationTransport } from "../../lib/transport/orchestration";
 import { createTabsTransport } from "../../lib/transport/tabs";
 import type { Tab } from "../../lib/types";
 import type {
@@ -60,6 +61,7 @@ export function findObservedTabOwnerWorkspaceId(
 
 export interface RemoteWorkspaceManagementPort {
   renameWorkspace(peerId: string, workspaceId: string, name: string): Promise<void>;
+  renameTeam(peerId: string, teamId: string, name: string): Promise<void>;
   createTerminalTab(
     peerId: string,
     workspaceId: string,
@@ -73,6 +75,10 @@ export const remoteWorkspaceManagementPort: RemoteWorkspaceManagementPort = {
   async renameWorkspace(peerId, workspaceId, name) {
     const transport = createTabsTransport(daemonTransportForPeer(peerId));
     await transport.mux_rename_workspace({ workspaceId, name });
+  },
+  async renameTeam(peerId, teamId, name) {
+    const transport = createOrchestrationTransport(daemonTransportForPeer(peerId));
+    await transport.mux_rename_team({ teamId, name });
   },
   async createTerminalTab(peerId, workspaceId, cwd, shell) {
     const transport = createTabsTransport(daemonTransportForPeer(peerId));
@@ -238,7 +244,19 @@ export function useRemoteWorkspaceManagement({
     }
   }, [attachRemoteTab, availabilityForPeer, generalWorkspaceId, machineNameForPeer, notify, port, refreshPeerInventory]);
 
-  return { renameRemoteWorkspace, createRemoteTerminalTab };
+  const renameRemoteTeam = useCallback(async (peerId: string, teamId: string, name: string): Promise<void> => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const machineName = machineNameForPeer(peerId);
+    const eligibility = remotePeerActionEligibility(availabilityForPeer(peerId));
+    if (!eligibility.allowed) {
+      throw new Error(`${machineName} is ${eligibility.reason ?? "offline"}.`);
+    }
+    await port.renameTeam(peerId, teamId, trimmed);
+    refreshPeerInventory?.(peerId);
+  }, [availabilityForPeer, machineNameForPeer, port, refreshPeerInventory]);
+
+  return { renameRemoteWorkspace, renameRemoteTeam, createRemoteTerminalTab };
 }
 
 export function remoteWorkspaceCloseInventoryNotice(

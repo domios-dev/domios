@@ -260,6 +260,15 @@ describe("remote workspace create and team close hooks", () => {
       { signal: undefined, callerTabId: undefined },
     );
 
+    transportMocks.json.mockResolvedValueOnce({ id: "team-remote", name: "Renamed Crew" });
+    await remoteWorkspaceManagementPort.renameTeam("peer-b", "team-remote", "Renamed Crew");
+    expect(transportMocks.daemonTransportForPeer).toHaveBeenLastCalledWith("peer-b");
+    expect(transportMocks.json).toHaveBeenLastCalledWith(
+      "POST",
+      "/api/teams/team-remote/rename",
+      expect.objectContaining({ name: "Renamed Crew" }),
+    );
+
     transportMocks.json.mockResolvedValueOnce({ id: "term-9", title: "zsh" });
     const created = await remoteWorkspaceManagementPort.createTerminalTab("peer-b", "ws-remote", "/srv/app", "zsh");
     expect(created).toEqual({ id: "term-9", title: "zsh" });
@@ -277,6 +286,7 @@ describe("remote workspace create and team close hooks", () => {
     const refreshed: string[] = [];
     const port: RemoteWorkspaceManagementPort = {
       renameWorkspace: vi.fn(async () => {}),
+      renameTeam: vi.fn(async () => {}),
       createTerminalTab: vi.fn(async () => ({ id: "term-9", title: "bash" })),
       listPeerTabs: vi.fn(async () => ({
         peer_id: "peer-b",
@@ -304,16 +314,20 @@ describe("remote workspace create and team close hooks", () => {
     try {
       await act(async () => root.render(<Harness />));
       expect(await hook.renameRemoteWorkspace("peer-b", "ws-remote", "Renamed")).toBe(false);
+      await expect(hook.renameRemoteTeam("peer-b", "team-remote", "Renamed Crew")).rejects.toThrow("Desk B is offline.");
       expect(await hook.createRemoteTerminalTab("peer-b", "ws-remote", "/srv/app")).toBeNull();
       expect(port.renameWorkspace).not.toHaveBeenCalled();
+      expect(port.renameTeam).not.toHaveBeenCalled();
       expect(port.createTerminalTab).not.toHaveBeenCalled();
       expect(notices).toHaveLength(2);
 
       availability = "online";
       expect(await hook.renameRemoteWorkspace("peer-b", "ws-remote", "Renamed")).toBe(true);
+      await hook.renameRemoteTeam("peer-b", "team-remote", "Renamed Crew");
+      expect(port.renameTeam).toHaveBeenCalledWith("peer-b", "team-remote", "Renamed Crew");
       const created = await hook.createRemoteTerminalTab("peer-b", "ws-remote", "/srv/app");
       expect(created).toEqual({ tabId: "mesh:peer-b/term-9" });
-      expect(refreshed).toEqual(["peer-b", "peer-b"]);
+      expect(refreshed).toEqual(["peer-b", "peer-b", "peer-b"]);
       expect(attached).toEqual([{
         ws: "local-general",
         peerId: "peer-b",
