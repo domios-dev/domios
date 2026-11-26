@@ -3,6 +3,64 @@ use crate::account_mesh::{account_id, cloud_enrollment::*, key::jcs_sha256_hex, 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::json;
 
+#[tokio::test]
+async fn cloud_publication_keeps_newer_revocation_on_apply_and_restore() {
+    let mut harness = super::support::Harness::new().await;
+    let key = InstallationKey::generate();
+    *harness.keys.0.lock().unwrap() = Some(key.to_secret());
+    let issuer = Issuer::new();
+    let account = account_id("owner");
+    let membership = issuer.sign(&Issuer::membership_payload(
+        "owner",
+        &key.key_id(),
+        1,
+        1,
+        START,
+    ));
+    let snapshot = |revision: u64, active: bool| {
+        let mut row = super::support::row(INSTALLATION, revision, None);
+        row.key_id = key.key_id();
+        row.active = active;
+        let revoked = if active { vec![] } else { vec![INSTALLATION] };
+        issuer.sign(&json!({"schema_version":1, "iss":"domios-mesh-registry",
+            "aud":{"project":PROJECT, "env":"test"}, "policy_epoch":EPOCH, "account_id":account,
+            "revision":revision, "issued_at":START, "members":[row], "revoked_installations":revoked}))
+    };
+    let issued = snapshot(1, true);
+    harness
+        .mesh
+        .publish_cloud_membership(&account, &membership, &issued)
+        .await
+        .unwrap();
+    assert!(harness.state().current_membership(START).is_some());
+    harness.restart().await;
+    harness
+        .mesh
+        .publish_cloud_membership(&account, &membership, &issued)
+        .await
+        .unwrap();
+    assert!(harness.state().current_membership(START).is_some());
+    assert!(harness
+        .mesh
+        .receive_registry_snapshot(&snapshot(2, false))
+        .await
+        .unwrap());
+    for restored in [false, true] {
+        if restored {
+            harness.restart().await;
+        }
+        assert!(harness
+            .mesh
+            .publish_cloud_membership(&account, &membership, &issued)
+            .await
+            .is_err());
+        let state = harness.state();
+        assert!(state.current_membership(START).is_none());
+        assert!(state.revoked_installations.contains(INSTALLATION));
+        assert_eq!(state.signed_registry.as_ref().unwrap().revision, 2);
+    }
+}
+
 #[test]
 fn apply_requires_matching_controller_local_identity_session_and_both_issuer_signatures() {
     let issuer = Issuer::new();
@@ -43,9 +101,15 @@ fn apply_requires_matching_controller_local_identity_session_and_both_issuer_sig
     };
     let account = account_id("owner");
     let membership = issuer.sign(&Issuer::membership_payload("owner", &key_id, 1, 1, START));
+    let mut slot = super::support::row(INSTALLATION, 1, None);
+    slot.key_id = key_id.clone();
+    let signed_registry = issuer.sign(&json!({"schema_version":1,"iss":"domios-mesh-registry",
+        "aud":{"project":PROJECT,"env":"test"},"policy_epoch":EPOCH,"account_id":account,
+        "revision":1,"issued_at":START,"members":[slot],"revoked_installations":[]}));
     let binding=issuer.sign(&json!({"schema_version":1,"iss":"domios-cloud-enrollment","aud":{"project":PROJECT,"env":"test"},
         "policy_epoch":EPOCH,"account_id":account,"controller_key":URL_SAFE_NO_PAD.encode(remote),"body":body,
-        "membership_sha256":jcs_sha256_hex(&membership),"issued_at":START,"expires_at":START+300}));
+        "membership_sha256":jcs_sha256_hex(&membership),"signed_registry_sha256":jcs_sha256_hex(&signed_registry),
+        "issued_at":START,"expires_at":START+300}));
     let msg = enrollment_message(PROJECT, &account, &body).unwrap();
     let mut apply = Apply {
         request: EnrollmentRequest {
@@ -55,6 +119,7 @@ fn apply_requires_matching_controller_local_identity_session_and_both_issuer_sig
         reply: EnrollmentReply {
             membership,
             binding,
+            signed_registry,
         },
     };
     assert!(verify_apply(&apply, &expected, &trust, START).is_some());
@@ -80,6 +145,9 @@ fn apply_requires_matching_controller_local_identity_session_and_both_issuer_sig
     .is_none());
     assert!(verify_apply(&apply, &expected, &trust, START + 300).is_none());
     let original = apply.clone();
+    apply.reply.signed_registry.signature = URL_SAFE_NO_PAD.encode([0; 64]);
+    assert!(verify_apply(&apply, &expected, &trust, START).is_none());
+    apply = original.clone();
     apply.request.controller_signature = cloud.sign_cloud_enrollment(&msg);
     assert!(verify_apply(&apply, &expected, &trust, START).is_none());
     apply = original.clone();

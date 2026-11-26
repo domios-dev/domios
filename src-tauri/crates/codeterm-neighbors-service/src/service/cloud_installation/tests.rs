@@ -15,15 +15,17 @@ fn persisted_enrollment_disables_reinjected_creation_secret_even_if_membership_e
     assert!(bound
         .authorize_bootstrap_controller(&[0; 32], &[1; 32])
         .is_err());
+    let invalid = DetachedGrant {
+        alg: "Ed25519".into(),
+        key_id: "invalid".into(),
+        payload: String::new(),
+        signature: String::new(),
+    };
     let enrolled = Stored::Enrolled {
         account_id: "foreign".into(),
         discovery: bound.0.discovery.clone(),
-        membership: DetachedGrant {
-            alg: "Ed25519".into(),
-            key_id: "invalid".into(),
-            payload: String::new(),
-            signature: String::new(),
-        },
+        membership: invalid.clone(),
+        signed_registry: invalid,
     };
     CloudInstallation::persist(&bound.0.store, root.path(), &enrolled).unwrap();
     drop(bound);
