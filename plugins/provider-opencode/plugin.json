@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.14.38",
+  "version": "1.14.39",
   "minCodeterm": "1.23.3",
   "hostApi": 2,
   "capabilities": {
@@ -378,6 +378,9 @@
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",
+  "cliBinaryAliases": [
+    "opencode-cli"
+  ],
   "badge": "free tokens",
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
@@ -529,25 +532,41 @@
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",
     "linux": "curl -fsSL https://opencode.ai/install | bash",
-    "windows": "npm install -g opencode-ai"
+    "windows": "if (Get-Command npm -ErrorAction SilentlyContinue) { npm install -g opencode-ai } else { $ErrorActionPreference = 'Stop'; $repo = 'https://github.com/anomalyco/opencode/releases'; $arch = 'x64-baseline'; if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }; $asset = \"opencode-windows-$arch.zip\"; $v = $null; try { $pkg = Invoke-RestMethod -Uri 'https://registry.npmjs.org/opencode-ai/latest' -TimeoutSec 15; if ($pkg.version -match '^1\\.\\d+\\.\\d+$') { $null = Invoke-WebRequest -Method Head -Uri \"$repo/download/v$($pkg.version)/$asset\" -UseBasicParsing -TimeoutSec 15; $v = $pkg.version } } catch {}; if (-not $v) { $rels = Invoke-RestMethod -Uri 'https://api.github.com/repos/anomalyco/opencode/releases?per_page=100' -Headers @{ 'User-Agent' = 'domios' } -TimeoutSec 30; $rel = $rels | Where-Object { $_.tag_name -match '^v1\\.\\d+\\.\\d+$' } | Select-Object -First 1; if ($rel) { $v = $rel.tag_name.TrimStart('v') } }; if (-not $v) { throw 'Could not determine latest OpenCode v1 release' }; $dir = Join-Path $HOME '.opencode\\bin'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $zip = Join-Path $env:TEMP \"codeterm-opencode-$v.zip\"; try { Invoke-WebRequest -Uri \"$repo/download/v$v/$asset\" -OutFile $zip -UseBasicParsing; Expand-Archive -Path $zip -DestinationPath $dir -Force } finally { Remove-Item $zip -ErrorAction SilentlyContinue }; $userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if (-not $userPath -or -not (($userPath -split ';') -contains $dir)) { $nextPath = $dir; if ($userPath) { $nextPath = \"$userPath;$dir\" }; [Environment]::SetEnvironmentVariable('Path', $nextPath, 'User') } }"
   },
   "cliInstallDirs": {
     "macos": [
       "$OPENCODE_INSTALL_DIR",
       "~/.opencode/bin",
-      "$XDG_BIN_DIR"
+      "$XDG_BIN_DIR",
+      "/Applications/OpenCode.app/Contents/Resources",
+      "/Applications/OpenCode.app/Contents/MacOS",
+      "~/Applications/OpenCode.app/Contents/Resources",
+      "~/Applications/OpenCode.app/Contents/MacOS",
+      "~/Library/Application Support/ai.opencode.desktop/cli/*",
+      "~/Library/Application Support/OpenCode/cli/*"
     ],
     "linux": [
       "$OPENCODE_INSTALL_DIR",
       "~/.opencode/bin",
-      "$XDG_BIN_DIR"
+      "$XDG_BIN_DIR",
+      "/opt/OpenCode/resources",
+      "~/.config/ai.opencode.desktop/cli/*",
+      "~/.config/OpenCode/cli/*"
     ],
     "windows": [
       "%OPENCODE_INSTALL_DIR%",
       "%NPM_CONFIG_PREFIX%",
       "%APPDATA%/npm",
       "~/AppData/Roaming/npm",
-      "~/.opencode/bin"
+      "~/.opencode/bin",
+      "%LOCALAPPDATA%/Programs/ai.opencode.desktop/resources",
+      "%LOCALAPPDATA%/Programs/OpenCode/resources",
+      "%LOCALAPPDATA%/Programs/@opencodedesktop/resources",
+      "%APPDATA%/ai.opencode.desktop/cli/*",
+      "%APPDATA%/OpenCode/cli/*",
+      "%LOCALAPPDATA%/OpenCode",
+      "%ProgramFiles%/OpenCode"
     ]
   },
   "updater": {
@@ -580,7 +599,8 @@
   "permissions": {
     "subprocess": {
       "allow": [
-        "opencode"
+        "opencode",
+        "opencode-cli"
       ]
     },
     "network": {

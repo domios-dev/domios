@@ -1048,26 +1048,6 @@ impl AgentProvider for JsProvider {
         self.manifest.icon_color.as_deref()
     }
 
-    fn cli_binary(&self) -> Option<&str> {
-        self.manifest.cli_binary.as_deref()
-    }
-
-    fn install_command(&self, platform: &str) -> Option<String> {
-        self.manifest.installer.get(platform).cloned()
-    }
-
-    fn cli_install_dirs(&self, platform: &str) -> Vec<PathBuf> {
-        self.manifest.cli_install_dirs(platform)
-    }
-
-    fn badge(&self) -> Option<&str> {
-        self.manifest.badge.as_deref()
-    }
-
-    fn update_command(&self, platform: &str) -> Option<String> {
-        self.manifest.updater.get(platform).cloned()
-    }
-
     fn provider_self_update_capability(
         &self,
     ) -> Option<crate::provider_self_update::ProviderSelfUpdateCapability> {

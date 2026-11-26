@@ -86,3 +86,40 @@ fn updater_arguments_are_not_command_prerequisites() {
         assert_eq!(command_binaries(command), expected, "{command}");
     }
 }
+
+#[test]
+fn conditional_powershell_installer_with_builtin_fallback_has_no_missing_prerequisites() {
+    let native_fallback = "if (Get-Command npm -ErrorAction SilentlyContinue) { npm install -g opaque-pkg } else { $dir = Join-Path $HOME '.opaque\\bin'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; Invoke-WebRequest -Uri 'https://example.test/opaque.zip' -OutFile $zip -UseBasicParsing; Expand-Archive -Path $zip -DestinationPath $dir -Force }";
+    assert_eq!(command_binaries(native_fallback), Vec::<String>::new());
+
+    let error_only_else =
+        "if (Get-Command npm -ErrorAction SilentlyContinue) { npm install -g opaque-pkg } else { Write-Error 'npm required'; exit 1 }";
+    assert_eq!(command_binaries(error_only_else), vec!["npm"]);
+
+    let external_tool_else =
+        "if (Get-Command npm -ErrorAction SilentlyContinue) { npm install -g opaque-pkg } else { $ErrorActionPreference = 'Stop'; winget install Opaque.Tool }";
+    assert_eq!(command_binaries(external_tool_else), vec!["npm", "winget"]);
+}
+
+#[test]
+fn bundled_opencode_windows_installer_is_conditional_and_npm_free() {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-opencode/plugin.json"
+    )))
+    .unwrap();
+    let windows = manifest["installer"]["windows"].as_str().unwrap();
+    assert!(windows.contains("npm install -g opencode-ai"));
+    assert!(windows.contains("https://github.com/anomalyco/opencode/releases"));
+    assert_eq!(command_binaries(windows), Vec::<String>::new());
+}
+
+#[test]
+fn setup_hints_include_official_install_routes_for_common_runners() {
+    assert!(setup_hint("npm").contains("https://nodejs.org/en/download"));
+    assert!(setup_hint("npx").contains("https://nodejs.org/en/download"));
+    assert!(setup_hint("node").contains("https://nodejs.org/en/download"));
+    assert!(setup_hint("brew").contains("https://brew.sh"));
+    assert!(setup_hint("winget")
+        .contains("https://learn.microsoft.com/windows/package-manager/winget/"));
+}

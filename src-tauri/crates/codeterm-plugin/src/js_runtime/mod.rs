@@ -37,11 +37,11 @@ mod webhook;
 
 pub use agent_commands::{catalog_from_manifest, JsAgentCommandHandler};
 pub use bin_resolve::{
-    expand_install_dir, expand_install_dirs, forget_resolved_bin, forget_resolved_bins,
-    merged_search_path, merged_search_path_with_extra_dirs, probe_bin_from, probe_bin_in,
-    probe_bin_with_environment, probe_bin_with_extra_dirs, refresh_user_path, resolved_bin_path,
-    well_known_bin_dirs, BinProbe, BinResolution, BinSearchEnvironment, EnvironmentValue,
-    PathSource, SystemPathSource,
+    cli_binary_candidates, expand_install_dir, expand_install_dirs, forget_resolved_bin,
+    forget_resolved_bins, merged_search_path, merged_search_path_with_extra_dirs,
+    probe_bin_candidates_with_extra_dirs, probe_bin_from, probe_bin_in, probe_bin_with_environment,
+    probe_bin_with_extra_dirs, refresh_user_path, resolved_bin_path, well_known_bin_dirs, BinProbe,
+    BinResolution, BinSearchEnvironment, EnvironmentValue, PathSource, SystemPathSource,
 };
 pub use blueprint_step::JsBlueprintStep;
 pub use bubble::JsBubbleProvider;

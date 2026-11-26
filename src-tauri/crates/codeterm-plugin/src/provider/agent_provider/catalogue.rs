@@ -70,6 +70,14 @@ macro_rules! agent_provider_catalogue_tail {
             None
         }
 
+        fn cli_binary_aliases(&self) -> &[String] {
+            &[]
+        }
+
+        fn cli_binary_candidates<'a>(&'a self, primary: &'a str) -> Vec<&'a str> {
+            crate::js_runtime::cli_binary_candidates(primary, self.cli_binary_aliases())
+        }
+
         /// Per-platform install command run inside a fresh terminal tab when the
         /// user clicks "Install" in Settings. `platform` is one of `"macos"`,
         /// `"linux"`, `"windows"`. Return `None` for platforms where you don't ship
@@ -87,7 +95,11 @@ macro_rules! agent_provider_catalogue_tail {
         }
 
         fn probe_cli_binary(&self, binary: &str) -> crate::js_runtime::BinProbe {
-            crate::js_runtime::probe_bin_with_extra_dirs(binary, &self.cli_search_dirs())
+            let candidates = self.cli_binary_candidates(binary);
+            crate::js_runtime::probe_bin_candidates_with_extra_dirs(
+                &candidates,
+                &self.cli_search_dirs(),
+            )
         }
 
         fn resolved_cli_path(&self) -> Option<PathBuf> {

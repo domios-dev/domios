@@ -5,7 +5,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::js_runtime::{probe_bin_with_extra_dirs, BinResolution};
+use crate::js_runtime::{
+    probe_bin_candidates_with_extra_dirs, probe_bin_with_extra_dirs, BinResolution,
+};
 
 /// The three answers an observation can give. `Unknown` is what a probe that
 /// could not run reports: `Unavailable` means the ladder searched and found
@@ -61,10 +63,29 @@ pub fn observe_launch_binary_in(
             searched: Vec::new(),
         };
     };
-    let probe = probe_bin_with_extra_dirs(binary, extra_dirs);
+    observe_launch_binary_candidates_in(&[binary], extra_dirs)
+}
+
+pub fn observe_launch_binary_candidates_in(
+    binaries: &[&str],
+    extra_dirs: &[PathBuf],
+) -> LaunchBinaryObservation {
+    let candidates: Vec<&str> = binaries
+        .iter()
+        .map(|binary| binary.trim())
+        .filter(|binary| !binary.is_empty())
+        .collect();
+    let Some(&primary) = candidates.first() else {
+        return LaunchBinaryObservation {
+            availability: ProviderAvailability::Available,
+            binary: None,
+            searched: Vec::new(),
+        };
+    };
+    let probe = probe_bin_candidates_with_extra_dirs(&candidates, extra_dirs);
     LaunchBinaryObservation {
         availability: ProviderAvailability::from_resolution(&probe.resolution),
-        binary: Some(binary.to_string()),
+        binary: Some(primary.to_string()),
         searched: probe.searched,
     }
 }

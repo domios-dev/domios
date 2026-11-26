@@ -90,6 +90,51 @@ pub fn probe_bin_with_extra_dirs(bin: &str, extra_dirs: &[PathBuf]) -> BinProbe 
     probe_bin_current(bin, &combined_bin_dirs(extra_dirs))
 }
 
+pub fn cli_binary_candidates<'a>(primary: &'a str, aliases: &'a [String]) -> Vec<&'a str> {
+    let mut out = Vec::with_capacity(1 + aliases.len());
+    let primary = primary.trim();
+    if !primary.is_empty() {
+        out.push(primary);
+    }
+    for alias in aliases {
+        let alias = alias.trim();
+        if !alias.is_empty() && !alias.contains(['/', '\\']) && !out.contains(&alias) {
+            out.push(alias);
+        }
+    }
+    out
+}
+
+pub fn probe_bin_candidates_with_extra_dirs(bins: &[&str], extra_dirs: &[PathBuf]) -> BinProbe {
+    let dirs = combined_bin_dirs(extra_dirs);
+    let mut saw_unknown = false;
+    let mut searched = Vec::new();
+    for &bin in bins {
+        let probe = probe_bin_current(bin, &dirs);
+        if searched.is_empty() {
+            searched = probe.searched;
+        }
+        match probe.resolution {
+            BinResolution::Found(path) => {
+                return BinProbe {
+                    resolution: BinResolution::Found(path),
+                    searched,
+                };
+            }
+            BinResolution::Unknown => saw_unknown = true,
+            BinResolution::Missing => {}
+        }
+    }
+    BinProbe {
+        resolution: if saw_unknown {
+            BinResolution::Unknown
+        } else {
+            BinResolution::Missing
+        },
+        searched,
+    }
+}
+
 fn combined_bin_dirs(extra_dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut dirs = well_known_bin_dirs();
     for dir in extra_dirs {
