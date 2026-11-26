@@ -1,5 +1,6 @@
 pub mod controller;
 mod controller_idle;
+mod controller_storage;
 mod enrichment;
 pub mod held_sends;
 pub mod idle_drain;
@@ -7,6 +8,7 @@ pub mod idle_driver;
 pub mod placement;
 pub mod ports;
 pub mod state;
+pub mod storage;
 pub mod store;
 pub mod types;
 
@@ -36,6 +38,13 @@ pub use ports::{
 pub use state::{
     can_issue_enrollment_apply, ownership_labels, reconcile_provider_machines, transition,
     LifecycleEvent, ObservedProviderMachine, ObservedProviderState, ReconcileOutcome,
+};
+pub use storage::{
+    is_local_disk_full, validate_volume_upgrade_gb, CloudColdWakeParams, CloudDeleteMode,
+    CloudDeleteReceipt, CloudMachineStorageUsage, CloudStorageTier, CloudStorageUsageSummary,
+    CloudVolumeResizeReply, ProviderSnapshotResidual, AUX_KEY_ALLOCATED_GB, AUX_KEY_PURGE_AT,
+    AUX_KEY_RECOVERABLE_ARCHIVE_ID, AUX_KEY_STORAGE_TIER, DEFAULT_COLD_PURGE_DAYS,
+    DEFAULT_HOT_GB_MONTH_RATE_CENTS, DEFAULT_HOT_RETENTION_DAYS, MAX_VOLUME_SIZE_GB,
 };
 pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{

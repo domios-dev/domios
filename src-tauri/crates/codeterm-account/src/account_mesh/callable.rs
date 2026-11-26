@@ -457,6 +457,18 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         )
         .await
     }
+    async fn resize_cloud_volume(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::ResizeCloudVolumeRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ResizeCloudVolumeReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_VOLUME_RESIZE,
+            session,
+            request,
+        )
+        .await
+    }
     fn handles_call_deadline(&self) -> bool {
         true
     }
@@ -624,6 +636,7 @@ impl CallableTransport for HttpCallable {
                 | super::cloud_provisioning::ROUTE_CLOUD_USAGE
                 | super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO
                 | super::cloud_provisioning::ROUTE_CLOUD_CHECKOUT
+                | super::cloud_provisioning::ROUTE_CLOUD_VOLUME_RESIZE
         ) && !endpoints.emulator
         {
             let redeem = url::Url::parse(endpoints.redeem).map_err(|_| CallableFailure::Offline)?;

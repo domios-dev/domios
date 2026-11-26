@@ -399,6 +399,34 @@ def run_fly_machines(args):
     data_name = {"qa": ".domios-dev", "release": ".domios"}.get(profile)
     if data_name is None:
         raise RuntimeError(f"Unknown cloud profile: {profile}")
+    # Safe cold-wake / recoverable-recreate restore BEFORE starting daemon or publishing peer-ready.
+    restore_archive = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_PATH", None)
+    restore_key_hex = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_KEY_HEX", None)
+    restore_uid = os.environ.pop("DOMIOS_RESTORE_OWNER_UID", None)
+    restore_machine = os.environ.pop("DOMIOS_RESTORE_MACHINE_ID", None)
+    restore_gen_raw = os.environ.pop("DOMIOS_RESTORE_GENERATION", None)
+    if restore_archive:
+        if not (restore_key_hex and restore_uid and restore_machine):
+            raise RuntimeError("Incomplete cold-restore archive binding environment")
+        import importlib.util as _ilu
+        _arc_path = pathlib.Path("/usr/local/lib/domios-cloud-archive.py")
+        if not _arc_path.exists():
+            _arc_path = pathlib.Path(__file__).with_name("cloud_archive.py")
+        _spec = _ilu.spec_from_file_location("domios_cloud_archive", _arc_path)
+        _arc = _ilu.module_from_spec(_spec)
+        sys.modules[_spec.name] = _arc
+        _spec.loader.exec_module(_arc)
+        _gen = int(restore_gen_raw) if restore_gen_raw else None
+        _res = _arc.restore_essentials_archive(
+            pathlib.Path(restore_archive),
+            CLOUD_HOME,
+            owner_key=bytes.fromhex(restore_key_hex),
+            requester_uid=restore_uid,
+            target_machine_id=restore_machine,
+            expected_generation=_gen,
+        )
+        if not _res.recovery_ready:
+            raise RuntimeError(f"Cold restore incomplete: {_res.missing_or_partial}")
     data_dir = CLOUD_HOME / data_name
     if not data_dir.exists() and not data_dir.is_symlink():
         os.mkdir(data_dir, 0o700)

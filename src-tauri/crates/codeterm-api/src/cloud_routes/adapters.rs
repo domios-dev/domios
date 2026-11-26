@@ -3,7 +3,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use codeterm_account::account_mesh::{
-    cloud_provisioning::{ProvisionedMachineReply, WireCloudSleepMode},
+    cloud_provisioning::{
+        ProvisionedMachineReply, WireCloudDeleteMode, WireCloudSleepMode, WireCloudStorageTier,
+        WireCloudStorageUsageSummary, WireProviderSnapshotResidual,
+    },
     AccountMeshRefusal,
 };
 use codeterm_neighbors_service::service::{
@@ -16,12 +19,14 @@ use codeterm_neighbors_service::service::{
 use codeterm_service_core::{
     mesh::crown::AuthenticatedOrigin,
     service::cloud_machines::{
-        CloudCheckoutSession, CloudEndpoint, CloudEnrollmentPort, CloudError, CloudMachineRecord,
-        CloudPeerControlPort, CloudPlanAllowances, CloudPromoRedemption, CloudProvisioningPort,
-        CloudRate, CloudRouteSpec, CloudSleepMode, CloudUsagePack, CloudUsageSize,
-        CloudUsageSummary, DrainToken, EnrollmentBinding, EnrollmentOutcome, FlushWriteOutcome,
-        HeldCloudSend, PeerBusySnapshot, ProvisionedLease, ProvisionedMachine,
-        ProvisioningCreateRequest,
+        CloudCheckoutSession, CloudColdWakeParams, CloudDeleteMode, CloudDeleteReceipt,
+        CloudEndpoint, CloudEnrollmentPort, CloudError, CloudMachineRecord,
+        CloudMachineStorageUsage, CloudPeerControlPort, CloudPlanAllowances, CloudPromoRedemption,
+        CloudProvisioningPort, CloudRate, CloudRouteSpec, CloudSleepMode, CloudStorageTier,
+        CloudStorageUsageSummary, CloudUsagePack, CloudUsageSize, CloudUsageSummary,
+        CloudVolumeResizeReply, DrainToken, EnrollmentBinding, EnrollmentOutcome,
+        FlushWriteOutcome, HeldCloudSend, PeerBusySnapshot, ProviderSnapshotResidual,
+        ProvisionedLease, ProvisionedMachine, ProvisioningCreateRequest,
     },
 };
 
@@ -37,6 +42,66 @@ fn map_sleep_mode(mode: WireCloudSleepMode) -> CloudSleepMode {
         WireCloudSleepMode::Stop => CloudSleepMode::Stop,
         WireCloudSleepMode::StopBilled => CloudSleepMode::StopBilled,
         WireCloudSleepMode::DeleteRecreate => CloudSleepMode::DeleteRecreate,
+    }
+}
+
+fn map_storage_tier(tier: WireCloudStorageTier) -> CloudStorageTier {
+    match tier {
+        WireCloudStorageTier::Hot => CloudStorageTier::Hot,
+        WireCloudStorageTier::Evicting => CloudStorageTier::Evicting,
+        WireCloudStorageTier::Cold => CloudStorageTier::Cold,
+        WireCloudStorageTier::RecoverableDeleted => CloudStorageTier::RecoverableDeleted,
+        WireCloudStorageTier::Purged => CloudStorageTier::Purged,
+    }
+}
+
+fn map_snapshot_residual(r: WireProviderSnapshotResidual) -> ProviderSnapshotResidual {
+    ProviderSnapshotResidual {
+        provider: r.provider,
+        snapshots_remaining: r.snapshots_remaining,
+        earliest_expiry_at: r.earliest_expiry_at,
+        latest_expiry_at: r.latest_expiry_at,
+        auto_backup_enabled: r.auto_backup_enabled,
+        individual_delete_supported: r.individual_delete_supported,
+        erasure_state: r.erasure_state,
+        checked_at: r.checked_at,
+    }
+}
+
+fn map_storage_summary(s: WireCloudStorageUsageSummary) -> CloudStorageUsageSummary {
+    CloudStorageUsageSummary {
+        hot_gb_month_rate_cents: s.hot_gb_month_rate_cents,
+        hot_days: s.hot_days,
+        purge_days: s.purge_days,
+        purge_warning_days: s.purge_warning_days,
+        cold_archive_included: s.cold_archive_included,
+        total_allocated_gb: s.total_allocated_gb,
+        total_used_bytes: s.total_used_bytes,
+        total_hot_monthly_cost_cents: s.total_hot_monthly_cost_cents,
+        machines: s
+            .machines
+            .into_iter()
+            .map(|m| CloudMachineStorageUsage {
+                machine_id: m.machine_id,
+                tier: map_storage_tier(m.tier),
+                allocated_gb: m.allocated_gb,
+                used_bytes: m.used_bytes,
+                used_gb: m.used_gb,
+                hot_monthly_cost_cents: m.hot_monthly_cost_cents,
+                hot_accrued_cents: m.hot_accrued_cents,
+                cold_included: m.cold_included,
+                stopped_at: m.stopped_at,
+                hot_until_at: m.hot_until_at,
+                cold_since_at: m.cold_since_at,
+                purge_at: m.purge_at,
+                archive_id: m.archive_id,
+                archive_bytes: m.archive_bytes,
+                archive_generation: m.archive_generation,
+                disk_full: m.disk_full,
+                volume_upgrade_max_gb: m.volume_upgrade_max_gb,
+                snapshot_residual: m.snapshot_residual.map(map_snapshot_residual),
+            })
+            .collect(),
     }
 }
 
@@ -195,6 +260,18 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
     }
 
     async fn delete(&self, machine_id: &str, request_id: &str) -> Result<(), CloudError> {
+        self.delete_with_mode(machine_id, request_id, CloudDeleteMode::Permanent, None)
+            .await
+            .map(|_| ())
+    }
+
+    async fn delete_with_mode(
+        &self,
+        machine_id: &str,
+        request_id: &str,
+        mode: CloudDeleteMode,
+        archive_id: Option<&str>,
+    ) -> Result<CloudDeleteReceipt, CloudError> {
         let mesh = self
             .svc
             .account_mesh()
@@ -205,11 +282,84 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             .cloud_controller()
             .await
             .map_err(map_account_refusal)?;
-        controller
-            .delete_machine(machine_id, request_id)
+        let wire_mode = match mode {
+            CloudDeleteMode::Permanent => None,
+            CloudDeleteMode::Recoverable => Some(WireCloudDeleteMode::Recoverable),
+        };
+        let reply = controller
+            .delete_machine_with_mode(machine_id, request_id, wire_mode, archive_id)
             .await
             .map_err(map_account_refusal)?;
-        Ok(())
+        Ok(CloudDeleteReceipt {
+            machine_id: reply.machine_id,
+            storage_tier: reply
+                .storage_tier
+                .map(map_storage_tier)
+                .unwrap_or(match mode {
+                    CloudDeleteMode::Permanent => CloudStorageTier::Purged,
+                    CloudDeleteMode::Recoverable => CloudStorageTier::RecoverableDeleted,
+                }),
+            archive_id: reply.archive_id,
+            purge_at: reply.purge_at,
+            snapshot_residual: reply.snapshot_residual.map(map_snapshot_residual),
+        })
+    }
+
+    async fn wake_cold(
+        &self,
+        machine_id: &str,
+        request_id: &str,
+        params: &CloudColdWakeParams,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        let mesh = self
+            .svc
+            .account_mesh()
+            .await
+            .map_err(|_| CloudError::ProviderUnavailable("account mesh unavailable".into()))?;
+        let controller = mesh
+            .mesh
+            .cloud_controller()
+            .await
+            .map_err(map_account_refusal)?;
+        let reply = controller
+            .wake_machine_cold(
+                machine_id,
+                request_id,
+                &params.controller_key,
+                &params.creation_psk,
+                params.archive_id.as_deref(),
+            )
+            .await
+            .map_err(map_account_refusal)?;
+        map_provisioned_reply(reply)
+    }
+
+    async fn resize_volume(
+        &self,
+        machine_id: &str,
+        new_size_gb: u32,
+        request_id: &str,
+    ) -> Result<CloudVolumeResizeReply, CloudError> {
+        let mesh = self
+            .svc
+            .account_mesh()
+            .await
+            .map_err(|_| CloudError::ProviderUnavailable("account mesh unavailable".into()))?;
+        let controller = mesh
+            .mesh
+            .cloud_controller()
+            .await
+            .map_err(map_account_refusal)?;
+        let reply = controller
+            .resize_volume(machine_id, new_size_gb, true, request_id)
+            .await
+            .map_err(map_account_refusal)?;
+        Ok(CloudVolumeResizeReply {
+            machine_id: reply.machine_id,
+            allocated_gb: reply.allocated_gb,
+            needs_restart: reply.needs_restart,
+            hot_monthly_cost_cents: reply.hot_monthly_cost_cents,
+        })
     }
 
     async fn renew_lease(
@@ -295,6 +445,7 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
                 max: hours.max,
                 sponsor: hours.sponsor,
             }),
+            storage: reply.storage.map(map_storage_summary),
         })
     }
 

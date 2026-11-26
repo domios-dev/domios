@@ -26,11 +26,36 @@ pub enum MeshCloudAction {
         /// Cloud machine ID, name, or peer ID
         machine: String,
     },
-    /// Permanently delete a cloud machine (warns about unpushed work without --confirm)
+    /// Delete a cloud machine (permanent by default; pass --recoverable to retain verified archive)
     Delete {
         /// Cloud machine ID, name, or peer ID
         machine: String,
-        /// Confirm permanent deletion of the machine and any unpushed work
+        /// Confirm deletion of the machine
+        #[arg(long)]
+        confirm: bool,
+        /// Retain the verified encrypted essentials archive for recreate within the purge window
+        #[arg(long)]
+        recoverable: bool,
+        /// Verified archive ID for recoverable deletion
+        #[arg(long)]
+        archive_id: Option<String>,
+    },
+    /// Recreate a cold or recoverably deleted cloud machine onto a fresh volume from its archive
+    Recreate {
+        /// Cloud machine ID, name, or peer ID
+        machine: String,
+        /// Optional archive ID override
+        #[arg(long)]
+        archive_id: Option<String>,
+    },
+    /// Increase a cloud machine's hot volume capacity (grow-only, requires owner --confirm)
+    ResizeVolume {
+        /// Cloud machine ID, name, or peer ID
+        machine: String,
+        /// Target volume size in GB (must exceed current allocation, max 500)
+        #[arg(long)]
+        size_gb: u32,
+        /// Confirm volume expansion and increased hot storage billing
         #[arg(long)]
         confirm: bool,
     },
@@ -134,6 +159,38 @@ pub(crate) fn format_usage_human(val: &Value) -> String {
         entries.sort();
         if !entries.is_empty() {
             lines.push(format!("Burn per size: {}", entries.join(", ")));
+        }
+    }
+    if let Some(storage) = val["storage"].as_object() {
+        let alloc = storage["total_allocated_gb"].as_u64().unwrap_or(0);
+        let monthly_cents = storage["total_hot_monthly_cost_cents"]
+            .as_u64()
+            .unwrap_or(0);
+        let rate_cents = storage["hot_gb_month_rate_cents"].as_u64().unwrap_or(15);
+        lines.push(format!(
+            "Cloud storage: allocated={alloc} GB hot_monthly=${:.2} (rate=${:.2}/GB-mo, cold archival included)",
+            (monthly_cents as f64) / 100.0,
+            (rate_cents as f64) / 100.0
+        ));
+        if let Some(machines) = storage["machines"].as_array() {
+            for m in machines {
+                let mid = m["machine_id"].as_str().unwrap_or("?");
+                let tier = m["tier"].as_str().unwrap_or("hot");
+                let mgb = m["allocated_gb"].as_u64().unwrap_or(0);
+                let used = m["used_gb"]
+                    .as_f64()
+                    .map(|g| format!("{g:.2} GB"))
+                    .unwrap_or_else(|| "n/a".into());
+                let cost = (m["hot_monthly_cost_cents"].as_u64().unwrap_or(0) as f64) / 100.0;
+                let full_flag = if m["disk_full"].as_bool().unwrap_or(false) {
+                    " [DISK FULL]"
+                } else {
+                    ""
+                };
+                lines.push(format!(
+                    "  - {mid}: tier={tier} used={used} allocated={mgb} GB hot_monthly=${cost:.2}{full_flag}"
+                ));
+            }
         }
     }
     lines.join("\n")
@@ -270,13 +327,54 @@ pub fn handle_cloud(
             .header("Authorization", auth_header(token))
             .json(&serde_json::json!({}))
             .send(),
-        MeshCloudAction::Delete { machine, confirm } => http
-            .post(format!(
+        MeshCloudAction::Delete {
+            machine,
+            confirm,
+            recoverable,
+            archive_id,
+        } => {
+            let mut body = serde_json::json!({
+                "confirm": confirm,
+                "mode": if recoverable { "recoverable" } else { "permanent" },
+            });
+            if let Some(arc) = archive_id {
+                body["archive_id"] = serde_json::json!(arc);
+            }
+            http.post(format!(
                 "{base}/api/mesh/cloud/{}/delete",
                 urlencoding::encode(&machine)
             ))
             .header("Authorization", auth_header(token))
-            .json(&serde_json::json!({ "confirm": confirm }))
+            .json(&body)
+            .send()
+        }
+        MeshCloudAction::Recreate {
+            machine,
+            archive_id,
+        } => {
+            let mut body = serde_json::json!({});
+            if let Some(arc) = archive_id {
+                body["archive_id"] = serde_json::json!(arc);
+            }
+            http.post(format!(
+                "{base}/api/mesh/cloud/{}/recreate",
+                urlencoding::encode(&machine)
+            ))
+            .header("Authorization", auth_header(token))
+            .json(&body)
+            .send()
+        }
+        MeshCloudAction::ResizeVolume {
+            machine,
+            size_gb,
+            confirm,
+        } => http
+            .post(format!(
+                "{base}/api/mesh/cloud/{}/resize-volume",
+                urlencoding::encode(&machine)
+            ))
+            .header("Authorization", auth_header(token))
+            .json(&serde_json::json!({ "new_size_gb": size_gb, "confirm": confirm }))
             .send(),
         MeshCloudAction::Usage => http
             .get(format!("{base}/api/mesh/cloud/usage"))

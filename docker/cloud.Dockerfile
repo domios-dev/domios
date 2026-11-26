@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=assets /verified/ /opt/domios/
 COPY --from=assets /models/ /opt/domios-models/
 COPY packaging/docker/container.py /usr/local/lib/domios-container.py
+COPY packaging/docker/cloud_archive.py /usr/local/lib/domios-cloud-archive.py
 COPY docker/cloud-config.toml /usr/local/share/domios-container.toml
 COPY --chmod=0755 docker/domios-cloud-start /usr/local/bin/domios-cloud-start
 RUN touch /opt/domios/.domios-container-managed && ln -s /opt/domios/cli/codeterm /usr/local/bin/domios

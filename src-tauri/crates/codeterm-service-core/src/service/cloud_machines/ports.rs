@@ -6,6 +6,10 @@ use zeroize::Zeroizing;
 
 use super::held_sends::{FlushWriteOutcome, HeldCloudSend};
 use super::idle_drain::{DrainToken, PeerBusySnapshot};
+use super::storage::{
+    CloudColdWakeParams, CloudDeleteMode, CloudDeleteReceipt, CloudStorageTier,
+    CloudVolumeResizeReply,
+};
 use super::types::{
     CloudCheckoutSession, CloudEndpoint, CloudError, CloudMachineRecord, CloudPromoRedemption,
     CloudRate, CloudSleepMode, CloudUsageSummary,
@@ -69,6 +73,49 @@ pub trait CloudProvisioningPort: Send + Sync {
     async fn sleep(&self, machine_id: &str, request_id: &str)
         -> Result<CloudSleepMode, CloudError>;
     async fn delete(&self, machine_id: &str, request_id: &str) -> Result<(), CloudError>;
+    async fn delete_with_mode(
+        &self,
+        machine_id: &str,
+        request_id: &str,
+        mode: CloudDeleteMode,
+        _archive_id: Option<&str>,
+    ) -> Result<CloudDeleteReceipt, CloudError> {
+        match mode {
+            CloudDeleteMode::Permanent => {
+                self.delete(machine_id, request_id).await?;
+                Ok(CloudDeleteReceipt {
+                    machine_id: machine_id.to_owned(),
+                    storage_tier: CloudStorageTier::Purged,
+                    archive_id: None,
+                    purge_at: None,
+                    snapshot_residual: None,
+                })
+            }
+            CloudDeleteMode::Recoverable => Err(CloudError::ProviderUnavailable(
+                "recoverable cloud delete is unavailable".into(),
+            )),
+        }
+    }
+    async fn wake_cold(
+        &self,
+        _machine_id: &str,
+        _request_id: &str,
+        _params: &CloudColdWakeParams,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        Err(CloudError::ProviderUnavailable(
+            "cold cloud machine restore wake is unavailable".into(),
+        ))
+    }
+    async fn resize_volume(
+        &self,
+        _machine_id: &str,
+        _new_size_gb: u32,
+        _request_id: &str,
+    ) -> Result<CloudVolumeResizeReply, CloudError> {
+        Err(CloudError::ProviderUnavailable(
+            "cloud volume resize is unavailable".into(),
+        ))
+    }
     async fn renew_lease(
         &self,
         machine_id: &str,

@@ -81,6 +81,13 @@ pub trait MeshRegistry: Send + Sync {
     ) -> RegistryResult<super::cloud_provisioning::CreateCloudCreditPackCheckoutReply> {
         Err(RegistryRefusal::Unavailable)
     }
+    async fn resize_cloud_volume(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ResizeCloudVolumeRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ResizeCloudVolumeReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     fn handles_call_deadline(&self) -> bool {
         false
     }

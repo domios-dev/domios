@@ -10,9 +10,9 @@ use axum::{
     Json, Router,
 };
 use codeterm_service_core::service::cloud_machines::{
-    spawn_cloud_idle_driver, CloudError, CloudIdleDriverConfig, CloudIdleDriverHandle,
-    CloudProvisioningPort, CloudTarget, CreateCloudMachineParams, TokioIdleTickWaiter,
-    DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_WAKE_HOLD_DEADLINE_MS,
+    spawn_cloud_idle_driver, CloudDeleteMode, CloudError, CloudIdleDriverConfig,
+    CloudIdleDriverHandle, CloudProvisioningPort, CloudTarget, CreateCloudMachineParams,
+    TokioIdleTickWaiter, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_WAKE_HOLD_DEADLINE_MS,
 };
 use serde::Deserialize;
 
@@ -99,10 +99,12 @@ fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
         | CloudError::MachineBusy { .. }
         | CloudError::InvalidTransition { .. }
         | CloudError::DeleteConfirmationRequired { .. }
+        | CloudError::VolumeUpgradeConfirmationRequired { .. }
         | CloudError::SendAlreadyClaimed(_)
         | CloudError::Conflict(_)
         | CloudError::PromoExhausted
         | CloudError::PromoSpendCapExceeded => StatusCode::CONFLICT,
+        CloudError::DiskFullLocal { .. } => StatusCode::INSUFFICIENT_STORAGE,
         CloudError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
         CloudError::MachineSleeping { .. }
         | CloudError::ProviderUnavailable(_)
@@ -298,6 +300,10 @@ async fn wake_machine(
 pub struct DeleteCloudBody {
     #[serde(default)]
     pub confirm: bool,
+    #[serde(default)]
+    pub mode: Option<CloudDeleteMode>,
+    #[serde(default)]
+    pub archive_id: Option<String>,
 }
 
 async fn delete_machine(
@@ -312,11 +318,83 @@ async fn delete_machine(
         .find_by_peer(&id)
         .ok_or_else(|| error_response(CloudError::MachineNotFound(id.clone())))?;
     let provisioning = resolve_provisioning(&state);
+    let mode = body.mode.unwrap_or(CloudDeleteMode::Permanent);
     let receipt = ctrl
-        .delete(&record.machine_id, body.confirm, provisioning.as_ref())
+        .delete_with_mode(
+            &record.machine_id,
+            mode,
+            body.archive_id.as_deref(),
+            body.confirm,
+            provisioning.as_ref(),
+        )
         .await
         .map_err(error_response)?;
     Ok(Json(serde_json::to_value(receipt).unwrap_or_default()))
+}
+
+#[derive(Deserialize, Default)]
+pub struct RecreateCloudBody {
+    #[serde(default)]
+    pub archive_id: Option<String>,
+}
+
+async fn recreate_machine(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<RecreateCloudBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_local_caller(&state, &headers)?;
+    let ctrl = state.svc.cloud_machines();
+    let provisioning = resolve_provisioning(&state);
+    let enrollment = BakerEnrollmentAdapter {
+        svc: state.svc.clone(),
+    };
+    let peer_ctrl = MeshPeerControlAdapter::new(state.clone());
+    let receipt = ctrl
+        .recreate_from_archive(
+            &id,
+            body.archive_id.as_deref(),
+            provisioning.as_ref(),
+            &enrollment,
+            &peer_ctrl,
+            DEFAULT_WAKE_HOLD_DEADLINE_MS,
+        )
+        .await
+        .map_err(error_response)?;
+    Ok(Json(serde_json::to_value(receipt).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResizeVolumeBody {
+    pub new_size_gb: u32,
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+async fn resize_volume(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ResizeVolumeBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_local_owner(&state, &headers)?;
+    let ctrl = state.svc.cloud_machines();
+    let record = ctrl
+        .find_by_peer(&id)
+        .ok_or_else(|| error_response(CloudError::MachineNotFound(id.clone())))?;
+    let provisioning = resolve_provisioning(&state);
+    let reply = ctrl
+        .resize_volume(
+            &record.machine_id,
+            body.new_size_gb,
+            body.confirm,
+            provisioning.as_ref(),
+        )
+        .await
+        .map_err(error_response)?;
+    Ok(Json(serde_json::to_value(reply).unwrap_or_default()))
 }
 
 #[derive(Deserialize, Default)]
@@ -521,6 +599,8 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/mesh/cloud/{id}/sleep", post(sleep_machine))
         .route("/api/mesh/cloud/{id}/wake", post(wake_machine))
         .route("/api/mesh/cloud/{id}/delete", post(delete_machine))
+        .route("/api/mesh/cloud/{id}/recreate", post(recreate_machine))
+        .route("/api/mesh/cloud/{id}/resize-volume", post(resize_volume))
         .route("/api/mesh/cloud/resolve", post(resolve_machine))
         .route("/api/mesh/cloud/usage", get(usage_summary))
         .route("/api/mesh/cloud/redeem", post(redeem_promo))

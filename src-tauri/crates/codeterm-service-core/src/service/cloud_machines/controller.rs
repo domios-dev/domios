@@ -20,6 +20,10 @@ use super::ports::{
     ProvisioningCreateRequest, SystemClock,
 };
 use super::state::{can_issue_enrollment_apply, ownership_labels, transition, LifecycleEvent};
+use super::storage::{
+    CloudDeleteMode, CloudStorageTier, AUX_KEY_PURGE_AT, AUX_KEY_RECOVERABLE_ARCHIVE_ID,
+    AUX_KEY_STORAGE_TIER,
+};
 use super::store::{CloudMachineStore, CloudWakeQueueStore};
 use super::types::{
     CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
@@ -133,6 +137,19 @@ impl CloudMachineController {
         let matches: Vec<&CloudMachineRecord> = machines
             .iter()
             .filter(|m| m.state != CloudLifecycleState::Deleted && m.matches_selector(selector))
+            .collect();
+        match matches.as_slice() {
+            [] => Err(CloudError::MachineNotFound(selector.to_owned())),
+            [single] => Ok((*single).clone()),
+            _ => Err(CloudError::MachineAmbiguous(selector.to_owned())),
+        }
+    }
+
+    pub(super) fn find_any_record(&self, selector: &str) -> Result<CloudMachineRecord, CloudError> {
+        let machines = self.machines.lock();
+        let matches: Vec<&CloudMachineRecord> = machines
+            .iter()
+            .filter(|m| m.matches_selector(selector))
             .collect();
         match matches.as_slice() {
             [] => Err(CloudError::MachineNotFound(selector.to_owned())),
@@ -808,40 +825,102 @@ impl CloudMachineController {
         confirm: bool,
         provisioning: &dyn CloudProvisioningPort,
     ) -> Result<CloudReceipt, CloudError> {
+        self.delete_with_mode(
+            selector,
+            CloudDeleteMode::Permanent,
+            None,
+            confirm,
+            provisioning,
+        )
+        .await
+    }
+
+    pub async fn delete_with_mode(
+        &self,
+        selector: &str,
+        mode: CloudDeleteMode,
+        archive_id: Option<&str>,
+        confirm: bool,
+        provisioning: &dyn CloudProvisioningPort,
+    ) -> Result<CloudReceipt, CloudError> {
         let record = self.find_record(selector)?;
         if !confirm {
-            return Err(CloudError::DeleteConfirmationRequired {
-                machine_id: record.machine_id.clone(),
-                warning: format!(
-                    "Deleting cloud machine '{}' ({}) permanently destroys any unpushed work on it. Re-run with --confirm to proceed.",
+            let warning = match mode {
+                CloudDeleteMode::Permanent => format!(
+                    "Deleting cloud machine '{}' ({}) permanently destroys any unpushed work and its retained archive. Re-run with --confirm to proceed.",
                     record.name, record.machine_id
                 ),
+                CloudDeleteMode::Recoverable => format!(
+                    "Recoverably deleting cloud machine '{}' ({}) releases its live volume while retaining its verified owner-bound essentials archive until the configured purge date. Re-run with --confirm to proceed.",
+                    record.name, record.machine_id
+                ),
+            };
+            return Err(CloudError::DeleteConfirmationRequired {
+                machine_id: record.machine_id.clone(),
+                warning,
             });
         }
         let request_id =
             self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Delete)?;
-        if let Err(error) = provisioning
-            .delete(record.backend_machine_id(), &request_id)
+        let delete_receipt = match provisioning
+            .delete_with_mode(record.backend_machine_id(), &request_id, mode, archive_id)
             .await
         {
-            if error.is_uncertain_provisioning_outcome() {
-                self.mark_pending_unconfirmed(
-                    &record.machine_id,
-                    PendingProvisioningOp::Delete,
-                    &error.to_string(),
-                );
-            } else {
-                self.clear_pending_request(&record.machine_id);
+            Ok(receipt) => receipt,
+            Err(error) => {
+                if error.is_uncertain_provisioning_outcome() {
+                    self.mark_pending_unconfirmed(
+                        &record.machine_id,
+                        PendingProvisioningOp::Delete,
+                        &error.to_string(),
+                    );
+                } else {
+                    self.clear_pending_request(&record.machine_id);
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
+        };
         let now_ms = self.clock.now_ms();
-        let deleted = self.update_record(&record.machine_id, |rec| {
+        let updated = self.update_record(&record.machine_id, |rec| {
             let mut next = transition(rec, LifecycleEvent::Deleted, now_ms)?;
             next.pending_request = None;
+            next.ownership.auxiliary_resource_ids.insert(
+                AUX_KEY_STORAGE_TIER.into(),
+                delete_receipt.storage_tier.as_str().into(),
+            );
+            if let Some(arc_id) = delete_receipt.archive_id.as_ref() {
+                next.ownership
+                    .auxiliary_resource_ids
+                    .insert(AUX_KEY_RECOVERABLE_ARCHIVE_ID.into(), arc_id.clone());
+            } else {
+                next.ownership
+                    .auxiliary_resource_ids
+                    .remove(AUX_KEY_RECOVERABLE_ARCHIVE_ID);
+            }
+            if let Some(purge_at) = delete_receipt.purge_at {
+                next.ownership
+                    .auxiliary_resource_ids
+                    .insert(AUX_KEY_PURGE_AT.into(), purge_at.to_string());
+            }
             Ok(next)
         })?;
-        Ok(deleted.receipt(now_ms, None))
+        let notice = match delete_receipt.storage_tier {
+            CloudStorageTier::RecoverableDeleted => Some(format!(
+                "Live volume released; encrypted essentials archive retained ({}) for recreate.",
+                delete_receipt.archive_id.as_deref().unwrap_or("verified")
+            )),
+            _ => delete_receipt
+                .snapshot_residual
+                .as_ref()
+                .filter(|s| s.snapshots_remaining > 0)
+                .map(|s| {
+                    format!(
+                        "Archive erased; {} provider snapshot(s) remain under bounded provider retention.",
+                        s.snapshots_remaining
+                    )
+                }),
+        };
+        Ok(updated.receipt(now_ms, notice))
     }
 
     pub async fn resolve_placement(
