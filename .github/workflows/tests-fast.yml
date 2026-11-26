@@ -83,7 +83,7 @@ jobs:
       CI_ARTIFACT_STORAGE: ''
     steps:
       - name: Select runner environment
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           DOMIOS_CI_WEBHOOK_URL: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
           DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
@@ -101,7 +101,7 @@ jobs:
             }
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const path = require('node:path');
@@ -130,7 +130,7 @@ jobs:
         env:
           CI_FAILURE_STEPS: ${{ toJSON(steps) }}
           CI_SOURCE_SHA: ${{ env.CI_SOURCE_SHA }}
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             try {
