@@ -93,6 +93,21 @@ impl StreamCensus {
         }
     }
 
+    pub(crate) fn live_count(&self) -> usize {
+        let local: u64 = self
+            .local
+            .iter()
+            .map(|c| c.live.load(Ordering::Relaxed))
+            .sum();
+        let peers: u64 = self
+            .peers
+            .read()
+            .values()
+            .map(|c| c.live.load(Ordering::Relaxed))
+            .sum();
+        (local.saturating_add(peers)) as usize
+    }
+
     pub(crate) fn snapshot(&self) -> StreamSnapshot {
         let mut entries = StreamKind::ALL
             .into_iter()

@@ -259,6 +259,7 @@ pub(super) fn handle(
         authorized_gates,
         provider_reserve_pct,
         non_user_facing,
+        cloud,
     } = action
     else {
         unreachable!("agent_spawn::handle received a non-spawn action")
@@ -620,6 +621,38 @@ pub(super) fn handle(
         if !spawner.is_empty() {
             body["spawned_by_tab_id"] = serde_json::json!(spawner);
         }
+    }
+    if let Some(cloud_target) = cloud {
+        let (peer, machine) = match crate::mesh_cli::cloud::resolve_cloud_target(&cloud_target) {
+            Ok(resolved) => resolved,
+            Err(error) => crate::cmd::print::fail(1, error),
+        };
+        let mut relayed = match crate::mesh_cli::mesh_relay_invoke_result(
+            &peer,
+            "POST",
+            "/api/agents/spawn",
+            Some(&body.to_string()),
+        ) {
+            Ok(val) => val,
+            Err(failure) => failure.print_and_exit(json),
+        };
+        if let Some(obj) = relayed.as_object_mut() {
+            obj.insert("cloud".into(), machine.clone());
+        }
+        if json {
+            crate::cmd::print::print_json(&relayed);
+            return;
+        }
+        let pid = relayed
+            .get("tab_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let title_str = relayed.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+        println!(
+            "Spawned on cloud peer {peer}: {title_str} (Tab {pid})\n{}",
+            crate::mesh_cli::cloud::format_receipt_human(&machine)
+        );
+        return;
     }
     let display_profile = body["launch_profile"].as_str().map(str::to_owned);
     match client.call_detailed("agent.spawn", Some(body)) {

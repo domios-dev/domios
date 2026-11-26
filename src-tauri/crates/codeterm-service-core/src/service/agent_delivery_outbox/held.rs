@@ -24,6 +24,12 @@ impl ServiceContext {
     }
 
     pub fn cancel_retained_agent_send(&self, send_id: &str) -> Result<ChatSendStatus, String> {
+        if crate::service::cloud_machines::CloudWakeQueue::is_cloud_wake_send_id(send_id) {
+            return self
+                .cloud_machines()
+                .cancel_held_send(send_id)
+                .map_err(|error| error.to_string());
+        }
         let (tab, id) = parse_agent_delivery_send_id(send_id)
             .ok_or("send-cancel requires an agent-pty retained send id")?;
         let owner = &self.pending_delivery_payloads.agent_deliveries;

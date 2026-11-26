@@ -74,6 +74,9 @@ impl super::super::ServiceContext {
     }
 
     pub fn inspect_retained_send(&self, send_id: &str) -> Result<Option<ChatSendStatus>, String> {
+        if crate::service::cloud_machines::CloudWakeQueue::is_cloud_wake_send_id(send_id) {
+            return Ok(self.cloud_machines().inspect_held_send(send_id));
+        }
         let Some(retained) = self.chat_send_ledger.status(send_id) else {
             return self
                 .pending_delivery_payloads

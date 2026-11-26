@@ -106,6 +106,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             execution_intent: "read_only".into(),
             sandbox: None,
             provider_reserve_pct: 0.0,
+            cloud: None,
         },
         None,
     )
@@ -151,6 +152,7 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         execution_intent: "mutating".into(),
         sandbox: None,
         provider_reserve_pct: 0.0,
+        cloud: None,
     }
 }
 

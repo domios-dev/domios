@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 mod caller;
 mod capability;
+mod cloud_wake;
 mod observation_limit;
 mod origin;
 mod peer_asset;
@@ -319,6 +320,9 @@ pub async fn mesh_relay_to_peer(
         caller::bind(caller, &req.method, &req.path, &mut req.body)
             .map_err(|message| (StatusCode::FORBIDDEN, message))?;
     }
+    if let Some(early) = cloud_wake::preflight_cloud_wake(&state, &req).await? {
+        return Ok(Json(early));
+    }
     let target = (req.target_instance_id.clone(), req.target_peer_id.clone());
     let (request_origin, client, peer_id, peer_name, peer_version) =
         crate::auth::off_runtime(&state, &headers, move |state, headers| {
@@ -455,6 +459,10 @@ pub async fn mesh_relay_to_peer(
             )));
         }
     };
+
+    if let Some(held) = cloud_wake::hold_if_drain_raced(&state, &peer_id, &cmd, &resp) {
+        return Ok(answered_by(held));
+    }
 
     // sidebar ghosts it under the report target immediately (no report yet).
     if let Some((report_to, remote_tab, title, model)) =
