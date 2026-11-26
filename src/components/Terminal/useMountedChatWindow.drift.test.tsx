@@ -243,7 +243,7 @@ describe("useMountedChatWindow spacer drift", () => {
     expect(api.foldDrift()).toBe(0);
   });
 
-  it("clamps spacer drift and commits mounted rows synchronously on scroll without waiting for rAF during fast flicks", async () => {
+  it("keeps the viewport covered on every committed frame of a fast flick, with zero writes and a zero spacer at the top", async () => {
     for (let index = 0; index < 30; index++) heights.set(`m${index}`, 40);
     userScrolling.current = false;
     scrollTop = 4200;
@@ -253,16 +253,10 @@ describe("useMountedChatWindow spacer drift", () => {
     writes = 0;
     frames = [];
 
-    // Fast upward flick (~500 px/frame) without draining requestAnimationFrame: blank-imminent steps commit
-    // synchronously while in-coverage steps defer to rAF, so every scroll event leaves the viewport full with zero writes.
+    // Fast upward flick (~500 px/frame): each scroll commits on its next frame, and every committed frame is full.
     userScrolling.current = true;
-    let sawDeferredFrame = false;
     for (const nextTop of [3700, 3200, 2700, 2200, 1700, 1200, 700, 200, 0]) {
-      act(() => {
-        scrollTop = nextTop;
-        scroller!.dispatchEvent(new Event("scroll"));
-      });
-      if (frames.length > 0) sawDeferredFrame = true;
+      await scrollTo(nextTop);
       const visible = mountedRows().filter((row) => {
         const rect = row.getBoundingClientRect();
         return rect.bottom > 0 && rect.top < VIEWPORT;
@@ -270,7 +264,6 @@ describe("useMountedChatWindow spacer drift", () => {
       expect(visible.length, `nextTop=${nextTop}`).toBeGreaterThan(0);
       expect(visible[0].getBoundingClientRect().top, `top band at nextTop=${nextTop}`).toBeLessThanOrEqual(0);
     }
-    expect(sawDeferredFrame).toBe(true);
 
     expect(api.range.start).toBe(0);
     expect(Number.parseFloat(spacer().style.height)).toBe(0);

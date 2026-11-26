@@ -352,19 +352,6 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
       targetRef.current = null;
       if (!isProgrammaticScrollWrite(el)) {
         velocityRef.current = nextChatScrollVelocity(velocityRef.current, el.scrollTop, performance.now());
-        const spacer = topSpacerRef.current;
-        const current = live.current;
-        if (spacer && el.clientHeight > 0 && current.active) {
-          const { top } = clampTopSpacerDrift(el, spacer, current.range.top);
-          if (!mountedChatWindowCoversVisibleViewport(current.range, current.transcript.geometry, top, el.clientHeight)) {
-            if (frame != null) {
-              window.cancelAnimationFrame(frame);
-              frame = null;
-            }
-            readViewport(true, false, true);
-            return;
-          }
-        }
       }
       if (frame != null) return;
       frame = window.requestAnimationFrame(() => {
