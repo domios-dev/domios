@@ -1,10 +1,18 @@
+use serde_json::json;
+
+use crate::crown::{AuthenticatedAgent, AuthenticatedOrigin};
+
+use super::super::contract::{
+    INNER_NOTIFICATION_ROUTE, INNER_RPC_ROUTE, OUTER_ANNOUNCE_ROUTE, OUTER_RELAY_ROUTE,
+    OUTER_RPC_ROUTE, WORKER_ACK_RPC_METHOD, WORKER_REPORT_RPC_METHOD,
+};
 use super::super::model::{
     NextDrainAction, OutboxModel, PersistedActiveState, PersistedOutboxRecord,
 };
 use super::super::types::{
-    InstallationPair, OutboundOperation, OutboxError, OutboxId, OutboxLimitKind, OutboxLimits,
-    OutboxRecordStatus, StreamDeliveryOutcome, UnconfirmedReason, DELIVERY_UNCONFIRMED,
-    OUTBOX_FULL, PAYLOAD_TOO_LARGE,
+    CallerContext, InstallationPair, OutboundOperation, OutboundPeerRequest, OutboxError, OutboxId,
+    OutboxLimitKind, OutboxLimits, OutboxRecordStatus, StreamDeliveryOutcome, UnconfirmedReason,
+    DELIVERY_UNCONFIRMED, OUTBOX_FULL, PAYLOAD_TOO_LARGE,
 };
 use super::support::sample_request;
 
@@ -177,8 +185,8 @@ fn bounds_refuse_count_bytes_and_single_record_with_typed_codes() {
         "acct-1",
         "cloud-1",
         "home-a",
-        OutboundOperation::Announce,
-        b"",
+        OutboundOperation::PlanRpc,
+        b"1",
     );
     let err = model.reserve_enqueue(tiny, None, 14).unwrap_err();
     assert_eq!(err.code(), OUTBOX_FULL);
@@ -203,8 +211,8 @@ fn broadcast_expands_into_targeted_rows_and_checks_capacity_atomically() {
     );
     let limits = OutboxLimits {
         max_records: 2,
-        max_total_bytes: 1024,
-        max_record_bytes: 512,
+        max_total_bytes: 4096,
+        max_record_bytes: 2048,
         max_retained_settled: 8,
         max_retained_unconfirmed: 8,
     };
@@ -400,31 +408,230 @@ fn unconfirmed_preserves_true_and_normalizes_false_to_none() {
 }
 
 #[test]
-fn operations_bind_routes_methods_and_persist_no_auth_headers_or_secrets() {
+fn operations_bind_outer_and_inner_routes_and_persist_no_auth_headers_or_secrets() {
+    assert_eq!(
+        OutboundOperation::Announce.outer_route(),
+        OUTER_ANNOUNCE_ROUTE
+    );
+    assert_eq!(OutboundOperation::Announce.inner_route(), None);
+    assert_eq!(
+        OutboundOperation::Announce.direct_outer_route(),
+        Some(OUTER_ANNOUNCE_ROUTE)
+    );
+
     for op in [
-        OutboundOperation::Announce,
         OutboundOperation::WorkerAck,
         OutboundOperation::WorkerReport,
-        OutboundOperation::Notification,
         OutboundOperation::PlanRpc,
     ] {
-        assert_eq!(op.http_method(), "POST");
-        assert_eq!(op.allowed_http_methods(), &["POST"]);
-        assert!(op.canonical_route().starts_with("/api/mesh/"));
+        assert_eq!(op.outer_route(), OUTER_RELAY_ROUTE);
+        assert_eq!(op.inner_route(), Some(INNER_RPC_ROUTE));
+        assert_eq!(op.direct_outer_route(), Some(OUTER_RPC_ROUTE));
     }
 
-    let req = sample_request(
+    assert_eq!(
+        OutboundOperation::Notification.outer_route(),
+        OUTER_RELAY_ROUTE
+    );
+    assert_eq!(
+        OutboundOperation::Notification.inner_route(),
+        Some(INNER_NOTIFICATION_ROUTE)
+    );
+    assert_eq!(OutboundOperation::Notification.direct_outer_route(), None);
+
+    for op in OutboundOperation::ALL {
+        assert_eq!(op.http_method(), "POST");
+        assert_eq!(op.allowed_http_methods(), &["POST"]);
+        let req = sample_request("acct-1", "cloud-1", "home-a", op, b"payload");
+        let wire = req.to_outer_wire_request().expect("valid wire envelope");
+        assert_eq!(wire.route, op.outer_route());
+        if let Some(inner) = op.inner_route() {
+            assert_eq!(wire.body["method"], inner.method);
+            assert_eq!(wire.body["path"], inner.path);
+        }
+        let json = serde_json::to_string(&req).unwrap();
+        for forbidden in ["headers", "authorization", "bearer", "private_key", "token"] {
+            assert!(
+                !json.to_ascii_lowercase().contains(forbidden),
+                "persisted request must not contain {forbidden}: {json}"
+            );
+        }
+    }
+}
+
+#[test]
+fn operations_enforce_closed_body_and_origin_binding_contracts() {
+    let agent_ctx = |tab_id: &str| CallerContext {
+        origin: AuthenticatedOrigin::Agent,
+        agent: Some(AuthenticatedAgent {
+            instance_id: "cloud-1".into(),
+            tab_id: tab_id.into(),
+            can_spawn: false,
+        }),
+        expires_at_ms: None,
+    };
+    let owner_ctx = CallerContext {
+        origin: AuthenticatedOrigin::Owner,
+        agent: None,
+        expires_at_ms: None,
+    };
+    let make = |op: OutboundOperation, caller_context: CallerContext, body: serde_json::Value| {
+        OutboundPeerRequest {
+            account_id: "acct-1".into(),
+            source_installation_id: "cloud-1".into(),
+            target_installation_id: "home-a".into(),
+            operation: op,
+            caller_context,
+            body: serde_json::to_vec(&body).unwrap(),
+        }
+    };
+
+    // Announce refuses Agent origin.
+    let mut bad_announce = sample_request(
         "acct-1",
         "cloud-1",
         "home-a",
-        OutboundOperation::WorkerReport,
-        b"payload",
+        OutboundOperation::Announce,
+        b"a",
     );
-    let json = serde_json::to_string(&req).unwrap();
-    for forbidden in ["headers", "authorization", "bearer", "private_key", "token"] {
+    bad_announce.caller_context = agent_ctx("tab-1");
+    assert!(bad_announce.validate().is_err());
+
+    // WorkerAck refuses wrong RPC method, forged worker_tab_id, and server-injected fields.
+    assert!(make(
+        OutboundOperation::WorkerAck,
+        agent_ctx("tab-worker-1"),
+        json!({
+            "method": WORKER_REPORT_RPC_METHOD,
+            "request_id": "req-1",
+            "params": {
+                "plan_id": "pl_1",
+                "task_id": "task_1",
+                "attempt_id": "att_1",
+                "worker_tab_id": "tab-worker-1"
+            }
+        }),
+    )
+    .validate()
+    .is_err());
+    assert!(make(
+        OutboundOperation::WorkerAck,
+        agent_ctx("tab-worker-1"),
+        json!({
+            "method": WORKER_ACK_RPC_METHOD,
+            "request_id": "req-1",
+            "params": {
+                "plan_id": "pl_1",
+                "task_id": "task_1",
+                "attempt_id": "att_1",
+                "worker_tab_id": "foreign-tab"
+            }
+        }),
+    )
+    .validate()
+    .is_err());
+    assert!(make(
+        OutboundOperation::WorkerAck,
+        agent_ctx("tab-worker-1"),
+        json!({
+            "method": WORKER_ACK_RPC_METHOD,
+            "request_id": "req-1",
+            "params": {
+                "plan_id": "pl_1",
+                "task_id": "task_1",
+                "attempt_id": "att_1",
+                "worker_tab_id": "tab-worker-1",
+                "authenticated_mesh_peer_id": "spoofed-peer"
+            }
+        }),
+    )
+    .validate()
+    .is_err());
+
+    // WorkerReport refuses forged reporter_tab_id and non-in_review status.
+    assert!(make(
+        OutboundOperation::WorkerReport,
+        agent_ctx("tab-worker-1"),
+        json!({
+            "method": WORKER_REPORT_RPC_METHOD,
+            "request_id": "req-2",
+            "params": {
+                "plan_id": "pl_1",
+                "task_id": "task_1",
+                "attempt_id": "att_1",
+                "report": {
+                    "id": "rep-1",
+                    "message": "done",
+                    "status": "in_review",
+                    "reporter_tab_id": "other-tab"
+                }
+            }
+        }),
+    )
+    .validate()
+    .is_err());
+    assert!(make(
+        OutboundOperation::WorkerReport,
+        agent_ctx("tab-worker-1"),
+        json!({
+            "method": WORKER_REPORT_RPC_METHOD,
+            "request_id": "req-2",
+            "params": {
+                "plan_id": "pl_1",
+                "task_id": "task_1",
+                "attempt_id": "att_1",
+                "report": {
+                    "id": "rep-1",
+                    "message": "done",
+                    "status": "done",
+                    "reporter_tab_id": "tab-worker-1"
+                }
+            }
+        }),
+    )
+    .validate()
+    .is_err());
+
+    // Notification refuses pre-stamped source_peer / tab_id / workspace_id.
+    assert!(make(
+        OutboundOperation::Notification,
+        agent_ctx("tab-worker-1"),
+        json!({"title": "hi", "source_peer": "spoofed"}),
+    )
+    .validate()
+    .is_err());
+    assert!(make(
+        OutboundOperation::Notification,
+        agent_ctx("tab-worker-1"),
+        json!({"title": "hi", "tab_id": "local-tab"}),
+    )
+    .validate()
+    .is_err());
+
+    // PlanRpc refuses Agent origin and disallowed or worker-lifecycle methods.
+    assert!(make(
+        OutboundOperation::PlanRpc,
+        agent_ctx("tab-worker-1"),
+        json!({"method": "plan.get", "request_id": "req-3", "params": {"plan_id": "pl_1"}}),
+    )
+    .validate()
+    .is_err());
+    for forbidden_method in [
+        "team.adopt_agent",
+        "team.close",
+        "shell.exec",
+        WORKER_ACK_RPC_METHOD,
+        WORKER_REPORT_RPC_METHOD,
+    ] {
         assert!(
-            !json.to_ascii_lowercase().contains(forbidden),
-            "persisted request must not contain {forbidden}: {json}"
+            make(
+                OutboundOperation::PlanRpc,
+                owner_ctx.clone(),
+                json!({"method": forbidden_method, "request_id": "req-4", "params": {}}),
+            )
+            .validate()
+            .is_err(),
+            "PlanRpc must reject {forbidden_method}"
         );
     }
 }

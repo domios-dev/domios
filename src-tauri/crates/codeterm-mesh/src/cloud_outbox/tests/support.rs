@@ -6,11 +6,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
+use serde_json::json;
 use tokio::sync::Notify;
 
 use crate::account_mesh::ports::BoxFuture;
 use crate::crown::{AuthenticatedAgent, AuthenticatedOrigin};
+use crate::types::{PeerAddress, PeerAnnounce, RELAY_PROTOCOL_VERSION};
 
+use super::super::contract::{WORKER_ACK_RPC_METHOD, WORKER_REPORT_RPC_METHOD};
 use super::super::ports::{
     DrainAuthorizationPolicy, DrainLifecycleObserver, DrainPolicyDecision, OutboxClock,
     ReverseStreamSink,
@@ -69,23 +72,129 @@ pub fn sample_request(
     source_installation_id: &str,
     target_installation_id: &str,
     operation: OutboundOperation,
-    body: &[u8],
+    tag: &[u8],
 ) -> OutboundPeerRequest {
+    let label = String::from_utf8_lossy(tag);
+    let label = if label.is_empty() {
+        "default".to_string()
+    } else {
+        label.into_owned()
+    };
+    let (caller_context, body_value) = match operation {
+        OutboundOperation::Announce => (
+            CallerContext {
+                origin: AuthenticatedOrigin::Mesh,
+                agent: None,
+                expires_at_ms: None,
+            },
+            serde_json::to_value(PeerAnnounce {
+                machine_identity: None,
+                domios_version: None,
+                domios_build: None,
+                instance_id: source_installation_id.to_string(),
+                instance_name: format!("cloud-{label}"),
+                addresses: vec![PeerAddress::from_ip("127.0.0.1")],
+                api_port: 7686,
+                online: true,
+                web_ui: None,
+                relay_protocol_version: RELAY_PROTOCOL_VERSION,
+            })
+            .expect("serialize PeerAnnounce"),
+        ),
+        OutboundOperation::WorkerAck => (
+            CallerContext {
+                origin: AuthenticatedOrigin::Agent,
+                agent: Some(AuthenticatedAgent {
+                    instance_id: source_installation_id.to_string(),
+                    tab_id: "tab-worker-1".to_string(),
+                    can_spawn: false,
+                }),
+                expires_at_ms: None,
+            },
+            json!({
+                "method": WORKER_ACK_RPC_METHOD,
+                "request_id": format!("req-ack-{label}"),
+                "protocol_version": 1,
+                "params": {
+                    "plan_id": "pl_1",
+                    "task_id": "task_1",
+                    "attempt_id": format!("att-{label}"),
+                    "worker_tab_id": "tab-worker-1",
+                    "session_binding_nonce": "nonce-1"
+                }
+            }),
+        ),
+        OutboundOperation::WorkerReport => (
+            CallerContext {
+                origin: AuthenticatedOrigin::Agent,
+                agent: Some(AuthenticatedAgent {
+                    instance_id: source_installation_id.to_string(),
+                    tab_id: "tab-worker-1".to_string(),
+                    can_spawn: false,
+                }),
+                expires_at_ms: None,
+            },
+            json!({
+                "method": WORKER_REPORT_RPC_METHOD,
+                "request_id": format!("req-rep-{label}"),
+                "protocol_version": 1,
+                "params": {
+                    "plan_id": "pl_1",
+                    "task_id": "task_1",
+                    "attempt_id": "att-1",
+                    "worker_tab_id": "tab-worker-1",
+                    "session_binding_nonce": "nonce-1",
+                    "report": {
+                        "id": "remote-report:att-1",
+                        "message": label,
+                        "status": "in_review",
+                        "reporter_tab_id": "tab-worker-1"
+                    }
+                }
+            }),
+        ),
+        OutboundOperation::Notification => (
+            CallerContext {
+                origin: AuthenticatedOrigin::Agent,
+                agent: Some(AuthenticatedAgent {
+                    instance_id: source_installation_id.to_string(),
+                    tab_id: "tab-worker-1".to_string(),
+                    can_spawn: false,
+                }),
+                expires_at_ms: None,
+            },
+            json!({
+                "title": format!("notice-{label}"),
+                "body": label,
+                "severity": "info",
+                "level": "verbose"
+            }),
+        ),
+        OutboundOperation::PlanRpc => (
+            CallerContext {
+                origin: AuthenticatedOrigin::Owner,
+                agent: None,
+                expires_at_ms: None,
+            },
+            json!({
+                "method": "plan.get",
+                "request_id": "req-plan-1",
+                "protocol_version": 1,
+                "params": {
+                    "plan_id": "pl_1",
+                    "tag": label
+                }
+            }),
+        ),
+    };
+
     OutboundPeerRequest {
         account_id: account_id.to_string(),
         source_installation_id: source_installation_id.to_string(),
         target_installation_id: target_installation_id.to_string(),
         operation,
-        caller_context: CallerContext {
-            origin: AuthenticatedOrigin::Agent,
-            agent: Some(AuthenticatedAgent {
-                instance_id: source_installation_id.to_string(),
-                tab_id: "tab-worker-1".to_string(),
-                can_spawn: false,
-            }),
-            expires_at_ms: None,
-        },
-        body: body.to_vec(),
+        caller_context,
+        body: serde_json::to_vec(&body_value).expect("serialize request body"),
     }
 }
 

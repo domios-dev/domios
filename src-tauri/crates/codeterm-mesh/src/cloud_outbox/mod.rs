@@ -1,3 +1,4 @@
+pub mod contract;
 pub mod dedupe;
 pub mod model;
 pub mod outbox;
@@ -5,6 +6,11 @@ pub mod ports;
 pub mod storage;
 pub mod types;
 
+pub use contract::{
+    is_allowed_plan_rpc_method, validate_operation_request, OperationRouteBinding,
+    OuterWireRequest, RouteTarget, INNER_NOTIFICATION_ROUTE, INNER_RPC_ROUTE, OUTER_ANNOUNCE_ROUTE,
+    OUTER_RELAY_ROUTE, OUTER_RPC_ROUTE, WORKER_ACK_RPC_METHOD, WORKER_REPORT_RPC_METHOD,
+};
 pub use dedupe::{
     DedupeDecision, DedupeEntryState, DedupeError, DedupeKey, DedupeLimits, DedupeModel,
     DedupeRecord, ReceiverDedupe,

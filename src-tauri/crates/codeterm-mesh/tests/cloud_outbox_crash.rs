@@ -16,9 +16,9 @@ use codeterm_mesh::cloud_outbox::{
     CallerContext, CloudOutbox, CloudOutboxConfig, CloudOutboxPort, DedupeDecision, DedupeKey,
     DedupeLimits, DrainLifecycleObserver, OutboundOperation, OutboundPeerRequest, OutboxFrame,
     OutboxId, OutboxRecordStatus, ReceiverDedupe, ReverseStreamSink, StreamDeliveryOutcome,
-    UnconfirmedReason, DELIVERY_UNCONFIRMED,
+    UnconfirmedReason, DELIVERY_UNCONFIRMED, WORKER_REPORT_RPC_METHOD,
 };
-use codeterm_mesh::crown::AuthenticatedOrigin;
+use codeterm_mesh::crown::{AuthenticatedAgent, AuthenticatedOrigin};
 
 const ENV_SCENARIO: &str = "CODETERM_OUTBOX_CRASH_SCENARIO";
 const ENV_OUTBOX_DIR: &str = "CODETERM_OUTBOX_CRASH_DIR";
@@ -63,6 +63,24 @@ impl Drop for KillOnDrop {
 }
 
 fn make_request(body: &[u8]) -> OutboundPeerRequest {
+    let message = String::from_utf8_lossy(body);
+    let payload = serde_json::json!({
+        "method": WORKER_REPORT_RPC_METHOD,
+        "request_id": format!("req-{message}"),
+        "protocol_version": 1,
+        "params": {
+            "plan_id": "pl_crash",
+            "task_id": "task_crash",
+            "attempt_id": "att_crash",
+            "worker_tab_id": "worker-crash-1",
+            "report": {
+                "id": format!("remote-report:{message}"),
+                "message": message,
+                "status": "in_review",
+                "reporter_tab_id": "worker-crash-1"
+            }
+        }
+    });
     OutboundPeerRequest {
         account_id: "acct-crash".into(),
         source_installation_id: "cloud-crash".into(),
@@ -70,10 +88,14 @@ fn make_request(body: &[u8]) -> OutboundPeerRequest {
         operation: OutboundOperation::WorkerReport,
         caller_context: CallerContext {
             origin: AuthenticatedOrigin::Agent,
-            agent: None,
+            agent: Some(AuthenticatedAgent {
+                instance_id: "cloud-crash".into(),
+                tab_id: "worker-crash-1".into(),
+                can_spawn: false,
+            }),
             expires_at_ms: None,
         },
-        body: body.to_vec(),
+        body: serde_json::to_vec(&payload).expect("serialize crash request body"),
     }
 }
 

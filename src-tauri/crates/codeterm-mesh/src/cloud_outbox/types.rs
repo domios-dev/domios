@@ -5,6 +5,10 @@ use sha2::{Digest, Sha256};
 
 use crate::crown::{AuthenticatedAgent, AuthenticatedOrigin};
 
+use super::contract::{
+    build_outer_wire_request, direct_outer_route, route_binding, validate_operation_request,
+    OperationRouteBinding, OuterWireRequest, RouteTarget,
+};
 use super::dedupe::DedupeKey;
 
 pub const OUTBOX_FULL: &str = "outbox_full";
@@ -93,6 +97,14 @@ pub enum OutboundOperation {
 }
 
 impl OutboundOperation {
+    pub const ALL: [Self; 5] = [
+        Self::Announce,
+        Self::WorkerAck,
+        Self::WorkerReport,
+        Self::Notification,
+        Self::PlanRpc,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Announce => "announce",
@@ -103,28 +115,28 @@ impl OutboundOperation {
         }
     }
 
+    pub const fn route_binding(self) -> OperationRouteBinding {
+        route_binding(self)
+    }
+
+    pub const fn outer_route(self) -> RouteTarget {
+        self.route_binding().outer
+    }
+
+    pub const fn inner_route(self) -> Option<RouteTarget> {
+        self.route_binding().inner
+    }
+
+    pub const fn direct_outer_route(self) -> Option<RouteTarget> {
+        direct_outer_route(self)
+    }
+
     pub const fn http_method(self) -> &'static str {
-        match self {
-            Self::Announce
-            | Self::WorkerAck
-            | Self::WorkerReport
-            | Self::Notification
-            | Self::PlanRpc => "POST",
-        }
+        self.outer_route().method
     }
 
     pub const fn allowed_http_methods(self) -> &'static [&'static str] {
         &["POST"]
-    }
-
-    pub const fn canonical_route(self) -> &'static str {
-        match self {
-            Self::Announce => "/api/mesh/announce",
-            Self::WorkerAck => "/api/mesh/worker/ack",
-            Self::WorkerReport => "/api/mesh/worker/report",
-            Self::Notification => "/api/mesh/notification",
-            Self::PlanRpc => "/api/mesh/plan/rpc",
-        }
     }
 }
 
@@ -165,7 +177,12 @@ impl OutboundPeerRequest {
             validate_identifier(&agent.instance_id, "caller_context.agent.instance_id")?;
             validate_identifier(&agent.tab_id, "caller_context.agent.tab_id")?;
         }
+        validate_operation_request(self.operation, &self.caller_context, &self.body)?;
         Ok(())
+    }
+
+    pub fn to_outer_wire_request(&self) -> Result<OuterWireRequest, OutboxError> {
+        build_outer_wire_request(self)
     }
 
     pub fn pair(&self) -> InstallationPair {
@@ -185,14 +202,23 @@ impl OutboundPeerRequest {
     }
 
     pub fn payload_digest(&self) -> String {
+        let binding = self.operation.route_binding();
         let mut hasher = Sha256::new();
         hash_field(&mut hasher, DIGEST_DOMAIN);
         hash_field(&mut hasher, self.account_id.as_bytes());
         hash_field(&mut hasher, self.source_installation_id.as_bytes());
         hash_field(&mut hasher, self.target_installation_id.as_bytes());
         hash_field(&mut hasher, self.operation.as_str().as_bytes());
-        hash_field(&mut hasher, self.operation.http_method().as_bytes());
-        hash_field(&mut hasher, self.operation.canonical_route().as_bytes());
+        hash_field(&mut hasher, binding.outer.method.as_bytes());
+        hash_field(&mut hasher, binding.outer.path.as_bytes());
+        match binding.inner {
+            Some(inner) => {
+                hasher.update([1]);
+                hash_field(&mut hasher, inner.method.as_bytes());
+                hash_field(&mut hasher, inner.path.as_bytes());
+            }
+            None => hasher.update([0]),
+        }
         hash_field(&mut hasher, origin_tag(self.caller_context.origin));
         match &self.caller_context.agent {
             Some(agent) => {
