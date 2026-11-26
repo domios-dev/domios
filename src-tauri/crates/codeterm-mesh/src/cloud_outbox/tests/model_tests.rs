@@ -592,21 +592,57 @@ fn operations_enforce_closed_body_and_origin_binding_contracts() {
     .validate()
     .is_err());
 
-    // Notification refuses pre-stamped source_peer / tab_id / workspace_id.
+    // Notification admits Owner/Mesh display-only payloads and refuses Agent/Service or forbidden fields.
     assert!(make(
         OutboundOperation::Notification,
         agent_ctx("tab-worker-1"),
-        json!({"title": "hi", "source_peer": "spoofed"}),
+        json!({"title": "hi"}),
     )
     .validate()
     .is_err());
     assert!(make(
         OutboundOperation::Notification,
-        agent_ctx("tab-worker-1"),
-        json!({"title": "hi", "tab_id": "local-tab"}),
+        CallerContext {
+            origin: AuthenticatedOrigin::Service,
+            agent: None,
+            expires_at_ms: None,
+        },
+        json!({"title": "hi"}),
     )
     .validate()
     .is_err());
+    for origin in [AuthenticatedOrigin::Owner, AuthenticatedOrigin::Mesh] {
+        assert!(make(
+            OutboundOperation::Notification,
+            CallerContext {
+                origin,
+                agent: None,
+                expires_at_ms: None,
+            },
+            json!({"title": "hi", "body": "ok"}),
+        )
+        .validate()
+        .is_ok());
+    }
+    for (field, value) in [
+        ("source_peer", json!("spoofed")),
+        ("tab_id", json!("local-tab")),
+        ("workspace_id", json!("local-ws")),
+        ("target_tab_id", json!("local-tab")),
+        ("chat_message_id", json!("msg-1")),
+        ("offer", json!("desktop")),
+        ("offer_accept", json!("Enable")),
+        ("actions", json!([{"type": "answer", "label": "Yes"}])),
+    ] {
+        let mut payload = json!({"title": "hi"});
+        payload[field] = value;
+        assert!(
+            make(OutboundOperation::Notification, owner_ctx.clone(), payload)
+                .validate()
+                .is_err(),
+            "Notification must reject '{field}'"
+        );
+    }
 
     // PlanRpc refuses Agent origin and disallowed or worker-lifecycle methods.
     assert!(make(

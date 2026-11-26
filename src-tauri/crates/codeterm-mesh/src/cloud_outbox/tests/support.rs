@@ -156,12 +156,8 @@ pub fn sample_request(
         ),
         OutboundOperation::Notification => (
             CallerContext {
-                origin: AuthenticatedOrigin::Agent,
-                agent: Some(AuthenticatedAgent {
-                    instance_id: source_installation_id.to_string(),
-                    tab_id: "tab-worker-1".to_string(),
-                    can_spawn: false,
-                }),
+                origin: AuthenticatedOrigin::Mesh,
+                agent: None,
                 expires_at_ms: None,
             },
             json!({

@@ -1093,6 +1093,7 @@ fn copy_content_type(from: &reqwest::Response, fallback: &'static str) -> Header
 mod path_guard;
 mod peer_authorization;
 mod peer_resolution;
+mod remote_notification;
 use path_guard::validate_relay_path;
 use peer_authorization::authorize_peer_relay;
 #[cfg(test)]
@@ -1104,6 +1105,9 @@ use peer_resolution::{
 use peer_resolution::{
     resolve_exact_relay_peer, resolve_relay_peer, PEER_NAME_AMBIGUOUS_REASON,
     PEER_NAME_NO_ONLINE_RECORD_REASON, PEER_NOT_PAIRED_REASON, PEER_UNROUTABLE_REASON,
+};
+pub use remote_notification::{
+    MAX_PER_PEER_NOTIFICATIONS, PEER_NOTIFICATION_RATE_LIMITED, REMOTE_NOTIFICATION_REJECTED,
 };
 
 #[cfg(test)]
