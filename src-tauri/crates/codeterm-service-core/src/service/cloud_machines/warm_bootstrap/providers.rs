@@ -93,7 +93,8 @@ fn find_existing_login_tab(
     profile_id: Option<&str>,
 ) -> Option<String> {
     let mux = svc.mux.read();
-    mux.all_tabs()
+    let found = mux
+        .all_tabs()
         .find(|tab| {
             tab.agent_type.as_deref() == Some(provider_id)
                 && profile_id.is_none_or(|wanted| {
@@ -101,7 +102,8 @@ fn find_existing_login_tab(
                         == Some(wanted)
                 })
         })
-        .map(|tab| tab.id.clone())
+        .map(|tab| tab.id.clone());
+    found
 }
 
 /// Inspects configured providers and compatible launch profiles on this machine using only
