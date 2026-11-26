@@ -54,14 +54,80 @@ async fn attributed_body_async<T: DeserializeOwned + Send + 'static>(
         })?
 }
 
+fn rename_caller_and_body(
+    state: &AppState,
+    headers: HeaderMap,
+    mut body: Value,
+) -> Result<
+    (
+        codeterm_service_core::service::TeamMutationCaller,
+        crate::team_routes::RenameTeamBody,
+    ),
+    RouteError,
+> {
+    let (identity, origin) = crate::auth::authenticated_request(state, &headers)?;
+    if let crate::auth::CallerIdentity::Peer {
+        instance_id,
+        access_level,
+        ..
+    } = identity
+    {
+        if !matches!(
+            access_level,
+            codeterm_service_core::mesh::types::AccessLevel::Full
+        ) || origin != crate::auth::AuthenticatedOrigin::Owner
+        {
+            return Err((
+                axum::http::StatusCode::FORBIDDEN,
+                "Authenticated Full peer acting for the owner is required".into(),
+            ));
+        }
+        let claim: authority::CallerClaim = serde_json::from_value(body.clone())
+            .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+        if claim.caller_tab_id.is_some()
+            || claim.session_binding_nonce.is_some()
+            || headers.contains_key("X-CodeTerm-Tab-Id")
+            || headers.contains_key("X-CodeTerm-Binding-Nonce")
+        {
+            return Err((
+                axum::http::StatusCode::FORBIDDEN,
+                "Peer Team rename cannot claim a local tab".into(),
+            ));
+        }
+        if let Some(object) = body.as_object_mut() {
+            object.remove("caller_tab_id");
+            object.remove("session_binding_nonce");
+        }
+        let body = serde_json::from_value(body)
+            .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+        return Ok((
+            codeterm_service_core::service::TeamMutationCaller::AuthenticatedMeshPeer(instance_id),
+            body,
+        ));
+    }
+    let (headers, body) = attributed_body(state, headers, body)?;
+    let caller = crate::team_routes::rename_team_caller(&headers)?;
+    Ok((caller, body))
+}
+
 pub(super) async fn rename(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<codeterm_types::team::Team>, RouteError> {
-    let (headers, body) = attributed_body_async(&state, headers, body).await?;
-    super::super::team_routes::rename_team(State(state), headers, Path(id), Json(body)).await
+    let team = tokio::task::spawn_blocking(move || {
+        let (caller, body) = rename_caller_and_body(&state, headers, body)?;
+        crate::team_routes::rename_team_with_caller(&state, id, caller, body)
+    })
+    .await
+    .map_err(|error| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            error.to_string(),
+        )
+    })??;
+    Ok(Json(team))
 }
 
 pub(super) async fn close(
