@@ -8,6 +8,7 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::Response,
 };
+use codeterm_neighbors_service::prelude::NeighborsAccountMesh1Ext as _;
 
 use super::{
     copy_content_type, origin, peer_not_paired_error, peer_unroutable_error, validate_relay_path,
@@ -126,12 +127,12 @@ pub async fn mesh_relay_stream(
     validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     let (peer_id, link) = (q.peer.clone(), q.link.clone());
-    let (diagnostic_level, client) =
+    let (diagnostic_level, client, link_nonce) =
         crate::auth::off_runtime(&state, &headers, move |state, headers| {
             let diagnostic_level = crate::stream_diagnostics::configured_level(
                 state.config.lock().diagnostics.terminal_transport,
             );
-            let (primary, alternatives) = {
+            let ((primary, alternatives), link_nonce) = {
                 let mesh = state.mesh.lock();
                 let peer = mesh
                     .paired_peers
@@ -153,6 +154,12 @@ pub async fn mesh_relay_stream(
                         "remote tab unavailable".into(),
                     ));
                 }
+                if !mesh.peer_requests_allowed(&peer_id) {
+                    return Err((
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "peer-reconnecting: authentication backoff active".into(),
+                    ));
+                }
                 if !codeterm_service_core::mesh::types::is_supported_relay_protocol(
                     peer.relay_protocol_version,
                 ) {
@@ -162,23 +169,57 @@ pub async fn mesh_relay_stream(
                             .1,
                     ));
                 }
-                mesh.peer_route_endpoints(&peer_id)
-                    .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
+                let link_nonce = mesh
+                    .link_record(&peer_id)
+                    .and_then(|record| record.link_nonce.clone());
+                let endpoints = mesh
+                    .peer_route_endpoints(&peer_id)
+                    .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?;
+                (endpoints, link_nonce)
             };
             let (_, client) = origin::signed_peer_client(state, headers, primary, alternatives)?;
-            Ok((diagnostic_level, client))
+            Ok((diagnostic_level, client, link_nonce))
         })
         .await?;
+    if let Err(remaining_ms) =
+        super::peer_stream_backoff::check_allowed(&state.mesh, &q.peer, link_nonce.as_deref())
+    {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("peer-reconnecting: retry after {remaining_ms}ms"),
+        ));
+    }
     if shared {
-        return super::peer_rail::subscribe(client, state.mesh.clone(), q.peer, path).await;
+        return super::peer_rail::subscribe(
+            client,
+            state.mesh.clone(),
+            state.svc.clone(),
+            q.peer,
+            link_nonce,
+            path,
+        )
+        .await;
     }
     let resp = client
         .open_relay_stream(&path)
         .await
         .map_err(stream_unreachable)?;
     if !resp.status().is_success() {
+        if resp.status() == StatusCode::UNAUTHORIZED {
+            let outcome = super::peer_stream_backoff::record_refusal(
+                &state.mesh,
+                &q.peer,
+                link_nonce.as_deref(),
+            );
+            if outcome.trigger_refresh {
+                state.svc.spawn_account_mesh_refresh(
+                    codeterm_account::account_mesh::EnrollTrigger::Lease,
+                );
+            }
+        }
         return Err(stream_refusal(resp).await);
     }
+    super::peer_stream_backoff::record_success(&state.mesh, &q.peer);
     let content_type = copy_content_type(&resp, "text/event-stream");
     let body = if bare == "/api/output/stream" {
         super::super::relay_stream::output_body(

@@ -74,10 +74,6 @@ pub async fn mesh_link_commit(
     AxumState(state): AxumState<AppState>,
     Json(commit): Json<LinkCommit>,
 ) -> Result<Json<LinkCommitReply>, Refused> {
-    state
-        .svc
-        .ui
-        .emit("mesh-state-changed", serde_json::Value::Null);
     if let Some(snapshot) = commit.signed_registry.as_ref() {
         state
             .svc
@@ -92,6 +88,10 @@ pub async fn mesh_link_commit(
     }
     state.mesh.lock().commit_link(&commit).map_err(refused)?;
     let signed_registry = state.mesh.lock().signed_registry.clone();
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(LinkCommitReply {
         committed: true,
         signed_registry,

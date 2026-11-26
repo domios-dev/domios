@@ -23,22 +23,34 @@ pub(super) fn presented_kind(token: &str) -> &'static str {
     "bearer"
 }
 
-pub(super) fn refusal_reason(state: &crate::routes::AppState, token: &str) -> &'static str {
+pub(super) enum MeshRefusal {
+    PlanLimitLocked(String),
+    Unauthorized(&'static str),
+}
+
+pub(super) fn classify_mesh_refusal(state: &crate::routes::AppState, token: &str) -> MeshRefusal {
     use codeterm_service_core::mesh::account_mesh::gate::{BlockReason, TrafficDecision};
-    let mesh = state.mesh.lock();
-    let Ok(peer) = codeterm_service_core::mesh::crown::verify_signed_request(
-        token,
-        &mesh.paired_identity_keys(),
-    ) else {
-        return "unknown_or_invalid_credential";
+    if token.is_empty() {
+        return MeshRefusal::Unauthorized("unknown_or_invalid_credential");
+    }
+    // Clone keys before Ed25519 verification so refusal storms never hold the mesh mutex.
+    let paired_keys = state.mesh.lock().paired_identity_keys();
+    let Ok(peer) = codeterm_service_core::mesh::crown::verify_signed_request(token, &paired_keys)
+    else {
+        return MeshRefusal::Unauthorized("unknown_or_invalid_credential");
     };
-    match mesh.traffic_decision(&peer) {
-        TrafficDecision::Blocked(BlockReason::LocalMembershipExpired) => "local_membership_expired",
+    match state.mesh.lock().traffic_decision(&peer) {
+        TrafficDecision::Blocked(BlockReason::PlanLimitLocked) => {
+            MeshRefusal::PlanLimitLocked(peer)
+        }
+        TrafficDecision::Blocked(BlockReason::LocalMembershipExpired) => {
+            MeshRefusal::Unauthorized("local_membership_expired")
+        }
         TrafficDecision::Blocked(
             BlockReason::PeerMembershipExpired | BlockReason::PeerMembershipMissing,
-        ) => "peer_membership_expired",
-        TrafficDecision::Blocked(BlockReason::Revoked) => "revoked",
-        _ => "account_admission_blocked",
+        ) => MeshRefusal::Unauthorized("peer_membership_expired"),
+        TrafficDecision::Blocked(BlockReason::Revoked) => MeshRefusal::Unauthorized("revoked"),
+        _ => MeshRefusal::Unauthorized("account_admission_blocked"),
     }
 }
 
