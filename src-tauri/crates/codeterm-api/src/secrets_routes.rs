@@ -263,17 +263,47 @@ pub struct ValueResponse {
 /// clients.
 pub async fn reveal_value(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<ValueResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let store = state.svc.secrets.read().await;
+    let is_agent_caller = matches!(
+        crate::auth::authenticated_request(&state, &headers),
+        Ok((crate::auth::CallerIdentity::Tab(_), _))
+            | Ok((_, crate::auth::AuthenticatedOrigin::Agent))
+    );
+    if is_agent_caller && state.svc.secure_input().is_protected_vault_slot(&name) {
+        return Err(protected_secret_forbidden());
+    }
+    let store = state.svc.secrets.read().await.clone();
     let v = store.get(&name).await.map_err(map_error)?;
+    if is_agent_caller
+        && (state.svc.secure_input().is_protected_vault_slot(&v.name)
+            || v.notes.as_deref().is_some_and(|notes| {
+                notes.contains(
+                    codeterm_service_core::service::secure_input::PROTECTED_VAULT_NOTE_MARKER,
+                )
+            }))
+    {
+        return Err(protected_secret_forbidden());
+    }
     Ok(Json(ValueResponse {
         item_id: v.item_id,
         name: v.name,
         value: v.value.expose_secret().to_string(),
         notes: v.notes,
     }))
+}
+
+fn protected_secret_forbidden() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({
+            "error": {
+                "kind": "forbidden",
+                "message": "Owner-protected secrets cannot be revealed to agents; reference them by name",
+            }
+        })),
+    )
 }
 
 #[derive(Deserialize)]

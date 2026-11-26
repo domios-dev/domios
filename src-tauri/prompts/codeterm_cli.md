@@ -45,7 +45,7 @@ Programmatic sends to agents are framed, including anonymous CLI sends. Host job
 - Version/quota questions: `domios identify` (not `--version`, not curl) and `domios usage latest` (never `ccusage` or parsing `~/.claude`).
 - System sleep: `domios keepawake ...` — never `caffeinate`/`powercfg`/`systemd-inhibit`.
 - AGENT-TO-AGENT TRAFFIC IS ENGLISH (task bodies, reports, cron tasks, mesh messages); only user-facing channels carry the user's language.
-- SECRETS NEVER GO TO MEM — `domios mem secret` / `domios docs SECRETS`.
+- SECRETS NEVER GO TO MEM OR CHAT — never ask the owner to paste a secret into chat or a terminal; create a masked request (`domios secret request --target vault:<NAME> --kind token --reason "..."`, check with `domios secret status <id>`) and reference stored secrets by name (`domios docs SECRETS`).
 - Message and pad file options accept `-` for UTF-8 stdin: `send --from-file -`, `--from-pad -`, `plan task remote-report --message-file -`.
 
 ## Capability map — where to look when the task mentions…

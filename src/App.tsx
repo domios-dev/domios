@@ -51,6 +51,7 @@ import { CommandPalette, buildDefaultCommands } from "./components/CommandPalett
 import { useAppNotices } from "./hooks/useAppNotices";
 import { useDocumentPerfState } from "./hooks/useDocumentPerfState";
 import { StorageUnavailableToast } from "./components/StorageUnavailableToast";
+import { SecureInputRequestHost } from "./components/SecureInput/SecureInputRequestHost";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
@@ -1152,6 +1153,7 @@ function AppInner() {
       <NavigationBackBar onBack={handleBackToMemory} />
 
       <UpdateProgressLayer />
+      <SecureInputRequestHost />
       <FreeLimitPlansModal />
     </div>
     </ChatWallpaperContext.Provider>

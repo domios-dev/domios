@@ -18,7 +18,8 @@ mod peer_asset;
 mod peer_rail;
 mod peer_stream;
 pub(crate) use cloud_producer::{
-    cloud_outbox_announce, resolve_cloud_ingress_endpoint, send_via_cloud_ingress,
+    cloud_outbox_announce, resolve_cloud_ingress_endpoint, send_owner_secure_delivery,
+    send_via_cloud_ingress,
 };
 pub use cloud_producer::{
     CloudIngressConnector, CloudIngressSendError, CLOUD_NOTIFICATION_RELAY_REFUSED,
