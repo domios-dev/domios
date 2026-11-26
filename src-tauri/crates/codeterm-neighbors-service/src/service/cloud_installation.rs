@@ -9,6 +9,7 @@ use codeterm_account::{
     account_mesh::{
         cloud_enrollment::{
             fixed_bytes, member_identity, verify_apply, Apply, Discovery, ExpectedApply,
+            MAX_ENROLL_APPLY_BYTES,
         },
         AccountMesh, InstallationKey, MembershipTrust,
     },
@@ -336,6 +337,9 @@ impl EnrollmentHandler for CloudInstallation {
             let binding = *session.channel_binding();
             match op {
                 EnrollmentOperation::Apply => {
+                    if payload.len() > MAX_ENROLL_APPLY_BYTES {
+                        return Err(EnrollmentError::InvalidFrame);
+                    }
                     let owner = self.clone();
                     let bytes = payload.to_vec();
                     let publisher = self.clone();

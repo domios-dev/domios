@@ -3,7 +3,6 @@ pub mod held_sends;
 pub mod idle_drain;
 pub mod placement;
 pub mod ports;
-pub mod provider_adapter;
 pub mod state;
 pub mod store;
 pub mod types;
@@ -12,7 +11,7 @@ use std::sync::Arc;
 
 use crate::service::{background_work, ServiceContext};
 
-pub use controller::{CloudMachineController, CreateCloudMachineParams};
+pub use controller::{mint_request_id, CloudMachineController, CreateCloudMachineParams};
 pub use held_sends::{
     CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, HeldCloudSendState, SingleFlightWakes,
     DEFAULT_WAKE_HOLD_DEADLINE_MS, RELEASE_CONDITION_PEER_READY,
@@ -21,15 +20,12 @@ pub use idle_drain::{
     evaluate_idle_and_renewal, DrainToken, IdleDecision, IdleEvalInput, IdlePolicy,
     IdleSleepAction, LocalPeerDrainGate, PeerBusySnapshot,
 };
-pub use placement::{
-    check_machine_limit, select_placement, CloudBillingMode, CloudLimitPolicy, CloudTarget,
-    PlacementDecision,
-};
+pub use placement::{select_placement, CloudTarget, PlacementDecision};
 pub use ports::{
-    Clock, CloudBackendPort, CloudCreateRequest, CloudEnrollmentPort, CloudPeerControlPort,
-    CloudRouteSpec, EnrollmentBinding, EnrollmentOutcome, SystemClock,
+    Clock, CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, CloudRouteSpec,
+    EnrollmentBinding, EnrollmentOutcome, ProvisionedLease, ProvisionedMachine,
+    ProvisioningCreateRequest, SystemClock,
 };
-pub use provider_adapter::PluginCloudBackend;
 pub use state::{
     can_issue_enrollment_apply, ownership_labels, reconcile_provider_machines, transition,
     LifecycleEvent, ObservedProviderMachine, ObservedProviderState, ReconcileOutcome,
@@ -37,9 +33,9 @@ pub use state::{
 pub use store::CloudMachineStore;
 pub use types::{
     CloudCostSummary, CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt,
-    CloudRate, CloudRateBasis, CloudReceipt, CloudSleepMode, CLOUD_INGRESS_PORT,
-    CLOUD_WAKE_SEND_PREFIX, COST_WARNING_TEXT, DEFAULT_AUTO_STOP_MINUTES,
-    DEFAULT_BYO_MACHINE_LIMIT, DEFAULT_IDLE_SLEEP_MINUTES,
+    CloudRate, CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
+    PendingProvisioningRequest, CLOUD_INGRESS_PORT, CLOUD_WAKE_SEND_PREFIX, COST_WARNING_TEXT,
+    DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
 };
 
 #[derive(Clone)]

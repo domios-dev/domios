@@ -125,9 +125,9 @@ fn apply_requires_matching_controller_local_identity_session_and_both_issuer_sig
         channel_binding: URL_SAFE_NO_PAD.encode(exporter),
         provider: "timeweb".into(),
         size: "small".into(),
-        cloud_mode: None,
         request_id: URL_SAFE_NO_PAD.encode([4; 32]),
         timestamp: START,
+        provider_machine_id: None,
     };
     let account = account_id("owner");
     let membership = issuer.sign(&Issuer::membership_payload("owner", &key_id, 1, 1, START));

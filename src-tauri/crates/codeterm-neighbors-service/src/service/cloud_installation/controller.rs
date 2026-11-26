@@ -3,7 +3,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use codeterm_account::account_mesh::{
     cloud_enrollment::{
         fixed_bytes, installation_key_id, nonce_commitment, Discovery, EnrollmentBody,
-        ExpectedApply,
+        ExpectedApply, MAX_ENROLL_APPLY_BYTES,
     },
     AccountMeshRefusal,
 };
@@ -115,9 +115,9 @@ pub async fn enroll(
         channel_binding: URL_SAFE_NO_PAD.encode(exporter),
         provider: provider.into(),
         size: size.into(),
-        cloud_mode: None,
         request_id: URL_SAFE_NO_PAD.encode(request_id),
         timestamp: codeterm_service_core::service::neighbor_account::now(),
+        provider_machine_id: None,
     };
     let apply = controller
         .delegate(body)
@@ -137,6 +137,9 @@ pub async fn enroll(
         return Err(ControllerError::InvalidEvidence);
     }
     let bytes = serde_json::to_vec(&apply).map_err(|_| ControllerError::InvalidEvidence)?;
+    if bytes.len() > MAX_ENROLL_APPLY_BYTES {
+        return Err(ControllerError::InvalidEvidence);
+    }
     mesh.mesh
         .receive_registry_snapshot(&apply.reply.signed_registry)
         .await

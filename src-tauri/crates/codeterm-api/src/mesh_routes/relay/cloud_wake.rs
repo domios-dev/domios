@@ -57,9 +57,12 @@ pub(super) async fn preflight_cloud_wake(
         return Ok(Some(PeerRelayResponse {
             response: relay_failure(
                 StatusCode::PAYMENT_REQUIRED.as_u16(),
-                "out_of_credits",
+                "credits_exhausted",
                 Some(false),
-                format!("Cloud machine {} is out of credits", machine.machine_id),
+                format!(
+                    "Out of credits: top up to wake cloud machine {}",
+                    machine.machine_id
+                ),
             ),
             peer,
         }));

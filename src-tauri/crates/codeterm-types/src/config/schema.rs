@@ -1080,16 +1080,8 @@ impl Default for TextHooksConfig {
     }
 }
 
-fn default_cloud_machine_limit() -> u32 {
-    3
-}
-
 fn default_cloud_idle_sleep_minutes() -> u32 {
     15
-}
-
-fn default_cloud_auto_stop_minutes() -> u32 {
-    10
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1097,12 +1089,8 @@ fn default_cloud_auto_stop_minutes() -> u32 {
 pub struct MeshConfig {
     pub enabled: bool,
     pub instance_name: String,
-    #[serde(default = "default_cloud_machine_limit")]
-    pub cloud_machine_limit: u32,
     #[serde(default = "default_cloud_idle_sleep_minutes")]
     pub cloud_idle_sleep_minutes: u32,
-    #[serde(default = "default_cloud_auto_stop_minutes")]
-    pub cloud_auto_stop_minutes: u32,
 }
 
 impl Default for MeshConfig {
@@ -1110,9 +1098,7 @@ impl Default for MeshConfig {
         Self {
             enabled: true,
             instance_name: String::new(),
-            cloud_machine_limit: default_cloud_machine_limit(),
             cloud_idle_sleep_minutes: default_cloud_idle_sleep_minutes(),
-            cloud_auto_stop_minutes: default_cloud_auto_stop_minutes(),
         }
     }
 }

@@ -1,6 +1,4 @@
-use super::types::{
-    CloudError, CloudLifecycleState, CloudMachineRecord, DEFAULT_BYO_MACHINE_LIMIT,
-};
+use super::types::{CloudError, CloudLifecycleState, CloudMachineRecord};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CloudTarget {
@@ -22,41 +20,6 @@ impl CloudTarget {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CloudBillingMode {
-    Byo,
-    Managed,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CloudLimitPolicy {
-    pub max_machines: u32,
-    pub mode: CloudBillingMode,
-    pub allow_managed: bool,
-}
-
-impl CloudLimitPolicy {
-    pub fn byo(max_machines: u32) -> Self {
-        Self {
-            max_machines: if max_machines == 0 {
-                DEFAULT_BYO_MACHINE_LIMIT
-            } else {
-                max_machines
-            },
-            mode: CloudBillingMode::Byo,
-            allow_managed: false,
-        }
-    }
-
-    pub fn managed(max_machines: u32, allow_managed: bool) -> Self {
-        Self {
-            max_machines,
-            mode: CloudBillingMode::Managed,
-            allow_managed,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PlacementDecision {
     ReuseAwake(String),
@@ -64,35 +27,12 @@ pub enum PlacementDecision {
     CreateExplicit,
 }
 
-pub fn check_machine_limit(
-    machines: &[CloudMachineRecord],
-    policy: CloudLimitPolicy,
-) -> Result<(), CloudError> {
-    if policy.mode == CloudBillingMode::Managed && !policy.allow_managed {
-        return Err(CloudError::FreePlanManagedRefused);
-    }
-    let active_count = machines
-        .iter()
-        .filter(|machine| machine.state.counts_against_limit())
-        .count();
-    if active_count >= policy.max_machines as usize {
-        return Err(CloudError::LimitReached {
-            limit: policy.max_machines,
-        });
-    }
-    Ok(())
-}
-
 pub fn select_placement(
     machines: &[CloudMachineRecord],
     target: &CloudTarget,
-    policy: CloudLimitPolicy,
 ) -> Result<PlacementDecision, CloudError> {
     match target {
-        CloudTarget::New => {
-            check_machine_limit(machines, policy)?;
-            Ok(PlacementDecision::CreateExplicit)
-        }
+        CloudTarget::New => Ok(PlacementDecision::CreateExplicit),
         CloudTarget::Auto => {
             let mut awake: Vec<&CloudMachineRecord> = machines
                 .iter()
@@ -132,6 +72,15 @@ pub fn select_placement(
             });
             if let Some(best) = wakeable.first() {
                 return Ok(PlacementDecision::WakeAndReuse(best.machine_id.clone()));
+            }
+
+            if let Some(exhausted) = machines
+                .iter()
+                .find(|m| m.state == CloudLifecycleState::OutOfCredits)
+            {
+                return Err(CloudError::MachineOutOfCredits {
+                    machine_id: exhausted.machine_id.clone(),
+                });
             }
 
             // Never create implicitly when --cloud auto finds no reusable machine.
