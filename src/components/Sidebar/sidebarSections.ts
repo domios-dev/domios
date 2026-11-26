@@ -34,8 +34,28 @@ export function hydrateProtectedExpanded(
 }
 
 
-export interface SidebarScrollScope { activeWorkspaceId: string | null; selectedWorkspaceId: string | null }
+export interface ScrollVerticalBounds {
+  top: number;
+  bottom: number;
+}
 
-export function sidebarWorkspaceScrollTop(previous: SidebarScrollScope, next: SidebarScrollScope, current: number): number {
-  return previous.activeWorkspaceId === next.activeWorkspaceId && previous.selectedWorkspaceId === next.selectedWorkspaceId ? current : 0;
+export function minimalScrollDeltaForItem(
+  viewport: ScrollVerticalBounds,
+  item: ScrollVerticalBounds,
+): number {
+  const viewportHeight = viewport.bottom - viewport.top;
+  const itemHeight = item.bottom - item.top;
+  if (viewportHeight <= 0 || itemHeight <= 0) return 0;
+  if (item.top < viewport.top) return item.top - viewport.top;
+  if (item.bottom > viewport.bottom) return item.bottom - viewport.bottom;
+  return 0;
+}
+
+export function minimalScrollTopForItem(
+  currentScrollTop: number,
+  viewport: ScrollVerticalBounds,
+  item: ScrollVerticalBounds,
+): number {
+  const delta = minimalScrollDeltaForItem(viewport, item);
+  return delta === 0 ? currentScrollTop : Math.max(0, currentScrollTop + delta);
 }

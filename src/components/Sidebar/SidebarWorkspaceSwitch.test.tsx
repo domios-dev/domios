@@ -43,6 +43,10 @@ vi.mock("../../store/multiplexer/hooks", async () => {
   const subscribe = (listener: () => void) => { mux.listeners.add(listener); return () => { mux.listeners.delete(listener); }; };
   return {
     useMultiplexer: () => ({
+      setActiveWorkspace: (workspaceId: string) => {
+        mux.state = { ...mux.state, active_workspace_id: workspaceId };
+        for (const listener of [...mux.listeners]) listener();
+      },
       setActiveTab: (workspaceId: string, tabId: string) => {
         mux.state = { ...mux.state, active_workspace_id: workspaceId, activeTabIds: { ...mux.state.activeTabIds as Record<string, string>, [workspaceId]: tabId } };
         for (const listener of [...mux.listeners]) listener();
@@ -581,6 +585,11 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   expect(selectionCue(host)).not.toBeNull();
 
   await act(async () => setSidebarMachineFilter("all"));
+  expect(cards()).toHaveLength(1);
+  const blackstarToggle = host.querySelector<HTMLButtonElement>('[data-testid="workspace-machine-section"][data-peer-id="blackstar"] [data-testid="workspace-machine-toggle"]')!;
+  expect(blackstarToggle.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => blackstarToggle.click());
+  expect(blackstarToggle.getAttribute("aria-expanded")).toBe("true");
   expect(cards()).toHaveLength(2);
   expect(detail()).toHaveLength(1);
   const peerWorkspace = host.querySelector<HTMLButtonElement>('button[aria-label="Select workspace Peer home"]')!;
@@ -1021,4 +1030,113 @@ it.each([
   expect(closeWorker.textContent).toContain(label);
   await act(async () => closeWorker.click());
   expect(mux.closeTab).not.toHaveBeenCalled();
+});
+
+it("collapses non-local machine groups by default with 6 machines, persists chevron toggles, and never scrolls to top on clicks", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  const localOne = workspaceOf("local-one", [worker("l1", "local-one")]);
+  const localTwo = workspaceOf("local-two", [worker("l2", "local-two")]);
+  setMux([localOne, localTwo], [worker("l1", "local-one"), worker("l2", "local-two")], "local-one");
+
+  const peers = [
+    { peerId: "peer-rog", name: "ROG", ws: "rog-ws", title: "Rogue App" },
+    { peerId: "peer-ubunta", name: "ubunta", ws: "ubunta-ws", title: "Ubuntu Box" },
+    { peerId: "peer-eight", name: "eight", ws: "eight-ws", title: "Eight Core" },
+    { peerId: "peer-rollacodebot", name: "rollacodebot", ws: "bot-ws", title: "Bot Ops" },
+    { peerId: "peer-air", name: "air", ws: "air-ws", title: "Air Notes" },
+  ];
+  const inventory = {
+    browse: null,
+    generals: peers.map(({ peerId, name }) => ({ peerId, name, availability: "online" as const, sessions: [] })),
+    peerWorkspaces: peers.map(({ peerId, ws, title }) => {
+      const tab = worker(`${peerId}-w`, ws);
+      return {
+        peerId,
+        workspace: { ...workspaceOf(ws, [tab]), name: title },
+        teams: [team(ws)],
+        planTitles: new Map<string, string>(),
+        tabs: [{ viewerId: `mesh:${peerId}/${tab.id}`, tab }],
+      };
+    }),
+  };
+
+  const renderSidebar = () => (
+    <PairedWorkspaceInventoryContext.Provider value={inventory}>
+      <Sidebar config={config} />
+    </PairedWorkspaceInventoryContext.Provider>
+  );
+
+  const { host, root } = mountHost();
+  await act(async () => root.render(renderSidebar()));
+  await act(async () => setSidebarMachineFilter("all"));
+
+  const sections = () => [...host.querySelectorAll<HTMLElement>('[data-testid="workspace-machine-section"]')];
+  expect(sections()).toHaveLength(6);
+
+  const localToggle = sections()[0].querySelector<HTMLButtonElement>('[data-testid="workspace-machine-toggle"]')!;
+  expect(localToggle.getAttribute("aria-expanded")).toBe("true");
+  expect(localToggle.getAttribute("aria-label")).toContain("this machine");
+
+  for (const peer of peers) {
+    const toggle = host.querySelector<HTMLButtonElement>(
+      `[data-testid="workspace-machine-section"][data-peer-id="${peer.peerId}"] [data-testid="workspace-machine-toggle"]`,
+    )!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-label")).toContain(peer.name);
+    expect(toggle.getAttribute("aria-label")).toContain("online");
+  }
+  expect(host.querySelectorAll('[data-testid="workspace-card"]')).toHaveLength(2);
+
+  const viewport = host.querySelector<HTMLElement>(".ct-sidebar-content")!;
+  viewport.getBoundingClientRect = () => new DOMRect(0, 0, 260, 420);
+  viewport.scrollTop = 280;
+
+  const rogToggle = host.querySelector<HTMLButtonElement>(
+    '[data-testid="workspace-machine-section"][data-peer-id="peer-rog"] [data-testid="workspace-machine-toggle"]',
+  )!;
+  await act(async () => rogToggle.click());
+  expect(rogToggle.getAttribute("aria-expanded")).toBe("true");
+  expect(viewport.scrollTop).toBe(280);
+
+  const rogTile = host.querySelector<HTMLButtonElement>('button[aria-label="Select workspace Rogue App"]')!;
+  expect(rogTile).toBeTruthy();
+  const rogCard = rogTile.closest<HTMLElement>('[data-testid="workspace-card"]')!;
+  rogCard.getBoundingClientRect = () => new DOMRect(0, 180, 42, 40);
+  await act(async () => rogTile.click());
+  expect(rogTile.getAttribute("aria-pressed")).toBe("true");
+  expect(viewport.scrollTop).toBe(280);
+
+  const localTwoTile = host.querySelector<HTMLButtonElement>('button[aria-label="Select workspace local-two"]')!;
+  const localTwoCard = localTwoTile.closest<HTMLElement>('[data-testid="workspace-card"]')!;
+  localTwoCard.getBoundingClientRect = () => new DOMRect(0, 120, 42, 40);
+  await act(async () => localTwoTile.click());
+  expect(viewport.scrollTop).toBe(280);
+
+  await act(async () => localToggle.click());
+  expect(localToggle.getAttribute("aria-expanded")).toBe("false");
+  expect(viewport.scrollTop).toBe(280);
+
+  const workspacesSectionToggle = host.querySelector<HTMLButtonElement>('[data-testid="workspaces-section-toggle"]')!;
+  await act(async () => workspacesSectionToggle.click());
+  expect(workspacesSectionToggle.getAttribute("aria-expanded")).toBe("false");
+  expect(sections()).toHaveLength(0);
+  await act(async () => workspacesSectionToggle.click());
+  expect(workspacesSectionToggle.getAttribute("aria-expanded")).toBe("true");
+  expect(sections()).toHaveLength(6);
+  expect(host.querySelector<HTMLButtonElement>(
+    '[data-testid="workspace-machine-section"][data-peer-id="peer-rog"] [data-testid="workspace-machine-toggle"]',
+  )?.getAttribute("aria-expanded")).toBe("true");
+
+  await act(async () => setSidebarMachineFilter({ id: "peer-ubunta", name: "ubunta" }));
+  expect(host.querySelector('button[aria-label="Select workspace Ubuntu Box"]')).not.toBeNull();
+
+  const second = mountHost();
+  await act(async () => setSidebarMachineFilter("all"));
+  await act(async () => second.root.render(renderSidebar()));
+  expect(second.host.querySelector<HTMLButtonElement>(
+    '[data-testid="workspace-machine-section"][data-peer-id="peer-rog"] [data-testid="workspace-machine-toggle"]',
+  )?.getAttribute("aria-expanded")).toBe("true");
+  expect(second.host.querySelectorAll<HTMLButtonElement>('[data-testid="workspace-machine-toggle"]')[0]
+    .getAttribute("aria-expanded")).toBe("false");
 });

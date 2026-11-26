@@ -85,6 +85,7 @@ import {
 } from "./workspacesSectionModel";
 
 import { useSidebarScrollAnchor } from "./useSidebarScrollAnchor";
+import { useWorkspaceMachineGroups } from "./useWorkspaceMachineGroups";
 import { usePrimedWorkspaceGraphs } from "../Jobs/useWorkspaceGraphs";
 
 const SIDEBAR_REGION_ID = "codeterm-sidebar";
@@ -671,7 +672,7 @@ export const Sidebar = memo(function Sidebar({
       return next.size === previous.size ? previous : next;
     });
   }, [peerWorkspaceKeys]);
-  const contentScrollRef = useSidebarScrollAnchor(activeWorkspaceId, selectedWorkspaceKey);
+  const contentScrollRef = useSidebarScrollAnchor(selectedWorkspaceKey);
   usePrimedWorkspaceGraphs(useMemo(() => ordinaryWorkspaces.map((workspace) => workspace.id), [ordinaryWorkspaces]));
   const workspaceActivity = useMemo(() => Object.fromEntries(workspaceView.visible.map(({ key, workspace, observed }) => {
     const tabs = observed
@@ -693,17 +694,7 @@ export const Sidebar = memo(function Sidebar({
       : machineFilter === "local" ? [null]
       : [machineFilter.peerId]),
   [workspaceView.visible, machineFilter, generals]);
-  const [expandedWorkspaceMachines, setExpandedWorkspaceMachines] = useState<ReadonlySet<string>>(() => new Set());
-  const setWorkspaceMachineExpanded = useCallback((peerId: string | null, expanded: boolean) => {
-    const key = JSON.stringify([peerId]);
-    setExpandedWorkspaceMachines(previous => {
-      if (previous.has(key) === expanded) return previous;
-      const next = new Set(previous);
-      if (expanded) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-  }, []);
+  const machineGroups = useWorkspaceMachineGroups();
   const workspaceSortIds = useMemo(() => [...localWorkspaceIds.keys()].map(key => `${WS_PREFIX}${key}`), [localWorkspaceIds]);
   const orchestratorTabs = useMemo(() => Object.values(state.tabs).filter((tab) => anchorsTeam(tab)), [state.tabs]);
   const closingTabIds = useMemo(() => new Set(closingTabs.keys()), [closingTabs]);
@@ -939,11 +930,14 @@ export const Sidebar = memo(function Sidebar({
                       machineName={group.peerId === null ? undefined : machineNameForPeer(group.peerId)}
                       machineStatus={machineStatus}
                       showMachineHeader={machineFilter === "all"}
+                      groupExpanded={machineFilter !== "all" || machineGroups.isGroupExpanded(group.peerId, workspaceMachineGroups.length)}
+                      onGroupToggle={machineFilter === "all" ? () => machineGroups.toggleGroupExpanded(group.peerId, workspaceMachineGroups.length) : undefined}
+                      touchMode={touchMode}
                       showCreate={createAction.visible}
                       createDisabled={createAction.disabled}
                       createDisabledReason={createAction.reason}
-                      expanded={expandedWorkspaceMachines.has(groupKey)}
-                      onExpandedChange={expanded => setWorkspaceMachineExpanded(group.peerId, expanded)}
+                      expanded={machineGroups.isOverflowExpanded(groupKey)}
+                      onExpandedChange={expanded => machineGroups.setOverflowExpanded(group.peerId, expanded)}
                       onSelect={(key) => {
                         setPreferredWorkspaceKey(key);
                         const localId = localWorkspaceIds.get(key);

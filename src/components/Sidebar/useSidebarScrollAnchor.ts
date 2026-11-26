@@ -1,28 +1,26 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
-import { sidebarWorkspaceScrollTop, type SidebarScrollScope } from "./sidebarSections";
+import { minimalScrollDeltaForItem } from "./sidebarSections";
 
-/** Touching scrollTop inside the switch commit forces a layout of the whole new list, so the position is tracked from scroll events. */
-export function useSidebarScrollAnchor(activeWorkspaceId: string | null, selectedWorkspaceId: string | null) {
+export function useSidebarScrollAnchor(selectedWorkspaceKey: string | null) {
   const scroller = useRef<HTMLDivElement | null>(null);
-  const top = useRef(0);
-  const previous = useRef<SidebarScrollScope>({ activeWorkspaceId, selectedWorkspaceId });
+  const previous = useRef<string | null>(selectedWorkspaceKey);
   useLayoutEffect(() => {
-    const next = { activeWorkspaceId, selectedWorkspaceId };
-    const target = sidebarWorkspaceScrollTop(previous.current, next, top.current);
-    if (scroller.current && target !== top.current) {
-      scroller.current.scrollTop = target;
-      top.current = target;
-    }
-    previous.current = next;
-  }, [activeWorkspaceId, selectedWorkspaceId]);
+    if (previous.current === selectedWorkspaceKey) return;
+    previous.current = selectedWorkspaceKey;
+    const host = scroller.current;
+    if (!host || !selectedWorkspaceKey) return;
+    const activeCard = host.querySelector<HTMLElement>('[data-testid="workspace-card"][data-selected="true"]');
+    if (!activeCard) return;
+    const delta = minimalScrollDeltaForItem(host.getBoundingClientRect(), activeCard.getBoundingClientRect());
+    if (delta === 0) return;
+    const current = host.scrollTop;
+    const target = Math.max(0, current + delta);
+    if (target !== current) host.scrollTop = target;
+  }, [selectedWorkspaceKey]);
   return useCallback((host: HTMLDivElement | null) => {
     scroller.current = host;
-    top.current = 0;
     if (!host) return;
-    const track = () => { top.current = host.scrollTop; };
-    host.addEventListener("scroll", track, { passive: true });
     return () => {
-      host.removeEventListener("scroll", track);
       scroller.current = null;
     };
   }, []);

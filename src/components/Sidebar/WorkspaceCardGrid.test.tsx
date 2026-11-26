@@ -85,6 +85,7 @@ async function run() {
   await act(async () => (dialog.querySelector(".sidebar-workspace-card-popover-done") as HTMLButtonElement).click());
   assert(!document.querySelector('[role="dialog"][aria-label="Edit CodeTerm workspace card"]'), "Done closes the portal editor");
 
+  let groupToggles = 0;
   await act(async () => root.render(
     <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
       <WorkspaceCardGrid
@@ -97,6 +98,38 @@ async function run() {
         machineName="Desk B"
         machineStatus="online"
         showMachineHeader
+        groupExpanded={false}
+        onGroupToggle={() => { groupToggles += 1; }}
+        showCreate={false}
+        onSelect={() => {}}
+        onCreate={() => { creates += 1; }}
+      />
+    </SidebarDnd>,
+  ));
+  const collapsedSection = host.querySelector('[data-testid="workspace-machine-section"][data-peer-id="peer-b"]');
+  assert.equal(collapsedSection?.getAttribute("data-collapsed"), "true", "collapsed machine section marks collapsed state");
+  assert.equal(collapsedSection?.querySelector('[data-testid="workspace-card-grid"]'), null, "collapsed machine section hides workspace tiles");
+  const toggleButton = collapsedSection?.querySelector<HTMLButtonElement>('[data-testid="workspace-machine-toggle"]');
+  assert(toggleButton, "machine header renders a disclosure chevron button");
+  assert.equal(toggleButton.getAttribute("aria-expanded"), "false", "collapsed machine toggle exposes aria-expanded=false");
+  assert(toggleButton.getAttribute("aria-label")?.includes("Desk B"), "machine toggle exposes accessible machine name");
+  await act(async () => toggleButton.click());
+  assert.equal(groupToggles, 1, "clicking machine toggle triggers group toggle callback");
+
+  await act(async () => root.render(
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
+      <WorkspaceCardGrid
+        workspaces={[workspace("[\"peer-b\",\"one\"]", "Remote project")]}
+        selectedWorkspaceId='["peer-b","one"]'
+        statuses={{}}
+        workingByWorkspace={{}}
+        sortIds={[]}
+        machinePeerId="peer-b"
+        machineName="Desk B"
+        machineStatus="online"
+        showMachineHeader
+        groupExpanded
+        onGroupToggle={() => { groupToggles += 1; }}
         showCreate={false}
         onSelect={() => {}}
         onCreate={() => { creates += 1; }}
@@ -105,6 +138,8 @@ async function run() {
   ));
   const machineSection = host.querySelector('[data-testid="workspace-machine-section"][data-peer-id="peer-b"]');
   assert(machineSection?.getAttribute("aria-label")?.includes("Desk B"), "remote section identifies its machine");
+  assert.equal(machineSection?.getAttribute("data-collapsed"), null, "expanded machine section clears collapsed state");
+  assert.equal(machineSection?.querySelector('[data-testid="workspace-machine-toggle"]')?.getAttribute("aria-expanded"), "true");
   assert.equal(machineSection?.querySelector('[aria-label="Create workspace"]'), null, "remote sections expose no local create action");
   assert.equal(machineSection?.querySelector('[aria-label="Select workspace Remote project"]')?.getAttribute("aria-pressed"), "true");
 

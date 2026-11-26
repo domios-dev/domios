@@ -9,6 +9,7 @@ import { cleanMachineName } from "../../lib/machineIdentity";
 import { localInstanceLabel } from "../../lib/localInstanceName";
 import { useMeshMachineIdentity } from "../../lib/useMeshMachineIdentities";
 import { MachinePickerRow, machineRowLabel } from "../shared/MachineRow";
+import { SidebarDisclosure } from "./SidebarDisclosure";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
   defaultWorkspaceInitials,
@@ -29,6 +30,9 @@ interface WorkspaceCardGridProps {
   machineName?: string;
   machineStatus?: string;
   showMachineHeader?: boolean;
+  groupExpanded?: boolean;
+  onGroupToggle?: () => void;
+  touchMode?: boolean;
   showCreate?: boolean;
   createDisabled?: boolean;
   createDisabledReason?: string | null;
@@ -72,7 +76,8 @@ export function mergeVisibleOrder(all: readonly string[], visibleOrdered: readon
 }
 
 export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, workingByWorkspace, sortIds, fullWorkspaceOrder, localWorkspaceIds,
-  machinePeerId = null, machineName, machineStatus = "offline", showMachineHeader = false, showCreate = true,
+  machinePeerId = null, machineName, machineStatus = "offline", showMachineHeader = false, groupExpanded = true,
+  onGroupToggle, touchMode = false, showCreate = true,
   createDisabled = false, createDisabledReason = null, expanded: expandedProp,
   onExpandedChange, onSelect, onCreate }: WorkspaceCardGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -141,7 +146,13 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
     };
   }, [closeEditor, editingId]);
 
+  const isGroupExpanded = !showMachineHeader || groupExpanded;
+  const machineAriaLabel = showMachineHeader
+    ? machineRowLabel({ name: resolvedMachineName, identity: machineIdentity, status: status ?? "online", local: !machinePeerId })
+    : undefined;
+
   useLayoutEffect(() => {
+    if (!isGroupExpanded) return;
     const host = scrollRef.current;
     if (!host) return;
     const updateColumns = () => {
@@ -152,7 +163,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
     const observer = new ResizeObserver(updateColumns);
     observer.observe(host);
     return () => observer.disconnect();
-  }, []);
+  }, [isGroupExpanded]);
 
   const editingWorkspace = workspaces.find((workspace) => workspace.id === editingId) ?? null;
 
@@ -268,17 +279,29 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
       className={showMachineHeader ? "sidebar-workspace-machine-section" : undefined}
       data-testid={showMachineHeader ? "workspace-machine-section" : undefined}
       data-peer-id={showMachineHeader ? (machinePeerId ?? undefined) : undefined}
+      data-collapsed={showMachineHeader && !isGroupExpanded ? "true" : undefined}
       role={showMachineHeader ? "region" : undefined}
-      aria-label={showMachineHeader
-        ? machineRowLabel({ name: resolvedMachineName, identity: machineIdentity, status: status ?? "online", local: !machinePeerId })
-        : undefined}
+      aria-label={machineAriaLabel}
     >
       {showMachineHeader && (
         <h3 className="sidebar-workspace-machine-heading">
-          <MachinePickerRow name={resolvedMachineName} identity={machineIdentity} status={status ?? "online"} local={!machinePeerId} />
+          {onGroupToggle ? (
+            <SidebarDisclosure
+              expanded={isGroupExpanded}
+              touchMode={touchMode}
+              onClick={onGroupToggle}
+              aria-label={machineAriaLabel}
+              data-testid="workspace-machine-toggle"
+              className="sidebar-workspace-machine-toggle"
+            >
+              <MachinePickerRow name={resolvedMachineName} identity={machineIdentity} status={status ?? "online"} local={!machinePeerId} />
+            </SidebarDisclosure>
+          ) : (
+            <MachinePickerRow name={resolvedMachineName} identity={machineIdentity} status={status ?? "online"} local={!machinePeerId} />
+          )}
         </h3>
       )}
-      {grid}
+      {isGroupExpanded && grid}
     </div>
     {editingWorkspace && createPortal(
       <div
