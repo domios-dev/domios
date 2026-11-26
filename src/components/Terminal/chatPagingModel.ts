@@ -12,7 +12,7 @@ export function conversationEntries(messages: NormalizedChatMessage[], cache: En
 
 export function earlierMessageLabel(loaded: number, canBackfill: boolean): string {
   const count = Math.min(CHAT_PAGE_SIZE, loaded);
-  return canBackfill && count < CHAT_PAGE_SIZE
+  return (canBackfill && count < CHAT_PAGE_SIZE) || count === 0
     ? `Load previous messages (up to ${CHAT_PAGE_SIZE})`
     : `Load previous ${count} ${count === 1 ? "message" : "messages"}`;
 }

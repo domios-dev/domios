@@ -72,3 +72,28 @@ it("system Back closes the open folder picker", async () => {
     await act(async () => root.unmount());
   }
 });
+
+it("renders the roots bar as a non-shrinking row without overlapping fade headers", async () => {
+  vi.mocked(invoke).mockResolvedValueOnce({
+    path: "C:\\Users\\User",
+    home: "C:\\Users\\User",
+    roots: [
+      { name: "B:\\", path: "B:\\" },
+      { name: "C:\\", path: "C:\\" },
+      { name: "S:\\", path: "S:\\" },
+    ],
+    entries: [{ name: "Projects", path: "C:\\Users\\User\\Projects" }],
+  });
+  const { root, dialog } = await renderPicker();
+  try {
+    const rootsBar = dialog.querySelector<HTMLElement>('[data-testid="folder-picker-roots"]');
+    expect(rootsBar).not.toBeNull();
+    expect(rootsBar!.className).toContain("shrink-0");
+    expect(rootsBar!.className).not.toContain("ct-jobs-header");
+    expect(dialog.querySelector(".ct-jobs-header")).toBeNull();
+    const labels = Array.from(rootsBar!.querySelectorAll("button")).map((entry) => entry.textContent);
+    expect(labels).toEqual(["Home", "B:\\", "C:\\", "S:\\"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -27,6 +27,14 @@ export type { SystemSend } from "./gen/SystemSend";
 export { sessionChanges, fileDiffFromEdit, type SessionChanges, type ChangesTurn, type RecordedFileChange } from "./sessionChanges";
 export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export { readableSystemReminder, type ReadableSystemReminder, type SystemReminderSection } from "./systemReminderText";
+export {
+  countTaskStrideLines,
+  hasTaskStrides,
+  splitTaskStrides,
+  taskStridesLabel,
+  type TaskStridesBlockData,
+  type TaskStridesSegment,
+} from "./taskStrides";
 export { automationOrigin, type AutomationSource } from "./automationOrigin";
 export {
   DOMIOS_CLOSE_TAG,
@@ -239,3 +247,8 @@ export { parseDsCanvasFile, isDsCanvasFilePath, DS_CANVAS_FILE_FORMAT, DS_CANVAS
 export { applyDsCanvasEdit, invertDsCanvasEdit, nextDsCanvasNoteId, reconcileDsCanvas, type DsCanvasEdit } from "./dsCanvasEdit";
 export { DsBlockScanner, parseDsBlocks, serializeDsBlock, DS_KINDS, DS_TASK_STATUSES, decodeDsEntities, isDsAbsolutePath, isDsTaskRef, type DsBlock, type DsKind, type DsTaskStatus, type DsTaskItem, type DsTaskSnapshot, type DsLifecycle, type DsAuthority, type DsSegment, type DsFenceSpan } from "./dsBlocks";
 export { pendingSendPosition } from "./sendPlacement";
+export {
+  hasRetryableProviderErrorRemediation,
+  parseProviderErrorRemediation,
+  type ProviderErrorRemediation,
+} from "./providerErrorRemediation";

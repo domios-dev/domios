@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 /**
  * Render the Notifications section contributed by each active agent provider.
@@ -23,7 +24,8 @@ export function ProviderNotifications({
   hideActions?: boolean;
   hidePathLinks?: boolean;
 }) {
-  const { providers } = useAgentProviders();
+  const remoteTarget = useSettingsRemoteTarget();
+  const { providers } = useAgentProviders(remoteTarget?.id);
 
   const onProviderConfigChange = useCallback(
     (providerId: string, patch: Partial<ProviderConfig>) => {

@@ -74,11 +74,12 @@ impl PluginManifest {
         if !authority.authorizes_provider(&self.id) {
             return Err(RuntimeManifestError::ConsentRequired);
         }
+        let install_dirs = self.cli_install_dirs(crate::provider::current_platform_tag());
         self.capabilities
             .agent_runtime
             .as_ref()
             .ok_or(RuntimeManifestError::CapabilityRequired)?
-            .resolve_profile_executable(profile)
+            .resolve_profile_executable_in(profile, &install_dirs)
     }
 }
 
@@ -106,8 +107,16 @@ impl AgentRuntimeCapability {
         &self,
         profile: Option<&str>,
     ) -> Result<PathBuf, RuntimeManifestError> {
+        self.resolve_profile_executable_in(profile, &[])
+    }
+
+    pub fn resolve_profile_executable_in(
+        &self,
+        profile: Option<&str>,
+        extra_dirs: &[PathBuf],
+    ) -> Result<PathBuf, RuntimeManifestError> {
         let command = self.profile_command(profile)?;
-        resolve_binary(&command.binary)
+        resolve_binary_in(&command.binary, extra_dirs)
     }
 
     pub fn resolve_executable(&self) -> Result<PathBuf, RuntimeManifestError> {
@@ -441,8 +450,11 @@ fn validate_command(
     Ok(())
 }
 
-fn resolve_binary(binary: &str) -> Result<PathBuf, RuntimeManifestError> {
-    match super::super::probe_bin(binary).resolution {
+fn resolve_binary_in(
+    binary: &str,
+    extra_dirs: &[PathBuf],
+) -> Result<PathBuf, RuntimeManifestError> {
+    match super::super::probe_bin_with_extra_dirs(binary, extra_dirs).resolution {
         super::super::BinResolution::Found(path) => Ok(path),
         super::super::BinResolution::Missing => Err(RuntimeManifestError::BinaryUnavailable),
         super::super::BinResolution::Unknown => Err(RuntimeManifestError::BinaryUnknown),

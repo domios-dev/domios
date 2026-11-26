@@ -21,11 +21,12 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
   const webJson = client.json.bind(client);
   const localJson = client.localJson.bind(client);
   const currentToken = client.currentToken.bind(client);
-  const usageRead = (a: CapabilityArgs, path: string) => {
-    if (a.peerId === null) return localJson("GET", path);
-    if (typeof a.peerId === "string") return relayToPeer({ json: localJson }, a.peerId, "GET", path, null);
-    return webJson("GET", path);
+  const peerScoped = (a: CapabilityArgs, method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown) => {
+    if (a.peerId === null) return localJson(method, path, body);
+    if (typeof a.peerId === "string") return relayToPeer({ json: localJson }, a.peerId, method, path, body ?? null);
+    return webJson(method, path, body);
   };
+  const usageRead = (a: CapabilityArgs, path: string) => peerScoped(a, "GET", path);
   return {
     account_mesh_state: () => localJson("GET", "/api/account/mesh"),
     account_mesh_enroll: () => localJson("POST", "/api/account/mesh/enroll"),
@@ -60,7 +61,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       }),
     check_local_preview_files: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/check`, { paths: a.paths }),
     check_provider_integration: (a) =>
-      webJson("GET", `/api/setup/hooks?provider=${enc(s(a, "provider_id"))}`),
+      peerScoped(a, "GET", `/api/setup/hooks?provider=${enc(s(a, "provider_id"))}`),
     clear_notifications: (a) =>
       a.id
         ? webJson("DELETE", `/api/notifications/${enc(s(a, "id"))}`)
@@ -89,22 +90,24 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     enable_web_access: (a) =>
       webJson("POST", "/api/network/serve/enable", { https_port: a.https_port }),
     fs_list_dir: (a) =>
-      webJson(
+      peerScoped(
+        a,
         "GET",
         `/api/fs/list-dir?path=${enc(s(a, "path"))}&show_hidden=${a.showHidden ? "true" : "false"}`,
       ),
     fs_mkdir: (a) =>
-      webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
-    get_config: async () => {
-      const config = await webJson<Record<string, unknown>>("GET", "/api/config");
+      peerScoped(a, "POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
+    get_config: async (a = {}) => {
+      const config = await peerScoped(a, "GET", "/api/config") as Record<string, unknown>;
       const api = config.api as Record<string, unknown> | undefined;
-      if (api) api.token = currentToken();
+      if (api && typeof a.peerId !== "string") api.token = currentToken();
       return config;
     },
     get_network_info: () => webJson("GET", "/api/network"),
     get_serve_status: () => webJson("GET", "/api/network/serve/status"),
     install_provider_in_tab: (a) =>
-      webJson(
+      peerScoped(
+        a,
         "POST",
         `/api/agents/providers/${enc(s(a, "providerId"))}/install-in-tab`,
       ),
@@ -116,7 +119,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     keepawake_status: () => webJson("GET", "/api/keepawake"),
     keepawake_stop: () => webJson("POST", "/api/keepawake/stop"),
 
-    list_agent_providers: (a) => webJson("GET", a.metadataOnly ? "/api/agents/providers?metadata_only=true" : "/api/agents/providers"),
+    list_agent_providers: (a = {}) => peerScoped(
+      a,
+      "GET",
+      a.metadataOnly ? "/api/agents/providers?metadata_only=true" : "/api/agents/providers",
+    ),
     list_notifications: () => webJson("GET", "/api/notifications"),
     list_themes: async () => {
       const resp = await webJson<{ themes?: string[] }>("GET", "/api/themes");
@@ -162,8 +169,8 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     plugin_remote_task_call: (a) => client.localJson("POST", "/api/plugins/remote-task-call", a),
     plugin_recording_suggestion: (a) => client.localJson("POST", "/api/plugins/recording-suggestion", a),
     plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
-    provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli` + (a.refresh === true ? "?refresh=true" : "")),
-    push_channel_roster: () => webJson("GET", "/api/notifications/channels"),
+    provider_cli_status: (a) => peerScoped(a, "GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli` + (a.refresh === true ? "?refresh=true" : "")),
+    push_channel_roster: (a = {}) => peerScoped(a, "GET", "/api/notifications/channels"),
     read_html_preview_file: async (a) => {
       const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page", ...canvasSource(a) });
       return file.data;
@@ -222,7 +229,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     },
     update_config: (a) => {
       const { chat_wallpaper: _wallpaper, ...config } = a.config as Partial<AppConfig>;
-      return webJson("PATCH", "/api/config", config);
+      return peerScoped(a, "PATCH", "/api/config", config);
     },
     usage_history: (a) => {
       const accountId = a.accountId ?? a.account_id;
@@ -263,7 +270,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     get_shell_diagnostics: () => webJson("GET", "/api/system/shell-diagnostics"),
     suggest_install_pwsh: () => webJson("POST", "/api/system/install-pwsh"),
     get_themes_dir: () => webJson("GET", "/api/themes/location"),
-    attachment_path_kinds: (a) => webJson("POST", "/api/attachments/path-kinds", { paths: a.paths }),
+    attachment_path_kinds: (a) => (a.local === true ? localJson : webJson)("POST", "/api/attachments/path-kinds", { paths: a.paths }),
     report_webgl_status: (a) => webJson("POST", "/api/diagnostics/webgl", { state: a.state, detail: a.detail }),
   } satisfies Record<string, CapabilityMapper>;
 }

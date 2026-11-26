@@ -1,5 +1,7 @@
 use super::*;
-use crate::service_plan::{RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
+use crate::service_plan::{
+    RemoteAttemptDeliveryRead, RemoteRecoveryAttemptRead, RemoteWorkerBindingRead,
+};
 
 const REMOTE_BINDING_FIELDS: &str = "'id',json_extract(a.row_json,'$.id'),
     'executor_tab_id',json_extract(a.row_json,'$.executor_tab_id'),
@@ -22,6 +24,44 @@ impl PlanDatabase {
                 WHERE json_extract(a.row_json,'$.id')=?3 ORDER BY a.position LIMIT 1"),
             params![plan,task,attempt],|row| column(row,0),
         ).optional().map_err(db_error)?;
+        raw.map(|raw| decode(plan, &raw)).transpose()
+    }
+
+    pub(in crate::service_plan) fn remote_attempt_delivery_projection(
+        &self,
+        plan: &str,
+        task: &str,
+        attempt: &str,
+    ) -> Result<Option<RemoteAttemptDeliveryRead>, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let raw: Option<String> = connection
+            .query_row(
+                &format!(
+                    "{SELECTED_TASK_IN_PLAN} SELECT json_object(
+                        'executor_tab_id',json_extract(a.row_json,'$.executor_tab_id'),
+                        'executor_title',json_extract(a.row_json,'$.executor_title'),
+                        'orchestrator_tab_id',json_extract(a.row_json,'$.orchestrator_tab_id'),
+                        'parent_tab_id',json_extract(a.row_json,'$.parent_tab_id'),
+                        'owner_tab_id',json_extract(p.header_json,'$.owner.tab_id'),
+                        'provider',json_extract(a.row_json,'$.provider'),
+                        'model',json_extract(a.row_json,'$.model'),
+                        'requested_model',json_extract(a.row_json,'$.requested_model'),
+                        'provider_resolved_model',json_extract(a.row_json,'$.provider_resolved_model'),
+                        'session_model',json_extract(a.row_json,'$.session_model'),
+                        'branch',json_extract(a.row_json,'$.branch'),
+                        'base',json_extract(a.row_json,'$.base'),
+                        'mesh_peer',json_extract(a.row_json,'$.mesh_peer')
+                    )
+                    FROM selected_task t JOIN plans p ON p.id=t.plan_id AND p.status='active'
+                    JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+                    WHERE json_extract(a.row_json,'$.id')=?3 ORDER BY a.position LIMIT 1"
+                ),
+                params![plan, task, attempt],
+                |row| column(row, 0),
+            )
+            .optional()
+            .map_err(db_error)?;
         raw.map(|raw| decode(plan, &raw)).transpose()
     }
 

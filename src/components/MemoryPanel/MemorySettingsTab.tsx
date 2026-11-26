@@ -1,5 +1,5 @@
 import { cronToSchedule, type ScheduleFreq } from "./dreamSchedule";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { formatUntil } from "../../lib/timeLabels";
 import { Cog, Moon, Play, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
@@ -9,6 +9,7 @@ import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
 import { DecisionRerankCard } from "./DecisionRerankCard";
 import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
 import { Button } from "../shared/Button";
+import { NumericInput } from "../shared/NumericInput";
 import { UI_INPUT } from "../shared/design";
 
 const inputClass = `${UI_INPUT.fullCompact} min-w-0 !h-8 !rounded-lg !text-xs`;
@@ -176,14 +177,25 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
     localFetch(`/api/mem/dream`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: "{}" }).catch(() => {});
   }, [apiBase]);
 
+  const extractionProviderId = useId();
+  const extractionModelId = useId();
+  const dedupThresholdId = useId();
+  const workerTimeoutId = useId();
+  const dreamScheduleId = useId();
+  const dreamTimeId = useId();
+  const dreamingProviderId = useId();
+  const dreamingModelId = useId();
+  const fileSyncIntervalId = useId();
+
   const renderProviderSelect = (
+    id: string,
     value: string,
     onChange: (v: string) => void,
     selection: WorkerSelection,
     testId: string,
   ) => (
-    <Label text="Harness">
-      <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
+    <Label text="Harness" htmlFor={id}>
+      <select id={id} value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
         <option value="">Default: {selection.providerLabel} / {selection.defaultModelLabel}</option>
         {providers.map(p => (
           <option key={p.id} value={p.id}>{p.display_name}</option>
@@ -193,6 +205,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
   );
 
   const renderModelSelect = (
+    id: string,
     value: string,
     onChange: (v: string) => void,
     selection: WorkerSelection,
@@ -207,8 +220,9 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
         ? "No models published"
         : `Provider default: ${selection.defaultModelLabel}`;
     return (
-      <Label text="Model">
+      <Label text="Model" htmlFor={id}>
         <select
+          id={id}
           value={unavailable ? "" : value}
           onChange={(e) => onChange(e.target.value)}
           className={inputClass}
@@ -266,50 +280,43 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
         <Toggle
           label="Auto-extract on save"
           checked={mem.auto_extract}
-          onChange={(v) => onUpdate("memory", { ...mem, auto_extract: v })}
+          onChange={(v) => onUpdate("memory", { auto_extract: v })}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {renderProviderSelect(
+            extractionProviderId,
             mem.extraction_agent,
-            (v) => onUpdate("memory", { ...mem, extraction_agent: v }),
+            (v) => onUpdate("memory", { extraction_agent: v }),
             extractionSelection,
             "memory-settings-extraction-provider",
           )}
           {renderModelSelect(
+            extractionModelId,
             mem.extraction_model,
-            (v) => onUpdate("memory", { ...mem, extraction_model: v }),
+            (v) => onUpdate("memory", { extraction_model: v }),
             extractionSelection,
             "memory-settings-extraction-model",
           )}
-          <Label text="Dedup threshold">
-            <input
-              type="number"
+          <Label text="Dedup threshold" htmlFor={dedupThresholdId}>
+            <NumericInput
+              id={dedupThresholdId}
               min={0.05}
               max={0.5}
               step={0.01}
               value={mem.dedup_threshold}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n) && n > 0) {
-                  onUpdate("memory", { ...mem, dedup_threshold: n });
-                }
-              }}
+              onValueChange={(n) => onUpdate("memory", { dedup_threshold: n })}
               className={inputClass}
               data-testid="memory-settings-dedup-threshold"
             />
           </Label>
-          <Label text="Worker timeout (s)">
-            <input
-              type="number"
+          <Label text="Worker timeout (s)" htmlFor={workerTimeoutId}>
+            <NumericInput
+              id={workerTimeoutId}
               min={10}
               max={3600}
+              integer
               value={mem.worker_timeout_seconds}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n) && n > 0) {
-                  onUpdate("memory", { ...mem, worker_timeout_seconds: n });
-                }
-              }}
+              onValueChange={(n) => onUpdate("memory", { worker_timeout_seconds: n })}
               className={inputClass}
               data-testid="memory-settings-worker-timeout"
             />
@@ -327,8 +334,9 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
         description="LLM consolidates, dedups, promotes learnings, prunes stale relations. Runs nightly by default."
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-          <Label text="Schedule">
+          <Label text="Schedule" htmlFor={dreamScheduleId}>
             <select
+              id={dreamScheduleId}
               data-testid="memory-settings-dream-schedule"
               value={currentFreq}
               disabled={!dreamCron || scheduleSaving}
@@ -340,8 +348,9 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
               ))}
             </select>
           </Label>
-          <Label text="At">
+          <Label text="At" htmlFor={dreamTimeId}>
             <input
+              id={dreamTimeId}
               type="time"
               value={currentTime}
               disabled={!dreamCron || currentFreq === "off" || scheduleSaving}
@@ -365,14 +374,16 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {renderProviderSelect(
+            dreamingProviderId,
             mem.dreaming_agent,
-            (v) => onUpdate("memory", { ...mem, dreaming_agent: v }),
+            (v) => onUpdate("memory", { dreaming_agent: v }),
             dreamingSelection,
             "memory-settings-dreaming-provider",
           )}
           {renderModelSelect(
+            dreamingModelId,
             mem.dreaming_model,
-            (v) => onUpdate("memory", { ...mem, dreaming_model: v }),
+            (v) => onUpdate("memory", { dreaming_model: v }),
             dreamingSelection,
             "memory-settings-dreaming-model",
           )}
@@ -396,20 +407,16 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
           <Toggle
             label="Periodic sync"
             checked={mem.file_sync_enabled}
-            onChange={(v) => onUpdate("memory", { ...mem, file_sync_enabled: v })}
+            onChange={(v) => onUpdate("memory", { file_sync_enabled: v })}
           />
-          <Label text="Interval (min)">
-            <input
-              type="number"
+          <Label text="Interval (min)" htmlFor={fileSyncIntervalId}>
+            <NumericInput
+              id={fileSyncIntervalId}
               min={5}
               max={1440}
+              integer
               value={mem.file_sync_interval_minutes}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n) && n >= 5) {
-                  onUpdate("memory", { ...mem, file_sync_interval_minutes: n });
-                }
-              }}
+              onValueChange={(n) => onUpdate("memory", { file_sync_interval_minutes: n })}
               className={inputClass}
               data-testid="memory-settings-file-sync-interval"
             />

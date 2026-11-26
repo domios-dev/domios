@@ -61,7 +61,7 @@ export function MachineSessionControls({ name, busy, online = false, onSignOut, 
     <DropdownMenu placement="bottom-end" disabled={disabled}
     trigger={<button ref={anchor} type="button" disabled={disabled} aria-label={`More for ${name}`} className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded text-[18px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">⋯</button>}
     items={[
-      ...(identityPeer !== undefined ? [{ label: "Change icon and colour", onClick: () => setEditingIdentity("appearance") }] : []),
+      ...(identityPeer !== undefined ? [{ label: "Change icon", onClick: () => setEditingIdentity("appearance") }] : []),
       ...(sameNameOthers ? [{ label: "Rename…", description: sameMachineNameDescription(sameNameOthers),
         disabled: !rename, onClick: () => setEditingIdentity("name") }] : []),
       ...(onSignOut ? [{ label: "Sign out this machine", onClick: () => setConfirm("sign_out") }] : []),

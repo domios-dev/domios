@@ -78,6 +78,25 @@ macro_rules! agent_provider_catalogue_tail {
             None
         }
 
+        fn cli_install_dirs(&self, _platform: &str) -> Vec<PathBuf> {
+            Vec::new()
+        }
+
+        fn cli_search_dirs(&self) -> Vec<PathBuf> {
+            self.cli_install_dirs(super::current_platform_tag())
+        }
+
+        fn probe_cli_binary(&self, binary: &str) -> crate::js_runtime::BinProbe {
+            crate::js_runtime::probe_bin_with_extra_dirs(binary, &self.cli_search_dirs())
+        }
+
+        fn resolved_cli_path(&self) -> Option<PathBuf> {
+            match self.probe_cli_binary(self.cli_binary()?).resolution {
+                crate::js_runtime::BinResolution::Found(path) => Some(path),
+                _ => None,
+            }
+        }
+
         fn update_command(&self, _platform: &str) -> Option<String> {
             None
         }

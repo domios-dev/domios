@@ -32,6 +32,30 @@ describe("capabilities HTTP transport", () => {
     ]);
   });
 
+  it("relays provider CLI status and install to the exact peer when peerId is set", async () => {
+    const { transport, calls } = fixture({ ok: true, data: { installed: true }, peer: { instance_id: "blackstar" } });
+    await expect(transport.provider_cli_status({ providerId: "claude", peerId: "blackstar" })).resolves.toEqual({ installed: true });
+    await transport.provider_cli_status({ providerId: "claude", peerId: "blackstar", refresh: true });
+    await transport.install_provider_in_tab({ providerId: "claude", peerId: "blackstar" });
+    await transport.provider_cli_status({ providerId: "claude", peerId: null });
+    await expect(transport.provider_cli_status({ providerId: "claude", peerId: "different" })).rejects.toThrow("different installation");
+    expect(calls).toEqual([
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "blackstar", method: "GET", path: "/api/agents/providers/claude/cli", body: null,
+      }],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "blackstar", method: "GET", path: "/api/agents/providers/claude/cli?refresh=true", body: null,
+      }],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "blackstar", method: "POST", path: "/api/agents/providers/claude/install-in-tab", body: null,
+      }],
+      ["local", "GET", "/api/agents/providers/claude/cli", undefined],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "different", method: "GET", path: "/api/agents/providers/claude/cli", body: null,
+      }],
+    ]);
+  });
+
   it("rejects retired and unregistered commands before dispatch", async () => {
     const { transport, calls } = fixture();
     for (const removed of [
@@ -149,6 +173,48 @@ describe("capabilities HTTP transport", () => {
     expect(calls[1]).toEqual(["PATCH", "/api/config", { theme: { name: "custom" } }]);
   });
 
+  it("relays peer-scoped config and settings reads/writes to the exact peer without stamping local token", async () => {
+    const { transport, calls } = fixture({
+      ok: true,
+      data: { api: { token: null, port: 7707 }, general_agent: { agent_provider: "codex" } },
+      peer: { instance_id: "r161" },
+    });
+    const remoteConfig = await transport.get_config({ peerId: "r161" });
+    expect(remoteConfig).toEqual({ api: { token: null, port: 7707 }, general_agent: { agent_provider: "codex" } });
+    await transport.update_config({
+      peerId: "r161",
+      config: { general_agent: { agent_provider: "claude" }, chat_wallpaper: { background: { pattern: "dots" } } },
+    });
+    await transport.list_agent_providers({ peerId: "r161", metadataOnly: true });
+    await transport.push_channel_roster({ peerId: "r161" });
+    await transport.check_provider_integration({ peerId: "r161", provider_id: "claude" });
+    expect(calls).toEqual([
+      ["local", "POST", "/api/mesh/relay-to", { target_instance_id: "r161", method: "GET", path: "/api/config", body: null }],
+      ["local", "POST", "/api/mesh/relay-to", { target_instance_id: "r161", method: "PATCH", path: "/api/config", body: { general_agent: { agent_provider: "claude" } } }],
+      ["local", "POST", "/api/mesh/relay-to", { target_instance_id: "r161", method: "GET", path: "/api/agents/providers?metadata_only=true", body: null }],
+      ["local", "POST", "/api/mesh/relay-to", { target_instance_id: "r161", method: "GET", path: "/api/notifications/channels", body: null }],
+      ["local", "POST", "/api/mesh/relay-to", { target_instance_id: "r161", method: "GET", path: "/api/setup/hooks?provider=claude", body: null }],
+    ]);
+  });
+
+  it("relays fs_list_dir and fs_mkdir to the exact peer when peerId is set", async () => {
+    const { transport, calls } = fixture({ ok: true, data: { path: "/srv/demo" }, peer: { instance_id: "r161" } });
+    await expect(transport.fs_list_dir({ path: "/srv", showHidden: true, peerId: "r161" })).resolves.toEqual({ path: "/srv/demo" });
+    await expect(transport.fs_mkdir({ parent: "/srv", name: "demo", peerId: "r161" })).resolves.toEqual({ path: "/srv/demo" });
+    await transport.fs_list_dir({ path: "/local", showHidden: false });
+    await transport.fs_mkdir({ parent: "/local", name: "dir", peerId: null });
+    expect(calls).toEqual([
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "r161", method: "GET", path: "/api/fs/list-dir?path=%2Fsrv&show_hidden=true", body: null,
+      }],
+      ["local", "POST", "/api/mesh/relay-to", {
+        target_instance_id: "r161", method: "POST", path: "/api/fs/mkdir", body: { parent: "/srv", name: "demo" },
+      }],
+      ["GET", "/api/fs/list-dir?path=%2Flocal&show_hidden=false", undefined],
+      ["local", "POST", "/api/fs/mkdir", { parent: "/local", name: "dir" }],
+    ]);
+  });
+
   it("uses host operations in either shell, with bare results preserved", async () => {
     const { transport, calls } = fixture("host-result");
     expect(await transport.get_default_cwd()).toBe("host-result");
@@ -181,9 +247,11 @@ describe("capabilities HTTP transport", () => {
   it("keeps local daemon attachment handoff and model provider operations local", async () => {
     const { transport, calls } = fixture();
     await transport.mesh_transfer_attachment({ ordinaryTabId: "mesh:peer/tab", peerId: "peer", path: "/file", kind: "image" });
+    await transport.attachment_path_kinds({ paths: ["/file"], local: true });
     await transport.model_provider_manage({ providerId: "provider/a", request: { action: "list" } });
     expect(calls).toEqual([
       ["local", "POST", "/api/mesh/attachments/transfer", { ordinary_tab_id: "mesh:peer/tab", peer_id: "peer", path: "/file", kind: "image" }],
+      ["local", "POST", "/api/attachments/path-kinds", { paths: ["/file"] }],
       ["local", "POST", "/api/model-providers?provider=provider%2Fa", { action: "list" }],
     ]);
   });

@@ -193,29 +193,104 @@ fn picker_with_normal_composer_below_it_navigates_and_cancels_structurally() {
 
 #[test]
 fn captured_picker_waits_for_its_footer_before_navigation() {
-    let (mut picker, prompt) = declarations();
-    picker.injected();
-    let screen = fixture("tests/fixtures/model-switch/live-2.1.318-picker.txt");
-    let partial = screen.split("  Enter to set as default").next().unwrap();
-    assert_eq!(
-        screen_stage(partial, Some(&picker), Some(&prompt), true),
-        ScreenStage::AwaitingEvidence
-    );
-    picker
-        .respond(partial, |_| panic!("partial picker must not write"))
-        .unwrap();
-    assert_eq!(
-        screen_stage(&screen, Some(&picker), Some(&prompt), true),
-        ScreenStage::Picker
-    );
-    let mut keys = Vec::new();
-    picker
-        .respond(&screen, |key| {
-            keys.push(key.to_vec());
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(keys, [b"\x1b[A".to_vec()]);
+    for (file, footer_prefix) in [
+        (
+            "tests/fixtures/model-switch/live-2.1.318-picker.txt",
+            "  Enter to set as default",
+        ),
+        (
+            "tests/fixtures/model-switch/live-2.1.332-picker.txt",
+            "  s to use this session only",
+        ),
+    ] {
+        let (mut picker, prompt) = declarations();
+        picker.injected();
+        let screen = fixture(file);
+        let partial = screen.split(footer_prefix).next().unwrap();
+        assert_eq!(
+            screen_stage(partial, Some(&picker), Some(&prompt), true),
+            ScreenStage::AwaitingEvidence,
+            "{file}"
+        );
+        picker
+            .respond(partial, |_| panic!("partial picker must not write"))
+            .unwrap();
+        assert_eq!(
+            screen_stage(&screen, Some(&picker), Some(&prompt), true),
+            ScreenStage::Picker,
+            "{file}"
+        );
+        let mut keys = Vec::new();
+        picker
+            .respond(&screen, |key| {
+                keys.push(key.to_vec());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(keys, [b"\x1b[A".to_vec()], "{file}");
+    }
+}
+
+#[test]
+fn idle_tab_failure_on_during_turn_provider_is_not_reported_as_during_turn_incident() {
+    let idle = CommandTurnState::resolve(true, false, false);
+    assert!(!idle.buffering);
+    assert!(!idle.report_incident);
+    assert!(matches!(
+        command_failure_error(
+            idle,
+            "model:AwaitingEvidence".into(),
+            "captured screen".into(),
+            false,
+            "deadline expired".into(),
+        ),
+        ModelSwitchError::LiveCommandFailed(reason) if reason == "deadline expired"
+    ));
+    assert!(matches!(
+        command_failure_error(
+            idle,
+            "model:Admission".into(),
+            "captured screen".into(),
+            true,
+            "not ready".into(),
+        ),
+        ModelSwitchError::InputNotReady(reason) if reason == "not ready"
+    ));
+
+    for turn in [
+        CommandTurnState::resolve(true, true, true),
+        CommandTurnState::resolve(true, true, false),
+        CommandTurnState::resolve(true, false, true),
+    ] {
+        assert!(turn.report_incident);
+        assert!(matches!(
+            command_failure_error(
+                turn,
+                "model:AwaitingEvidence".into(),
+                "captured screen".into(),
+                false,
+                "deadline expired".into(),
+            ),
+            ModelSwitchError::DuringTurnIncident { stage, screen, reason }
+                if stage == "model:AwaitingEvidence"
+                    && screen == "captured screen"
+                    && reason == "deadline expired"
+        ));
+    }
+
+    let undeclared = CommandTurnState::resolve(false, true, true);
+    assert!(!undeclared.buffering);
+    assert!(!undeclared.report_incident);
+    assert!(matches!(
+        command_failure_error(
+            undeclared,
+            "model:AwaitingEvidence".into(),
+            "captured screen".into(),
+            false,
+            "deadline expired".into(),
+        ),
+        ModelSwitchError::LiveCommandFailed(reason) if reason == "deadline expired"
+    ));
 }
 
 #[test]

@@ -3,9 +3,10 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, test, vi } from "vitest";
 
-import { applyDeliveryStatus, canDeleteChatSend, deliveryState, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, deliveryError, deliveryState, type DeliverySend } from "./chatDeliveryModel";
 import { encodeChatSend } from "./chatSendDurableModel";
 import { __setInvokeForTest } from "../../lib/bridge";
+import { readRemoteChatStatus, resetRemoteChatStatus, updateRemoteChatPeers } from "../../lib/remoteChatStatus";
 import { createPeerEventRail, peerEventRail } from "../../lib/peerEventRail";
 import type { TransportClient } from "../../lib/transportClient";
 import { deleteTrackedChatMessage, isProvenAdmissionRefusal, reconcileTrackedChatMessages, sendTrackedChatMessage, useChatSendStatusSubscription, type ChatSendStatus } from "./chatSendStatus";
@@ -567,4 +568,29 @@ test("unbound tab never reaches send transport", async () => {
     }
     assert.equal(calls, 0);
   } finally { __setInvokeForTest(null); }
+});
+
+test("remote 422 source_attachment_path fails the bubble without marking the chat unavailable", async () => {
+  resetRemoteChatStatus();
+  updateRemoteChatPeers({ paired: [{ instance_id: "peer-b", instance_name: "BLACKSTAR", online: true } as never], local_instance_name: "Local" });
+  const tabId = "mesh:peer-b/orch";
+  addChatSend(tabId, { id: "img-bubble", correlationId: "img-bubble", content: "see image", sentAtMs: 1 });
+  let calls = 0;
+  __setInvokeForTest(async () => {
+    calls += 1;
+    throw new Error("/api/mesh/relay-to → HTTP 422: source_attachment_path: a remote send references an attachment stored on this host");
+  });
+  try {
+    await assert.rejects(sendTrackedChatMessage(tabId, "img-bubble", "see image"), /source_attachment_path/);
+    const [send] = readChatSends(tabId);
+    assert.equal(calls, 1, "never retries a 422 refusal");
+    assert.equal(deliveryState(send), "failed");
+    assert.equal(send.remoteFailure, undefined);
+    assert.match(deliveryError(send) ?? "", /Attachment could not be transferred/);
+    assert.equal(readRemoteChatStatus(tabId, "peer-b").state, null);
+    assert.equal(readRemoteChatStatus(tabId, "peer-b").failure, undefined);
+  } finally {
+    __setInvokeForTest(null);
+    resetRemoteChatStatus();
+  }
 });

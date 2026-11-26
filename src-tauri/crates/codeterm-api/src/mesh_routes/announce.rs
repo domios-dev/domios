@@ -157,21 +157,16 @@ pub async fn mesh_set_peer_addr(
         return Err((StatusCode::BAD_REQUEST, "ip is required".to_string()));
     }
 
-    // Resolve by instance_id OR instance_name.
     let resolved_id = {
         let mesh = state.mesh.lock();
-        if mesh.paired_peers.contains_key(&peer_id) {
-            peer_id.clone()
-        } else {
-            mesh.paired_peers
-                .values()
-                .find(|p| p.instance_name == peer_id)
-                .map(|p| p.instance_id.clone())
-                .ok_or((
+        mesh.resolve_peer_including_offline(&peer_id)
+            .map(|p| p.instance_id.clone())
+            .map_err(|_| {
+                (
                     StatusCode::NOT_FOUND,
                     format!("Peer {} not paired", peer_id),
-                ))?
-        }
+                )
+            })?
     };
 
     let mut mesh = state.mesh.lock();

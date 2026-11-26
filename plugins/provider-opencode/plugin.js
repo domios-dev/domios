@@ -165,6 +165,57 @@ ${fence}`;
   };
 }
 
+// plugins/provider-opencode/src/freeModel.ts
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function finiteNonNegative(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+function isFreeZenModel(id, metadata) {
+  const slash = id.indexOf("/");
+  if (slash <= 0) return false;
+  const provider = id.slice(0, slash).toLowerCase();
+  const leaf = id.slice(slash + 1).toLowerCase();
+  if (provider !== "opencode" || !leaf) return false;
+  const cost = record(metadata?.cost);
+  if (cost) {
+    const input = finiteNonNegative(cost.input);
+    const output = finiteNonNegative(cost.output);
+    if (input !== null && output !== null) {
+      const extraPaid = ["cache_read", "cache_write", "reasoning"].some((key) => {
+        const amount = finiteNonNegative(cost[key]);
+        return amount !== null && amount > 0;
+      });
+      return input === 0 && output === 0 && !extraPaid;
+    }
+  }
+  return /(?:^|[-_.])free$/.test(leaf);
+}
+function supportsToolCalling(metadata) {
+  if (!metadata) return true;
+  if (metadata.tool_call === false) return false;
+  const capabilities = record(metadata.capabilities);
+  if (capabilities?.toolcall === false) return false;
+  return true;
+}
+function orderOpencodeModels(models2, metadata) {
+  const freeToolCapable = [];
+  const freeOther = [];
+  const rest = [];
+  for (const model of models2) {
+    const meta = metadata.get(model.id);
+    if (isFreeZenModel(model.id, meta)) {
+      const decorated = model.badge ? model : { ...model, badge: "free" };
+      if (supportsToolCalling(meta)) freeToolCapable.push(decorated);
+      else freeOther.push(decorated);
+    } else {
+      rest.push(model);
+    }
+  }
+  return [...freeToolCapable, ...freeOther, ...rest];
+}
+
 // plugins/provider-opencode/src/runtimeProtocol.ts
 var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var list = (value) => Array.isArray(value) ? value : [];
@@ -221,45 +272,164 @@ function utf8Length(value) {
 }
 
 // plugins/provider-opencode/src/turnErrors.ts
-function isQuotaError(value) {
-  const error = object2(value);
-  return error.type === "provider.quota" || object2(object2(error.body).error).type === "insufficient_balance_error";
-}
-function runtimeErrorMessage(error, fallback) {
-  return text(object2(error.data).message) ?? text(error.message) ?? fallback;
-}
-function runtimeTurnErrorEvents(threadId, turnId, seq, message) {
+var OPENCODE_KEY_COMMANDS = [
+  { label: "Sign in again", command: "opencode auth login" },
+  { label: "Remove key to use free models anonymously", command: "opencode auth logout" }
+];
+var EXPIRED_KEY_CODES = /* @__PURE__ */ new Set(["api_key_expired", "token_expired", "auth_expired"]);
+var INVALID_KEY_CODES = /* @__PURE__ */ new Set(["invalid_api_key", "invalid_key", "api_key_invalid", "revoked_api_key", "api_key_revoked"]);
+var AUTH_ERROR_TYPES = /* @__PURE__ */ new Set(["provider.auth", "authentication_error", "providerautherror"]);
+function clampUtf8(value, maxBytes) {
   let bytes2 = 0;
   let content = "";
-  for (const character of message) {
+  for (const character of value) {
     bytes2 += utf8Length(character);
-    if (bytes2 > 4096) break;
+    if (bytes2 > maxBytes) break;
     content += character;
   }
+  return content;
+}
+function parseJsonObject(value) {
+  if (typeof value === "string") {
+    if (!value || value.length > 65536) return {};
+    try {
+      return object2(JSON.parse(value));
+    } catch {
+      return {};
+    }
+  }
+  return object2(value);
+}
+function finiteStatus(value) {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^\d{3}$/.test(value)) return Number(value);
+  return void 0;
+}
+function errorBody(error) {
+  const data = object2(error.data);
+  const response = object2(error.response);
+  for (const candidate of [response.body, error.body, data.responseBody, data.body]) {
+    const parsed = parseJsonObject(candidate);
+    if (Object.keys(parsed).length > 0) return parsed;
+  }
+  return {};
+}
+function errorStatus(error, body) {
+  const data = object2(error.data);
+  const nested = object2(body.error);
+  for (const candidate of [error.status, error.statusCode, data.statusCode, data.status, nested.status, body.status]) {
+    const code = finiteStatus(candidate);
+    if (code !== void 0) return code;
+  }
+  return void 0;
+}
+function providerFromModel(modelId) {
+  if (!modelId) return void 0;
+  const slash = modelId.indexOf("/");
+  return slash > 0 ? modelId.slice(0, slash).toLowerCase() : void 0;
+}
+function messageModelId(value) {
+  const message = value;
+  if (!message || typeof message !== "object") return null;
+  if (message.modelID?.includes("/")) return message.modelID;
+  if (message.providerID && message.modelID) return `${message.providerID}/${message.modelID}`;
+  const nested = object2(message.model);
+  const providerID = text(nested.providerID);
+  const id = text(nested.id);
+  if (id?.includes("/")) return id;
+  return providerID && id ? `${providerID}/${id}` : null;
+}
+function isQuotaError(value) {
+  const error = object2(value);
+  const body = errorBody(error);
+  return error.type === "provider.quota" || object2(body.error).type === "insufficient_balance_error";
+}
+function isAuthError(value) {
+  const error = object2(value);
+  return error.type === "provider.auth" || error.name === "ProviderAuthError";
+}
+function runtimeErrorMessage(error, fallback) {
+  const body = errorBody(error);
+  return text(object2(error.data).message) ?? text(error.message) ?? text(object2(body.error).message) ?? text(body.message) ?? fallback;
+}
+function classifyOpencodeConsoleKeyError(value, modelId) {
+  const error = object2(value);
+  if (!Object.keys(error).length || isQuotaError(error)) return null;
+  const data = object2(error.data);
+  const body = errorBody(error);
+  const nested = object2(body.error);
+  const rawMessage = runtimeErrorMessage(error, "");
+  const provider = (text(data.providerID) ?? text(error.providerID) ?? providerFromModel(modelId))?.toLowerCase();
+  const mentionsConsole = /opencode\.ai\/console|\bopencode console\b/i.test(rawMessage);
+  if (provider && provider !== "opencode") return null;
+  if (!provider && !mentionsConsole) return null;
+  const status = errorStatus(error, body);
+  const codes = [nested.code, body.code, error.code, data.code].filter((entry) => typeof entry === "string" && entry.length > 0).map((entry) => entry.toLowerCase());
+  const types = [nested.type, body.type, error.type, data.type, error.name].filter((entry) => typeof entry === "string" && entry.length > 0).map((entry) => entry.toLowerCase());
+  const authSignal = status === 401 || types.some((entry) => AUTH_ERROR_TYPES.has(entry));
+  const expired = codes.some((code2) => EXPIRED_KEY_CODES.has(code2)) || authSignal && /\b(?:api[ _-]?key|key)\b.*\bexpired\b|\bapi_key_expired\b/i.test(rawMessage);
+  const invalidExplicit = codes.some((code2) => INVALID_KEY_CODES.has(code2)) || authSignal && /\b(?:invalid|revoked|malformed|rejected)\b.*\b(?:api[ _-]?key|key|token)\b|\b(?:api[ _-]?key|key)\b.*\b(?:invalid|revoked|not valid|rejected)\b/i.test(rawMessage);
+  const missingKey = /\b(?:missing|no|provide|set|enter)\b.*\b(?:api[ _-]?key|key)\b|\b(?:api[ _-]?key|key)\b.*\brequired\b/i.test(rawMessage);
+  const invalidFreeZen = !expired && !invalidExplicit && !missingKey && authSignal && !!modelId && isFreeZenModel(modelId);
+  if (!expired && !invalidExplicit && !invalidFreeZen) return null;
+  const code = expired ? "api_key_expired" : "invalid_api_key";
+  const title = expired ? "Stored OpenCode Console key has expired" : "Stored OpenCode Console key is invalid";
+  const message = expired ? "Your stored OpenCode Console key has expired. Sign in again with opencode auth login, or remove the key with opencode auth logout to use free models anonymously." : "Your stored OpenCode Console key was rejected by OpenCode Zen. Sign in again with opencode auth login, or remove the key with opencode auth logout to use free models anonymously.";
+  const rawDetail = rawMessage ? clampUtf8(rawMessage, 4096) : void 0;
+  return {
+    code,
+    title,
+    message,
+    commands: OPENCODE_KEY_COMMANDS.map((entry) => ({ ...entry })),
+    retry: true,
+    ...rawDetail ? { rawDetail } : {}
+  };
+}
+function classifiedTurnError(error, modelId, fallback) {
+  if (isQuotaError(error)) return { content: "Provider balance or quota is exhausted \u2014 top up or switch model" };
+  const remediation = classifyOpencodeConsoleKeyError(error, modelId);
+  if (remediation) return { content: remediation.message, remediation };
+  return { content: runtimeErrorMessage(object2(error), fallback) };
+}
+function runtimeTurnErrorEvents(threadId, turnId, seq, message, remediation) {
+  const content = clampUtf8(message, 4096);
   const notice = { kind: "notice", threadId, message: content };
   if (!turnId) return [notice];
   return [notice, {
     kind: "chatItem",
     threadId,
-    item: { id: `${turnId}:error`, seq, type: "system", systemSubtype: "api_error", toolFlowId: turnId, content }
+    item: {
+      id: `${turnId}:error`,
+      seq,
+      type: "system",
+      systemSubtype: "api_error",
+      toolFlowId: turnId,
+      content,
+      ...remediation ? { toolInput: { remediation } } : {}
+    }
   }];
 }
 function turnError(value) {
   if (!value || typeof value !== "object") return null;
   const message = value;
   const error = message.error;
-  return message.role === "assistant" && error && (error.name === "APIError" || isQuotaError(error)) ? error : null;
+  const assistant = message.role === "assistant" || message.type === "assistant";
+  return assistant && error && (error.name === "APIError" || isQuotaError(error) || isAuthError(error)) ? error : null;
 }
 function sessionObservations(value) {
   const error = turnError(value);
   if (!error) {
-    const message2 = value;
-    return message2?.role === "assistant" && !message2.error && typeof message2.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
+    const message = value;
+    const assistant = message?.role === "assistant" || message?.type === "assistant";
+    return assistant && !message?.error && typeof message?.time?.completed === "number" ? { api_error: null, permission_mode: null, clears_api_error: true } : null;
   }
-  const status = error.status ?? error.statusCode ?? error.data?.statusCode;
-  const message = value;
-  const id = message.modelID?.includes("/") ? message.modelID : message.providerID && message.modelID ? `${message.providerID}/${message.modelID}` : null;
-  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: isQuotaError(error) ? "usage_limit" : status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other", permission_mode: null, clears_api_error: false };
+  const errorRecord = object2(error);
+  const body = errorBody(errorRecord);
+  const status = errorStatus(errorRecord, body);
+  const id = messageModelId(value);
+  const remediation = classifyOpencodeConsoleKeyError(errorRecord, id ?? void 0);
+  const apiError = remediation?.code === "api_key_expired" ? "auth_expiry" : isQuotaError(errorRecord) ? "usage_limit" : remediation?.code === "invalid_api_key" || isAuthError(errorRecord) || status === 401 || status === 403 ? "authentication" : status === 429 ? "rate_limit" : "other";
+  return { ...id && unavailableModelError(value) ? { unavailable_model: id } : {}, api_error: apiError, permission_mode: null, clears_api_error: false };
 }
 function unavailableModelError(value) {
   const error = turnError(value);
@@ -302,7 +472,7 @@ function rejectedModelIds(rows) {
 }
 
 // plugins/provider-shared/updateCheck.ts
-function record(raw) {
+function record2(raw) {
   if (raw !== null && typeof raw === "object") return raw;
   if (typeof raw !== "string") return null;
   try {
@@ -352,15 +522,15 @@ function newestSupportedVersion(versions, compatibility) {
   }, null);
 }
 function installedVersion(result) {
-  const installed = record(result);
+  const installed = record2(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
   return version && versionParts(version) ? version : null;
 }
 function availableUpdate(currentVersion, result, compatibility) {
-  const response = record(result);
+  const response = record2(result);
   if (response?.status !== 200) return null;
-  const metadata = record(response.body);
+  const metadata = record2(response.body);
   let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
   if (!compatibility && !latestVersion) return null;
   if (compatibility) {
@@ -685,7 +855,7 @@ var REPLACE = new RegExp(`^\\$([A-Za-z_]\\w*)\\.Replace\\(\\s*(${QUOTED_FRAGMENT
 var READ = new RegExp(`^Get-Content\\s+((?:-LiteralPath|-Path)\\s+)?(${QUOTED_FRAGMENT}|\\$[A-Za-z_]\\w*|[^\\s'"$;()]+)\\s+-Raw$`, "i");
 
 // plugins/provider-opencode/src/fileDiffs.ts
-function record2(value) {
+function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function parsePatch(path, patch) {
@@ -768,9 +938,9 @@ function fileChangeKind(value) {
   }
 }
 function opencodeFileDiffs(path, edits, metadata) {
-  const value = record2(metadata);
-  const listedFiles = Array.isArray(value.files) ? value.files.map(record2).filter((item) => Object.keys(item).length > 0) : [];
-  const singleFile = record2(value.filediff);
+  const value = record3(metadata);
+  const listedFiles = Array.isArray(value.files) ? value.files.map(record3).filter((item) => Object.keys(item).length > 0) : [];
+  const singleFile = record3(value.filediff);
   const files = listedFiles.length ? listedFiles : Object.keys(singleFile).length ? [singleFile] : [];
   if (files.length) {
     const nestedDiffs = files.flatMap((item) => {
@@ -1055,7 +1225,7 @@ function parseOpencodeModels(stdout) {
       ...efforts ? { reasoningEfforts: efforts, ...efforts.length ? { defaultReasoningEffort: "default" } : {} } : {}
     });
   }
-  return models2.length || metadata.size ? models2 : null;
+  return models2.length || metadata.size ? orderOpencodeModels(models2, metadata) : null;
 }
 function groupFromModelId(id) {
   const slash = id.split("/");
@@ -1714,16 +1884,16 @@ function applyDomiosPresets(config, presets) {
 }
 
 // plugins/provider-opencode/src/modelProviders.ts
-function record3(value) {
+function record4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function readModelProviders(config) {
-  if (!record3(config) || config.provider !== void 0 && !record3(config.provider)) {
+  if (!record4(config) || config.provider !== void 0 && !record4(config.provider)) {
     throw new Error("Invalid provider config");
   }
   return Object.entries(config.provider ?? {}).flatMap(([id, entry]) => {
-    if (!record3(entry) || entry["x-domios"] !== true) return [];
-    if (!record3(entry.options) || typeof entry.options.baseURL !== "string") {
+    if (!record4(entry) || entry["x-domios"] !== true) return [];
+    if (!record4(entry.options) || typeof entry.options.baseURL !== "string") {
       throw new Error("Invalid owned provider");
     }
     const kind = entry.npm === "@ai-sdk/anthropic" ? "anthropic" : entry.npm === "@ai-sdk/openai-compatible" ? "openai-compatible" : null;
@@ -1739,7 +1909,7 @@ function readModelProviders(config) {
       id,
       kind,
       baseUrl: entry.options.baseURL,
-      models: record3(entry.models) ? Object.keys(entry.models) : [],
+      models: record4(entry.models) ? Object.keys(entry.models) : [],
       ...typeof entry.name === "string" ? { name: entry.name } : {},
       ...env ? { keyEnv: env } : {},
       ...typeof secret === "string" ? { secretName: secret } : {}
@@ -1819,16 +1989,16 @@ function decisionRunOptions(model, request2, remainingMs = DECISION_TIMEOUT_MS) 
     }
   };
 }
-function record4(value) {
+function record5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function probability(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 function validateDecision(answer, question) {
-  if (!record4(answer) || answer.type !== question.type) return false;
+  if (!record5(answer) || answer.type !== question.type) return false;
   if (question.type === "noul") return probability(answer.p);
-  if (!record4(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
+  if (!record5(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
   const entries = Object.entries(answer.probabilities);
   if (!entries.length || entries.some(([, value]) => !probability(value))) return false;
   const mass = entries.reduce((sum, [, value]) => sum + value, 0);
@@ -1845,10 +2015,10 @@ function parseDecisionEvents(stdout, question) {
   try {
     for (const line of stdout.split(/\r?\n/).filter((line2) => line2.trim())) {
       const event = JSON.parse(line);
-      if (!record4(event)) return { error: "invalid_response" };
+      if (!record5(event)) return { error: "invalid_response" };
       if (event.type === "tool_use" || event.type === "error") return { error: "transport" };
-      if (event.type === "text" && record4(event.part) && typeof event.part.text === "string") text2 += event.part.text;
-      if (event.type === "step_finish" && record4(event.part) && event.part.reason === "stop") completed = true;
+      if (event.type === "text" && record5(event.part) && typeof event.part.text === "string") text2 += event.part.text;
+      if (event.type === "step_finish" && record5(event.part) && event.part.reason === "stop") completed = true;
     }
     if (!completed) return { error: "invalid_response" };
     const answer = JSON.parse(text2);
@@ -2445,6 +2615,23 @@ function v2History(raw, order = "desc") {
         const row = v2Content(id, part, ordinal, rows.length + 1, ts);
         if (row) rows.push(row);
       }
+      const error = object2(message.error);
+      if (message.finish === "error" && Object.keys(error).length > 0 && error.type !== "aborted") {
+        const model = object2(message.model);
+        const provider = text(model.providerID), modelLeaf = text(model.id);
+        const modelId = modelLeaf?.includes("/") ? modelLeaf : provider && modelLeaf ? `${provider}/${modelLeaf}` : void 0;
+        const { content: errorMessage, remediation } = classifiedTurnError(error, modelId, "OpenCode execution failed");
+        rows.push({
+          id: `${id}:error`,
+          seq: rows.length + 1,
+          type: "system",
+          systemSubtype: "api_error",
+          toolFlowId: id,
+          content: errorMessage,
+          ...remediation ? { toolInput: { remediation } } : {},
+          ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}
+        });
+      }
     }
   }
   return rows;
@@ -2688,9 +2875,8 @@ function v2Reduce(ctx, raw, frames) {
         state.pendingPrompts = [];
         const detail = type === "session.execution.failed" || type === "session.error" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
         if (detail === "failed") {
-          const error = object2(data.error);
-          const message2 = isQuotaError(error) ? "Provider balance or quota is exhausted \u2014 top up or switch model" : runtimeErrorMessage(error, "OpenCode execution failed");
-          events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message2));
+          const { content, remediation } = classifiedTurnError(object2(data.error), ctx.settings.model, "OpenCode execution failed");
+          events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, content, remediation));
         }
         events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", ...detail ? { detail } : {} });
         delete state.turn;
@@ -2927,8 +3113,8 @@ function runtimeReduce(ctx, raw, frames) {
       if (turn && state.completed.includes(turn)) continue;
       const interrupted = error.name === "MessageAbortedError";
       if (!interrupted) {
-        const message = runtimeErrorMessage(error, "OpenCode reported a session error");
-        events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, message));
+        const { content, remediation } = classifiedTurnError(error, ctx.settings.model, "OpenCode reported a session error");
+        events.push(...runtimeTurnErrorEvents(ctx.threadId, turn, turn ? ++state.seq : state.seq, content, remediation));
       }
       if (turn) completeTurn(state, turn);
       events.push({ kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "idle", detail: interrupted ? "interrupted" : "failed" });
@@ -3536,7 +3722,7 @@ var plugin = {
     const parsedCursor = parseStructuredCursor(cursor);
     if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
     const [sinceMs, seenAtSinceMs] = parsedCursor;
-    return yield* ioSqlite(host.io.fs, db, "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC", [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES], (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs));
+    return yield* ioSqlite(host.io.fs, db, "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') IN ('APIError', 'ProviderAuthError') OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC", [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES], (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs));
   }
 };
 function structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs) {
@@ -3559,7 +3745,8 @@ function structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs) {
     if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
     const error = turnError(message);
     if (error) {
-      messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+      const { content, remediation } = classifiedTurnError(error, sessionModelIdentity(message) ?? void 0, "Provider API error");
+      messages.push({ id, type: "system", systemSubtype: "api_error", content, ...remediation ? { toolInput: { remediation } } : {}, timestamp: new Date(created).toISOString() });
       continue;
     }
     const part = safeJson(rows[i].part);

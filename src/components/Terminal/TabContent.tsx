@@ -1,10 +1,9 @@
 import {isRemoteTaskTab} from "../../lib/remoteExecution";
-import { BusyState } from "../shared/BusyState";
 import { transcriptWindowKey, useTranscriptWindow } from "./transcriptStore";
 import { ErrorNotice } from "../shared/ErrorNotice";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
-import { dockedTabFailure, restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { dockedTabFailure, headerRestoreStageView, restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
 import { useCurrentTabUiMode } from "../../hooks/useCurrentTabUiMode";
 import { getClientTabUiMode, resolveInitialTabUiMode } from "../../lib/clientTabUiMode";
 import { hasExitedChatRecipient } from "../../lib/tabActivity";
@@ -113,9 +112,11 @@ export function TabContent({
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
   const loadRefused = runtimeSessionUnavailable(tab.agent_runtime_state);
+  const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
+  const isChatBackend = chatBacking !== null || (!tab.pty_id && descriptor?.transport === "chat_backend");
   const chatCapable = hasExitedChatRecipient(tab)
     || (descriptor?.supports_chat_ui ?? Boolean(providerId && getClientTabUiMode(tab.id) === "chat"));
-  const chatOwnsStartup = tab.backing?.kind === "chat_backend"
+  const chatOwnsStartup = isChatBackend
     || (uiMode ?? resolveInitialTabUiMode(tab.id, { chatCapable })) === "chat";
   const dockedFailure = chatOwnsStartup ? dockedTabFailure(tab, wake) : null;
   const restoreOwnsBody = !chatOwnsStartup && !loadRefused && !dockedFailure && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
@@ -142,8 +143,6 @@ export function TabContent({
     );
   }
 
-  const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
-  const isChatBackend = chatBacking !== null;
   const showSwitch = !isChatBackend && (descriptor?.supports_chat_ui === true || hasExitedChatRecipient(tab));
   const usageVisible = usageSource ? usageTrackingEnabled(
     trackingDescriptor?.settings_schema ?? [],
@@ -182,6 +181,14 @@ export function TabContent({
     />
   );
 
+  const sessionStatusVisible = !remoteChat.state && !dockedFailure && !loadRefused && isVisible
+    && (sleepingTranscript || restoreInline || hasCachedTranscript)
+    && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted));
+  const showSessionFailure = sessionStatusVisible && restore.phase === "failed";
+  const headerRestore = sessionStatusVisible && restore.phase !== "failed"
+    ? headerRestoreStageView(tab, wake, restore)
+    : null;
+
   return (
     <TabWrapper tabId={tab.id} isVisible={isVisible}>
       <div className="flex h-full w-full flex-col" style={{ ["--ct-tab-top-bar-control-h" as string]: `${TAB_BAR_CONTROL_H}px` }}>
@@ -199,14 +206,13 @@ export function TabContent({
           watcherLastStatus={tab.watcher?.last_status ?? null}
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
+          restore={headerRestore}
         />
         <div className="ct-tab-content-body relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
           <div data-testid="session-status-row" className="ct-tab-content-status flex max-h-[40%] shrink-0 flex-col overflow-y-auto">
-            <DeferredPresence present={!remoteChat.state && !dockedFailure && !loadRefused && isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}>
+            <DeferredPresence present={showSessionFailure}>
               <section aria-label="Session status" className="mx-auto flex w-full max-w-2xl justify-center px-4 py-2">
-                {restore.phase === "failed"
-                  ? <div className="w-full"><ErrorNotice error={restore.detail} operation="resuming this session" /></div>
-                  : <BusyState inline indicator="brand" label="Restoring…" phase="work" className="ct-bar-pill" />}
+                <div className="w-full"><ErrorNotice error={restore.detail} operation="resuming this session" /></div>
               </section>
             </DeferredPresence>
           </div>

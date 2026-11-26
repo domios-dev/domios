@@ -1,3 +1,5 @@
+import { parseProviderNotInstalled } from "./providerNotInstalled";
+
 export type ErrorAction = "choose-folder" | "retry" | "sign-in" | "check-access" | "choose-smaller-file" | "check-executable" | "start-new-conversation";
 export interface ErrorDescription {
   title: string;
@@ -74,7 +76,7 @@ function serialize(input: unknown): string {
   try { return JSON.stringify(input) ?? String(input); } catch { return String(input); }
 }
 
-function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string; reported?: string } {
+function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string; cause?: string; detailRaw?: string; reported?: string } {
   const object = record(input);
   const raw = input == null ? "" : typeof input === "string" ? input : typeof object?.body === "string" ? object.body
     : input instanceof Error ? input.message : typeof object?.raw === "string" ? object.raw
@@ -87,6 +89,8 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown; m
   const detail = record(parsed?.error) ?? parsed;
   return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status,
     message: typeof detail?.message === "string" ? detail.message : raw,
+    cause: typeof detail?.cause === "string" ? detail.cause : undefined,
+    detailRaw: typeof detail?.raw === "string" ? detail.raw : undefined,
     reported: typeof detail?.message === "string" ? detail.message : undefined };
 }
 
@@ -117,10 +121,10 @@ export function isPendingRuntimeDeadline(input: unknown): boolean {
 }
 
 export function describeError(input: unknown, context: ErrorContext = {}): ErrorDescription {
-  const { raw, code, status, message } = unpack(input);
+  const { raw, code, status, message, cause, detailRaw } = unpack(input);
   const switching = context.operation === "switching providers" || code.startsWith("provider_switch_") || /\bprovider_switch_\w+/.test(raw);
   const details = switching ? message.replace(/^Error:\s*/, "").slice(0, 2048) : raw;
-  const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw: details, ...(pending ? { pending: true } : {}) });
+  const result = (title: string, causeText: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause: causeText, actions, raw: details, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
   if (kind === AUTHORED_CAUSE && message.trim()) return { title: message.trim(), cause: "", actions: [], raw: "" };
   if (kind === "client_capacity" || /client_capacity:|Mux client capacity reached before dispatch/.test(raw)) {
@@ -160,6 +164,22 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
   if (kind === "tab_rename_failed") return result("Could not rename the tab", message || "The previous name was restored. Try again.", ["retry"]);
   if (kind === "tab_close_refused") return result(message || "The close was refused.", "The tab stays open.", []);
+  if (kind === "team_close_refused") {
+    return {
+      title: message || "The close was refused.",
+      cause: cause || "The Team stays open.",
+      actions: [],
+      raw: detailRaw ?? details,
+    };
+  }
+  if (kind === "workspace_close_refused") {
+    return {
+      title: message || "The close was refused.",
+      cause: cause || "The workspace stays open.",
+      actions: [],
+      raw: detailRaw ?? details,
+    };
+  }
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;
@@ -197,6 +217,16 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   }
   if (isPendingRuntimeDeadline(input)) {
     return result("The agent runtime is taking longer than usual", "The runtime response is still pending.", [], true);
+  }
+  const notInstalled = parseProviderNotInstalled(raw);
+  if (notInstalled) {
+    return result(
+      `${notInstalled.displayName} isn't installed`,
+      notInstalled.installCommand
+        ? `Install ${notInstalled.displayName} to start this agent, then retry.`
+        : `Install ${notInstalled.displayName} on this machine, then retry.`,
+      ["check-executable", "retry"],
+    );
   }
   if (kind === "executable_missing" || inferred && spawn && /enoent|os error 2\b|executable.*(?:not found|missing)/i.test(raw)) {
     return result("The program could not be found", "The shell or agent program is unavailable. Check that it is installed and its path is correct.", ["check-executable", "retry"]);

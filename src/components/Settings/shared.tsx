@@ -102,6 +102,24 @@ export function SettingsPill({
   );
 }
 
+export function RemoteLocalOnlyNotice({
+  machineName,
+  subject,
+}: {
+  machineName: string;
+  subject: string;
+}) {
+  return (
+    <p
+      role="status"
+      data-testid="settings-remote-local-only"
+      className="m-0 rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] px-3 py-2 text-xs text-[var(--ct-muted-fg)]"
+    >
+      {subject} can only be changed directly on {machineName}.
+    </p>
+  );
+}
+
 export function SettingsRow({
   children,
   className,
@@ -116,9 +134,9 @@ export function SettingsRow({
   );
 }
 
-export function Label({ text, children }: { text: string; children: React.ReactNode }) {
+export function Label({ text, htmlFor, children }: { text: string; htmlFor?: string; children: React.ReactNode }) {
   return (
-    <FormRow label={text} data-testid="settings-label">{children}</FormRow>
+    <FormRow label={text} htmlFor={htmlFor} data-testid="settings-label">{children}</FormRow>
   );
 }
 

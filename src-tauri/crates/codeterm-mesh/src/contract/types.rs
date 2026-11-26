@@ -313,6 +313,14 @@ pub struct MeshStatus {
     pub web_ui: Option<WebUiAnnouncement>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryMachineName {
+    pub installation_id: String,
+    pub admitted_at: u64,
+    pub display_name: Option<String>,
+    pub active: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct AccountInstallation {
     pub installation_id: String,

@@ -1,4 +1,5 @@
 import { isFirstRunGeneralTab } from "../../components/AgentPicker/constants";
+import { cleanMachineName } from "../../lib/machineIdentity";
 import { isGeneralAgent } from "../../lib/roleKind";
 import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
@@ -23,11 +24,23 @@ export interface PeerLastActiveSelection {
 export interface PairedGeneral {
   peerId: string;
   name: string;
+  instanceName?: string;
+  installation?: Pick<NonNullable<MeshPeersResponse["installations"]>[number], "installation_id" | "name">;
   availability: GeneralAvailability;
   sessions: ObservedPeerTab[];
   teamNames?: ReadonlyMap<string, string>;
   lastActiveTab?: PeerLastActiveSelection | null;
   cached?: boolean;
+}
+
+export function pairedPeerIdentity(peer: Pick<PairedPeer, "instance_id" | "instance_name">,
+  installations: MeshPeersResponse["installations"], displayName?: string) {
+  return {
+    peerId: peer.instance_id,
+    instanceName: peer.instance_name,
+    name: displayName ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
+    installation: installations?.find(row => row.active && row.instance_id === peer.instance_id),
+  };
 }
 
 export interface BrowsedWorkspace {
@@ -79,7 +92,7 @@ function localSessions(peerId: string, snapshot: MultiplexerState, workspace: Wo
     if (!parseCompositeTabId(viewerId) || id.startsWith("mesh:") || tab?.id !== id
       || tab.remote_peer_id || tab.remote_tab_id || (tab.workspace_id && tab.workspace_id !== workspace.id)
       || tab.hidden || tab.show_in_tabbar === false) return [];
-    return [{ viewerId, tab, status: snapshot.tab_statuses?.[id] }];
+    return [{ viewerId, tab: tab.workspace_id ? tab : { ...tab, workspace_id: workspace.id }, status: snapshot.tab_statuses?.[id] }];
   });
 }
 

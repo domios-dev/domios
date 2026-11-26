@@ -12,12 +12,9 @@ export const MACHINE_KINDS = {
   other: { label: "Other", word: "machine" },
 } as const;
 
-export const MACHINE_COLORS = ["blue", "teal", "green", "yellow", "pink", "violet", "graphite"] as const;
 export type MachineKind = keyof typeof MACHINE_KINDS;
-export type MachineColor = (typeof MACHINE_COLORS)[number];
 export interface MachineIdentity {
   kind: MachineKind;
-  color: MachineColor;
 }
 export type MeshIdentityProjection = {
   local_instance_name?: string;
@@ -25,14 +22,10 @@ export type MeshIdentityProjection = {
   machine_identities?: Record<string, MachineIdentity>;
 };
 
-export const UNKNOWN_MACHINE: MachineIdentity = { kind: "other", color: "graphite" };
+export const UNKNOWN_MACHINE: MachineIdentity = { kind: "other" };
 
 export function machineKind(kind?: string | null): MachineKind {
   return kind && Object.prototype.hasOwnProperty.call(MACHINE_KINDS, kind) ? kind as MachineKind : "other";
-}
-
-export function machineColor(color?: string | null): MachineColor {
-  return MACHINE_COLORS.find(candidate => candidate === color) ?? "graphite";
 }
 
 export function cleanMachineName(name?: string | null, peerId?: string | null): string | undefined {

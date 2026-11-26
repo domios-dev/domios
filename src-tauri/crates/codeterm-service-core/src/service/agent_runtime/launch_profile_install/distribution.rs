@@ -51,7 +51,7 @@ pub(super) async fn python(
     pin: &str,
 ) -> Result<(AgentRuntimeCommand, String), String> {
     install_validation::exact_python(pin).ok_or("An exact Python package version is required")?;
-    let uv = resolve_binary("uv")?.ok_or("uv is not installed")?;
+    let uv = resolve_binary("uv", &[])?.ok_or("uv is not installed")?;
     tokio::fs::create_dir_all(target)
         .await
         .map_err(|_| "Install directory unavailable")?;
@@ -211,7 +211,8 @@ pub(super) async fn binary(
         tokio::fs::write(&archive, &bytes)
             .await
             .map_err(|_| "Binary archive could not be saved")?;
-        let tar = resolve_binary("tar")?.ok_or("tar is required to read this binary archive")?;
+        let tar =
+            resolve_binary("tar", &[])?.ok_or("tar is required to read this binary archive")?;
         let mut extract = command(&tar);
         extract
             .arg("-xOf")

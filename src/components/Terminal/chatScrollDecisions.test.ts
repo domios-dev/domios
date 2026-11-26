@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chatLayoutScrollTarget, chatScrollWriteTarget, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { chatLayoutScrollTarget, chatScrollWriteTarget, shouldCaptureChatAnchor, shouldRevealNewerChatRows } from "./chatScrollDecisions";
 import { chatViewportModeAfterScroll } from "./chatViewport";
 
 const before = { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 };
@@ -98,4 +98,15 @@ test("inner wheel consumption transfers to the transcript at either directional 
   assert.equal(consumes(inner, NaN), false);
   assert.equal(consumes({ ...inner, scrollTop: 599.4 }, 40), false);
   assert.equal(consumes({ ...inner, scrollTop: 0.6 }, -40), false);
+});
+
+test("newer-page reveal waits until both active scrolling and gesture ownership have settled", () => {
+  const settled = { mode: "detached" as const, newerCount: 100, userScrolling: false, gestureOwned: false, atBottom: true };
+  assert.equal(shouldRevealNewerChatRows(settled), true);
+  assert.equal(shouldRevealNewerChatRows({ ...settled, userScrolling: true, gestureOwned: true }), false);
+  // Synchronously inside scrollend before React commits gestureOwned=false, reveal still defers.
+  assert.equal(shouldRevealNewerChatRows({ ...settled, userScrolling: false, gestureOwned: true }), false);
+  assert.equal(shouldRevealNewerChatRows({ ...settled, atBottom: false }), false);
+  assert.equal(shouldRevealNewerChatRows({ ...settled, newerCount: 0 }), false);
+  assert.equal(shouldRevealNewerChatRows({ ...settled, mode: "pinned" }), false);
 });

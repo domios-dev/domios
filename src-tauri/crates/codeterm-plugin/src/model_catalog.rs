@@ -27,7 +27,6 @@ mod endpoints;
 pub use capability_overlay::{clear as clear_capability_overlay, put as put_capability_overlay};
 pub use endpoints::resolve as resolve_endpoint_model;
 use std::collections::HashMap;
-#[cfg(test)]
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -177,11 +176,15 @@ pub(crate) fn binary_fingerprint_file(file: &mut std::fs::File) -> Option<String
 
 // Resolve actively: a cache-only read answers None right after a discovery's
 // forget and Some once the probe resolves the CLI, so its stamp never matched.
-fn fingerprint_bin(bin: &str) -> Option<BinaryFingerprint> {
-    match crate::js_runtime::probe_bin(bin).resolution {
+fn fingerprint_bin_in(bin: &str, extra_dirs: &[PathBuf]) -> Option<BinaryFingerprint> {
+    match crate::js_runtime::probe_bin_with_extra_dirs(bin, extra_dirs).resolution {
         crate::js_runtime::BinResolution::Found(path) => fingerprint_path(&path),
         _ => None,
     }
+}
+
+fn fingerprint_provider_bin(provider: &dyn AgentProvider) -> Option<BinaryFingerprint> {
+    fingerprint_path(&provider.resolved_cli_path()?)
 }
 
 /// Fingerprint the provider's declared credential files. A file that does not

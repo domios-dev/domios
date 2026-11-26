@@ -2,6 +2,7 @@ import { act, StrictMode, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { PeerTabRelayError } from "../../lib/remoteChatState";
 import type { AgentRuntimeStateEvent } from "../../lib/agentRuntimeState";
 import type { ProviderDescriptor, Tab, ThemeConfig } from "../../lib/types";
 import {setAgentDescriptors} from "../../lib/agentDescriptorCache";
@@ -610,7 +611,18 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
     await render(true);
     expect(calls).toEqual([tab.id]);
     expect(host.textContent).toContain("persisted-fixture-content");
-    expect([...host.querySelectorAll('[role="status"]')].some(status => status.getAttribute("aria-label") === "Restoring…")).toBe(true);
+    expect(host.querySelector('[data-testid="session-status-row"]')?.children.length).toBe(0);
+    const waitingStatus = host.querySelector('[data-testid="tab-top-bar"] [role="status"]');
+    expect(waitingStatus?.closest('[aria-hidden="true"]')).not.toBeNull();
+    await act(async () => {
+      const event = new Event("animationstart", { bubbles: true });
+      Object.defineProperty(event, "animationName", { value: "ct-presence-enter" });
+      waitingStatus!.parentElement!.dispatchEvent(event);
+    });
+    const headerStatus = host.querySelector('[data-testid="tab-top-bar"] [role="status"]');
+    expect(headerStatus?.closest('[aria-hidden="true"]')).toBeNull();
+    expect(headerStatus?.getAttribute("aria-live")).toBe("polite");
+    expect(headerStatus?.getAttribute("aria-label")).toBe("Restoring…");
     expect(host.querySelector('[role="progressbar"][aria-label="Restore progress"]')).toBeNull();
     const composer = host.querySelector("textarea");
     expect(composer).not.toBeNull();
@@ -621,8 +633,59 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
     tab.slept_at_ms = null;
     tab.boot_stage = "agent_ready";
     await render(true);
+    expect(host.querySelector('[data-testid="session-status-row"]')?.children.length).toBe(0);
+    const settledHeaderStatus = host.querySelector('[data-testid="tab-top-bar"] [role="status"]');
+    expect(settledHeaderStatus === null || settledHeaderStatus.closest('[aria-hidden="true"]') !== null).toBe(true);
     expect(host.querySelector("textarea")).toBe(composer);
     expect(host.textContent).toContain("persisted-fixture-content");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+it("keeps restore failure notices in session-status-row without showing restoring in the header subtitle", async () => {
+  const tab: Tab = {
+    id: "wake-refused-fixture", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, frozen: true, agent_type: "fixture",
+    slept_at_ms: 1000, agent_session_id: "saved", session_binding_nonce: "sleep-binding",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "saved" },
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "wake_tab") {
+      return Promise.reject(new PeerTabRelayError(403, "/api/mesh/relay-to", "Opaque wake refusal", "peer_relay_not_authorized"));
+    }
+    if (command === "chat_start") return Promise.resolve({
+      text: "", pending: false, start_offset: 0, offset: 1,
+      source_session_id: "saved", session_binding_nonce: "sleep-binding", subscription_id: args?.subscriptionId,
+      messages: [{ id: "saved-row", type: "assistant", content: "persisted-fixture-content" }],
+    } as T);
+    return Promise.resolve((command === "delayed_send_list" ? [] : {}) as T);
+  });
+  __setListenForTest(async () => () => {});
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(
+      <MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+        <MultiplexerActionsContext.Provider value={actions}>
+          <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+            theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
+    ));
+    expect(host.querySelector('[data-testid="tab-top-bar"] [role="status"]')).toBeNull();
+    const statusRow = host.querySelector('[data-testid="session-status-row"]');
+    expect(statusRow?.children.length).toBe(1);
+    expect(statusRow?.querySelector('section[aria-label="Session status"] [role="status"]')).not.toBeNull();
+    expect(statusRow?.textContent).toContain("Opaque wake refusal");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -697,7 +760,7 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
     expect(state.tabs[tab.id].session_binding_nonce).toBe("restored-binding");
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).toBeNull();
     expect(host.querySelector('[aria-label="Tab chat: Grok"]')?.getAttribute("data-chat-ready")).toBe("true");
-    expect([...host.querySelectorAll('[role="status"]')].some(status => status.textContent === "No earlier messages.")).toBe(true);
+    expect([...host.querySelectorAll('[role="status"]')].some(status => status.textContent === "No earlier messages.")).toBe(false);
     expect(host.querySelector('[data-testid="chat-load-older"]')).toBeNull();
     expect(host.querySelector('textarea[aria-label="Message composer"]')).toBe(composer);
     expect(composer?.disabled).toBe(false);

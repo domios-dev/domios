@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryError, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
 import { deliverySendForRow } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
@@ -525,4 +525,29 @@ test("same-sequence host-segment enrichment updates system_send and survives lat
 
   const deliveredWithoutSystemSend = applyDeliveryStatus(enriched, status("delivered", 2));
   assert.deepEqual(deliveredWithoutSystemSend.status?.system_send?.segments, segments);
+});
+
+test("persisted remote 422 source_attachment_path refusal surfaces as a retryable, removable bubble failure", () => {
+  const legacy: DeliverySend = {
+    id: "legacy-422",
+    correlationId: "legacy-422",
+    content: "check image",
+    sentAtMs: 2000,
+    requestUncertain: true,
+    remoteFailure: {
+      status: 422,
+      path: "/api/mesh/relay-to",
+      code: "source_attachment_path",
+      raw: "/api/mesh/relay-to → HTTP 422: source_attachment_path: opaque",
+      fromPeer: false,
+      neverWritten: false,
+      state: "generic",
+      at: 2000,
+    },
+  };
+  assert.equal(deliveryState(legacy), "failed");
+  assert.match(deliveryError(legacy) ?? "", /Attachment could not be transferred/);
+  assert.equal(canRetryChatSend(legacy), true);
+  assert.equal(canDeleteChatSend(legacy), true);
+  assert.equal(reconcileAdmissionEvidence(legacy, "unknown"), legacy);
 });

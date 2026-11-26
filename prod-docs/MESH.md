@@ -12,14 +12,14 @@ Each side verifies current signed membership and possession of both the installa
 
 `domios mesh status` returns identity, transport, publication, refusal and account machine summaries to authenticated local agents. Account mutations and credential-bearing account details remain local-owner only.
 
-A machine's kind icon and colour are suggested when it joins. Change them from **My machines** or the machine card menu. Peers learn the choice from the installation's signed Mesh announcement and keep its colour when it goes offline. To change a local or paired machine from a terminal, use:
+A machine's kind icon is suggested when it joins. Change it from **My machines** or the machine card menu. Peers learn the choice from the installation's signed Mesh announcement. To change a local or paired machine from a terminal, use:
 
 ```text
-domios mesh identity set --kind laptop --color teal
-domios mesh identity set --kind server --color graphite --peer ubunta
+domios mesh identity set --kind laptop
+domios mesh identity set --kind server --peer ubunta
 ```
 
-An agent's command sends an approval choice to the target machine's owner. The icon and colour change when the owner chooses **Apply**.
+An agent's command sends an approval choice to the target machine's owner. The icon changes when the owner chooses **Apply**.
 
 ## Web access and endpoints
 
@@ -92,7 +92,7 @@ Whole-peer Web views scope each terminal subscription to `mesh:<peer>/<tab>`, ju
 
 A relayed send succeeds only when the TARGET confirms delivery — the relay hop's `ok` attests acceptance, the peer's body is the evidence, so `data.ok = false` on `POST /api/tabs/{id}/send` is a failure under an accepting envelope. Codes are stable constants; `bytes_written` is three-valued (`false` nothing landed, `true` landed but unconfirmed, absent unknown) and absent never means zero. The relay's send deadline outlives that route's readiness wait so the peer's answer decides the outcome; reads keep the short deadline. The sender's own leg is classified the same way rather than collapsing to a bare `502` with a stable `mesh_transport_*` code on the same envelope, and only a connect-phase failure claims `bytes_written=false`.
 
-`--mesh PEER` accepts, in order: an exact instance id, a unique instance-id prefix (the short id `mesh status` prints, 6+ hex characters), the advertised name, or the configured name (the advertised name without its ` [dev-suffix]`). Stale offline duplicates of a name never hide the live record; when two ONLINE peers answer to one name the relay refuses with `409 peer_name_ambiguous` and lists every candidate with its `instance_id`, so re-run with an id. Every relayed result names the peer that answered: `--json` object results carry `answered_by {instance_id, instance_name}`, human output prints `answered by NAME (short id)` on stderr when the peer was addressed by anything but its exact id, and a failure carries `error.peer_id`.
+`--mesh PEER` accepts, in order: an exact instance id or installation id, a unique short-id prefix (the short id `mesh status` prints, 6+ hex characters of either id), the advertised or registry name, the UI disambiguated machine label (for example `BLACKSTAR #1` when duplicate active names exist in the verified account registry), or the configured name (the advertised name without its ` [dev-suffix]`). Stale offline duplicates of a name never hide the live record; when two ONLINE peers answer to one name the relay refuses with `409 peer_name_ambiguous` and lists every candidate with its `instance_id`, so re-run with an id. Every relayed result names the peer that answered: `--json` object results carry `answered_by {instance_id, instance_name}`, human output prints `answered by NAME (short id)` on stderr when the peer was addressed by anything but its exact id, and a failure carries `error.peer_id`.
 
 Relayed sends follow the target's verdict: `bytes_written=true` is accepted with `delivery: pending` even if submit confirmation outlives the relay; `false` or unknown is failure. `error.class` is `deterministic` (authorization, protocol, unknown tab, 4xx: the same request fails again), `transient` (busy tab, saturated window, 429/502–504: retry may help), or `unknown` (unclassified peer refusal). Only transient failures recommend retry. `send --mesh` never echoes payloads. A `--to-shell` line over 4095 bytes to a non-Windows peer is refused before sending with `line_exceeds_tty_limit`, because canonical-mode TTYs can truncate it despite a successful write.
 
@@ -112,13 +112,13 @@ Mesh RPC requests carry the control-plane `protocol_version` integer. A peer on 
 
 `plan task dispatch <plan> <task> --mesh PEER --execution-intent mutating` creates an origin attempt before the signed peer request; generic mesh plan RPC runs against the peer's plan store.
 
-`PEER` accepts a paired instance ID or name. Ambiguous live names are refused; use the instance ID to select one.
+`PEER` accepts a paired instance ID, installation ID, short-id prefix, advertised/registry name, UI disambiguated machine label (such as `BLACKSTAR #1`), or configured name. Ambiguous live names are refused; use the instance ID or UI label to select one.
 
 ACK and reports accept prior nonces issued to the same tab under its current session, verified by the hosting peer. A missing remote tab or an expired Worker ACK retires the origin attempt. Pending updates, dispatch, and respawn reconcile that state; `domios plan task respawn <plan> <task> --attempt <attempt>` dispatches a replacement on the attempt's recorded mesh peer. Lane history stays available for review and cleanup.
 
 Models are validated by the peer's catalogue during Worker spawn. Use a qualified route such as `--model provider:model` when that provider is installed only on the peer; the origin preserves that route without consulting its local model catalogue.
 
-The peer requires the same repository identity and base commit, provisions its lane, and binds the Worker to origin plan/task/attempt IDs. Missing repo/base, offline peers, and lost relays are explicit attempt states; failed attempts close so dispatch can retry. The origin checks that the peer advertises `remote_task_dispatch` (`/api/identify` features) before creating an attempt, and an HTTP refusal from the peer is `peer_refused`, not `relay_lost`. ACK/report relays authenticate the Worker peer, attempt, worker tab, and `CODETERM_SESSION_BINDING_NONCE`; they do not require local Plan owner authority or `caller_tab_id`. Both peers must run the same control-plane protocol version. A lost dispatch response triggers one signed lookup for the existing Worker; recovered lane evidence records the spawn, while response loss alone is `relay_lost`, never proof of `peer_offline`.
+The peer requires the same repository identity and base commit, provisions its lane, and binds the Worker to origin plan/task/attempt IDs. Repository remote identities must be an `ssh`, `https`, or `git` URL (including SCP-style `user@host:owner/repo.git`); local paths and `file://` origins are refused. Missing repo/base, offline peers, and lost relays are explicit attempt states; failed attempts close so dispatch can retry. The origin checks that the peer advertises `remote_task_dispatch` (`/api/identify` features) before creating an attempt, and an HTTP refusal from the peer is `peer_refused`, not `relay_lost`. ACK/report relays authenticate the Worker peer, attempt, worker tab, and `CODETERM_SESSION_BINDING_NONCE`; they do not require local Plan owner authority or `caller_tab_id`. Both peers must run the same control-plane protocol version. A lost dispatch response triggers one signed lookup for the existing Worker; recovered lane evidence records the spawn, while response loss alone is `relay_lost`, never proof of `peer_offline`.
 
 After origin review accepts the report, run `domios plan task merge-remote-lane <plan> <task> <attempt>`. The origin asks that authenticated peer for the bound lane bundle and refuses unless its tip equals the accepted report SHA. Integration requires a clean checkout on the dispatch-time destination branch, verifies the bundle, and creates a real merge commit with ancestry. Cherry-pick and squash are invalid.
 
@@ -171,4 +171,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 81 -->
+<!-- revision: 83 -->

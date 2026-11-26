@@ -12,6 +12,7 @@ pub struct WorkerTaskPreparationRead {
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct WorkerTaskBriefRead {
+    pub id: String,
     pub name: String,
     pub parent_task_id: Option<String>,
     pub body: String,
@@ -29,8 +30,10 @@ pub struct WorkerTaskBriefRead {
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct TaskBriefStrideRead {
+    pub id: String,
     pub kind: String,
     pub text: String,
+    pub ts: u64,
 }
 
 impl PlanStore {

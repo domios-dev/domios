@@ -3,6 +3,7 @@
 use crate::service::MuxEmitCause;
 mod first_turn;
 mod launch;
+mod pty_handoff;
 mod readiness;
 mod runtime_launch;
 
@@ -48,7 +49,12 @@ impl Drop for AutomaticLaunchClaim<'_> {
 
 fn apply_general_agent_launch_claim(tab: &mut crate::multiplexer::types::Tab) {
     tab.agent_booting = true;
-    crate::service::boot_stage::apply_boot_stage(tab, BootStage::PtyStarting, None);
+    let stage = if tab.is_chat_backend() {
+        BootStage::AgentLaunching
+    } else {
+        BootStage::PtyStarting
+    };
+    crate::service::boot_stage::apply_boot_stage(tab, stage, None);
 }
 
 fn deliver_before_binding<T>(
@@ -122,11 +128,28 @@ fn general_agent_first_run_complete(
     mem: &crate::mem::MemManager,
     general_dir: &std::path::Path,
 ) -> bool {
+    if state::bootstrap_dispatched_in(general_dir) {
+        return true;
+    }
+    if instructions::owner_identity_from_mem(mem).is_some()
+        || instructions::owner_nickname_from_mem(mem).is_some()
+    {
+        return true;
+    }
     if mem.get("preference_identity").is_err() {
         return false;
     }
     std::fs::read_to_string(general_dir.join("identity.md"))
         .is_ok_and(|identity| !identity.trim().is_empty())
+}
+
+fn should_allow_bootstrap_on_launch(
+    previous_provider: Option<&str>,
+    wanted_provider: &str,
+    had_prior_session: bool,
+) -> bool {
+    let provider_switched = previous_provider.is_some_and(|prev| prev != wanted_provider);
+    !provider_switched && !had_prior_session
 }
 
 fn compose_startup_message(
@@ -232,7 +255,7 @@ pub fn start_general_agent(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
 ) {
-    start_general_agent_inner(svc, mux, pty, screen_state, config, false);
+    start_general_agent_inner(svc, mux, pty, screen_state, config, false, true);
 }
 
 pub fn start_general_agent_prepared(
@@ -242,7 +265,7 @@ pub fn start_general_agent_prepared(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
 ) {
-    start_general_agent_inner(svc, mux, pty, screen_state, config, true);
+    start_general_agent_inner(svc, mux, pty, screen_state, config, true, true);
 }
 
 fn start_general_agent_inner(
@@ -252,6 +275,7 @@ fn start_general_agent_inner(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
     instructions_prepared: bool,
+    allow_bootstrap_requested: bool,
 ) {
     let Some(_launch_guard) = launch_lock::LaunchGuard::acquire() else {
         log::info!("[general-agent] Start skipped; another launch owns the agent");
@@ -272,6 +296,26 @@ fn start_general_agent_inner(
             }
         };
 
+    let (previous_provider, tab_had_session) = {
+        let m = mux.read();
+        m.resolve_tab_id(GENERAL_ALIAS)
+            .and_then(|id| m.get_tab(&id))
+            .map(|tab| (tab.agent_type.clone(), tab.agent_session_id.is_some()))
+            .unwrap_or((None, false))
+    };
+    let allow_bootstrap = allow_bootstrap_requested
+        && should_allow_bootstrap_on_launch(
+            previous_provider.as_deref(),
+            provider_name,
+            tab_had_session || state::has_recorded_session(),
+        );
+    if previous_provider
+        .as_deref()
+        .is_some_and(|prev| prev != provider_name)
+    {
+        state::mark_bootstrap_dispatched();
+    }
+
     log::info!("[general-agent] Starting (provider={})", provider_name);
     if !instructions_prepared {
         instructions::generate_instructions(
@@ -291,26 +335,44 @@ fn start_general_agent_inner(
             provider_name,
             permission_bypass,
             resume_sessions_enabled,
+            allow_bootstrap,
         );
         return;
     }
 
-    // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
-    {
-        let (tab_id_opt, current_agent, current_pty_id, current_auto_approve) = {
-            let m = mux.read();
-            match m.resolve_tab_id(GENERAL_ALIAS) {
-                Some(pid) => {
-                    let tab = m.get_tab(&pid);
-                    let at = tab.and_then(|p| p.agent_type.clone());
-                    let pt = tab.and_then(|p| p.pty_id.clone());
-                    let auto_approve = tab.is_some_and(|p| p.auto_approve);
-                    (Some(pid), at, pt, auto_approve)
-                }
-                None => (None, None, None, false),
+    // Find General tab (already created by ensure_general_workspace in init_states)
+    let (tab_id, chat_source) = {
+        let m = mux.read();
+        let tab = m.resolve_tab_id(GENERAL_ALIAS).or_else(|| {
+            m.list_workspaces()
+                .iter()
+                .find(|ws| ws.protected)
+                .and_then(|ws| ws.tab_ids.first().cloned())
+        });
+        match tab {
+            Some(pid) => {
+                let chat = m.get_tab(&pid).filter(|tab| tab.is_chat_backend()).cloned();
+                (pid, chat)
             }
-        };
-        if let (Some(pid), Some(current_agent)) = (tab_id_opt.clone(), current_agent.clone()) {
+            None => {
+                log::error!(
+                    "[general-agent] No General Tab found — ensure_general_workspace failed?"
+                );
+                return;
+            }
+        }
+    };
+
+    // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
+    if chat_source.is_none() {
+        let current = mux.read().get_tab(&tab_id).and_then(|tab| {
+            Some((
+                tab.agent_type.clone()?,
+                tab.pty_id.clone(),
+                tab.auto_approve,
+            ))
+        });
+        if let Some((current_agent, current_pty_id, current_auto_approve)) = current {
             if &current_agent == provider_name {
                 if let Some(pty_id) = current_pty_id.clone() {
                     let alive = pty.lock().get_session(&pty_id).is_some();
@@ -324,7 +386,7 @@ fn start_general_agent_inner(
                         if agent_visible && current_auto_approve == permission_bypass {
                             let unbound = mux
                                 .write()
-                                .get_tab(&pid)
+                                .get_tab(&tab_id)
                                 .and_then(|p| p.agent_session_id.clone())
                                 .is_none();
                             if unbound {
@@ -333,7 +395,7 @@ fn start_general_agent_inner(
                                     provider_name,
                                     &general_cwd,
                                 ) {
-                                    svc.set_agent_session_id(&pid, Some(sid.clone()));
+                                    svc.set_agent_session_id(&tab_id, Some(sid.clone()));
                                     log::info!(
                                         "[general-agent] Restored durable session {} onto reused PTY {}",
                                         sid,
@@ -341,10 +403,10 @@ fn start_general_agent_inner(
                                     );
                                 }
                             }
-                            svc.reconcile_boot_stage_with_session_binding(&pid);
+                            svc.reconcile_boot_stage_with_session_binding(&tab_id);
                             log::info!(
                                 "[general-agent] Already running (tab={}, pty={}, provider={}) — skipping",
-                                pid,
+                                tab_id,
                                 pty_id,
                                 current_agent
                             );
@@ -364,10 +426,10 @@ fn start_general_agent_inner(
                         if let Err(reason) =
                             terminate_pty_before_relaunch(pty, screen_state, &pty_id)
                         {
-                            fail_general_agent_start(svc, mux, &pid, &reason);
+                            fail_general_agent_start(svc, mux, &tab_id, &reason);
                             return;
                         }
-                        clear_stale_general_binding(svc, mux, &pid);
+                        clear_stale_general_binding(svc, mux, &tab_id);
                     } else {
                         // Stale pty_id pointing at a dead session — clear it so spawn proceeds cleanly.
                         log::info!(
@@ -375,13 +437,14 @@ fn start_general_agent_inner(
                             pty_id
                         );
                         screen_state.remove(&pty_id);
-                        clear_stale_general_binding(svc, mux, &pid);
+                        clear_stale_general_binding(svc, mux, &tab_id);
                     }
                 }
             } else {
-                if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &pid)
+                if let Err(reason) =
+                    crate::service::agent_runtime::engine::stop_blocking(svc, &tab_id)
                 {
-                    fail_general_agent_start(svc, mux, &pid, &reason);
+                    fail_general_agent_start(svc, mux, &tab_id, &reason);
                     return;
                 }
                 log::info!(
@@ -391,37 +454,15 @@ fn start_general_agent_inner(
                 );
                 if let Some(pty_id) = current_pty_id {
                     if let Err(reason) = terminate_pty_before_relaunch(pty, screen_state, &pty_id) {
-                        fail_general_agent_start(svc, mux, &pid, &reason);
+                        fail_general_agent_start(svc, mux, &tab_id, &reason);
                         return;
                     }
                 }
-                clear_stale_general_binding(svc, mux, &pid);
+                clear_stale_general_binding(svc, mux, &tab_id);
             }
         }
     }
 
-    // Find General tab (already created by ensure_general_workspace in init_states)
-    let (tab_id, snapshot_session_id) = {
-        let m = mux.read();
-        let tab = m.resolve_tab_id(GENERAL_ALIAS).or_else(|| {
-            m.list_workspaces()
-                .iter()
-                .find(|ws| ws.protected)
-                .and_then(|ws| ws.tab_ids.first().cloned())
-        });
-        match tab {
-            Some(pid) => {
-                let sid = m.get_tab(&pid).and_then(|p| p.agent_session_id.clone());
-                (pid, sid)
-            }
-            None => {
-                log::error!(
-                    "[general-agent] No General Tab found — ensure_general_workspace failed?"
-                );
-                return;
-            }
-        }
-    };
     let restored = mux
         .read()
         .get_tab(&tab_id)
@@ -438,108 +479,37 @@ fn start_general_agent_inner(
         }
     };
     svc.emit_boot_stage(&tab_id, BootStage::PtyStarting, None);
-    let force_fresh_session = state::take_fresh_session_requirement();
-    let session_plan = general_agent_session_plan(
-        resume_sessions_enabled,
-        force_fresh_session,
-        snapshot_session_id.clone(),
-    );
-    let mut durable_session = None;
-    let session_id = match session_plan {
-        GeneralAgentSessionPlan::FirstRunFresh => {
-            svc.set_agent_session_id(&tab_id, None);
-            state::clear_session_id();
-            log::info!("[general-agent] First-run launch requires a fresh provider session");
-            None
-        }
-        GeneralAgentSessionPlan::ConfiguredFresh => {
-            if snapshot_session_id.is_some() {
-                svc.set_agent_session_id(&tab_id, None);
-            }
-            state::clear_session_id();
-            None
-        }
-        GeneralAgentSessionPlan::Restore(session_id) => Some(session_id),
-        GeneralAgentSessionPlan::Discover => {
-            let exclude = mux.read().other_session_ids(&tab_id);
-            if let Some(stored) = state::load_session_record(
-                &svc.agent_registry,
-                provider_name,
-                &general_cwd,
-                &exclude,
-            ) {
-                let id = stored.session_id.clone();
-                svc.set_agent_session_id(&tab_id, Some(id.clone()));
-                log::info!("[general-agent] Loaded durable session id: {}", id);
-                durable_session = Some(stored);
-                Some(id)
-            } else {
-                let exclude = mux.write().other_session_ids(&tab_id);
-                let detected = state::detect_owned_session_id(
-                    &svc.agent_registry,
+    let session_id = if let Some(source) = chat_source {
+        let prepared = state::prepare_with_fresh_session_requirement(
+            &state::fresh_session_path(),
+            |force_fresh| {
+                prepare_chat_to_pty_session(
+                    svc,
+                    &source,
                     provider_name,
+                    resume_sessions_enabled && !force_fresh,
                     &general_cwd,
-                    &exclude,
-                    Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
-                );
-                if let Some(ref sid) = detected {
-                    svc.set_agent_session_id(&tab_id, Some(sid.clone()));
-                    state::persist_session_id(provider_name, sid);
-                    log::info!(
-                        "[general-agent] Detected GA-owned session from filesystem: {}",
-                        sid
-                    );
-                }
-                detected
+                    &state::session_state_path(),
+                )
+            },
+        );
+        match prepared {
+            Ok(session) => session,
+            Err(reason) => {
+                fail_general_agent_start(svc, mux, &tab_id, &reason);
+                return;
             }
-        }
-    };
-
-    let session_id = if let Some(ref id) = session_id {
-        let binding = {
-            let mux = mux.read();
-            let tab = mux.get_tab(&tab_id);
-            (
-                tab.and_then(|tab| tab.agent_type.clone()),
-                tab.and_then(|tab| tab.agent_session_id.clone()),
-            )
-        };
-        let owned = state::session_id_is_owned(
-            &svc.agent_registry,
-            provider_name,
-            &general_cwd,
-            id,
-            (binding.0.as_deref(), binding.1.as_deref()),
-            durable_session.as_ref(),
-        ) && !mux.read().other_session_ids(&tab_id).contains(id);
-        if !owned {
-            log::info!(
-                "[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh",
-                id,
-                provider_name
-            );
-            svc.set_agent_session_id(&tab_id, None);
-            state::clear_session_id();
-            let exclude = mux.write().other_session_ids(&tab_id);
-            let fresh = state::detect_owned_session_id(
-                &svc.agent_registry,
-                provider_name,
-                &general_cwd,
-                &exclude,
-                Some(std::time::Duration::from_secs(86400 * 7)),
-            );
-            if let Some(ref sid) = fresh {
-                svc.set_agent_session_id(&tab_id, Some(sid.clone()));
-                state::persist_session_id(provider_name, sid);
-                log::info!("[general-agent] Detected fresh GA-owned session: {}", sid);
-            }
-            fresh
-        } else {
-            state::persist_session_id(provider_name, id);
-            session_id
         }
     } else {
-        session_id
+        main_pty_session(
+            svc,
+            mux,
+            &tab_id,
+            provider_name,
+            &general_cwd,
+            resume_sessions_enabled,
+            state::take_fresh_session_requirement(),
+        )
     };
 
     launch::start(
@@ -554,11 +524,187 @@ fn start_general_agent_inner(
             provider: provider_name,
             permission_bypass,
             ownership: super::session_contract::LaunchOwnership::Main,
+            allow_bootstrap,
             selection: super::session_contract::default_selection(
                 &svc.configuration().general_agent,
             ),
         },
     );
+}
+
+fn prepare_chat_to_pty_session(
+    svc: &crate::service::ServiceContext,
+    source: &crate::multiplexer::types::Tab,
+    provider_name: &str,
+    resume: bool,
+    general_cwd: &str,
+    state_path: &std::path::Path,
+) -> Result<Option<String>, String> {
+    if let (Some(prev_provider), Some(prev_session)) = (
+        source.agent_type.as_deref(),
+        source.agent_session_id.as_deref(),
+    ) {
+        if prev_provider != provider_name && !prev_session.is_empty() {
+            state::persist_session_id_to(state_path, prev_provider, prev_session);
+        }
+    }
+    let session = pty_handoff::prepare(svc, source, provider_name, resume, general_cwd)?;
+    let session = match session {
+        Some(id) => {
+            state::persist_session_id_to(state_path, provider_name, &id);
+            Some(id)
+        }
+        None if resume && source.agent_type.as_deref() != Some(provider_name) => {
+            let exclude = svc.mux.read().other_session_ids(&source.id);
+            let restored = state::load_session_record_from(
+                &svc.agent_registry,
+                provider_name,
+                general_cwd,
+                &exclude,
+                state_path,
+            )
+            .filter(|stored| {
+                state::session_id_is_owned(
+                    &svc.agent_registry,
+                    provider_name,
+                    general_cwd,
+                    &stored.session_id,
+                    (None, None),
+                    Some(stored),
+                )
+            })
+            .map(|stored| stored.session_id);
+            if let Some(id) = restored.as_deref() {
+                svc.set_agent_session_id(&source.id, Some(id.to_string()));
+                state::persist_session_id_to(state_path, provider_name, id);
+            } else {
+                state::clear_session_id_for_provider_in(state_path, provider_name);
+            }
+            restored
+        }
+        None => {
+            state::clear_session_id_for_provider_in(state_path, provider_name);
+            None
+        }
+    };
+    Ok(session)
+}
+
+fn main_pty_session(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    tab_id: &str,
+    provider_name: &str,
+    general_cwd: &str,
+    resume_sessions_enabled: bool,
+    force_fresh_session: bool,
+) -> Option<String> {
+    let snapshot_session_id = mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone());
+    let session_plan = general_agent_session_plan(
+        resume_sessions_enabled,
+        force_fresh_session,
+        snapshot_session_id.clone(),
+    );
+    let mut durable_session = None;
+    let session_id = match session_plan {
+        GeneralAgentSessionPlan::FirstRunFresh => {
+            svc.set_agent_session_id(tab_id, None);
+            state::clear_session_id_for_provider(provider_name);
+            log::info!("[general-agent] First-run launch requires a fresh provider session");
+            None
+        }
+        GeneralAgentSessionPlan::ConfiguredFresh => {
+            if snapshot_session_id.is_some() {
+                svc.set_agent_session_id(tab_id, None);
+            }
+            state::clear_session_id_for_provider(provider_name);
+            None
+        }
+        GeneralAgentSessionPlan::Restore(session_id) => Some(session_id),
+        GeneralAgentSessionPlan::Discover => {
+            let exclude = mux.read().other_session_ids(tab_id);
+            if let Some(stored) = state::load_session_record(
+                &svc.agent_registry,
+                provider_name,
+                general_cwd,
+                &exclude,
+            ) {
+                let id = stored.session_id.clone();
+                svc.set_agent_session_id(tab_id, Some(id.clone()));
+                log::info!("[general-agent] Loaded durable session id: {}", id);
+                durable_session = Some(stored);
+                Some(id)
+            } else {
+                let exclude = mux.write().other_session_ids(tab_id);
+                let detected = state::detect_owned_session_id(
+                    &svc.agent_registry,
+                    provider_name,
+                    general_cwd,
+                    &exclude,
+                    Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
+                );
+                if let Some(ref sid) = detected {
+                    svc.set_agent_session_id(tab_id, Some(sid.clone()));
+                    state::persist_session_id(provider_name, sid);
+                    log::info!(
+                        "[general-agent] Detected GA-owned session from filesystem: {}",
+                        sid
+                    );
+                }
+                detected
+            }
+        }
+    };
+
+    if let Some(ref id) = session_id {
+        let binding = {
+            let mux = mux.read();
+            let tab = mux.get_tab(tab_id);
+            (
+                tab.and_then(|tab| tab.agent_type.clone()),
+                tab.and_then(|tab| tab.agent_session_id.clone()),
+            )
+        };
+        let owned = state::session_id_is_owned(
+            &svc.agent_registry,
+            provider_name,
+            general_cwd,
+            id,
+            (binding.0.as_deref(), binding.1.as_deref()),
+            durable_session.as_ref(),
+        ) && !mux.read().other_session_ids(tab_id).contains(id);
+        if !owned {
+            log::info!(
+                "[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh",
+                id,
+                provider_name
+            );
+            svc.set_agent_session_id(tab_id, None);
+            state::clear_session_id_for_provider(provider_name);
+            let exclude = mux.write().other_session_ids(tab_id);
+            let fresh = state::detect_owned_session_id(
+                &svc.agent_registry,
+                provider_name,
+                general_cwd,
+                &exclude,
+                Some(std::time::Duration::from_secs(86400 * 7)),
+            );
+            if let Some(ref sid) = fresh {
+                svc.set_agent_session_id(tab_id, Some(sid.clone()));
+                state::persist_session_id(provider_name, sid);
+                log::info!("[general-agent] Detected fresh GA-owned session: {}", sid);
+            }
+            fresh
+        } else {
+            state::persist_session_id(provider_name, id);
+            session_id
+        }
+    } else {
+        session_id
+    }
 }
 
 pub(super) fn start_fresh_general_session(
@@ -588,6 +734,7 @@ pub(super) fn start_fresh_general_session(
             provider,
             permission_bypass,
             ownership: super::session_contract::LaunchOwnership::FreshSession,
+            allow_bootstrap: false,
             selection,
         },
     );
@@ -644,18 +791,37 @@ fn restart_general_agent_inner(
     if !super::restart_guard::permit(svc, mux, force) {
         return;
     }
-    let runtime_tab = {
+    let wanted_provider = config.lock().general_agent.agent_provider.clone();
+    let (runtime_tab, previous_provider, tab_had_session) = {
         let m = mux.read();
-        m.resolve_tab_id(GENERAL_ALIAS)
+        let tab_id = m.resolve_tab_id(GENERAL_ALIAS);
+        let (prev, had_session) = tab_id
+            .as_deref()
+            .and_then(|id| m.get_tab(id))
+            .map(|tab| (tab.agent_type.clone(), tab.agent_session_id.is_some()))
+            .unwrap_or((None, false));
+        (tab_id, prev, had_session)
     };
-    if let Some(tab_id) =
-        runtime_tab.filter(|tab| crate::service::agent_runtime::requested_for_tab(svc, tab))
-    {
-        if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab_id) {
-            fail_general_agent_start(svc, mux, &tab_id, &reason);
-            return;
+    let allow_bootstrap = should_allow_bootstrap_on_launch(
+        previous_provider.as_deref(),
+        &wanted_provider,
+        tab_had_session || state::has_recorded_session(),
+    );
+    if !allow_bootstrap {
+        state::mark_bootstrap_dispatched();
+    }
+    if let Some(tab_id) = runtime_tab.filter(|tab| {
+        svc.tab_chat_backing(tab).is_some()
+            || crate::service::agent_runtime::requested_for_tab(svc, tab)
+    }) {
+        if crate::service::agent_runtime::engine::requested(svc, &wanted_provider) {
+            if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab_id)
+            {
+                fail_general_agent_start(svc, mux, &tab_id, &reason);
+                return;
+            }
         }
-        start_general_agent(svc, mux, pty, screen_state, config);
+        start_general_agent_inner(svc, mux, pty, screen_state, config, false, allow_bootstrap);
         return;
     }
     let mut stale_pty_id = None;
@@ -703,7 +869,7 @@ fn restart_general_agent_inner(
         });
     }
 
-    start_general_agent(svc, mux, pty, screen_state, config);
+    start_general_agent_inner(svc, mux, pty, screen_state, config, false, allow_bootstrap);
 }
 
 pub fn restart_general_agent_tab(
@@ -844,18 +1010,30 @@ fn clear_stale_general_binding(
     tab_id: &str,
 ) {
     let provider = svc.configuration().general_agent.agent_provider;
-    let same_provider = mux
+    let previous = mux
         .read()
         .get_tab(tab_id)
-        .is_some_and(|tab| tab.agent_type.as_deref() == Some(provider.as_str()));
+        .map(|tab| (tab.agent_type.clone(), tab.agent_session_id.clone()));
+    let same_provider = previous
+        .as_ref()
+        .is_some_and(|(agent_type, _)| agent_type.as_deref() == Some(provider.as_str()));
     if !same_provider {
+        if let Some((Some(prev_provider), Some(prev_session))) = previous.as_ref() {
+            if !prev_session.is_empty() {
+                state::persist_session_id(prev_provider, prev_session);
+            }
+        }
         svc.set_tab_agent_type(tab_id, None);
         svc.set_agent_session_id(tab_id, None);
-        state::clear_session_id();
+        if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+            let auto_approve = tab.auto_approve;
+            crate::service::provider_handoff::reset_tab_identity_for_provider_change(
+                tab,
+                auto_approve,
+            );
+        }
     }
-    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
-        tab.pty_id = None;
-    }
+    mux.write().unlink_pty(tab_id);
 }
 
 fn fail_general_agent_start(

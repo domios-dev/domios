@@ -26,11 +26,12 @@ pub fn list_agent_provider_values(
         .catalogue_values_cache
         .lock()
         .get(&cache_key, &revision);
+    let platform = crate::agent::provider::current_platform_tag();
     if let Some(values) = cached.filter(|values| {
-        super::catalogue_cache::misses_still_hold(
-            super::catalogue_cache::unresolved_listing(values),
-            super::catalogue_cache::binary_found,
-        )
+        super::catalogue_cache::unresolved_listing_entries(values).all(|(id, binary)| {
+            let install_dirs = registry.provider_install_dirs(id, platform);
+            !super::catalogue_cache::binary_found_in(binary, &install_dirs)
+        })
     }) {
         log::debug!(
             "[providers.timing] cache=hit revision_us={} cache_us={} total_us={}",

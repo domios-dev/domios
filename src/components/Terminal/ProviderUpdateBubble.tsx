@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
+import { resolveProviderCliTarget } from "../../lib/providerCliTarget";
 import { launchProviderUpdate } from "../../lib/providerUpdate";
 import { providerUpdateModel, type ProviderUpdateModel } from "../../lib/providerUpdateModel";
 import { Button } from "../shared/Button";
@@ -17,21 +18,41 @@ export function ProviderUpdateNotice({ model, onUpdate, onDismiss }: {
   </div>;
 }
 
-export function ProviderUpdateBubble({ providerId, callerTabId, turnInProgress = false }: { providerId: string; callerTabId?: string; turnInProgress?: boolean }) {
-  const { status, refresh } = useProviderCliStatus(providerId);
+export function ProviderUpdateBubble({ providerId, callerTabId, peerId, turnInProgress = false }: {
+  providerId: string; callerTabId?: string; peerId?: string | null; turnInProgress?: boolean;
+}) {
+  const target = resolveProviderCliTarget({ callerTabId, peerId });
+  const targetKey = `${target.peerId ?? "local"}:${providerId}`;
+  const { status, refresh } = useProviderCliStatus(providerId, target.peerId);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const activeTarget = useRef(targetKey);
+  activeTarget.current = targetKey;
+  useEffect(() => {
+    setLaunching(false);
+    setFailure(null);
+  }, [targetKey]);
   const model = providerUpdateModel(status?.display_name ?? providerId, status);
-  if (turnInProgress || !model || dismissed === `${providerId}:${model.key}`) return null;
+  if (turnInProgress || !model || dismissed === `${targetKey}:${model.key}`) return null;
   const update = async () => {
     if (launching) return;
+    const launchedFor = targetKey;
     setLaunching(true); setFailure(null);
-    try { await launchProviderUpdate(providerId, callerTabId); await refresh(); }
-    catch (reason) { setFailure(String(reason)); }
-    finally { setLaunching(false); }
+    try {
+      await (target.peerId !== undefined
+        ? launchProviderUpdate(providerId, target.callerTabId, target.peerId)
+        : launchProviderUpdate(providerId, target.callerTabId));
+      if (activeTarget.current === launchedFor) await refresh();
+    } catch (reason) {
+      if (activeTarget.current === launchedFor) {
+        setFailure(reason instanceof Error ? reason.message : String(reason));
+      }
+    } finally {
+      if (activeTarget.current === launchedFor) setLaunching(false);
+    }
   };
   const shown = launching ? { ...model, state: "running" as const, message: "Starting CLI update…", canUpdate: false }
     : failure ? { ...model, state: "failed" as const, message: failure } : model;
-  return <ProviderUpdateNotice model={shown} onUpdate={() => void update()} onDismiss={() => setDismissed(`${providerId}:${model.key}`)} />;
+  return <ProviderUpdateNotice model={shown} onUpdate={() => void update()} onDismiss={() => setDismissed(`${targetKey}:${model.key}`)} />;
 }

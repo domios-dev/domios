@@ -12,6 +12,8 @@ export interface Notice {
   tabId?: string | null;
   workspaceId?: string | null;
   lifetimeMs?: number;
+  persistent?: boolean;
+  retainInNotifications?: boolean;
 }
 
 export type ToastInput = Omit<Notification, "timestamp" | "read">;
@@ -51,6 +53,8 @@ export function createNoticePublisher({ upsertToast, debug = debugNotice }: Noti
       tab_id: notice.tabId ?? null,
       workspace_id: notice.workspaceId ?? null,
       lifetime_ms: notice.lifetimeMs,
+      ...(notice.persistent ? { persistent: true } : {}),
+      ...(notice.retainInNotifications ? { retain_in_notifications: true } : {}),
     });
   };
 }

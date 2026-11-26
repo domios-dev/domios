@@ -27,12 +27,13 @@ pub enum ErrorCode {
     Unavailable,
     Starting,
     StartupFailed,
+    MigrationFailed,
     Internal,
     ExecutionSandboxUnsupported,
     Held,
 }
 
-pub const ALL_ERROR_CODES: [ErrorCode; 11] = [
+pub const ALL_ERROR_CODES: [ErrorCode; 12] = [
     ErrorCode::NotFound,
     ErrorCode::InvalidArgument,
     ErrorCode::Conflict,
@@ -41,6 +42,7 @@ pub const ALL_ERROR_CODES: [ErrorCode; 11] = [
     ErrorCode::Unavailable,
     ErrorCode::Starting,
     ErrorCode::StartupFailed,
+    ErrorCode::MigrationFailed,
     ErrorCode::Internal,
     ErrorCode::ExecutionSandboxUnsupported,
     ErrorCode::Held,
@@ -57,6 +59,7 @@ impl ErrorCode {
             Self::Unavailable => "unavailable",
             Self::Starting => "starting",
             Self::StartupFailed => "startup_failed",
+            Self::MigrationFailed => "migration_failed",
             Self::Internal => "internal",
             Self::ExecutionSandboxUnsupported => "execution_sandbox_unsupported",
             Self::Held => "held",
@@ -83,6 +86,9 @@ impl ErrorCode {
             }
             Self::Starting => "the daemon is still starting; the reported phase has not completed",
             Self::StartupFailed => "check the daemon log for the failed startup phase",
+            Self::MigrationFailed => {
+                "memory schema migration failed; check that no process holds a stale lock and inspect the daemon log"
+            }
             Self::Internal => "check the daemon log for the failure",
             Self::ExecutionSandboxUnsupported => {
                 "select a provider that supports the requested execution sandbox"
@@ -155,7 +161,7 @@ const NOT_FOUND_MARKERS: [&str; 7] = [
     "not installed",
     "not registered",
 ];
-const UNAVAILABLE_MARKERS: [&str; 7] = [
+const UNAVAILABLE_MARKERS: [&str; 9] = [
     "failed to connect",
     "connection refused",
     "unreachable",
@@ -163,6 +169,8 @@ const UNAVAILABLE_MARKERS: [&str; 7] = [
     "socket attempt failed",
     "is not live",
     "closed the socket",
+    "database is locked",
+    "database table is locked",
 ];
 const INVALID_MARKERS: [&str; 8] = [
     "must be",
@@ -215,6 +223,9 @@ pub fn classify(message: &str, rpc_code: Option<i32>, data: Option<&Value>) -> E
         return ErrorCode::Refused;
     }
     let lower = message.to_lowercase();
+    if lower.starts_with("migrations:") || lower.contains("migration failed") {
+        return ErrorCode::MigrationFailed;
+    }
     let mentions = |markers: &[&str]| markers.iter().any(|marker| lower.contains(marker));
     if mentions(&NOT_FOUND_MARKERS) {
         return ErrorCode::NotFound;

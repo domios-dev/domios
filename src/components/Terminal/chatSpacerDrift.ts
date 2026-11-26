@@ -40,11 +40,22 @@ export function chatSpacerFold(_base: number, drift: number): { drift: 0; scroll
   return { drift: 0, scrollBy: drift === 0 ? 0 : -drift };
 }
 
-export function chatSpacerAfterLayout({ base, drift, shift, absorb }: {
-  base: number; drift: number; shift: number; absorb: boolean; viewportHeight: number; scrollTop: number;
+/** When the mounted range starts at row 0 (`base === 0`), positive drift above row 0 must never enter the viewport:
+ *  at `scrollTop <= prefix` the top spacer is 0, and above `prefix` it stays off-screen above `scrollTop`. */
+export function chatSpacerDriftForViewport({ base, drift, scrollTop, prefix = 0 }: {
+  base: number; drift: number; scrollTop: number; prefix?: number;
+}): number {
+  if (base > 0 || drift <= 0 || !Number.isFinite(scrollTop)) return drift;
+  const safePrefix = Number.isFinite(prefix) ? prefix : 0;
+  return Math.min(drift, Math.max(0, scrollTop - safePrefix));
+}
+
+export function chatSpacerAfterLayout({ base, drift, shift, absorb, scrollTop, prefix = 0 }: {
+  base: number; drift: number; shift: number; absorb: boolean; viewportHeight: number; scrollTop: number; prefix?: number;
 }): { drift: number; scrollBy: number } {
   const owned = absorb && Number.isFinite(shift) ? shift : 0;
-  return { drift: chatSpacerDriftAfterShift(drift, base, owned), scrollBy: 0 };
+  const next = chatSpacerDriftAfterShift(drift, base, owned);
+  return { drift: chatSpacerDriftForViewport({ base, drift: next, scrollTop, prefix }), scrollBy: 0 };
 }
 
 function shiftTop(row: ChatShiftAnchor): number {

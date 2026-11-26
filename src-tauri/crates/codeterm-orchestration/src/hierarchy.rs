@@ -2,6 +2,8 @@ use crate::traits::*;
 
 use codeterm_service_core::service::MuxEmitCause;
 pub mod gate_delivery;
+mod local_delivery;
+pub use local_delivery::RemoteTaskReportDelivery;
 
 pub mod plan_reminder_nudge;
 
@@ -801,74 +803,25 @@ impl HierarchyExt for ServiceContext {
                 "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded for delivery to '{storage_key}', resolved live from this tab's own hierarchy - do not resend it while delivery is pending"
             ));
         }
-        let report = self
-            .report_store
-            .lock()
-            .add_detailed_with_model_identity_and_outcome_and_host_metadata(
-                &storage_key,
-                tab_id,
-                &from_title,
-                &delivered_message,
+        let report = local_delivery::record_and_emit_report(
+            self,
+            local_delivery::RecordedReportInput {
+                target_tab_id: &storage_key,
+                from_tab_id: tab_id,
+                from_title: &from_title,
+                message: &delivered_message,
                 details,
                 model_identity,
                 report_outcome,
-                AgentReportHostMetadata {
+                host_metadata: AgentReportHostMetadata {
                     sender_position,
                     kind: None,
                 },
-            );
-        self.report_store.lock().claim(&report.id);
-        let trace_flow = report.attempt_id.clone().or_else(|| {
-            codeterm_service_core::flow_trace::diagnostic_flow(
-                codeterm_service_core::flow_trace::tab_flow(self, tab_id),
-            )
-        });
-        codeterm_service_core::flow_trace::record_flow(
-            &report.id,
-            "report.emitted",
-            tab_id,
-            "",
-            "recorded",
-            trace_flow.as_deref(),
+                persisted_task: persisted_task.as_ref(),
+                rejected_task_transition: rejected_task_transition.as_ref(),
+            },
         );
         report_requirement.accept();
-
-        let task_report = report_event::task_report_outcome(
-            persisted_task.as_ref(),
-            rejected_task_transition.as_ref(),
-            report_outcome,
-        );
-        let mut bus_payload = serde_json::json!({
-            "target_tab_id": storage_key,
-            "sender_position": report.sender_position.clone(),
-            "report": report.clone(),
-            "task_report": task_report.clone(),
-            "report_outcome": report_outcome,
-        });
-        if let Some(kind) = report
-            .kind
-            .as_deref()
-            .filter(|kind| !kind.trim().is_empty())
-        {
-            bus_payload["kind"] = serde_json::json!(kind);
-        }
-        self.events.broadcast("agent.report", bus_payload);
-        let mut event = report_event::agent_report_event(
-            &storage_key,
-            tab_id,
-            &from_title,
-            &report,
-            task_report,
-        );
-        event["sender_position"] = serde_json::json!(report.sender_position);
-        if let Some(kind) = report
-            .kind
-            .as_deref()
-            .filter(|kind| !kind.trim().is_empty())
-        {
-            event["kind"] = serde_json::json!(kind);
-        }
-        self.ui.emit("agent-report", event);
 
         match target {
             ReportTarget::Mesh { peer, tab } => {
@@ -883,56 +836,14 @@ impl HierarchyExt for ServiceContext {
                 );
             }
             ReportTarget::Local(target_id) => {
-                let mut envelope =
-                    codeterm_service_core::service::messenger::MessageEnvelope::report(
-                        &from_title,
-                        tab_id,
-                    )
-                    .model(model.clone());
-                envelope.id = Some(report.id.clone());
-                envelope.delivery_observer = Some(
-                    codeterm_service_core::service::messenger::DeliveryWriteObserver::Report {
-                        report_id: report.id.clone(),
-                        plan_id: report.plan_id.clone(),
-                        task_id: report.task_id.clone(),
-                        attempt_id: report.attempt_id.clone(),
-                    },
-                );
-                // Echo scraping can't decide delivery on a screen-owning TUI (it
-                // reflows/collapses input) — the store+broadcast above is the guarantee.
-                match self.gateway_deliver(
+                local_delivery::deliver_local_report_via_gateway(
+                    self,
                     &target_id,
-                    envelope,
-                    &report.inject_body(),
-                    codeterm_service_core::service::message_gateway::DeliveryClass::AgentTraffic,
-                ) {
-                    Ok(
-                        codeterm_service_core::service::messenger::Delivery::Pending {
-                            delivery_id,
-                        }
-                        | codeterm_service_core::service::messenger::Delivery::Unconfirmed {
-                            delivery_id,
-                        },
-                    ) => {
-                        log::warn!(
-                            "[report] target={} outcome=pending delivery={}",
-                            target_id,
-                            delivery_id
-                        );
-                    }
-                    Ok(delivery) => {
-                        self.report_store.lock().mark_delivered(&report.id);
-                        log::info!(
-                            "[report] target={} outcome=written via {:?}",
-                            target_id,
-                            delivery
-                        )
-                    }
-                    Err(error) => {
-                        self.report_store.lock().release_delivery(&report.id);
-                        log::warn!("[report] target={} deliver: {}", target_id, error);
-                    }
-                }
+                    &from_title,
+                    tab_id,
+                    model.clone(),
+                    &report,
+                );
             }
         }
 
@@ -954,6 +865,10 @@ impl HierarchyExt for ServiceContext {
             rejected_task_transition,
             report_outcome,
         })
+    }
+
+    fn deliver_remote_task_report(&self, delivery: RemoteTaskReportDelivery<'_>) -> String {
+        local_delivery::deliver_remote_task_report(self, delivery)
     }
 
     /// §EFFORT: moving a task to `in_review` IS the trigger — the plan system itself

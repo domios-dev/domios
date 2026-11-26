@@ -6,7 +6,9 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { createMentionHost } from "./mentionHost";
 import { createValueFeed } from "./valueFeed";
 import type { Plan } from "../../components/Canvas/types";
-import { peerMentionTabs } from "../mentionSources/peerTabs";
+import { resolvePeerMentionTab, type MentionPeerInventory } from "../mentionSources/peerTabs";
+import { pairedPeerIdentity, projectPairedGeneral } from "../../store/multiplexer/pairedWorkspaceProjection";
+import { canonicalMentions } from "../../../packages/chat-ui/src/codeterm/canonicalMentions";
 
 async function main() {
   let state = { tabs: { self: { id: "self", title: "Real name", tab_type: "Terminal", pty_id: null, cwd: "/repo", workspace_id: "ws", team_id: "own" } },
@@ -20,17 +22,35 @@ async function main() {
   let muxSubscriptions = 0;
   let planSubscriptions = 0;
   let muxReads = 0;
-  const peerTabId = "mesh:blackstar/vela";
-  const peerTabs = peerMentionTabs({
-    generals: [{ peerId: "blackstar", name: "BLACKSTAR", sessions: [], availability: "online" }],
-    peerWorkspaces: [{ peerId: "blackstar", workspace: { ...state.workspaces[0], id: "host-ws", name: "Host project" },
-      teams: [], tabs: [{ viewerId: peerTabId, tab: { ...state.tabs.self, id: "vela", title: "Vela" } }] }],
-  }, "blackstar");
+  const peerId = "cccccccc-1234-5678-9abc-def012345678";
+  const installId = "dddddddd123456789abcdef012345678";
+  const advertised = "Fixture [Desk] [dev-lab-one]";
+  const peer = { instance_id: peerId, instance_name: advertised };
+  assert.equal(pairedPeerIdentity(peer, []).name, "Fixture");
+  const identity = pairedPeerIdentity(peer, [{
+    installation_id: installId, instance_id: peerId, name: advertised, active: true, online: true, signed_out: false,
+    membership_expires_at: null, endpoint_expires_at: null,
+  }], "Fixture Desk #1");
+  const peerTabId = `mesh:${peerId}/vela`;
+  const peerShortTabId = `mesh:${peerId}/0db72b9f-1234-5678-9abc-def012345678`;
+  const generalTab = { ...state.tabs.self, id: "general-tab", title: "Remote General", role: "Manager" as const, role_profile: "general_agent", workspace_id: null };
+  const sessions = projectPairedGeneral(peerId, {
+    workspaces: [{ ...state.workspaces[0], id: "remote-home", protected: true, tabs: [generalTab.id], active_tab_id: generalTab.id }],
+    tabs: { [generalTab.id]: generalTab }, active_workspace_id: "remote-home", focused_tab_id: generalTab.id,
+  });
+  let peerInventory: MentionPeerInventory = {
+    generals: [{ ...identity, sessions, availability: "online" }],
+    peerWorkspaces: [{ peerId, workspace: { ...state.workspaces[0], id: "host-ws", name: "Host project" },
+      teams: [], tabs: [
+        { viewerId: peerTabId, tab: { ...state.tabs.self, id: "vela", title: "Vela" } },
+        { viewerId: peerShortTabId, tab: { ...state.tabs.self, id: "0db72b9f-1234-5678-9abc-def012345678", title: "Lumen", agent_type: "acp" } },
+      ] }],
+  };
   const host = createMentionHost({ mux: {
     getState: () => { muxReads++; return mux.getState(); },
     subscribe: (listener) => { muxSubscriptions++; const off = mux.subscribe(listener); return () => { muxSubscriptions--; off(); }; },
   }, plans: { get: feed.get, set: feed.set, subscribe: (listener) => { planSubscriptions++; const off = feed.subscribe(listener); return () => { planSubscriptions--; off(); }; } },
-    readPeerTab: (id) => peerTabs.get(id),
+    readPeerTab: (id) => resolvePeerMentionTab(peerInventory, id, undefined, state.tabs),
     readGraph: async (scope) => { reads++; assert.equal(scope.teamId, "own"); return { ...fixtureGraph(), nodes: blueprintDeleted ? [] : [fixtureNode({ id: "bp_real", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: "own" }, "Real Blueprint"), fixtureNode({ id: "bp_workspace", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: null }, "Workspace Blueprint")] }; },
     openPlan: (target) => opened.push(target), openTab: (ws, tab) => opened.push([ws, tab]), openBlueprint: (ws, team, id) => opened.push([ws, team, id]),
   });
@@ -47,10 +67,41 @@ async function main() {
   const peerTab = key("tab", peerTabId);
   assert.equal(host.binding.read(peerTab)?.title, "Vela");
   assert.equal(host.binding.read(peerTab)?.workspaceName, "Host project");
+  assert.equal(host.binding.read(peerTab)?.peerName, "Fixture Desk #1");
   host.open(peerTab); assert.deepEqual(opened.pop(), ["host-ws", peerTabId]);
-  const peerComposerId = "mesh:blackstar/elgar";
+  for (const selector of [installId, peerId, "lab-one", "Fixture Desk #1", advertised, "fixture [desk]", peerId.slice(0, 8)]) {
+    const [marker] = canonicalMentions(`<domios type="tab" id="0db72b9f" peer="${selector}" />`);
+    const ref = key("tab", marker.id);
+    assert.equal(host.binding.read(ref)?.title, "Lumen", selector);
+    host.open(ref);
+    assert.deepEqual(opened.pop(), ["host-ws", peerShortTabId], selector);
+    const general = key("tab", `mesh:${selector}/general`);
+    assert.equal(host.binding.read(general)?.title, "Remote General", selector);
+    host.open(general);
+    assert.deepEqual(opened.pop(), ["remote-home", `mesh:${peerId}/general-tab`], selector);
+  }
+  const uniqueInventory = peerInventory;
+  peerInventory = { ...peerInventory, generals: [...peerInventory.generals, {
+    peerId: "other", name: "Fixture Desk #2", instanceName: "Other Desk [dev-lab-one]", availability: "online", sessions: [],
+  }] };
+  const ambiguous = key("tab", "mesh:lab-one/0db72b9f");
+  assert.equal(host.binding.read(ambiguous)?.state, "ambiguous");
+  assert.equal(host.binding.read(ambiguous)?.title, "Ambiguous peer");
+  host.open(ambiguous);
+  assert.equal(opened.length, 0, "a previously resolved alias cannot navigate after a collision");
+  assert.equal(host.binding.read(key("tab", `mesh:${installId}/0db72b9f`))?.id, peerShortTabId);
+  peerInventory = uniqueInventory;
+  const attachedId = "mesh:other/elsewhere";
+  state = { ...state, tabs: { ...state.tabs, [attachedId]: {
+    ...state.tabs.self, id: attachedId, remote_peer_id: "other", remote_tab_id: "elsewhere", remote_peer_name: "Other [dev-lab-one]",
+  } } };
+  assert.equal(host.binding.read(ambiguous)?.title, "Ambiguous peer", "attached viewers also participate in name collisions");
+  state = { ...state, tabs: { ...state.tabs, "0db72b9f-local": { ...state.tabs.self, id: "0db72b9f-local", title: "LocalLumen" } } };
+  assert.equal(host.binding.read(key("tab", "0db72b9f"))?.title, "LocalLumen");
+  state = { ...state, tabs: { self: state.tabs.self } };
+  const peerComposerId = `mesh:${peerId}/elgar`;
   state = { ...state, tabs: { ...state.tabs,
-    [peerComposerId]: { ...state.tabs.self, id: peerComposerId, remote_peer_id: "blackstar", remote_tab_id: "elgar" },
+    [peerComposerId]: { ...state.tabs.self, id: peerComposerId, remote_peer_id: peerId, remote_tab_id: "elgar" },
     vela: { ...state.tabs.self, id: "vela", title: "Viewer Vela" },
   } };
   const ordinaryHostMention = JSON.stringify([peerComposerId, "tab", "vela"]);

@@ -105,13 +105,31 @@ pub struct RichMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub provider_session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_known_vec"
+    )]
     #[ts(
         as = "Option<Vec<super::background_work::BackgroundWorkObservation>>",
         optional
     )]
     pub background_work: Vec<super::background_work::BackgroundWorkObservation>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_known_vec"
+    )]
+    #[ts(
+        as = "Option<Vec<super::background_work::BackgroundToolCall>>",
+        optional
+    )]
+    pub background_tool_calls: Vec<super::background_work::BackgroundToolCall>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_known_optional"
+    )]
     #[ts(optional)]
     pub provider_observations: Option<codeterm_provider_signals::SessionObservations>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -162,7 +180,8 @@ pub struct RichMessage {
         rename = "timelineMarker",
         alias = "timeline_marker",
         skip_serializing_if = "Option::is_none",
-        default
+        default,
+        deserialize_with = "deserialize_known_optional"
     )]
     #[ts(optional)]
     pub timeline_marker: Option<ChatTimelineMarker>,
@@ -209,6 +228,52 @@ pub struct RichMessage {
     /// Position among the uuid-less rows of the same record.
     #[serde(skip)]
     pub record_row: u32,
+}
+
+/// Keep recognized side-channel array entries from a JSON array so a newer
+/// plugin emitting an unknown enum variant never drops sibling entries
+/// or breaks the enclosing transcript row.
+pub fn parse_known_vec<T>(items: Vec<serde_json::Value>) -> Result<Vec<T>, &'static str>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let mut parsed = Vec::with_capacity(items.len());
+    for item in items {
+        if !item.is_object() {
+            return Err("side-channel entry must be an object");
+        }
+        if let Ok(entry) = serde_json::from_value(item) {
+            parsed.push(entry);
+        }
+    }
+    Ok(parsed)
+}
+
+fn deserialize_known_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let Some(items) = Option::<Vec<serde_json::Value>>::deserialize(deserializer)? else {
+        return Ok(Vec::new());
+    };
+    parse_known_vec(items).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_known_optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let Some(value) = Option::<serde_json::Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    if !value.is_object() {
+        return Err(serde::de::Error::custom(
+            "optional metadata field must be an object or null",
+        ));
+    }
+    Ok(serde_json::from_value(value).ok())
 }
 
 /// Result of a single delta read on a session JSONL. `new_offset` is the
@@ -397,7 +462,8 @@ pub struct ChatMsg {
         rename = "timelineMarker",
         alias = "timeline_marker",
         skip_serializing_if = "Option::is_none",
-        default
+        default,
+        deserialize_with = "deserialize_known_optional"
     )]
     #[ts(optional)]
     pub timeline_marker: Option<ChatTimelineMarker>,

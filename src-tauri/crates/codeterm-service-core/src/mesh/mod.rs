@@ -34,9 +34,18 @@ pub fn set_mesh_enabled(
         sink.emit_config_changed(serde_json::to_value(&snapshot).unwrap_or_default());
     }
 
+    apply_mesh_enabled_runtime(mesh, ui, enabled);
+    enabled
+}
+
+/// Apply runtime mesh enable/disable side-effects after config is already updated.
+pub fn apply_mesh_enabled_runtime(
+    mesh: &MeshState,
+    ui: &dyn crate::ports::host::UiEvents,
+    enabled: bool,
+) {
     let sink = AppMeshEventSink { ui };
     codeterm_mesh::apply_mesh_enabled(mesh, enabled, &sink, schedule_mesh_announce);
-    enabled
 }
 
 fn schedule_mesh_announce(mesh: codeterm_mesh::MeshState) {

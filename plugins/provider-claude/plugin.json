@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.39",
-  "minCodeterm": "1.20.2",
+  "version": "1.14.42",
+  "minCodeterm": "1.23.3",
   "hostApi": 2,
   "accounts": {
     "credentialFiles": [
@@ -270,6 +270,20 @@
     "linux": "curl -fsSL https://claude.ai/install.sh | bash",
     "windows": "$s = Join-Path $env:TEMP 'codeterm-claude-install.ps1'; Invoke-WebRequest -Uri 'https://claude.ai/install.ps1' -OutFile $s -UseBasicParsing; try { & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
   },
+  "cliInstallDirs": {
+    "macos": [
+      "~/.local/bin",
+      "~/.claude/local"
+    ],
+    "linux": [
+      "~/.local/bin",
+      "~/.claude/local"
+    ],
+    "windows": [
+      "~/.local/bin",
+      "%LOCALAPPDATA%/Programs/Claude"
+    ]
+  },
   "updater": {
     "macos": "claude update",
     "linux": "claude update",
@@ -311,7 +325,7 @@
         "command": "/model",
         "confirmation": "(?i)^Set model to `?(?:{model}|{display_name})(?: [^`\\r\\n]+)?`? for this session only(?:$|[^a-z0-9_-])",
         "picker": {
-          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*(?:Enter to set as default · s to use this session only|←/→ to adjust · s to use this session only · Enter to save) · Esc to cancel[^\\S\\r\\n]*\\r?$",
+          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*(?:Enter to set as default · s to use this session only|(?:←/→ to adjust · )?s to use this session only · Enter to save) · Esc to cancel[^\\S\\r\\n]*\\r?$",
           "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
           "targetRegex": "(?im)^\\s*(?:❯\\s*)?(?P<position>\\d+)\\.\\s+(?P<label>{display_name}|{model})(?:\\s*[✓✔])?(?:\\s+[^\\r\\n]+)?\\r?$",
           "position": "number",

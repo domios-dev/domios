@@ -10,6 +10,7 @@ pub(super) fn start_main(
     provider: &str,
     permission_bypass: bool,
     resume_enabled: bool,
+    allow_bootstrap: bool,
 ) {
     let target = {
         let m = mux.read();
@@ -69,11 +70,16 @@ pub(super) fn start_main(
     );
     let session_id = match plan {
         GeneralAgentSessionPlan::Restore(id) => Some(id),
-        GeneralAgentSessionPlan::Discover => state::load_session_id(
-            &svc.agent_registry,
-            provider,
-            &general_dir().to_string_lossy(),
-        ),
+        GeneralAgentSessionPlan::Discover => {
+            let exclude = mux.read().other_session_ids(&tab.id);
+            state::load_session_record(
+                &svc.agent_registry,
+                provider,
+                &general_dir().to_string_lossy(),
+                &exclude,
+            )
+            .map(|stored| stored.session_id)
+        }
         GeneralAgentSessionPlan::FirstRunFresh | GeneralAgentSessionPlan::ConfiguredFresh => {
             if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id)
             {
@@ -81,7 +87,7 @@ pub(super) fn start_main(
                 return;
             }
             svc.rotate_session_binding_nonce(&tab.id);
-            state::clear_session_id();
+            state::clear_session_id_for_provider(provider);
             None
         }
     };
@@ -105,6 +111,7 @@ pub(super) fn start_main(
             provider,
             permission_bypass,
             ownership: LaunchOwnership::Main,
+            allow_bootstrap,
             selection: super::super::session_contract::default_selection(
                 &svc.configuration().general_agent,
             ),
@@ -136,6 +143,7 @@ fn launch(
         provider,
         permission_bypass,
         ownership,
+        allow_bootstrap,
         mut selection,
     } = target;
     let session_id = ownership.select_session(session_id);
@@ -183,7 +191,7 @@ fn launch(
         provider,
         Some(&svc.mem),
     );
-    let bootstrap = (ownership.bootstrap() && !resuming)
+    let bootstrap = (ownership.bootstrap() && allow_bootstrap && !resuming)
         .then(|| compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md")))
         .flatten();
     svc.set_agent_session_id(&tab_id, session_id.clone());
@@ -271,6 +279,9 @@ fn launch(
         )
     }) {
         return Ok(());
+    }
+    if bootstrap.is_some() {
+        state::mark_bootstrap_dispatched();
     }
     let bound_session = mux
         .read()

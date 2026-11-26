@@ -13,6 +13,7 @@ use crate::cron::store::{
     commit, CronCreateParams, CronRunInfo, CronRunStatus, CronStorageOptions, CronStore,
     CronUpdateParams,
 };
+use crate::service::role_policy::CronSettlement;
 use crate::service::test_fixture::ServiceFixture;
 use crate::storage::{Fault, Storage, StorageConfig};
 
@@ -282,7 +283,7 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
             &cron,
             &wake,
             run_id,
-            Some("service-completion-summary"),
+            CronSettlement::success("service-completion-summary"),
             Some(&owner_tab),
             Some("storage-owner-nonce"),
             false,
@@ -796,7 +797,7 @@ fn cron_complete_requires_run_owner() {
             &cron,
             &wake,
             run_id,
-            Some("human-summary"),
+            CronSettlement::success("human-summary"),
             None,
             None,
             false
@@ -813,7 +814,7 @@ fn cron_complete_requires_run_owner() {
                 &cron,
                 &wake,
                 run_id,
-                Some("foreign-summary"),
+                CronSettlement::success("foreign-summary"),
                 Some(caller_tab_id),
                 Some(binding_nonce),
                 false,
@@ -838,7 +839,7 @@ fn cron_complete_requires_run_owner() {
             &cron,
             &wake,
             run_id,
-            Some("owner-summary"),
+            CronSettlement::success("owner-summary"),
             Some(&owner_tab),
             Some("owner-nonce"),
             false,
@@ -1093,7 +1094,7 @@ fn completion_rejects_raw_mapping_and_replacement_nonce_without_cancelling_the_r
             &cron,
             &wake,
             run,
-            Some("raw map"),
+            CronSettlement::success("raw map"),
             Some(&tab),
             Some(&nonce),
             false
@@ -1114,7 +1115,7 @@ fn completion_rejects_raw_mapping_and_replacement_nonce_without_cancelling_the_r
             &cron,
             &wake,
             run,
-            Some("replacement report"),
+            CronSettlement::success("replacement report"),
             Some(&tab),
             Some("replacement-nonce"),
             false

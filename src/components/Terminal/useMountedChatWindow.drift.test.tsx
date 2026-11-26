@@ -48,9 +48,12 @@ class FakeResizeObserver {
     if (entries.length) this.callback(entries as unknown as ResizeObserverEntry[], this as unknown as ResizeObserver);
   }
 }
+let frames: FrameRequestCallback[] = [];
 const scrollTo = (top: number) => act(async () => {
   scrollTop = top;
   scroller!.dispatchEvent(new Event("scroll"));
+  const callbacks = frames.splice(0);
+  for (const callback of callbacks) callback(0);
 });
 // The browser reports a resized row after layout and before paint.
 const resize = (...changed: Element[]) => act(() => { for (const observer of observers) observer.deliver(changed); });
@@ -86,7 +89,8 @@ beforeEach(() => {
   for (const { msg } of rows) heights.set(msg.id, 100);
   observers = [];
   observeCalls = new Map();
-  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+  frames = [];
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { frames.push(callback); return frames.length; });
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     const top = this === scroller ? 0 : contentTop(this) - scrollTop;
@@ -184,5 +188,87 @@ describe("useMountedChatWindow spacer drift", () => {
     resize(first);
     expect(Number.parseFloat(spacer().style.height)).toBe(api.range.top);
     expect(api.foldDrift()).toBe(0);
+  });
+
+  it("keeps top spacer at 0 and row 0 visible when an owned gesture reaches scrollTop 0 after positive drift", async () => {
+    // Rows 0..19 are shorter (40px) than the 120px estimate so scrolling up accumulates positive drift.
+    for (let index = 0; index < 20; index++) heights.set(`m${index}`, 40);
+    userScrolling.current = false;
+    scrollTop = 3600;
+    await act(async () => root.render(<Harness />));
+    followTailRef.current = false;
+    await scrollTo(3600);
+    writes = 0;
+
+    // Begin an owned drag/Home upward toward the top of the window.
+    userScrolling.current = true;
+    for (const nextTop of [2400, 1400, 700, 200, 0]) {
+      await scrollTo(nextTop);
+      const visible = mountedRows().filter((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > 0 && rect.top < VIEWPORT;
+      });
+      expect(
+        visible.length,
+        `nextTop=${nextTop} start=${api.range.start} top=${api.range.top} spacer=${spacer().style.height} firstTop=${mountedRows()[0]?.getBoundingClientRect().top}`,
+      ).toBeGreaterThan(0);
+    }
+
+    expect(api.range.start).toBe(0);
+    expect(Number.parseFloat(spacer().style.height)).toBe(0);
+    expect(mountedRows()[0]?.dataset.chatWindowRow).toBe("m0");
+    expect(mountedRows()[0]?.getBoundingClientRect().top).toBe(0);
+    expect(writes).toBe(0);
+
+    // Settling at scrollTop 0 folds zero residual drift, so a subsequent prepend stays anchored.
+    userScrolling.current = false;
+    expect(api.foldDrift()).toBe(0);
+  });
+
+  it("accumulates no phantom negative drift when an owned downward scroll mounts shorter unmeasured rows", async () => {
+    for (let index = 0; index < rows.length; index++) heights.set(`m${index}`, index < 20 ? 100 : 40);
+    userScrolling.current = false;
+    scrollTop = 0;
+    await act(async () => root.render(<Harness />));
+    followTailRef.current = false;
+    await scrollTo(0);
+    writes = 0;
+
+    userScrolling.current = true;
+    for (const nextTop of [800, 1600, 2400, 3200]) {
+      await scrollTo(nextTop);
+    }
+    expect(writes).toBe(0);
+    userScrolling.current = false;
+    expect(api.foldDrift()).toBe(0);
+  });
+
+  it("keeps the viewport covered on every committed frame of a fast flick, with zero writes and a zero spacer at the top", async () => {
+    for (let index = 0; index < 30; index++) heights.set(`m${index}`, 40);
+    userScrolling.current = false;
+    scrollTop = 4200;
+    await act(async () => root.render(<Harness />));
+    followTailRef.current = false;
+    await scrollTo(4200);
+    writes = 0;
+    frames = [];
+
+    // Fast upward flick (~500 px/frame): each scroll commits on its next frame, and every committed frame is full.
+    userScrolling.current = true;
+    for (const nextTop of [3700, 3200, 2700, 2200, 1700, 1200, 700, 200, 0]) {
+      await scrollTo(nextTop);
+      const visible = mountedRows().filter((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > 0 && rect.top < VIEWPORT;
+      });
+      expect(visible.length, `nextTop=${nextTop}`).toBeGreaterThan(0);
+      expect(visible[0].getBoundingClientRect().top, `top band at nextTop=${nextTop}`).toBeLessThanOrEqual(0);
+    }
+
+    expect(api.range.start).toBe(0);
+    expect(Number.parseFloat(spacer().style.height)).toBe(0);
+    expect(mountedRows()[0]?.dataset.chatWindowRow).toBe("m0");
+    expect(mountedRows()[0]?.getBoundingClientRect().top).toBe(0);
+    expect(writes).toBe(0);
   });
 });

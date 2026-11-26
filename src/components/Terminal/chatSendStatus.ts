@@ -2,7 +2,12 @@ import { useEffect } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { peerEventRail } from "../../lib/peerEventRail";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
-import { remoteChatFailure, remoteChatState } from "../../lib/remoteChatState";
+import {
+  isRemoteMessageAttachmentRefusal,
+  remoteChatFailure,
+  remoteChatState,
+  remoteMessageAttachmentError,
+} from "../../lib/remoteChatState";
 import { remoteChatPeer, setRemoteChatFailure } from "../../lib/remoteChatStatus";
 import { beginChatSendDeletion, chatSendTabHydrationState, endChatSendDeletion, ensureChatSendTabHydrated,
   failChatSendRequest, observeChatSendDismissal, observeDeliveryStatus,
@@ -171,14 +176,16 @@ export async function sendTrackedChatMessage(
     return status;
   } catch (error) {
     activeAdmissions.delete(key);
-    if (isProvenAdmissionRefusal(error)) {
+    const parsedFailure = remoteChatFailure(error);
+    if (isRemoteMessageAttachmentRefusal(parsedFailure)) {
+      failChatSendRequest(tabId, messageId, remoteMessageAttachmentError(parsedFailure));
+    } else if (isProvenAdmissionRefusal(error)) {
       failChatSendRequest(tabId, messageId, error);
     } else if (peer) {
-      const failure = remoteChatFailure(error);
-      const state = remoteChatState(undefined, failure)!;
-      recordRemoteChatSendFailure(tabId, messageId, { ...failure, raw: failure.raw.slice(0, 4096), state });
-      setRemoteChatFailure(tabId, failure);
-      if (!failure.neverWritten) void reconcileTrackedChatMessages(tabId).catch(() => {});
+      const state = remoteChatState(undefined, parsedFailure)!;
+      recordRemoteChatSendFailure(tabId, messageId, { ...parsedFailure, raw: parsedFailure.raw.slice(0, 4096), state });
+      setRemoteChatFailure(tabId, parsedFailure);
+      if (!parsedFailure.neverWritten) void reconcileTrackedChatMessages(tabId).catch(() => {});
       throw error;
     } else {
       recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error), error);
@@ -220,7 +227,7 @@ export async function deleteTrackedChatMessage(tabId: string, id: string): Promi
   const send = beginChatSendDeletion(tabId, id);
   if (!send) return;
   try {
-    if (!send.correlationId || send.status?.system_send || send.remoteFailure?.neverWritten) {
+    if (!send.correlationId || send.status?.system_send || send.remoteFailure?.neverWritten || isRemoteMessageAttachmentRefusal(send.remoteFailure)) {
       await persistLocalChatSendDismissal(tabId, send);
       return;
     }

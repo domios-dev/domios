@@ -149,7 +149,11 @@ fn topic_scope(event: &SystemEvent) -> Option<PeerScope<'_>> {
         SystemEvent::Generic { event_type, .. }
             if matches!(
                 event_type.as_str(),
-                "config-changed" | "appearance-committed"
+                "config-changed"
+                    | "appearance-committed"
+                    | "provider-cli-started"
+                    | "provider-cli-completed"
+                    | "provider-cli-update-available"
             ) =>
         {
             Some(PeerScope::new(ReadHost, PeerResource::Host))
@@ -184,6 +188,36 @@ pub(super) fn peer_rail_frame(event: &SystemEvent) -> Option<(&'static str, serd
                     "undo": data.get("undo").and_then(serde_json::Value::as_bool).unwrap_or(false),
                 }),
             ))
+        }
+        SystemEvent::Generic { event_type, data }
+            if matches!(
+                event_type.as_str(),
+                "provider-cli-started" | "provider-cli-completed" | "provider-cli-update-available"
+            ) =>
+        {
+            let name = match event_type.as_str() {
+                "provider-cli-started" => "provider-cli-started",
+                "provider-cli-completed" => "provider-cli-completed",
+                _ => "provider-cli-update-available",
+            };
+            let mut payload = serde_json::json!({
+                "provider": data.get("provider").and_then(serde_json::Value::as_str).unwrap_or(""),
+            });
+            if name == "provider-cli-completed"
+                && data.get("operation").and_then(serde_json::Value::as_str) == Some("install")
+            {
+                if let Some(tab_id) = data.get("tab_id").and_then(serde_json::Value::as_str) {
+                    payload["operation"] = serde_json::json!("install");
+                    payload["tab_id"] = serde_json::json!(tab_id);
+                }
+            }
+            if let Some(summary) = data.get("summary").and_then(serde_json::Value::as_str) {
+                payload["summary"] = serde_json::json!(summary);
+            }
+            if let Some(success) = data.get("success").and_then(serde_json::Value::as_bool) {
+                payload["success"] = serde_json::json!(success);
+            }
+            Some((name, payload))
         }
         _ => None,
     }

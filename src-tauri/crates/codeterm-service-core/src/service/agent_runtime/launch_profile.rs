@@ -23,6 +23,7 @@ pub(super) struct ResolvedLaunch {
     pub binary: PathBuf,
     pub capability: AgentRuntimeCapability,
     pub env: BTreeMap<String, String>,
+    pub extra_bin_dirs: Vec<PathBuf>,
     working_directory: Option<String>,
     profile: Option<String>,
     nonce: String,
@@ -36,6 +37,7 @@ impl ResolvedLaunch {
             binary: PathBuf::from(binary),
             capability,
             env: BTreeMap::new(),
+            extra_bin_dirs: Vec::new(),
             working_directory: None,
             profile: None,
             nonce: String::new(),
@@ -139,6 +141,31 @@ fn command_from_receipt(mut command: AgentRuntimeCommand) -> AgentRuntimeCommand
     command
 }
 
+fn runtime_binary_failure(
+    adapter: &dyn AgentProvider,
+    binary: &str,
+    error: codeterm_plugin::js_runtime::manifest::RuntimeManifestError,
+) -> RuntimeFailure {
+    if matches!(
+        error,
+        codeterm_plugin::js_runtime::manifest::RuntimeManifestError::BinaryUnavailable
+    ) {
+        let platform = crate::agent::provider::current_platform_tag();
+        let probe = adapter.probe_cli_binary(binary);
+        let preflight = crate::service::spawn_cli::ProviderPreflightError::BinaryUnavailable {
+            provider_id: adapter.id().to_string(),
+            display_name: adapter.display_name().to_string(),
+            binary: binary.to_string(),
+            searched: probe.searched,
+            install_hint: adapter.install_command(platform),
+        };
+        return RuntimeFailure::SpawnFailed {
+            reason: preflight.to_string(),
+        };
+    }
+    RuntimeFailure::Refused(error.to_string())
+}
+
 pub(super) fn resolve(
     svc: &crate::service::ServiceContext,
     tab: &str,
@@ -184,12 +211,16 @@ pub(super) fn resolve(
         } else {
             adapter
                 .authorize_agent_runtime(authority, selected.profile.as_deref())
-                .map_err(|error| RuntimeFailure::Refused(error.to_string()))?
+                .map_err(|error| {
+                    runtime_binary_failure(adapter, &selected.capability.command.binary, error)
+                })?
         }
     } else {
         adapter
             .authorize_agent_runtime(authority, selected.profile.as_deref())
-            .map_err(|error| RuntimeFailure::Refused(error.to_string()))?
+            .map_err(|error| {
+                runtime_binary_failure(adapter, &selected.capability.command.binary, error)
+            })?
     };
     let working_directory = match (selected.profile.as_deref(), profile) {
         (Some(name), Some(profile)) => {
@@ -211,10 +242,12 @@ pub(super) fn resolve(
             profile,
         )?);
     }
+    let extra_bin_dirs = adapter.cli_install_dirs(crate::agent::provider::current_platform_tag());
     Ok(ResolvedLaunch {
         binary,
         capability: selected.capability,
         env: selected.env,
+        extra_bin_dirs,
         working_directory,
         profile: selected.profile,
         nonce: authority.binding().binding_nonce.clone(),

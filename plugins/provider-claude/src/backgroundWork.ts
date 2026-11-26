@@ -1,6 +1,7 @@
 import type { AgentProvider } from "@codeterm/plugin-sdk";
 
 type BackgroundWorkObservation = ReturnType<NonNullable<AgentProvider["parseBackgroundWork"]>>[number];
+type BackgroundToolCall = ReturnType<NonNullable<AgentProvider["parseBackgroundToolCalls"]>>[number];
 
 const TASK_ID = /^[A-Za-z0-9_-]{1,256}$/;
 
@@ -32,6 +33,44 @@ function shellOutputPath(content: unknown, session: unknown, id: string): string
   }
 }
 
+function boundedLabel(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return [...trimmed].slice(0, 256).join("");
+}
+
+function singleToolResultUseId(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const results = content.map(object).filter((block): block is Record<string, unknown> => block?.type === "tool_result");
+  if (results.length !== 1 || results[0].is_error === true) return undefined;
+  const id = results[0].tool_use_id;
+  return typeof id === "string" && TASK_ID.test(id) ? id : undefined;
+}
+
+export function parseBackgroundToolCalls(value: unknown): BackgroundToolCall[] {
+  const row = object(value);
+  if (!row || row.type !== "assistant") return [];
+  const content = object(row.message)?.content;
+  if (!Array.isArray(content)) return [];
+  const calls: BackgroundToolCall[] = [];
+  for (const item of content) {
+    const block = object(item);
+    if (block?.type !== "tool_use" || typeof block.id !== "string" || !TASK_ID.test(block.id)) continue;
+    const name = typeof block.name === "string" ? block.name.trim() : "";
+    const lower = name.toLowerCase();
+    const input = object(block.input);
+    if (lower === "bash" || lower === "shell" || lower === "exec") {
+      const command = boundedLabel(input?.command);
+      if (command) calls.push({ id: block.id, label: command, kind: "shell" });
+    } else if ((name === "Agent" || name === "Task") && typeof input?.prompt === "string") {
+      const description = boundedLabel(input.description);
+      if (description) calls.push({ id: block.id, label: description, kind: "subagent" });
+    }
+  }
+  return calls;
+}
+
 export function parseBackgroundWork(value: unknown): BackgroundWorkObservation[] {
   const row = object(value);
   if (!row) return [];
@@ -42,22 +81,35 @@ export function parseBackgroundWork(value: unknown): BackgroundWorkObservation[]
   const result = object(row.toolUseResult);
   const content = object(row.message)?.content;
   const events: BackgroundWorkObservation[] = [];
+  const resultToolUseId = singleToolResultUseId(content);
   const shellId = result?.backgroundTaskId;
   if (typeof shellId === "string" && TASK_ID.test(shellId)) {
+    const label = boundedLabel(result?.command);
     const outputPath = shellOutputPath(content, row.sessionId, shellId);
-    events.push({ id: shellId, state: "running", kind: "shell", ...(outputPath && { output_path: outputPath }) });
+    events.push({
+      id: shellId, state: "running", kind: "shell",
+      ...(label && { label }),
+      ...(resultToolUseId && { tool_use_id: resultToolUseId }),
+      ...(outputPath && { output_path: outputPath }),
+    });
   }
   const agentId = result?.agentId;
   const agentStatus = result?.status === "async_launched" ? "running" : result?.status;
   if (typeof agentId === "string" && TASK_ID.test(agentId)
     && (agentStatus === "running" || agentStatus === "completed" || agentStatus === "killed" || agentStatus === "failed")) {
-    events.push({ id: agentId, state: agentStatus, kind: "subagent" });
+    const label = boundedLabel(result?.description);
+    events.push({
+      id: agentId, state: agentStatus, kind: "subagent",
+      ...(label && { label }),
+      ...(resultToolUseId && { tool_use_id: resultToolUseId }),
+    });
   }
   const stoppedId = result?.task_id;
   if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string"
     && typeof stoppedId === "string" && TASK_ID.test(stoppedId)
     && !(Array.isArray(content) && content.some(block => object(block)?.is_error === true))) {
-    events.push({ id: stoppedId, state: "killed", kind: "shell" });
+    const label = boundedLabel(result.command);
+    events.push({ id: stoppedId, state: "killed", kind: "shell", ...(label && { label }) });
   }
   const attachment = object(row.attachment);
   const origin = object(row.origin);

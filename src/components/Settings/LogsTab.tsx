@@ -4,9 +4,11 @@ import { listen } from "../../lib/bridge";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig } from "../../lib/types";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { LogsFilterBar } from "./LogsFilterBar";
 import { LogsListRow } from "./LogsListRow";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 export type LogLevel = Exclude<import("../../../gen/LogLevel").LogLevel, "debug">;
 export type RangeKey = "1h" | "24h" | "7d" | "all";
@@ -29,6 +31,8 @@ export type AppLog = import("../../../gen/AppLog").AppLog;
 type LogEventPayload = import("../../../gen/LogEventPayload").LogEventPayload;
 
 export function LogsTab({ config }: { config: AppConfig }) {
+  const remoteTarget = useSettingsRemoteTarget();
+  const remotePeerId = remoteTarget?.id;
   const api = config.api;
   const apiBase = api ? daemonHttpBase(api) : "";
   const authHeaders: HeadersInit = useMemo(
@@ -37,6 +41,14 @@ export function LogsTab({ config }: { config: AppConfig }) {
       return token ? { Authorization: `Bearer ${token}` } : ({} as Record<string, string>);
     },
     [api?.host, api?.port, api?.token],
+  );
+
+  const fetchLogs = useCallback(
+    (path: string, init: RequestInit = {}) =>
+      remotePeerId
+        ? daemonTransportForPeer(remotePeerId).request!(path, init)
+        : localFetch(path, { ...init, headers: { ...authHeaders, ...init.headers } }),
+    [remotePeerId, authHeaders],
   );
 
   const [logs, setLogs] = useState<AppLog[]>([]);
@@ -54,14 +66,14 @@ export function LogsTab({ config }: { config: AppConfig }) {
   const rangeMs = useMemo(() => RANGE_OPTIONS.find((r) => r.key === range)?.ms ?? null, [range]);
 
   const refresh = useCallback(async () => {
-    if (!apiBase) return;
+    if (!remotePeerId && !apiBase) return;
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
       params.set("limit", "500");
       if (rangeMs !== null) params.set("since", String(Date.now() - rangeMs));
-      const r = await localFetch(`/api/logs?${params.toString()}`, { headers: authHeaders });
+      const r = await fetchLogs(`/api/logs?${params.toString()}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const rows = (await r.json()) as AppLog[];
       setLogs(Array.isArray(rows) ? rows : []);
@@ -74,13 +86,17 @@ export function LogsTab({ config }: { config: AppConfig }) {
     } finally {
       setLoading(false);
     }
-  }, [apiBase, authHeaders, rangeMs]);
+  }, [remotePeerId, apiBase, fetchLogs, rangeMs]);
 
   useEffect(() => {
+    setLogs([]);
+    knownSourcesRef.current = new Set();
+    setSourcesList([]);
     refresh();
   }, [refresh]);
 
   useEffect(() => {
+    if (remotePeerId) return;
     let unlisten: (() => void) | null = null;
     listen<LogEventPayload>("logs-updated", (event) => {
       const p = event.payload;
@@ -106,7 +122,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
     return () => {
       unlisten?.();
     };
-  }, []);
+  }, [remotePeerId]);
 
   const visible = useMemo(() => {
     const src = source.trim().toLowerCase();
@@ -145,20 +161,19 @@ export function LogsTab({ config }: { config: AppConfig }) {
   }, []);
 
   const clearOld = useCallback(async () => {
-    if (!apiBase) return;
+    if (!remotePeerId && !apiBase) return;
     const cutoff = Date.now() - 7 * 86_400_000;
     if (!window.confirm("Delete all logs older than 7 days?")) return;
     try {
-      const r = await localFetch(`/api/logs?before=${cutoff}`, {
+      const r = await fetchLogs(`/api/logs?before=${cutoff}`, {
         method: "DELETE",
-        headers: authHeaders,
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [apiBase, authHeaders, refresh]);
+  }, [remotePeerId, apiBase, fetchLogs, refresh]);
 
   return (
     <section className="ct-logs" aria-label="App logs">
@@ -197,7 +212,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
       </div>
 
       <footer className="ct-logs__footer">
-        <span>{`${visible.length} of ${logs.length} logs · updates live`}</span>
+        <span>{`${visible.length} of ${logs.length} logs · ${remotePeerId ? "refresh for latest" : "updates live"}`}</span>
         <button type="button" className="ct-bar-pill" data-testid="settings-logs-clear-old" onClick={clearOld} title="Delete logs older than 7 days">
           <Trash2 size={12} aria-hidden="true" />
           Clear older than 7d

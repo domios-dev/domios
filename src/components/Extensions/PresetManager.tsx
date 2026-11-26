@@ -4,10 +4,11 @@
  * and the active selection (with a live `sessionId`) switches the session onto the preset's model.
  * Generalized — any chatBackend with presets, no hardcoded provider id.
  */
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { agentDescriptorsRefreshing, subscribeAgentDescriptors } from "../../lib/agentDescriptorCache";
 import type { ModelInfo } from "../../lib/types";
+import { NumericInput } from "../shared/NumericInput";
 import { GroupLabel } from "./shared";
 import { getPresetManagerApi, type Preset, type PresetState } from "./presetManagerApi";
 
@@ -17,9 +18,9 @@ function newId(): string {
   return `preset-${Math.floor(performance.now())}-${Math.floor(performance.now() * 1000) % 1000}`;
 }
 
-function readTemperature(preset: Preset | undefined): string {
+function readTemperature(preset: Preset | undefined): number | undefined {
   const t = preset?.params?.temperature;
-  return typeof t === "number" ? String(t) : "";
+  return typeof t === "number" ? t : undefined;
 }
 
 export function PresetManager({
@@ -34,7 +35,11 @@ export function PresetManager({
   const refreshing = useSyncExternalStore(subscribeAgentDescriptors, agentDescriptorsRefreshing, () => false);
   const models = refreshing ? [] : retainedModels;
   const [state, setState] = useState<PresetState>({ presets: [], activePreset: null });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
 
   useEffect(() => {
     let alive = true;
@@ -42,8 +47,11 @@ export function PresetManager({
       .load(pluginId)
       .then((loaded) => {
         if (!alive) return;
+        stateRef.current = loaded;
         setState(loaded);
-        setSelectedId(loaded.activePreset ?? loaded.presets[0]?.id ?? null);
+        const nextSelected = loaded.activePreset ?? loaded.presets[0]?.id ?? null;
+        selectedIdRef.current = nextSelected;
+        setSelectedId(nextSelected);
       })
       .catch(() => {});
     return () => {
@@ -54,6 +62,7 @@ export function PresetManager({
   // Single commit path (optimistic update + persist), keeping listPresets() in lockstep with the editor.
   const commit = useCallback(
     (next: PresetState) => {
+      stateRef.current = next;
       setState(next);
       void getPresetManagerApi()
         .save(pluginId, next)
@@ -69,49 +78,64 @@ export function PresetManager({
 
   const patchSelected = useCallback(
     (patch: Partial<Preset>) => {
-      if (!selected) return;
+      const currentSelectedId = selectedIdRef.current;
+      if (!currentSelectedId) return;
+      const currentState = stateRef.current;
+      if (!currentState.presets.some((p) => p.id === currentSelectedId)) return;
       commit({
-        ...state,
-        presets: state.presets.map((p) => (p.id === selected.id ? { ...p, ...patch } : p)),
+        ...currentState,
+        presets: currentState.presets.map((p) => (p.id === currentSelectedId ? { ...p, ...patch } : p)),
       });
     },
-    [commit, selected, state],
+    [commit],
   );
 
   const createPreset = useCallback(() => {
     const preset: Preset = { id: newId(), name: "New preset" };
-    commit({ ...state, presets: [...state.presets, preset] });
+    const currentState = stateRef.current;
+    commit({ ...currentState, presets: [...currentState.presets, preset] });
+    selectedIdRef.current = preset.id;
     setSelectedId(preset.id);
-  }, [commit, state]);
+  }, [commit]);
 
   const deleteSelected = useCallback(() => {
-    if (!selected) return;
-    const presets = state.presets.filter((p) => p.id !== selected.id);
-    const activePreset = state.activePreset === selected.id ? null : state.activePreset;
+    const currentSelectedId = selectedIdRef.current;
+    if (!currentSelectedId) return;
+    const currentState = stateRef.current;
+    const presets = currentState.presets.filter((p) => p.id !== currentSelectedId);
+    const activePreset = currentState.activePreset === currentSelectedId ? null : currentState.activePreset;
     commit({ presets, activePreset });
-    setSelectedId(presets[0]?.id ?? null);
-  }, [commit, selected, state]);
+    const nextSelected = presets[0]?.id ?? null;
+    selectedIdRef.current = nextSelected;
+    setSelectedId(nextSelected);
+  }, [commit]);
 
   const setActive = useCallback(() => {
-    if (!selected) return;
-    commit({ ...state, activePreset: selected.id });
-    if (sessionId && selected.model) {
+    const currentSelectedId = selectedIdRef.current;
+    if (!currentSelectedId) return;
+    const currentState = stateRef.current;
+    const currentSelected = currentState.presets.find((p) => p.id === currentSelectedId);
+    if (!currentSelected) return;
+    commit({ ...currentState, activePreset: currentSelected.id });
+    if (sessionId && currentSelected.model) {
       void getPresetManagerApi()
-        .applyToSession(pluginId, sessionId, selected.model)
+        .applyToSession(pluginId, sessionId, currentSelected.model)
         .catch(() => {});
     }
-  }, [commit, pluginId, selected, sessionId, state]);
+  }, [commit, pluginId, sessionId]);
 
   const setTemperature = useCallback(
-    (raw: string) => {
-      if (!selected) return;
-      const trimmed = raw.trim();
-      const params = { ...(selected.params ?? {}) };
-      if (trimmed === "" || Number.isNaN(Number(trimmed))) delete params.temperature;
-      else params.temperature = Number(trimmed);
+    (next: number | undefined) => {
+      const currentSelectedId = selectedIdRef.current;
+      if (!currentSelectedId) return;
+      const currentSelected = stateRef.current.presets.find((p) => p.id === currentSelectedId);
+      if (!currentSelected) return;
+      const params = { ...(currentSelected.params ?? {}) };
+      if (next === undefined) delete params.temperature;
+      else params.temperature = next;
       patchSelected({ params });
     },
-    [patchSelected, selected],
+    [patchSelected],
   );
 
   return (
@@ -235,15 +259,16 @@ export function PresetManager({
                   </select>
                 </Field>
                 <Field label="Temperature">
-                  <input
+                  <NumericInput
+                    key={selected.id}
                     data-testid="preset-temperature"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="2"
+                    step={0.1}
+                    min={0}
+                    max={2}
                     value={readTemperature(selected)}
                     placeholder="—"
-                    onInput={(e) => setTemperature(e.currentTarget.value)}
+                    onValueChange={(n) => setTemperature(n)}
+                    onEmpty={() => setTemperature(undefined)}
                     style={inputStyle}
                   />
                 </Field>

@@ -3,7 +3,7 @@ use crate::types::{PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, Web
 
 #[test]
 fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_tampered_values() {
-    use crate::machine_identity::{MachineColor, MachineIdentity, MachineKind};
+    use crate::machine_identity::{MachineIdentity, MachineKind};
     let (private_key, public_key) = crown::generate_peer_keypair();
     let source = Arc::new(parking_lot::Mutex::new(MeshManager::in_memory(
         types::MeshIdentity {
@@ -19,7 +19,6 @@ fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_t
     let initial = source.lock().build_announce();
     let choice = MachineIdentity {
         kind: MachineKind::Laptop,
-        color: MachineColor::Teal,
     };
     assert!(set_machine_identity(&source, choice, None).unwrap());
     let updated = source.lock().build_announce();
@@ -40,14 +39,13 @@ fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_t
     assert!(set_machine_identity(
         &source,
         MachineIdentity {
-            color: MachineColor::Pink,
-            ..choice
+            kind: MachineKind::Server,
         },
         None
     )
     .unwrap());
     let mut tampered = serde_json::to_value(source.lock().build_announce()).unwrap();
-    tampered["machine_identity"]["revision"]["identity"]["color"] = serde_json::json!("violet");
+    tampered["machine_identity"]["revision"]["identity"]["kind"] = serde_json::json!("vm");
     assert!(
         !target
             .apply_announce("peer", &serde_json::from_value(tampered).unwrap())
@@ -55,6 +53,127 @@ fn signed_machine_identity_announce_updates_the_publisher_and_ignores_stale_or_t
             .identity_changed
     );
     assert_eq!(target.peer_machine_identity("peer"), Some(choice));
+}
+
+#[test]
+fn signed_machine_identity_interoperates_with_1_23_2_colored_announce_and_sync() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use ed25519_dalek::{Signer, SigningKey};
+
+    use crate::machine_identity::{MachineIdentity, MachineKind};
+
+    #[derive(serde::Serialize)]
+    struct LegacyIdentity<'a> {
+        kind: &'a str,
+        color: &'a str,
+    }
+    #[derive(serde::Serialize)]
+    struct LegacyRevision<'a> {
+        identity: LegacyIdentity<'a>,
+        number: u64,
+    }
+
+    let (private_key, public_key) = crown::generate_peer_keypair();
+    let seed: [u8; 32] = STANDARD.decode(&private_key).unwrap().try_into().unwrap();
+    let signing_key = SigningKey::from_bytes(&seed);
+    let sign_1_23_2 = |instance_id: &str, kind: &str, color: &str, number: u64| {
+        let revision = LegacyRevision {
+            identity: LegacyIdentity { kind, color },
+            number,
+        };
+        let mut message = b"domios-mesh-machine-identity-v1\0".to_vec();
+        message.extend(serde_json::to_vec(&(instance_id, &revision)).unwrap());
+        let signature = signing_key.sign(&message);
+        serde_json::json!({
+            "revision": revision,
+            "signature": STANDARD.encode(signature.to_bytes()),
+        })
+    };
+
+    // Admit the peer with its real key: the identity sync is gated on the admitted key.
+    let mut target = make_mesh_with_keyed_peer("peer", vec![], &public_key);
+
+    let announce_json = serde_json::json!({
+        "machine_identity": sign_1_23_2("peer", "laptop", "teal", 2),
+        "instance_id": "peer",
+        "instance_name": "LegacyPeer",
+        "addresses": [],
+        "api_port": 7685,
+        "online": true,
+        "relay_protocol_version": types::RELAY_PROTOCOL_VERSION,
+    });
+    let announce: PeerAnnounce = serde_json::from_value(announce_json).unwrap();
+    assert!(
+        target
+            .apply_announce("peer", &announce)
+            .unwrap()
+            .identity_changed
+    );
+    assert_eq!(
+        target.peer_machine_identity("peer"),
+        Some(MachineIdentity {
+            kind: MachineKind::Laptop,
+        })
+    );
+
+    let sync_json = serde_json::json!({
+        "peers": [{
+            "machine_identity": sign_1_23_2("peer", "server", "pink", 3),
+            "instance_id": "peer",
+            "instance_name": "LegacyPeer",
+            "addresses": [],
+            "api_port": 7685,
+            "dev": false,
+        }],
+        "generation": 1,
+    });
+    let sync: types::MeshSyncPayload = serde_json::from_value(sync_json).unwrap();
+    assert!(target.apply_machine_identity_sync("peer", &sync.peers));
+    assert_eq!(
+        target.peer_machine_identity("peer"),
+        Some(MachineIdentity {
+            kind: MachineKind::Server,
+        })
+    );
+
+    let mut tampered = serde_json::json!({
+        "machine_identity": sign_1_23_2("peer", "vm", "violet", 4),
+        "instance_id": "peer",
+        "instance_name": "LegacyPeer",
+        "addresses": [],
+        "api_port": 7685,
+        "online": true,
+        "relay_protocol_version": types::RELAY_PROTOCOL_VERSION,
+    });
+    tampered["machine_identity"]["revision"]["identity"]["color"] = serde_json::json!("blue");
+    let tampered_announce: PeerAnnounce = serde_json::from_value(tampered).unwrap();
+    assert!(
+        !target
+            .apply_announce("peer", &tampered_announce)
+            .unwrap()
+            .identity_changed
+    );
+    assert_eq!(
+        target.peer_machine_identity("peer"),
+        Some(MachineIdentity {
+            kind: MachineKind::Server,
+        })
+    );
+
+    let source = Arc::new(parking_lot::Mutex::new(MeshManager::in_memory(
+        types::MeshIdentity {
+            instance_id: "peer".into(),
+            private_key: Some(private_key),
+            public_key: Some(public_key),
+        },
+        "NewPeer".into(),
+        7685,
+    )));
+    let outbound = serde_json::to_value(source.lock().build_announce()).unwrap();
+    assert_eq!(
+        outbound["machine_identity"]["revision"]["identity"]["color"],
+        serde_json::json!("graphite")
+    );
 }
 
 #[test]
@@ -110,6 +229,10 @@ fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers
 }
 
 fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
+    make_mesh_with_keyed_peer(peer_id, addrs, "")
+}
+
+fn make_mesh_with_keyed_peer(peer_id: &str, addrs: Vec<&str>, public_key: &str) -> MeshManager {
     let mut m = MeshManager::new("test-host".into(), 7685);
     m.disk_persist = false;
     let peer = PairedPeer {
@@ -117,7 +240,7 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         instance_name: "TestPeer".into(),
         addresses: addrs.into_iter().map(PeerAddress::from_ip).collect(),
         api_port: 7685,
-        public_key: String::new(),
+        public_key: public_key.into(),
         paired_at: chrono::Utc::now().to_rfc3339(),
         last_seen: None,
         online: true,

@@ -7,5 +7,6 @@ export const composerAttachmentHandoff: AttachmentHandoffDeps = {
   relayPeerId: () => (IS_WEB ? relayTarget()?.id ?? null : null),
   transfer: (request) => invoke<TransferredAttachment>("mesh_transfer_attachment", request),
   transcribeLocal: (path) => invoke<string>("transcribe_voice_attachment", { path }),
+  localPathKinds: (paths) => invoke<string[]>("attachment_path_kinds", { paths, local: true }),
   quote: quotePathForPaste,
 };

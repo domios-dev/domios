@@ -6,6 +6,7 @@ fn scope(account: &str, version: &str) -> Scope {
         cli_version: version.into(),
         credentials: Vec::new(),
         cli_binary: "fixture".into(),
+        cli_install_dirs: Vec::new(),
         binary: BinaryFingerprint {
             path: "fixture".into(),
             len: 1,

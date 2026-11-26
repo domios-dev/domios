@@ -16,10 +16,14 @@ use crate::service::{
     },
     ServiceContext,
 };
-use codeterm_plugin::agent_runtime::{
-    RuntimeBackgroundProcess, RuntimeContext, MAX_BACKGROUND_PROCESSES,
+use codeterm_plugin::{
+    agent_runtime::{RuntimeBackgroundProcess, RuntimeContext, MAX_BACKGROUND_PROCESSES},
+    api_contracts::BackgroundProcessChild,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 const BRIDGE_PREFIX: &str = "bridge:";
 
@@ -35,19 +39,41 @@ pub(super) fn reconcile_os_entries(
     active_turn: bool,
     observed: &[SelectedBackgroundProcess],
     bridge_terminals: &[(String, String, String, u32)],
-    tracked: &mut HashSet<(u32, u128)>,
+    tracked: &mut HashMap<(u32, u128), Vec<(u32, u128)>>,
 ) -> (Vec<BackgroundProcessEntry>, HashSet<(u32, u128)>) {
+    let previously_tracked: HashSet<(u32, u128)> = tracked
+        .iter()
+        .flat_map(|(root, members)| std::iter::once(*root).chain(members.iter().copied()))
+        .collect();
     let mut kept_ids = HashSet::new();
+    let mut next_tracked = HashMap::new();
     let mut entries = Vec::new();
     for item in observed {
         let key = (item.pid, item.born);
-        if active_turn && !tracked.contains(&key) {
+        let group_previously_tracked = previously_tracked.contains(&key)
+            || item
+                .children
+                .iter()
+                .any(|child| previously_tracked.contains(&(child.pid, child.born)));
+        if active_turn && !group_previously_tracked {
             continue;
         }
         if entries.len() >= MAX_BACKGROUND_PROCESSES {
             break;
         }
         kept_ids.insert(key);
+        let mut child_identities = Vec::with_capacity(item.children.len());
+        let mut children = Vec::with_capacity(item.children.len());
+        for child in &item.children {
+            let child_key = (child.pid, child.born);
+            kept_ids.insert(child_key);
+            child_identities.push(child_key);
+            children.push(BackgroundProcessChild {
+                command: child.command.clone(),
+                os_pid: Some(child.pid),
+            });
+        }
+        next_tracked.insert(key, child_identities);
         entries.push(BackgroundProcessEntry {
             thread_id: root_thread_id.to_owned(),
             process: RuntimeBackgroundProcess {
@@ -57,9 +83,11 @@ pub(super) fn reconcile_os_entries(
                 cwd: item.cwd.clone(),
                 os_pid: Some(item.pid),
             },
+            parent_os_pid: item.parent_pid,
+            children: (!children.is_empty()).then_some(children),
         });
     }
-    *tracked = kept_ids.clone();
+    *tracked = next_tracked;
     for (id, command, cwd, pid) in bridge_terminals {
         if entries.len() >= MAX_BACKGROUND_PROCESSES {
             break;
@@ -87,6 +115,8 @@ pub(super) fn reconcile_os_entries(
                 },
                 os_pid: Some(*pid),
             },
+            parent_os_pid: None,
+            children: None,
         });
     }
     (entries, kept_ids)
@@ -287,14 +317,21 @@ pub(super) async fn stop(
                 BackgroundStopDegradation::ExitUnconfirmed
             })
     } else if let Some((pid, born)) = parse_os_process_id(process_id) {
-        let others: Vec<(u32, u128)> = process
-            .tracked_os_background
-            .lock()
-            .iter()
-            .copied()
-            .filter(|&item| item != (pid, born))
-            .collect();
-        let outcome = process.stop_os_background(pid, born, others).await;
+        let (targets, others) = {
+            let tracked = process.tracked_os_background.lock();
+            let mut targets = vec![(pid, born)];
+            if let Some(children) = tracked.get(&(pid, born)) {
+                targets.extend(children.iter().copied());
+            }
+            let target_set: HashSet<(u32, u128)> = targets.iter().copied().collect();
+            let others: Vec<(u32, u128)> = tracked
+                .iter()
+                .flat_map(|(root, members)| std::iter::once(*root).chain(members.iter().copied()))
+                .filter(|item| !target_set.contains(item))
+                .collect();
+            (targets, others)
+        };
+        let outcome = process.stop_os_background(targets, others).await;
         process.tracked_os_background.lock().remove(&(pid, born));
         outcome.map_err(|reason| {
             log::debug!("[background-work] tab={tab} os stop: {reason}");

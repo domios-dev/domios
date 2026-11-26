@@ -9,12 +9,13 @@ function publishConsent(source: symbol, status: AnalyticsStatus | null) {
   window.dispatchEvent(new CustomEvent<ConsentChange>(CONSENT_CHANGED, { detail: { source, status } }));
 }
 
-export function useAnalyticsConsent() {
+export function useAnalyticsConsent(activeEnabled = true) {
   const [status, setStatus] = useState<AnalyticsStatus | null>(null);
   const sequence = useRef(0);
   const mounted = useRef(false);
   const source = useRef(Symbol("analytics-consent"));
   useEffect(() => {
+    if (!activeEnabled) return;
     let active = true;
     mounted.current = true;
     const changed = (event: Event) => {
@@ -34,10 +35,10 @@ export function useAnalyticsConsent() {
       sequence.current++;
       window.removeEventListener(CONSENT_CHANGED, changed);
     };
-  }, []);
+  }, [activeEnabled]);
 
   const change = async (enabled: boolean) => {
-    if (!mounted.current) return;
+    if (!activeEnabled || !mounted.current) return;
     const intent = ++sequence.current;
     const publication = ++publicationSequence;
     const isCurrent = () => mounted.current && intent === sequence.current && publication === publicationSequence;

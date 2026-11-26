@@ -436,3 +436,32 @@ fn workspace_close_preview_matches_workspace_close_authority() {
     assert!(!close_scope.allowed(&AccessLevel::ReadOnly));
     assert!(!close_scope.allowed(&AccessLevel::AgentIsolated));
 }
+
+#[test]
+fn team_close_matches_workspace_close_authority() {
+    for path in ["/api/teams/team-1/close", "/api/teams/team-1/close?x=1"] {
+        let scope = request_scope(&Method::POST, path).unwrap();
+        assert_eq!(
+            scope,
+            PeerScope::new(PeerOperation::ManageWorkspace, PeerResource::Host),
+            "{path}"
+        );
+        assert!(scope.allowed(&AccessLevel::Full), "{path}");
+        assert!(
+            scope.allowed(&AccessLevel::Custom(vec![Permission::ManageWorkspaces])),
+            "{path}"
+        );
+        assert!(
+            scope.allowed(&AccessLevel::Custom(vec![Permission::Admin])),
+            "{path}"
+        );
+        assert!(!scope.allowed(&AccessLevel::ReadOnly), "{path}");
+        assert!(!scope.allowed(&AccessLevel::AgentIsolated), "{path}");
+        assert!(
+            !scope.allowed(&AccessLevel::Custom(vec![Permission::ReadTabs])),
+            "{path}"
+        );
+    }
+    assert!(request_scope(&Method::POST, "/api/teams/team-1/close/extra").is_none());
+    assert!(request_scope(&Method::POST, "/api/teams//close").is_none());
+}

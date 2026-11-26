@@ -19,7 +19,7 @@ pub struct Process {
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
     session_baseline: parking_lot::Mutex<HashSet<(u32, u128)>>,
     first_turn_started: AtomicBool,
-    pub(super) tracked_os_background: parking_lot::Mutex<HashSet<(u32, u128)>>,
+    pub(super) tracked_os_background: parking_lot::Mutex<HashMap<(u32, u128), Vec<(u32, u128)>>>,
     pub(super) background_changed: Arc<tokio::sync::Notify>,
     pub(super) background_operation: tokio::sync::Mutex<()>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
@@ -49,7 +49,7 @@ impl Process {
             boundary: None,
             session_baseline: parking_lot::Mutex::new(HashSet::new()),
             first_turn_started: AtomicBool::new(false),
-            tracked_os_background: parking_lot::Mutex::new(HashSet::new()),
+            tracked_os_background: parking_lot::Mutex::new(HashMap::new()),
             background_changed: Arc::new(tokio::sync::Notify::new()),
             background_operation: Default::default(),
             turn_members: parking_lot::Mutex::new(Vec::new()),
@@ -133,14 +133,13 @@ impl Process {
 
     pub(super) async fn stop_os_background(
         &self,
-        pid: u32,
-        born: u128,
+        targets: Vec<(u32, u128)>,
         others: Vec<(u32, u128)>,
     ) -> Result<(), RuntimeFailure> {
         let boundary = self.boundary.clone().ok_or(RuntimeFailure::Superseded)?;
         let baseline: Vec<(u32, u128)> = self.session_baseline.lock().iter().copied().collect();
         tokio::task::spawn_blocking(move || {
-            boundary.stop_os_background(pid, born, &baseline, &others)
+            boundary.stop_os_background(&targets, &baseline, &others)
         })
         .await
         .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
@@ -282,19 +281,35 @@ pub(super) fn spawn(
         command.env_remove(key);
     }
     command.envs(&env);
-    if let Some(cli) = env.get("CODETERM_CLI_PATH") {
-        if let Some(dir) = codeterm_pty::pty::manager::cli_dir_of(std::ffi::OsStr::new(cli)) {
-            let inherited = env
-                .get("PATH")
-                .map(std::ffi::OsString::from)
-                .or_else(|| std::env::var_os("PATH"))
-                .unwrap_or_default();
-            if let Some(path) =
-                codeterm_pty::pty::manager::path_with_cli_dir_first(&inherited, &dir)
-            {
-                command.env("PATH", path);
-            }
+    let has_explicit_path = env.keys().any(|key| key.eq_ignore_ascii_case("PATH"));
+    let merged_path = if has_explicit_path {
+        None
+    } else {
+        let mut extra = launch.extra_bin_dirs.clone();
+        if let Some(parent) = binary
+            .parent()
+            .filter(|dir| dir.is_absolute() && !dir.as_os_str().is_empty())
+        {
+            extra.push(parent.to_path_buf());
         }
+        codeterm_plugin::js_runtime::merged_search_path_with_extra_dirs(&extra)
+    };
+    if let Some(dir) = env
+        .get("CODETERM_CLI_PATH")
+        .and_then(|cli| codeterm_pty::pty::manager::cli_dir_of(std::ffi::OsStr::new(cli)))
+    {
+        let inherited = env
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .map(|(_, value)| std::ffi::OsString::from(value))
+            .or(merged_path)
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default();
+        if let Some(path) = codeterm_pty::pty::manager::path_with_cli_dir_first(&inherited, &dir) {
+            command.env("PATH", path);
+        }
+    } else if let Some(path) = merged_path {
+        command.env("PATH", path);
     }
     let effective = effective_env(command.as_std());
     let credential = effective
@@ -496,7 +511,7 @@ pub(super) fn spawn(
         boundary: Some(boundary),
         session_baseline: parking_lot::Mutex::new(HashSet::new()),
         first_turn_started: AtomicBool::new(false),
-        tracked_os_background: parking_lot::Mutex::new(HashSet::new()),
+        tracked_os_background: parking_lot::Mutex::new(HashMap::new()),
         background_changed: Arc::new(tokio::sync::Notify::new()),
         background_operation: Default::default(),
         turn_members: parking_lot::Mutex::new(Vec::new()),

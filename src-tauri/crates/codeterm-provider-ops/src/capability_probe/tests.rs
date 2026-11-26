@@ -48,7 +48,7 @@ fn initialize_probe_completion_cannot_publish_after_account_context_changes() {
                 invocation: self.invocation.lock().clone(),
             })
         }
-        fn cli_binary(&self, _: &str) -> Option<String> {
+        fn cli_path(&self, _: &str) -> Option<PathBuf> {
             panic!("no process is needed");
         }
         fn matching_tabs(&self, _: &str, _: Option<&Path>) -> Vec<String> {
@@ -285,7 +285,7 @@ impl CapabilityProbeHost for HostFixture {
         })
     }
 
-    fn cli_binary(&self, _: &str) -> Option<String> {
+    fn cli_path(&self, _: &str) -> Option<PathBuf> {
         panic!("validation failure must stop before binary lookup")
     }
 

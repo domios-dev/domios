@@ -63,6 +63,63 @@ fn restart_resume_model_selection_reloads_the_exact_runtime_thread_without_live_
 }
 
 #[test]
+fn model_restart_preserves_owned_browser_until_explicit_stop() {
+    use codeterm_plugin::surfaces::SurfaceRegistryHandle;
+
+    for process_exits_before_restart in [false, true] {
+        let fixture = RuntimeFixture::new();
+        let svc = &fixture.service;
+        let tab = &fixture.tab;
+        svc.ext::<SurfaceRegistryHandle>().register(
+            "fixture",
+            Arc::new(
+                serde_json::from_value(json!([{
+                    "id": "page", "title": "Browser", "renderer": "stream", "runtime": "browser",
+                    "agentBound": true
+                }]))
+                .unwrap(),
+            ),
+        );
+        let browser = svc
+            .open_surface(crate::service::surface::SurfaceOpenRequest {
+                target: "fixture:page".into(),
+                owner_tab_id: Some(tab.clone()),
+                ..Default::default()
+            })
+            .unwrap();
+        let prior = agent_runtime::engine::for_tab(tab).unwrap();
+        let process = prior.process.lock().clone().unwrap();
+        let wait_for_retirement = || {
+            crate::async_runtime::block_on(async {
+                tokio::time::timeout(
+                    Duration::from_secs(5),
+                    process.client.wait_for_subscriber_exit_for_test(),
+                )
+                .await
+                .expect("old process subscriber finished");
+            })
+        };
+        if process_exits_before_restart {
+            crate::async_runtime::block_on(process.finish()).unwrap();
+            wait_for_retirement();
+        }
+
+        let outcome = svc.agent_switch_model(tab, "selected-model").unwrap();
+        assert!(outcome.restart.unwrap().agent_ready);
+        wait_for_retirement();
+        assert_eq!(svc.list_surfaces().open, [browser]);
+
+        let resumed = agent_runtime::engine::for_tab(tab).unwrap();
+        let replacement = resumed.process.lock().clone().unwrap();
+        assert!(!Arc::ptr_eq(&process, &replacement));
+        assert!(replacement.ended.borrow().is_none());
+        svc.kill_tab_pty(tab).unwrap();
+        assert!(replacement.ended.borrow().is_some());
+        assert!(svc.list_surfaces().open.is_empty());
+    }
+}
+
+#[test]
 fn consecutive_restart_resume_switches_apply_without_cooldown() {
     let fixture = RuntimeFixture::new();
     let svc = &fixture.service;

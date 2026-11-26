@@ -48,5 +48,12 @@ assert(
   tabBootOverlayView(tab("spawn_failed", "opaque-reason-17"), true).kind === "none",
   "keep-shell choice restores the terminal view",
 );
+assert(
+  tabBootOverlayView({
+    ...tab("pty_starting", null, "fixture-runtime"),
+    backing: { kind: "chat_backend", plugin_id: "fixture-runtime", session_id: "" },
+  }).kind === "none",
+  "chat_backend tabs never show a PTY boot overlay",
+);
 
 console.log("✓ bootOverlay: boot state maps to view and available actions");

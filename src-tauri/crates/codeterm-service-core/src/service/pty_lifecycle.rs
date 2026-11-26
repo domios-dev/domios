@@ -529,7 +529,7 @@ fn handle_pty_death_with_cause(
         };
         if removed {
             svc.dispose_closed_surface_runtimes();
-            svc.schedule_session_persist_debounced();
+            super::session_persist::persist_session_after_close(svc);
             svc.emit_state_changed(super::MuxEmitCause::Surface);
         }
         log::info!(
@@ -591,6 +591,22 @@ fn handle_pty_death_with_cause(
             })
             .map(str::to_string);
         let Some(role_label) = leaf_role else {
+            let removed = {
+                let mut mux = svc.mux.write();
+                let same_pty = mux
+                    .get_tab(pid)
+                    .is_some_and(|tab| tab.pty_id.as_deref() == Some(pty_id))
+                    && svc
+                        .pty
+                        .lock()
+                        .session_generation_matches(pty_id, generation);
+                same_pty && svc.remove_owned_browser_tabs(&mut mux, pid)
+            };
+            if removed {
+                svc.dispose_closed_surface_runtimes();
+                super::session_persist::persist_session_after_close(svc);
+                svc.emit_state_changed(super::MuxEmitCause::Surface);
+            }
             return PtyDeathOutcome::NotRoleBearing;
         };
         if let Err(e) = svc.close_tab_with_reason(pid, TabCloseReason::PtyExit) {

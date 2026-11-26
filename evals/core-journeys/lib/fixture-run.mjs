@@ -18,7 +18,7 @@ export function fixtureResults() {
   results.checks = [
     check("SETUP", "workspace_provisioned", "run1"),
     check("J1", "spawn_ready", "claude"),
-    check("J1", "send_reply_own_session", "claude"),
+    check("J1", "send_reply_own_session", "claude", { evidence: { tab: "tab1", session: "session1" } }),
     check("J2", "api_no_context", "claude"),
     check("J3", "dispatch_chat_backend_worker", "codex"),
     check("J4", "pre_restart_snapshot", "run1"),

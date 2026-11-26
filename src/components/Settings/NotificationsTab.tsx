@@ -8,16 +8,18 @@ import { NotificationDestinations } from "./NotificationDestinations";
 import { NotificationSurfaces } from "./NotificationSurfaces";
 import { PushChannelSettings } from "./PushChannelSettings";
 import { SettingsCard } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 /** The daemon's channel registry. A roster it cannot answer for is empty
  *  rather than guessed at: the grid then draws its two local surfaces, which
  *  is honest about what this build could resolve. */
-export function usePushChannels(): PushChannelDescriptor[] {
+export function usePushChannels(peerId?: string): PushChannelDescriptor[] {
   const [channels, setChannels] = useState<PushChannelDescriptor[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    invoke<{ channels?: PushChannelDescriptor[] }>("push_channel_roster")
+    setChannels([]);
+    invoke<{ channels?: PushChannelDescriptor[] }>("push_channel_roster", peerId ? { peerId } : undefined)
       .then((roster) => {
         if (!cancelled) setChannels(roster?.channels ?? []);
       })
@@ -27,7 +29,7 @@ export function usePushChannels(): PushChannelDescriptor[] {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [peerId]);
 
   return channels;
 }
@@ -41,7 +43,8 @@ export function NotificationsOverview({
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
-  const channels = usePushChannels();
+  const remoteTarget = useSettingsRemoteTarget();
+  const channels = usePushChannels(remoteTarget?.id);
 
   return (
     <div className="flex flex-col gap-5" data-testid="settings-notifications-overview">

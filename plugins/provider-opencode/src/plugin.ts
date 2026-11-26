@@ -4,7 +4,7 @@ import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
 import { ioSqlite, ioResolve, type HostIoSteps } from "@codeterm/plugin-sdk";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import { runPromptSteps } from "../../provider-shared/runPromptStep";
-import { sessionObservations, turnError } from "./turnErrors";
+import { classifiedTurnError, sessionObservations, turnError } from "./turnErrors";
 import { checkOpencodeUpdate } from "./update";
 import { modelProviderExports } from "./modelProviders";
 import { modelSwitch } from "./modelSwitch";
@@ -16,7 +16,7 @@ import {cliGeneration, v2Arguments, v2ConfigCommand, type CliGeneration} from ".
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { FileDiff, HostOwnedCapabilities, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
-import { lastPromptShape, parsePermissionPrompt, parseQuestionMenuPrompt, parseModalPickerPrompt, chunkHasQuestionMenuRow, findModalPickerTitle, isVerticalPrompt, verticalPromptHighlightIndex, discoverOpencodeModels, withOpencodeGroupUsage, normalizeSessionDirectory, parseStructuredCursor, opencodeDbPath, opencodeConfigPath, opencodeBindingPluginPath, opencodePluginEntry, opencodePluginEntryMatches, isCurrentOpencodeBindingPluginSource, ownsOpencodeBindingPluginSource, opencodeBindingPluginSource, opencodeSessionRecord, partToChatMsg, toolFileDiffs, scanMessagesForModel, scanSessionModel, scanMessagesForQualifiedModel, scanSessionDirectory, ASSISTANT_MESSAGE_MAX_BYTES, MESSAGE_ROLE_MAX_BYTES, safeJson, OpencodePart, OpencodeConfig, OpencodeSessionRow, ModelGroupUsage } from "./helpers";
+import { lastPromptShape, parsePermissionPrompt, parseQuestionMenuPrompt, parseModalPickerPrompt, chunkHasQuestionMenuRow, findModalPickerTitle, isVerticalPrompt, verticalPromptHighlightIndex, discoverOpencodeModels, withOpencodeGroupUsage, normalizeSessionDirectory, parseStructuredCursor, opencodeDbPath, opencodeConfigPath, opencodeBindingPluginPath, opencodePluginEntry, opencodePluginEntryMatches, isCurrentOpencodeBindingPluginSource, ownsOpencodeBindingPluginSource, opencodeBindingPluginSource, opencodeSessionRecord, partToChatMsg, toolFileDiffs, scanMessagesForModel, scanSessionModel, scanMessagesForQualifiedModel, scanSessionDirectory, sessionModelIdentity, ASSISTANT_MESSAGE_MAX_BYTES, MESSAGE_ROLE_MAX_BYTES, safeJson, OpencodePart, OpencodeConfig, OpencodeSessionRow, ModelGroupUsage } from "./helpers";
 import { readOpencodeSessionContent, SessionContentQuery, SessionContentReply } from "./sessionContent";
 
 const TITLE_RE = /opencode/i;
@@ -512,7 +512,7 @@ const plugin = {
         "WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 " +
         "UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data " +
         "FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 " +
-        "AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
+        "AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') IN ('APIError', 'ProviderAuthError') OR json_extract(data, '$.time.completed') IS NOT NULL) " +
         "ORDER BY ts_updated ASC, id ASC", [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES], (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs)));
   },
 } satisfies IoExports<PluginModule>;
@@ -539,7 +539,8 @@ function structuredChatFromRows(rows: StructuredChatRow[], sessionId: string, si
     if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
     const error = turnError(message);
     if (error) {
-      messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+      const { content, remediation } = classifiedTurnError(error, sessionModelIdentity(message) ?? undefined, "Provider API error");
+      messages.push({ id, type: "system", systemSubtype: "api_error", content, ...(remediation ? { toolInput: { remediation } } : {}), timestamp: new Date(created).toISOString() });
       continue;
     }
     const part = safeJson(rows[i].part);

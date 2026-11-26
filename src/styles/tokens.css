@@ -16,14 +16,6 @@
   --ct-capsule-font-size: 14px;
   --ct-capsule-line-height: 20px;
 
-  --ct-machine-blue: #5b9cff;
-  --ct-machine-teal: #2ec4b0;
-  --ct-machine-green: #5cc46a;
-  --ct-machine-yellow: #e0b23a;
-  --ct-machine-pink: #f06cb4;
-  --ct-machine-violet: #a985ff;
-  --ct-machine-graphite: #9aa4ae;
-
   /* Input / control rhythm */
   --ct-control-height: 2.125rem;
   --ct-control-height-small: 1.875rem;
@@ -97,9 +89,9 @@
 
   /* Blur values */
   --ct-blur-sm: 8px;
-  --ct-blur-md: 16px;
-  --ct-blur-lg: 32px;
-  --ct-blur-overlay: 24px;
+  --ct-blur-md: 12px;
+  --ct-blur-lg: 16px;
+  --ct-blur-overlay: 12px;
 
   /* Automation kind tones, shared by the composer context, Jobs and chat deliveries */
   --ct-tone-blueprint: color-mix(in srgb, var(--ct-accent) 62%, var(--ct-fg));
@@ -114,8 +106,8 @@
   --ct-tone-shell: var(--ct-muted-fg);
 
   /* Frosted glass surfaces (menus, popovers) */
-  --ct-glass-blur: 40px;
-  --ct-glass-saturate: 1.6;
+  --ct-glass-blur: 12px;
+  --ct-glass-saturate: 1.5;
   --ct-glass-bg: color-mix(in srgb, var(--ct-surface) 86%, var(--ct-bg) 10%);
   --ct-glass-sheen: linear-gradient(180deg, color-mix(in srgb, var(--ct-fg) 5%, transparent), transparent 42%);
   --ct-glass-edge: inset 0 1px 0 var(--ct-border-subtle);
@@ -148,13 +140,6 @@
 
 :root[data-ct-theme="light"],
 [data-ct-theme="light"]:not(:root) {
-  --ct-machine-blue: #1f62d0;
-  --ct-machine-teal: #0b7d70;
-  --ct-machine-green: #2b7d36;
-  --ct-machine-yellow: #8a6200;
-  --ct-machine-pink: #b8327e;
-  --ct-machine-violet: #6d48c8;
-  --ct-machine-graphite: #5c6670;
   --ct-shadow-sm:
     0 1px 2px color-mix(in srgb, var(--ct-fg) calc(8% * var(--ct-shadow-strength, 1)), transparent),
     0 1px 3px color-mix(in srgb, var(--ct-fg) calc(5% * var(--ct-shadow-strength, 1)), transparent);
@@ -192,4 +177,33 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Pause animations inside hidden mounted layers or when the window is hidden. */
+[data-motion="paused"],
+[data-motion="paused"] *,
+[data-motion="paused"] *::before,
+[data-motion="paused"] *::after {
+  animation-play-state: paused !important;
+}
+
+/* Keep hidden mounted layers from allocating GPU backdrop-filter passes. */
+[data-layer-hidden="true"],
+[data-layer-hidden="true"] *,
+[data-layer-hidden="true"] *::before,
+[data-layer-hidden="true"] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Suspend live backdrop-filter readbacks while dragging the window frame. */
+:root[data-window-resizing="true"] .ct-tab-top-bar::before,
+:root[data-window-resizing="true"] .ct-scroll-latest,
+:root[data-window-resizing="true"] .ct-ctx-pill,
+:root[data-window-resizing="true"] .ct-sidebar-selection-cue__pill,
+:root[data-window-resizing="true"] .bp-canvas-crumbs,
+:root[data-window-resizing="true"] .bp-canvas-notices > .bp-notice,
+:root[data-window-resizing="true"] .neighbors-privacy {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }

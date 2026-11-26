@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Check, Copy, MessageSquarePlus, X } from "lucide-react";
 
 /** The floating bar of a message selection: count, Copy, Ask about these (as a quote), Clear. */
-export function MessageSelectionBar({ count, partial = false, onCopy, onQuote, onClear }: {
+export const MessageSelectionBar = memo(function MessageSelectionBar({ count, partial = false, onCopy, onQuote, onClear }: {
   count: number;
   partial?: boolean;
   onCopy: () => void;
@@ -29,4 +29,4 @@ export function MessageSelectionBar({ count, partial = false, onCopy, onQuote, o
       </button>
     </div>
   );
-}
+});

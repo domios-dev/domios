@@ -325,6 +325,7 @@ fn apply(
         return;
     }
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
+    let mut mux_changed = false;
     match event {
         RuntimeEvent::AuthenticationDeclared { authentication } => {
             use codeterm_plugin::agent_runtime::RuntimeAuthenticationState;
@@ -334,13 +335,18 @@ fn apply(
                 _ => RuntimeAuthState::Unknown,
             };
             engine::publish(svc, &context.tab_id, session);
+            mux_changed = true;
         }
         RuntimeEvent::Notice { thread_id, message } if owned(&thread_id) => {
             super::super::declared_controls::notice(svc, session, message);
+            mux_changed = true;
         }
         RuntimeEvent::SessionUpdated {
             login: Some(login), ..
-        } => super::super::login::apply(svc, session, epoch, login),
+        } => {
+            super::super::login::apply(svc, session, epoch, login);
+            mux_changed = true;
+        }
         RuntimeEvent::SessionUpdated {
             auth: Some(state),
             billing_mode,
@@ -363,6 +369,7 @@ fn apply(
                     session.state.lock().phase = RuntimePhase::Loading;
                 }
                 engine::publish(svc, &context.tab_id, session);
+                mux_changed = true;
             }
             if matches!(state, RuntimeAuthState::SignedOut) {
                 if let Some(detail) = detail {
@@ -376,6 +383,7 @@ fn apply(
                     .lock()
                     .degrade(epoch, &RuntimeFailure::SignInRequired);
                 engine::publish(svc, &context.tab_id, session);
+                mux_changed = true;
             }
         }
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
@@ -486,6 +494,7 @@ fn apply(
                 };
                 if consumed {
                     let _ = svc.cleanup_confirmed_pending_delivery(&context.tab_id);
+                    mux_changed = true;
                 }
                 log::info!(
                     "[runtime-send] tab={} send_id={send_id} turn={turn_id} delivered: own-session evidence confirmed",
@@ -585,6 +594,7 @@ fn apply(
                 RuntimeTurnState::NeedsInput => svc.mark_agent_waiting(&context.tab_id),
             };
             engine::publish(svc, &context.tab_id, session);
+            mux_changed = true;
             if matches!(state, RuntimeTurnState::Idle) {
                 if let Some(process) = session.process.lock().clone() {
                     process.background_changed.notify_one();
@@ -641,6 +651,7 @@ fn apply(
                     file_diffs,
                     elicitation,
                 );
+                mux_changed = true;
             }
         }
         RuntimeEvent::RequestUpdated {
@@ -653,6 +664,7 @@ fn apply(
         } if owned(&thread_id) => {
             session.prompts.lock().remove(&request_id);
             super::super::prompt_answers::resolve(svc, session, &request_id);
+            mux_changed = true;
         }
         RuntimeEvent::ContextUpdated {
             thread_id,
@@ -677,6 +689,7 @@ fn apply(
             ..
         } if owned(&thread_id) => {
             super::super::projections::controls(svc, session, settings);
+            mux_changed = true;
         }
         RuntimeEvent::CompactionUpdated { thread_id, item_id } if owned(&thread_id) => {
             let _ = super::compaction::schedule(svc, session, epoch, &thread_id, &item_id);
@@ -687,7 +700,7 @@ fn apply(
         }
         _ => {}
     }
-    if !matches!(session.state.lock().phase, RuntimePhase::Loading) {
+    if mux_changed && !matches!(session.state.lock().phase, RuntimePhase::Loading) {
         svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     }
 }

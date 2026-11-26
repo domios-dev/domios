@@ -104,3 +104,81 @@ fn task_notification_origin_and_stopped_statuses_end_matching_tasks() {
     });
     assert!(parse(&plain_user).is_empty());
 }
+
+#[test]
+fn tool_use_and_tool_result_label_background_shell_from_structured_records() {
+    let assistant = serde_json::json!({
+        "type": "assistant",
+        "sessionId": "opaque-own",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "opaque-call-a",
+                    "name": "Bash",
+                    "input": { "command": "opaque-cmd-a 900", "run_in_background": true }
+                },
+                {
+                    "type": "tool_use",
+                    "id": "opaque-call-b",
+                    "name": "Bash",
+                    "input": { "command": "opaque-runner -e tick()" }
+                }
+            ]
+        }
+    });
+    let launch_a = serde_json::json!({
+        "type": "user",
+        "sessionId": "opaque-own",
+        "toolUseResult": { "backgroundTaskId": "opaque-task-a" },
+        "message": {
+            "role": "user",
+            "content": [{ "type": "tool_result", "tool_use_id": "opaque-call-a", "content": "ok", "is_error": false }]
+        }
+    });
+    let launch_b = serde_json::json!({
+        "type": "user",
+        "sessionId": "opaque-own",
+        "toolUseResult": { "backgroundTaskId": "opaque-task-b" },
+        "message": {
+            "role": "user",
+            "content": [{ "type": "tool_result", "tool_use_id": "opaque-call-b", "content": "ok", "is_error": false }]
+        }
+    });
+    assert!(parse(&assistant).is_empty());
+    let calls: std::collections::HashMap<String, String> = parse_tool_calls(&assistant)
+        .into_iter()
+        .map(|call| (call.id, call.label))
+        .collect();
+    assert_eq!(
+        calls.get("opaque-call-a").map(String::as_str),
+        Some("opaque-cmd-a 900")
+    );
+    assert_eq!(
+        calls.get("opaque-call-b").map(String::as_str),
+        Some("opaque-runner -e tick()")
+    );
+
+    let mut roster = codeterm_types::agent::background_work::BackgroundRoster::default();
+    for row in [&launch_a, &launch_b] {
+        for observation in parse(row) {
+            let label = observation
+                .tool_use_id
+                .as_deref()
+                .and_then(|id| calls.get(id))
+                .map(String::as_str)
+                .unwrap_or("");
+            roster.observe(&observation, label);
+        }
+    }
+    assert_eq!(
+        roster.running.get("opaque-task-a").map(String::as_str),
+        Some("opaque-cmd-a 900")
+    );
+    assert_eq!(
+        roster.running.get("opaque-task-b").map(String::as_str),
+        Some("opaque-runner -e tick()")
+    );
+    assert_eq!(roster.running.len(), 2);
+}

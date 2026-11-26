@@ -146,6 +146,7 @@ fn read_rich_tail(
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
             background_work: super::background_work::parse(&v),
+            background_tool_calls: super::background_work::parse_tool_calls(&v),
             provider_observations: super::signals::session(&v),
             context_usage: super::context::parse(&v),
             role: role.to_string(),

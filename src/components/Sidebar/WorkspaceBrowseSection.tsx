@@ -8,6 +8,8 @@ import { usePairedWorkspaceInventory } from "../../store/multiplexer/context";
 import { TabItem } from "./TabItem";
 import { TeamUnit } from "./TeamUnit";
 import { remoteTeamIdentity, remoteTeamName } from "./remoteOwnership";
+import { remoteTeamMenuActions } from "./remoteSidebarActionsModel";
+import { remoteTeamKey, type RemoteTeamCloseTarget } from "./useRemoteTeamClose";
 import { selectRemoteTeamPlanProjection } from "./teamTaskStatus";
 import { partitionTeamMembers, type TeamTabMember } from "./workspaceTeamModel";
 import { countWorkingTabs } from "./tabStatuses";
@@ -23,15 +25,17 @@ interface WorkspaceBrowseSectionProps {
   selectedViewerId: string | null;
   attachedTabs: Readonly<Record<string, Tab>>;
   touchMode: boolean;
+  closingTeamKeys?: ReadonlySet<string>;
   onSelectViewer: (viewerId: string) => void;
   onRenameViewer: (tab: Tab, title: string) => void;
   onCloseViewer: (tabId: string, title: string, ownerWorkspaceId?: string) => void;
+  onCloseTeam?: (target: RemoteTeamCloseTarget) => void;
   onOpenCanvas?: () => void;
 }
 
 export function WorkspaceBrowseSection({
   workspace: { workspace, peerId, teams, tabs, planTitles },
-  selectedViewerId, attachedTabs, touchMode, onSelectViewer, onRenameViewer, onCloseViewer, onOpenCanvas,
+  selectedViewerId, attachedTabs, touchMode, closingTeamKeys, onSelectViewer, onRenameViewer, onCloseViewer, onCloseTeam, onOpenCanvas,
 }: WorkspaceBrowseSectionProps) {
   const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
   const machines = new Map(generals.map(machine => [machine.peerId, machine]));
@@ -100,6 +104,27 @@ export function WorkspaceBrowseSection({
       });
       const name = remoteTeamName(key, team?.name, foreign?.title, remoteProjection.plan?.title, planTitles?.get(key), workspace.name);
       const { managers, workers, agents, terminals } = partitionTeamMembers(members);
+      const teamMenu = remoteTeamMenuActions({
+        hasTeam: Boolean(team),
+        ownedByPeer: Boolean(team && !foreign),
+        availability: viewedMachine?.availability,
+      });
+      const teamCloseTarget: RemoteTeamCloseTarget | null = team && teamMenu.closeTeam.visible
+        ? {
+            peerId,
+            workspaceId: workspace.id,
+            teamId: team.id,
+            teamName: name ?? team.name?.trim() ?? "Team",
+            machineName: viewedMachine?.name ?? host?.name ?? "Machine",
+            availability: viewedMachine?.availability ?? "offline",
+            members: members.map(({ tab }) => ({
+              tabId: tab.id,
+              title: tab.title || "Tab",
+              role: tab.role ?? null,
+              roleProfile: tab.role_profile ?? null,
+            })),
+          }
+        : null;
       const section = (items: readonly TeamTabMember[]) => items.map(member => withSurfaces(member, "team", name));
       const working = (items: readonly TeamTabMember[]) => countWorkingTabs(items.map(member => member.tab), statuses);
       return <Fragment key={key}>
@@ -123,6 +148,11 @@ export function WorkspaceBrowseSection({
               planSidePanelStore.open({ remoteTeam, planId: planId ?? "" });
             }
           } : undefined}
+          onCloseTeam={teamCloseTarget && !teamMenu.closeTeam.disabled && onCloseTeam
+            ? () => onCloseTeam(teamCloseTarget)
+            : undefined}
+          closeTeamDisabledReason={teamMenu.closeTeam.visible && teamMenu.closeTeam.disabled ? teamMenu.closeTeam.reason : null}
+          closing={Boolean(team && closingTeamKeys?.has(remoteTeamKey(peerId, team.id)))}
           managers={section(managers)} managerCount={managers.length} workingManagerCount={working(managers)}
           workers={section(workers)} workerCount={workers.length} workingWorkerCount={working(workers)}
           agents={section(agents)} agentCount={agents.length} workingAgentCount={working(agents)}

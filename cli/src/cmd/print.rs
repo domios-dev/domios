@@ -104,6 +104,29 @@ impl CliError {
             data: Some(serde_json::json!({ "code": ErrorCode::InvalidArgument.as_str() })),
         }
     }
+
+    /// An intentional CLI-level refusal (such as a local-only command invoked with `--mesh`),
+    /// always classified as `refused` rather than falling back to `internal`.
+    pub fn refused(message: impl Into<String>, hint: Option<&str>) -> Self {
+        let mut data = serde_json::json!({ "code": ErrorCode::Refused.as_str() });
+        if let Some(hint) = hint.filter(|hint| !hint.trim().is_empty()) {
+            data["hint"] = serde_json::json!(hint);
+        }
+        Self {
+            message: message.into(),
+            code: None,
+            data: Some(data),
+        }
+    }
+
+    /// A CLI failure carrying a typed error code from the closed error contract.
+    pub fn typed(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: None,
+            data: Some(serde_json::json!({ "code": code.as_str() })),
+        }
+    }
 }
 
 fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(String, String)> {
@@ -308,6 +331,10 @@ pub fn fail_with(exit_code: i32, error: &CliError) -> ! {
 
 pub fn fail(exit_code: i32, message: impl Into<String>) -> ! {
     fail_with(exit_code, &CliError::new(message))
+}
+
+pub fn fail_refused(exit_code: i32, message: impl Into<String>, hint: Option<&str>) -> ! {
+    fail_with(exit_code, &CliError::refused(message, hint))
 }
 
 /// A usage failure whose human form keeps its multi-line hint on stderr and

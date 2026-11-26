@@ -148,6 +148,9 @@ pub enum CronAction {
         /// Run ID
         #[arg(long)]
         run_id: String,
+        /// Completion status (defaults to success)
+        #[arg(long, value_parser = ["success", "failed"])]
+        status: Option<String>,
         /// Summary of what happened
         #[arg(long)]
         summary: Option<String>,

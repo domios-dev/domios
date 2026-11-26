@@ -300,3 +300,119 @@ fn full_export_filters_and_document_rows_share_a_snapshot() {
     }
     writer.join().unwrap();
 }
+
+#[test]
+fn bounded_plan_export_caps_tasks_history_and_strides_while_preserving_small_plans() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut small = Plan::new(
+        "Small".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::from_tab("owner"),
+    );
+    small.id = "pl_small".into();
+    let mut task =
+        crate::service_plan::load_audit::task("t1", TaskStatus::InProgress, Some("worker"));
+    task.milestones = (0..3)
+        .map(|i| {
+            serde_json::from_value(
+                json!({"id":format!("m{i}"),"from":{},"kind":"note","text":format!("m {i}"),"ts":i}),
+            )
+            .unwrap()
+        })
+        .collect();
+    task.execution_attempts = vec![crate::service_plan::load_audit::attempt("a0", "worker")];
+    small.tasks = vec![task];
+    let database = fixtures::database(directory.path(), &small);
+    let store = PlanStore::open(database.path()).unwrap();
+    let limits = crate::service_plan::BoundedPlanExportLimits::default();
+    let unbounded = store.export_plan_document(&small.id).unwrap();
+    let bounded_small = store
+        .export_plan_document_bounded(&small.id, limits)
+        .unwrap();
+    assert_eq!(
+        bounded_small, unbounded,
+        "plans within bounds match full export verbatim without _bounded metadata"
+    );
+
+    let mut large = Plan::new(
+        "Large".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::from_tab("owner"),
+    );
+    large.id = "pl_large".into();
+    large.tasks = (0..12)
+        .map(|i| {
+            let status = if i == 11 {
+                TaskStatus::InProgress
+            } else {
+                TaskStatus::Done
+            };
+            let mut t =
+                crate::service_plan::load_audit::task(&format!("t{i}"), status, Some("worker"));
+            t.created_at = 100 + i as u64;
+            t.milestones = (0..8)
+                .map(|m| {
+                    serde_json::from_value(json!({
+                        "id": format!("m-{i}-{m}"),
+                        "from": {},
+                        "kind": "note",
+                        "text": format!("milestone {m}"),
+                        "ts": m
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            t.execution_attempts = (0..4)
+                .map(|a| crate::service_plan::load_audit::attempt(&format!("a-{i}-{a}"), "worker"))
+                .collect();
+            t
+        })
+        .collect();
+    large.strides = (0..15)
+        .map(|s| {
+            serde_json::from_value(json!({
+                "id": format!("s{s}"),
+                "from": {},
+                "kind": "decision",
+                "text": format!("stride {s}"),
+                "ts": s
+            }))
+            .unwrap()
+        })
+        .collect();
+    database.persist_plan(&large, None).unwrap();
+
+    let tight = crate::service_plan::BoundedPlanExportLimits {
+        max_tasks: 4,
+        max_task_milestones: 2,
+        max_task_attempts: 1,
+        max_strides: 3,
+    };
+    let bounded = store
+        .export_plan_document_bounded(&large.id, tight)
+        .unwrap();
+    let tasks = bounded["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 4);
+    assert!(
+        tasks.iter().any(|t| t["id"] == "t11"),
+        "open tasks are prioritized into the bounded window"
+    );
+    for task in tasks {
+        let milestones = task["milestones"].as_array().unwrap();
+        assert_eq!(milestones.len(), 2);
+        assert_eq!(milestones[0]["text"], "milestone 6");
+        assert_eq!(milestones[1]["text"], "milestone 7");
+        let attempts = task["execution_attempts"].as_array().unwrap();
+        assert_eq!(attempts.len(), 1);
+    }
+    let strides = bounded["strides"].as_array().unwrap();
+    assert_eq!(strides.len(), 3);
+    assert_eq!(strides[0]["text"], "stride 12");
+    assert_eq!(strides[2]["text"], "stride 14");
+    assert_eq!(bounded["_bounded"]["truncated"], true);
+    assert_eq!(bounded["_bounded"]["tasks_total"], 12);
+    assert_eq!(bounded["_bounded"]["tasks_returned"], 4);
+    assert_eq!(bounded["_bounded"]["strides_total"], 15);
+    assert_eq!(bounded["_bounded"]["strides_returned"], 3);
+    assert_eq!(bounded["_bounded"]["task_history_truncated"], true);
+}

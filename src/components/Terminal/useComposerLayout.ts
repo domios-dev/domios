@@ -5,7 +5,7 @@ import { COMPOSER_MIN_HEIGHT, COMPOSER_MAX_HEIGHT, measureComposerAutosize } fro
 import { COMPOSER_PANEL_HEIGHT_SHARE, resolveComposerLayout, type ComposerLayout } from "./composerLayoutModel";
 import { useComposerHeight } from "./useComposerHeight";
 
-export function useComposerLayout(input: string, textareaRef: RefObject<HTMLTextAreaElement | null>, shellRef: RefObject<HTMLDivElement | null>, gate: CompositionGate, inputVisible = true, expanded = false) {
+export function useComposerLayout(input: string, textareaRef: RefObject<HTMLTextAreaElement | null>, shellRef: RefObject<HTMLDivElement | null>, gate: CompositionGate, inputVisible = true, expanded = false, active = true) {
   const { keyboardOpen } = useKeyboardInset();
   const [layout, setLayout] = useState<ComposerLayout>({ mode: "docked", editorPx: COMPOSER_MIN_HEIGHT, scrolls: false });
   const previous = useRef(layout);
@@ -15,30 +15,37 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     const shell = shellRef.current;
     if (!textarea || !shell || compositionDefersAutosize(gate)) return;
     if (expanded) {
-      textarea.style.height = "min(56dvh, calc(var(--ct-visual-height, 100dvh) - 12rem), 32rem)";
-      textarea.style.maxHeight = "100%";
-      textarea.style.overflowY = "auto";
+      const expandedHeight = "min(56dvh, calc(var(--ct-visual-height, 100dvh) - 12rem), 32rem)";
+      if (textarea.style.height !== expandedHeight) textarea.style.height = expandedHeight;
+      if (textarea.style.maxHeight !== "100%") textarea.style.maxHeight = "100%";
+      if (textarea.style.overflowY !== "auto") textarea.style.overflowY = "auto";
       return;
     }
-    textarea.style.maxHeight = "";
+    if (textarea.style.maxHeight !== "") textarea.style.maxHeight = "";
     const panel = shell.closest<HTMLElement>('[data-testid="terminal-tab"], [data-testid="tab-session-chat"]') ?? shell.ownerDocument.documentElement;
     if (!panel) return;
     const bounds = panel.getBoundingClientRect();
     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
     const panelHeightPx = Math.min(bounds.height || viewportHeight, viewportHeight);
     const maxPx = Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, panelHeightPx * COMPOSER_PANEL_HEIGHT_SHARE));
-    const measured = measureComposerAutosize(textarea, shell, maxPx);
-    const next = resolveComposerLayout({ contentPx: measured.contentPx, minPx: COMPOSER_MIN_HEIGHT, editorMaxPx: COMPOSER_MAX_HEIGHT,
+    // Skip forced scrollHeight reflow during resize when the composer has no text to wrap.
+    const contentPx = textarea.value.length === 0
+      ? COMPOSER_MIN_HEIGHT
+      : measureComposerAutosize(textarea, shell, maxPx).contentPx;
+    const next = resolveComposerLayout({ contentPx, minPx: COMPOSER_MIN_HEIGHT, editorMaxPx: COMPOSER_MAX_HEIGHT,
       panelWidthPx: bounds.width, panelHeightPx, keyboardOpen });
-    textarea.style.height = `${next.editorPx}px`;
-    textarea.style.overflowY = next.scrolls ? "auto" : "hidden";
+    const nextHeight = `${next.editorPx}px`;
+    const nextOverflow = next.scrolls ? "auto" : "hidden";
+    if (textarea.style.height !== nextHeight) textarea.style.height = nextHeight;
+    if (textarea.style.overflowY !== nextOverflow) textarea.style.overflowY = nextOverflow;
     if (next.mode !== previous.current.mode || next.editorPx !== previous.current.editorPx || next.scrolls !== previous.current.scrolls) {
       previous.current = next;
       setLayout(next);
     }
   }, [gate, keyboardOpen, shellRef, textareaRef, expanded]);
-  useLayoutEffect(() => { measure(); }, [input, measure, inputVisible]);
+  useLayoutEffect(() => { if (active) measure(); }, [active, input, measure, inputVisible]);
   useLayoutEffect(() => {
+    if (!active) return;
     const shell = shellRef.current;
     const textarea = textareaRef.current;
     const panel = shell?.closest<HTMLElement>('[data-testid="terminal-tab"], [data-testid="tab-session-chat"]') ?? shell?.ownerDocument.documentElement;
@@ -48,6 +55,6 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     observer.observe(textarea);
     window.visualViewport?.addEventListener("resize", measure);
     return () => { observer.disconnect(); window.visualViewport?.removeEventListener("resize", measure); };
-  }, [measure, shellRef, textareaRef, inputVisible]);
+  }, [active, measure, shellRef, textareaRef, inputVisible]);
   return { layout, measure };
 }

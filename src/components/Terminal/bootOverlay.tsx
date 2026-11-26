@@ -22,6 +22,7 @@ export function tabBootOverlayView(
   tab: Tab | null | undefined,
   keepShell = false,
 ): TabBootOverlayView {
+  if (tab?.backing?.kind === "chat_backend") return { kind: "none" };
   if (tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt) return { kind: "none" };
   const failure = restoreFailurePresentation(
     {

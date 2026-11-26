@@ -145,6 +145,21 @@ fn reconcile_startup_teams(
     }
 }
 
+fn reconcile_startup_surfaces(
+    snapshot: &mut codeterm_service_core::session::store::SessionSnapshot,
+    boot_resync: &mut bool,
+) {
+    let orphans = codeterm_service_core::session::store::prune_orphan_surfaces(snapshot);
+    for (surface_id, owner_id) in &orphans {
+        log::warn!(
+            "[restore] dropped orphan surface Tab {surface_id}: owner Tab {owner_id} is missing"
+        );
+    }
+    if !orphans.is_empty() {
+        *boot_resync = true;
+    }
+}
+
 const INHERITED_IDENTITY_ENV_VARS: &[&str] = &[
     "CODETERM_LAUNCH_FILE",
     "CODETERM_ATTEMPT_ID",
@@ -330,6 +345,7 @@ pub(crate) fn init_states(
     let mut boot_resync = false;
     if let Some(snapshot) = desk_snapshot.as_mut() {
         reconcile_startup_teams(snapshot, &mut boot_resync);
+        reconcile_startup_surfaces(snapshot, &mut boot_resync);
     }
     let mux_state_inner = match (storage.storage().is_some(), desk_snapshot.as_ref()) {
         (true, Some(snapshot)) if !snapshot.workspaces.is_empty() => {
@@ -382,6 +398,16 @@ pub(crate) fn init_states(
     } else {
         (0, Vec::new())
     };
+    let orphan_surfaces = if storage.storage().is_some() {
+        mux_state_inner.prune_orphaned_surfaces()
+    } else {
+        Vec::new()
+    };
+    for (surface_id, owner_id) in &orphan_surfaces {
+        log::warn!(
+            "[restore] purged orphan surface Tab {surface_id} after startup cleanup: owner Tab {owner_id} is missing"
+        );
+    }
     if let Some(storage) = storage.storage().cloned() {
         service::tab_todos::forget_permanently_closed_todos(storage, ghost_evicted);
     }
@@ -494,7 +520,7 @@ pub(crate) fn init_states(
             service::general_agent::ensure_first_run_tab(&mut mux_state_inner);
         }
     }
-    if ghost_count + duplicate_generals_closed > 0 {
+    if ghost_count + orphan_surfaces.len() + duplicate_generals_closed > 0 {
         // Deliberate boot cleanups re-sync with intent; kept conditional so an
         // unexplained load-time loss still hits the non-reducing guard.
         boot_resync = true;

@@ -20,6 +20,8 @@ target_tab_id?: string | null;
 chat_message_id?: string | null;
 answer?: NotificationAnswer;
 lifetime_ms?: number;
+persistent?: boolean;
+retain_in_notifications?: boolean;
 ephemeral?: boolean;
 update_only?: boolean;
 local_actions?: { label: string; run: () => void | Promise<void> }[];

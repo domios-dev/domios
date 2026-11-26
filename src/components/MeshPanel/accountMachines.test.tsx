@@ -128,3 +128,52 @@ describe("mesh refusal overrides", () => {
     expect(view.kind === "account" && view.machines[0]).toMatchObject({ status: phase, online: false });
   });
 });
+
+describe("switched-account binding projection", () => {
+  it("projects a connected, browsable peer as linked when signed into another account than the first owner", () => {
+    const remote = machine("inst-blackstar-1", "BLACKSTAR #1");
+    const state = snapshot({
+      binding: "other",
+      traffic: "open",
+      enrollment: "enrolled",
+      registry: { observed_at: NOW, rows: [selfRow, remote] },
+      pairs: [pair("peer-blackstar-1", "BLACKSTAR", { installation_id: remote.installation_id, online: true })],
+    });
+    const view = account(state);
+    expect(view.self?.readOnly).toBe(false);
+    expect(view.machines[0]).toMatchObject({
+      key: remote.installation_id,
+      status: "linked",
+      detail: "Connected",
+      online: true,
+      canSignOut: true,
+    });
+    expect(view.machines[0].target).toEqual(targetOf(remote));
+    const peer: PeerStatus = {
+      instance_id: "peer-blackstar-1", name: "BLACKSTAR", ip: "192.0.2.9", api_port: 7685,
+      online: true, access_level: "full", last_seen: null, relay_protocol_version: 2,
+    };
+    const projected = canvas(view, [peer]);
+    expect(projected.peerFooters.get("peer-blackstar-1")).toMatchObject({
+      status: "Connected",
+      tone: "ok",
+    });
+  });
+
+  it("still projects blocked when mesh traffic is genuinely blocked on this machine", () => {
+    const state = snapshot({
+      binding: "other",
+      traffic: "open",
+      enrollment: "refused",
+      last_refusal: { reason: "enrollment_budget" },
+      registry: { observed_at: NOW, rows: [selfRow, macRow] },
+    });
+    const view = account(state);
+    expect(view.self?.readOnly).toBe(true);
+    expect(view.machines[0]).toMatchObject({
+      status: "blocked",
+      detail: "Mesh is blocked on this machine",
+      target: null,
+    });
+  });
+});

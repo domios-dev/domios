@@ -513,3 +513,59 @@ module.exports = {
     assert!(session.context.lock().epoch > initial_epoch);
     assert_eq!(session.state.lock().snapshot().state, "loaded");
 }
+
+#[test]
+fn remote_task_bound_runtime_launch_refuses_signed_out_provider_instead_of_login_pending() {
+    let (fixture, id, peer, _cleanup) = runtime_fixture_with(SOURCE);
+    let session = for_tab(&id).unwrap();
+    session.state.lock().phase = RuntimePhase::Loading;
+    session.thread_loaded.store(false, Ordering::Release);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.report_target_mesh_peer = Some("origin-peer".into());
+        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+            plan_id: Some("plan-remote".into()),
+            task_id: Some("task-remote".into()),
+            attempt_id: Some("attempt-remote".into()),
+            spawn_handle: None,
+            bound_at: 1,
+        });
+    }
+    // Resume persists the desk; without installed storage that barrier parks until its deadline.
+    fixture.install_seeded_storage_desk();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        loop {
+            let mut line = String::new();
+            if peer.read_line(&mut line).await.unwrap() == 0 {
+                break;
+            }
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let response = json!({"id":request["id"],"result":{"auth":"signedOut"}});
+            peer.get_mut()
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+        }
+    });
+    let error = transport::launch_with_context(
+        &fixture.service,
+        &session.provider,
+        &id,
+        json!({}),
+        transport::LaunchContext {
+            require_signed_in: true,
+            ..Default::default()
+        },
+    )
+    .expect_err("remote task-bound runtime launch must refuse signed-out provider");
+    assert!(
+        transport::is_sign_in_required_launch_error(&error),
+        "unexpected error: {error}"
+    );
+    transport::launch(&fixture.service, &session.provider, &id, json!({}))
+        .expect("ordinary relaunch can attach the signed-out worker");
+    assert_eq!(session.state.lock().snapshot().state, "loginPending");
+    server.abort();
+}

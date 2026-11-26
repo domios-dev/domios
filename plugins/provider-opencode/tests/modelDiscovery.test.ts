@@ -202,3 +202,20 @@ test("a complete verbose listing enriches the plain list; a failed or unparseabl
   f.changeConfiguration(); f.discover();
   assert.equal(f.complete({ code: 1, stdout: "" }, undefined, { code: 0, stdout: "endpoint/partial", truncated: true }), null);
 });
+
+test("live v2 discovery puts a free Zen model first while keeping authenticated provider models selectable", () => {
+  const f = fixture("windows", "2.3.0");
+  f.discover();
+  const models = f.complete({
+    code: 0,
+    stdout: "anthropic/claude-fable-5\ndeepseek/deepseek-v4-pro\nopencode/deepseek-v4.1-flash-free\nopencode/gpt-5.5\n",
+  });
+  assert.deepEqual(models.map((model: { id: string }) => model.id), [
+    "opencode/deepseek-v4.1-flash-free",
+    "anthropic/claude-fable-5",
+    "deepseek/deepseek-v4-pro",
+    "opencode/gpt-5.5",
+  ]);
+  assert.equal(models[0].badge, "free");
+  assert.equal(f.plugin.selectModel("anthropic/claude-fable-5"), true);
+});

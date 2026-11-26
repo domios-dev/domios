@@ -24,28 +24,42 @@ pub(crate) fn classify_for(
     snapshot: &crate::agent::tab_state::TabStateSnapshot,
     fallback: Option<TabStateClassification>,
 ) -> Option<TabStateClassification> {
-    let signals = {
+    let (auth, api_error) = {
         let mux = svc.mux.read();
         mux.get_tab(&snapshot.tab_id)
             .filter(|tab| {
                 tab.agent_type.as_deref() == Some(&snapshot.agent_type)
                     && tab.agent_session_id == snapshot.session_id
             })
-            .map(|tab| tab.provider_signals.clone())
-            .unwrap_or_default()
+            .map(|tab| {
+                (
+                    tab.provider_signals.auth.clone(),
+                    tab.provider_signals.api_error,
+                )
+            })
+            .unwrap_or((None, None))
     };
-    classify(&signals, fallback)
+    classify_health(auth.as_ref(), api_error, fallback)
 }
 
 pub(crate) fn classify(
     signals: &ProviderSignals,
     fallback: Option<TabStateClassification>,
 ) -> Option<TabStateClassification> {
-    let state = if signals.access_lost() {
+    classify_health(signals.auth.as_ref(), signals.api_error, fallback)
+}
+
+fn classify_health(
+    auth: Option<&codeterm_provider_signals::AuthStatus>,
+    api_error: Option<ApiErrorKind>,
+    fallback: Option<TabStateClassification>,
+) -> Option<TabStateClassification> {
+    let access_lost = api_error == Some(ApiErrorKind::Authentication);
+    let state = if access_lost {
         log::debug!("[provider-access] state=access_lost");
         Some(TabState::WaitingOnAuth)
     } else {
-        match signals.api_error {
+        match api_error {
             Some(ApiErrorKind::Authentication) => None,
             Some(ApiErrorKind::AuthExpiry) => {
                 log::debug!("[provider-access] state=auth_expired");
@@ -59,9 +73,7 @@ pub(crate) fn classify(
                 log::debug!("[provider-access] state=unknown");
                 Some(TabState::Unknown)
             }
-            None if signals.auth.as_ref().is_some_and(|auth| !auth.logged_in) => {
-                Some(TabState::WaitingOnAuth)
-            }
+            None if auth.is_some_and(|auth| !auth.logged_in) => Some(TabState::WaitingOnAuth),
             None => None,
         }
     };
@@ -73,15 +85,14 @@ pub(crate) fn classify(
             action: Some(TabStateAction {
                 surface: Some(Surface {
                     kind: "provider_health".into(),
-                    payload: serde_json::json!({"auth":signals.auth,"api_error":signals.api_error,"access_lost":signals.access_lost()}),
+                    payload: serde_json::json!({"auth":auth,"api_error":api_error,"access_lost":access_lost}),
                 }),
                 ..Default::default()
             }),
         });
     }
-    fallback.filter(|classification| {
-        classification.state != TabState::WaitingOnAuth || signals.auth.is_none()
-    })
+    fallback
+        .filter(|classification| classification.state != TabState::WaitingOnAuth || auth.is_none())
 }
 
 pub fn apply(
@@ -292,7 +303,19 @@ pub(crate) fn refresh_auth(svc: &ServiceContext, tab_id: &str) {
                 .ok()
                 .and_then(|invocation| {
                     codeterm_plugin::provider_account::with_context(invocation, || {
-                        let result = super::provider_signals_probe::capture(&binary, &probe);
+                        let install_dirs = svc
+                            .agent_registry
+                            .with_provider(&provider_id, |provider| {
+                                provider.cli_install_dirs(
+                                    crate::agent::provider::current_platform_tag(),
+                                )
+                            })
+                            .unwrap_or_default();
+                        let result = super::provider_signals_probe::capture_in(
+                            &binary,
+                            &install_dirs,
+                            &probe,
+                        );
                         result.as_ref().and_then(|record| {
                             svc.agent_registry
                                 .with_provider(&provider_id, |provider| {

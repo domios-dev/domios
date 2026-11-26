@@ -62,7 +62,7 @@ pub enum MeshAction {
         #[command(subcommand)]
         action: MeshPeerAction,
     },
-    /// Manage the kind icon and colour of an installation.
+    /// Manage the kind icon of an installation.
     Identity {
         #[command(subcommand)]
         action: MeshIdentityAction,
@@ -83,12 +83,10 @@ pub enum MeshAction {
 
 #[derive(Subcommand)]
 pub enum MeshIdentityAction {
-    /// Set the machine's kind and colour. Requires owner authority.
+    /// Set the machine's kind icon. Requires owner authority.
     Set {
         #[arg(long, value_parser = ["laptop", "desktop", "server", "mac", "phone", "vm", "small", "other"])]
         kind: String,
-        #[arg(long, value_parser = ["blue", "teal", "green", "yellow", "pink", "violet", "graphite"])]
-        color: String,
         /// Set the identity on this paired machine by name or ID.
         #[arg(long)]
         peer: Option<String>,
@@ -176,19 +174,14 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             | MeshAction::Remove { .. },
     } = &cli.command
     {
-        crate::cmd::print::fail(
+        crate::cmd::print::fail_refused(
             1,
             "mesh management commands are local-only and cannot be relayed via --mesh",
+            Some("run this command on the target machine without --mesh"),
         );
     }
 
     let (base, _) = super::read_api_config();
-    let local = match super::build_local_api() {
-        Ok(client) => client,
-        Err(e) => {
-            crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
-        }
-    };
 
     // `update install --auto` is a two-step flow: force-check then install.
     if let Commands::Update {
@@ -301,7 +294,11 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
 
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
     if method == api_map::UNSUPPORTED_OVER_MESH {
-        crate::cmd::print::fail(2, path.to_string());
+        crate::cmd::print::fail_refused(
+            2,
+            path,
+            Some("run this command on the target machine without --mesh"),
+        );
     }
     if !cli.json
         && matches!(
@@ -353,6 +350,12 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         tty_line_guard::enforce(target, body.as_deref(), cli.json);
     }
     let body = if matches!(cli.command, Commands::SendText { .. }) {
+        let local = match super::build_local_api() {
+            Ok(client) => client,
+            Err(e) => {
+                crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
+            }
+        };
         body.map(|b| enrich_send_body_with_local_source(&local, &base, b))
     } else {
         body

@@ -4,7 +4,7 @@ use super::*;
 fn provider_version_empty_and_unresolved_commands_are_never_probed() {
     for binary in ["", " ", "\t", "domios-intentionally-absent-version-probe"] {
         assert_eq!(
-            observe(binary),
+            observe_in(binary, &[]),
             VersionObservation::unknown(ProbeStatus::Missing)
         );
     }
@@ -176,5 +176,77 @@ fn provider_compat_env_wrapper_version_probe_survives_minimal_gui_path() {
             version: Some("0.162.1".into()),
             status: ProbeStatus::Detected
         }
+    );
+}
+
+#[test]
+fn pending_settlement_drop_resolves_pending_entry_to_failed_and_bumps_revision() {
+    let unique = identity(&format!("/pending-drop-{}", uuid::Uuid::new_v4()), 1);
+    let now = Instant::now();
+    let before = revision();
+    {
+        let mut cache = CACHE.lock();
+        assert_eq!(
+            cache.reserve(&unique, now),
+            (VersionObservation::unknown(ProbeStatus::Pending), true)
+        );
+    }
+    {
+        let _guard = PendingSettlement::new(unique.clone());
+    }
+    let settled = CACHE.lock().entries.remove(&unique);
+    assert_eq!(
+        settled.map(|entry| entry.observation),
+        Some(VersionObservation::unknown(ProbeStatus::Failed))
+    );
+    assert!(revision() > before);
+}
+
+#[cfg(windows)]
+#[test]
+fn provider_version_probe_detects_batch_cli_output() {
+    let root = tempfile::tempdir().unwrap();
+    let shim = root.path().join("provider-fixture.cmd");
+    std::fs::write(&shim, "@echo off\r\necho opaque-cli 0.172.0\r\n").unwrap();
+    let command = crate::provider_command::command(&shim).unwrap();
+    assert_eq!(
+        probe_command_with_deadline(command, Duration::from_secs(5)),
+        VersionObservation {
+            version: Some("0.172.0".into()),
+            status: ProbeStatus::Detected,
+        }
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_version_probe_times_out_within_bound_on_blocked_child() {
+    let root = tempfile::tempdir().unwrap();
+    let fifo = root.path().join("gate.fifo");
+    let status = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(status.success());
+    let _keep_open = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&fifo)
+        .unwrap();
+    let script = root.path().join("blocked-cli");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\nexec cat '{}'\n", fifo.display()),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let command = crate::provider_command::command(&script).unwrap();
+    let started = Instant::now();
+    assert_eq!(
+        probe_command_with_deadline(command, Duration::from_millis(200)),
+        VersionObservation::unknown(ProbeStatus::Timeout)
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "probe exceeded timeout bound: {:?}",
+        started.elapsed()
     );
 }

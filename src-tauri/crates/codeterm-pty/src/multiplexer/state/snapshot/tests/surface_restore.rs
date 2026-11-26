@@ -122,3 +122,75 @@ fn surface_snapshot_without_a_resume_point_restores_and_writes_none() {
     assert_eq!(restored.resume_profile, None);
     assert_eq!(restored.instance_id, "inst-1");
 }
+
+#[test]
+fn to_session_snapshot_omits_surfaces_owned_by_hidden_tabs() {
+    let (mut state, live_owner) = MultiplexerState::new();
+    let ws_id = state.find_workspace_for_tab(&live_owner).unwrap();
+    let hidden_owner = state.create_tab(&ws_id).unwrap();
+    state.get_tab_mut(&hidden_owner).unwrap().hidden = true;
+
+    let hidden_surface = state.create_tab(&ws_id).unwrap();
+    {
+        let tab = state.get_tab_mut(&hidden_surface).unwrap();
+        tab.backing = TabBacking::Surface(board());
+        tab.parent_tab_id = Some(hidden_owner.clone());
+    }
+    let live_surface = state.create_tab(&ws_id).unwrap();
+    {
+        let tab = state.get_tab_mut(&live_surface).unwrap();
+        tab.backing = TabBacking::Surface(board());
+        tab.parent_tab_id = Some(live_owner.clone());
+    }
+    let standalone_surface = state.create_tab(&ws_id).unwrap();
+    state.get_tab_mut(&standalone_surface).unwrap().backing = TabBacking::Surface(board());
+
+    let snapshot = state.to_session_snapshot();
+    let ids: Vec<&str> = snapshot.workspaces[0]
+        .tabs
+        .iter()
+        .map(|tab| tab.id.as_str())
+        .collect();
+    assert!(!ids.contains(&hidden_owner.as_str()));
+    assert!(!ids.contains(&hidden_surface.as_str()));
+    assert!(ids.contains(&live_owner.as_str()));
+    assert!(ids.contains(&live_surface.as_str()));
+    assert!(ids.contains(&standalone_surface.as_str()));
+}
+
+#[test]
+fn from_session_snapshot_prunes_orphaned_surfaces_while_keeping_live_and_standalone() {
+    let (mut state, live_owner) = MultiplexerState::new();
+    let ws_id = state.find_workspace_for_tab(&live_owner).unwrap();
+
+    let live_surface = state.create_tab(&ws_id).unwrap();
+    {
+        let tab = state.get_tab_mut(&live_surface).unwrap();
+        tab.backing = TabBacking::Surface(board());
+        tab.parent_tab_id = Some(live_owner.clone());
+    }
+    let standalone_surface = state.create_tab(&ws_id).unwrap();
+    state.get_tab_mut(&standalone_surface).unwrap().backing = TabBacking::Surface(board());
+
+    let mut snapshot = state.to_session_snapshot();
+    let mut orphan_leaf = surface_leaf("orphan-surface");
+    if let SplitNodeSnapshot::Leaf { parent_tab_id, .. } = &mut orphan_leaf {
+        *parent_tab_id = Some("deleted-owner".into());
+    }
+    snapshot.workspaces[0]
+        .tabs
+        .push(crate::session::store::TabSnapshot {
+            last_active_at_ms: None,
+            last_opened_at_ms: None,
+            id: "orphan-surface".into(),
+            title: "Orphan".into(),
+            description: None,
+            split_tree: orphan_leaf,
+            sort_order: 99,
+        });
+
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    assert!(restored.get_tab("orphan-surface").is_none());
+    assert!(restored.get_tab(&live_surface).is_some());
+    assert!(restored.get_tab(&standalone_surface).is_some());
+}

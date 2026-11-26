@@ -47,7 +47,11 @@ pub(crate) async fn run(
     Json<codeterm_service_core::service::provider_cli_actions::CliLaunch>,
     (StatusCode, String),
 > {
-    let caller = crate::auth::caller_claim(&state, &headers, body.caller_tab_id.as_deref())?;
+    let caller_tab_id = body.caller_tab_id;
+    let caller = crate::auth::off_runtime(&state, &headers, move |state, headers| {
+        crate::auth::caller_claim(state, headers, caller_tab_id.as_deref())
+    })
+    .await?;
     let service = state.svc.clone();
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::provider_cli_actions::launch(
@@ -62,3 +66,6 @@ pub(crate) async fn run(
     .map(Json)
     .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
+
+#[cfg(test)]
+mod tests;

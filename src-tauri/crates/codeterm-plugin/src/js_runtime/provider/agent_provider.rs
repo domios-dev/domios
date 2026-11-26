@@ -127,7 +127,16 @@ impl AgentProvider for JsProvider {
         &self,
         record: &Value,
     ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
-        self.try_call("parseBackgroundWork", &[record.clone()])
+        self.try_call::<Vec<Value>>("parseBackgroundWork", &[record.clone()])
+            .and_then(|items| codeterm_types::agent::chat_types::parse_known_vec(items).ok())
+            .unwrap_or_default()
+    }
+    fn parse_background_tool_calls(
+        &self,
+        record: &Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundToolCall> {
+        self.try_call::<Vec<Value>>("parseBackgroundToolCalls", &[record.clone()])
+            .and_then(|items| codeterm_types::agent::chat_types::parse_known_vec(items).ok())
             .unwrap_or_default()
     }
 
@@ -1045,6 +1054,10 @@ impl AgentProvider for JsProvider {
 
     fn install_command(&self, platform: &str) -> Option<String> {
         self.manifest.installer.get(platform).cloned()
+    }
+
+    fn cli_install_dirs(&self, platform: &str) -> Vec<PathBuf> {
+        self.manifest.cli_install_dirs(platform)
     }
 
     fn badge(&self) -> Option<&str> {

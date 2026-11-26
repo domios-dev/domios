@@ -24,8 +24,11 @@ interface ToastItemProps {
 
 function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastItemProps) {
   const reducedMotion = useReducedMotion();
-  const lifetime = useToastLifetime(notification.id, notification.lifetime_ms, onDismiss);
   const [expanded, setExpanded] = useState(false);
+  const lifetime = useToastLifetime(notification.id, notification.lifetime_ms, onDismiss, {
+    persistent: notification.persistent,
+    suspended: expanded,
+  });
   const expandedPanel = useRef<HTMLDivElement>(null);
   const detailsOpener = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
@@ -108,9 +111,11 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
         className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
         aria-label="Dismiss"
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" className="pointer-events-none absolute inset-0 h-6 w-6 -rotate-90">
-          <circle cx="12" cy="12" r="10" pathLength="1" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="1" className="ct-toast-countdown" style={{ animationName: countdownAnimation(reducedMotion), animationDuration: `${lifetime.duration}ms`, animationPlayState: lifetime.paused ? "paused" : "running" }} />
-        </svg>
+        {!lifetime.persistent && (
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="pointer-events-none absolute inset-0 h-6 w-6 -rotate-90">
+            <circle cx="12" cy="12" r="10" pathLength="1" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="1" className="ct-toast-countdown" style={{ animationName: countdownAnimation(reducedMotion), animationDuration: `${lifetime.duration}ms`, animationPlayState: lifetime.paused ? "paused" : "running" }} />
+          </svg>
+        )}
         <X size={12} strokeWidth={1.8} />
       </button>
     </>

@@ -211,25 +211,70 @@ pub fn tail_window_start(path: &Path, total: u64, window: u64) -> u64 {
     }
 }
 
+const MAX_ROW_DIAGNOSTIC_CHARS: usize = 200;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedPluginRow {
+    pub row_position: usize,
+    pub record_index: Option<usize>,
+    pub reason: String,
+}
+
+#[derive(Debug, Default)]
+pub struct PluginRows {
+    pub messages: Vec<RichMessage>,
+    pub record_indexes: Vec<Option<usize>>,
+    pub skipped: usize,
+    pub first_skipped: Option<SkippedPluginRow>,
+}
+
 /// Rows a plugin parsed from one whole-record chunk, split from the
-/// `recordIndex` (chunk line) each carries. One malformed row fails the chunk.
-pub fn rows_from_plugin(
-    values: Vec<serde_json::Value>,
-) -> Option<(Vec<RichMessage>, Vec<Option<usize>>)> {
-    values
-        .into_iter()
-        .map(|mut value| {
-            let index = value
-                .as_object_mut()
-                .and_then(|row| row.remove("recordIndex"))
-                .and_then(|index| index.as_u64())
-                .map(|index| index as usize);
-            serde_json::from_value::<RichMessage>(value)
-                .ok()
-                .map(|row| (row, index))
-        })
-        .collect::<Option<Vec<_>>>()
-        .map(|pairs| pairs.into_iter().unzip())
+/// `recordIndex` (chunk line) each carries. Unrecognized or malformed rows are
+/// skipped with a bounded diagnostic so one row never fails the chunk.
+pub fn rows_from_plugin(values: Vec<serde_json::Value>) -> PluginRows {
+    let mut parsed = PluginRows {
+        messages: Vec::with_capacity(values.len()),
+        record_indexes: Vec::with_capacity(values.len()),
+        skipped: 0,
+        first_skipped: None,
+    };
+    for (row_position, mut value) in values.into_iter().enumerate() {
+        let index = value
+            .as_object_mut()
+            .and_then(|row| row.remove("recordIndex"))
+            .and_then(|index| index.as_u64())
+            .map(|index| index as usize);
+        match serde_json::from_value::<RichMessage>(value) {
+            Ok(row) => {
+                parsed.messages.push(row);
+                parsed.record_indexes.push(index);
+            }
+            Err(error) => {
+                parsed.skipped += 1;
+                if parsed.first_skipped.is_none() {
+                    parsed.first_skipped = Some(SkippedPluginRow {
+                        row_position,
+                        record_index: index,
+                        reason: bounded_row_error(&error.to_string()),
+                    });
+                }
+            }
+        }
+    }
+    parsed
+}
+
+fn bounded_row_error(raw: &str) -> String {
+    let normalized: String = raw
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect();
+    let trimmed = normalized.trim();
+    if trimmed.chars().count() <= MAX_ROW_DIAGNOSTIC_CHARS {
+        return trimmed.to_owned();
+    }
+    let prefix: String = trimmed.chars().take(MAX_ROW_DIAGNOSTIC_CHARS).collect();
+    format!("{prefix}...")
 }
 
 /// Anchor rows parsed from `bytes` (read at `from_offset`) to the absolute

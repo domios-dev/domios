@@ -83,10 +83,31 @@ describe("participant mentions", () => {
     const chip = el.querySelector("button")!;
     expect(chip.textContent).toBe("Elgar");
     expect(chip.getAttribute("aria-label")).toBe("Elgar, Claude agent tab, working");
+    expect(chip.querySelector(".ct-mention-dot")).toBeNull();
+    expect(chip.querySelector("[data-activity]")).toBeNull();
+    expect(chip.querySelector(".ct-mention-avatar-icon")).not.toBeNull();
     await act(async () => { chip.click(); chip.focus(); });
     expect(opened).toBe(1);
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Elgar · Orchestrator · Claude · codeterm");
     expect(chip.tabIndex).toBe(0);
+  });
+
+  it("renders no status dot inside the chip for any activity state and includes peerName in remote tooltips", async () => {
+    const el = await mount(<>
+      <ReferenceChip kind="tab" presentation="mention" label="Lumen" fullRef="0db72b9f" disabled={false}
+        participant={{ tabKind: "agent", providerName: "Antigravity", activity: "working", avatar: <svg data-testid="provider-glyph" /> }} />
+      <ReferenceChip kind="tab" presentation="mention" label="Vela" fullRef="mesh:blackstar/0db72b9f" disabled={false}
+        participant={{ tabKind: "agent", providerName: "Codex", peerName: "BLACKSTAR", workspaceName: "Domios", activity: "waiting" }} />
+      <ReferenceChip kind="tab" presentation="mention" label="Broken" fullRef="err" disabled={false}
+        participant={{ tabKind: "agent", activity: "error" }} />
+    </>);
+    expect(el.querySelectorAll(".ct-mention-dot")).toHaveLength(0);
+    expect(el.querySelectorAll("[data-activity]")).toHaveLength(0);
+    expect(el.querySelector('[data-testid="provider-glyph"]')).not.toBeNull();
+    const [, remote] = Array.from(el.querySelectorAll("button"));
+    expect(remote.textContent).toBe("Vela");
+    await act(async () => { remote.focus(); });
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Vela · Codex · BLACKSTAR · Domios · waiting for you");
   });
 
   it("keeps closed and loading chips focusable with status in the name and blocks activation", async () => {

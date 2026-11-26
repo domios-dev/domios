@@ -8,6 +8,7 @@ import { saveWallpaper } from "../../lib/chatWallpaperClient";
 import { isLightColor } from "../../lib/themeCss";
 import { MachineAppearanceContext, useWallpaperAsset } from "../../lib/useMachineAppearance";
 import { Button } from "../shared/Button";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 const choices = [
   ["none", "None"], ["dots", "Dots"], ["domios", "Domios"], ["space", "Space"], ["botanical", "Botanical"],
@@ -15,20 +16,21 @@ const choices = [
 
 export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpenLab?(): void }) {
   const selected = useContext(MachineAppearanceContext);
+  const remoteTarget = useSettingsRemoteTarget();
+  const peerId = selected?.peerId ?? remoteTarget?.id;
   const theme = selected?.appearance.theme ?? config.theme;
   const wallpaper = (selected ? selected.appearance.wallpaper : config.chat_wallpaper) ?? undefined;
   const active = effectiveWallpaper(theme, wallpaper);
-  const identity = selected?.identity?.color;
   const light = isLightColor(theme.background);
   const group = useId();
-  const asset = useWallpaperAsset(selected?.peerId, wallpaper?.asset);
+  const asset = useWallpaperAsset(peerId, wallpaper?.asset);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ready = selected?.ready ?? true;
   const style = (paper?: ChatWallpaper, url?: string, intensity?: number) => ({
     "--ct-bg": theme.background,
     "--ct-fg": theme.foreground,
-    ...wallpaperRenderStyle(theme, paper, light, url, identity, intensity),
+    ...wallpaperRenderStyle(theme, paper, light, url, intensity),
   }) as CSSProperties;
   const choose = async (pattern: typeof choices[number][0]) => {
     if (!ready || busy) return;
@@ -36,7 +38,7 @@ export function QuickWallpaper({ config, onOpenLab }: { config: AppConfig; onOpe
     setError("");
     try {
       const next = { background: { pattern } };
-      await saveWallpaper(selected?.peerId, next);
+      await saveWallpaper(peerId, next);
       selected?.projectWallpaper(next);
     } catch (failure) {
       setError(appearanceError(failure));

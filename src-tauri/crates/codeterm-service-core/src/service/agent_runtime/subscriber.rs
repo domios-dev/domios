@@ -212,6 +212,10 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 engine::publish(&svc, &context.tab_id, &session);
                 svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
+            let will_recover = !session.gate.is_closed()
+                && unexpected
+                && engine::for_tab(&expired.tab_id)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &session));
             let owner = svc.clone();
             let ending = expired.clone();
             let detail = format!("runtime process ended: {reason}");
@@ -221,11 +225,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     .runtime_process_exited(&owner, &ending, detail);
             })
             .await;
-            if !session.gate.is_closed()
-                && unexpected
-                && engine::for_tab(&expired.tab_id)
-                    .is_some_and(|current| Arc::ptr_eq(&current, &session))
-            {
+            if will_recover {
                 svc.recover_interrupted_chatbackend(
                     &expired.tab_id,
                     &expired.binding_nonce,

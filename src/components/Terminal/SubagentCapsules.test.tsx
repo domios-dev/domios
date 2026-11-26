@@ -40,6 +40,7 @@ it("keeps stop single-flight, displays refusal, and retains details behind expan
     await act(async()=>rejectStop(new Error("fixture refusal")));
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
     expect(stopButton.disabled).toBe(false);
+    await act(async()=>host.querySelector<HTMLButtonElement>('button[aria-label="Details for fixture.ps1"]')!.click());
     const details=host.querySelector<HTMLButtonElement>('button[aria-label="View output for fixture.ps1"]')!;
     await act(async()=>details.click());
     expect(host.querySelector('[role="region"] code')?.textContent).toBe(item.command);

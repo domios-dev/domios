@@ -118,7 +118,8 @@ impl Store {
             clock,
             unavailable,
             admission_closed: false,
-            committed_revisions,
+            committed_revisions: committed_revisions.clone(),
+            last_emitted_revisions: committed_revisions,
             changes: BTreeMap::new(),
             pending_stop_notices: Vec::new(),
             quarantined: Vec::new(),
@@ -614,6 +615,7 @@ impl Store {
             unavailable: None,
             admission_closed: false,
             committed_revisions: BTreeMap::new(),
+            last_emitted_revisions: BTreeMap::new(),
             changes: BTreeMap::new(),
             pending_stop_notices: Vec::new(),
             quarantined: Vec::new(),
@@ -624,6 +626,7 @@ impl Store {
         match installed {
             Ok(()) => {
                 store.committed_revisions = scope_revisions(&store.jobs);
+                store.last_emitted_revisions = store.committed_revisions.clone();
                 store.changes.clear();
             }
             Err(_) => store.unavailable = Some(LoadFailure::LoadFailed),

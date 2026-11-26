@@ -80,8 +80,8 @@ async function run() {
 
   rememberMachineIdentities({
     machine_identities: {
-      "peer-a": { kind: "laptop", color: "blue" },
-      "peer-b": { kind: "server", color: "pink" },
+      "peer-a": { kind: "laptop" },
+      "peer-b": { kind: "server" },
     },
     paired: [
       { instance_id: "peer-a", instance_name: "Same name" },

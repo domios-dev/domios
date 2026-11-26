@@ -10,7 +10,8 @@ import {
 } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
 import { Button } from "../shared/Button";
-import { SettingsCard, SettingsPill } from "./shared";
+import { RemoteLocalOnlyNotice, SettingsCard, SettingsPill } from "./shared";
+import { useSettingsRemoteTarget } from "./useSettingsTarget";
 
 export type ProviderIntegrationState =
   | "checking"
@@ -54,6 +55,8 @@ export function ProviderIntegrationHealthCard({
 }: {
   provider: Pick<ProviderDescriptor, "id" | "display_name">;
 }) {
+  const remoteTarget = useSettingsRemoteTarget();
+  const peerId = remoteTarget?.id;
   const [health, setHealth] = useState<ProviderIntegrationHealth | null>(null);
   const [phase, setPhase] = useState<ProviderIntegrationState>("checking");
   const [action, setAction] = useState<"repair" | "uninstall" | null>(null);
@@ -68,18 +71,18 @@ export function ProviderIntegrationHealthCard({
     setPhase("checking");
     setError(null);
     try {
-      applyHealth(await checkProviderIntegration(provider.id));
+      applyHealth(await checkProviderIntegration(provider.id, peerId));
     } catch (nextError) {
       setPhase("error");
       setError(errorMessage(nextError));
     }
-  }, [applyHealth, provider.id]);
+  }, [applyHealth, provider.id, peerId]);
 
   useEffect(() => {
     let active = true;
     setPhase("checking");
     setError(null);
-    void checkProviderIntegration(provider.id).then((next) => {
+    void checkProviderIntegration(provider.id, peerId).then((next) => {
       if (active) applyHealth(next);
     }).catch((nextError) => {
       if (!active) return;
@@ -89,9 +92,10 @@ export function ProviderIntegrationHealthCard({
     return () => {
       active = false;
     };
-  }, [applyHealth, provider.id]);
+  }, [applyHealth, provider.id, peerId]);
 
   const repair = useCallback(async () => {
+    if (peerId) return;
     setAction("repair");
     setError(null);
     try {
@@ -102,9 +106,10 @@ export function ProviderIntegrationHealthCard({
     } finally {
       setAction(null);
     }
-  }, [applyHealth, provider.id]);
+  }, [applyHealth, provider.id, peerId]);
 
   const uninstall = useCallback(async () => {
+    if (peerId) return;
     setAction("uninstall");
     setError(null);
     try {
@@ -115,7 +120,7 @@ export function ProviderIntegrationHealthCard({
     } finally {
       setAction(null);
     }
-  }, [applyHealth, provider.id]);
+  }, [applyHealth, provider.id, peerId]);
 
   const busy = action !== null || phase === "checking";
   const staleSessionStart = health?.session_start_hook === false;
@@ -180,6 +185,13 @@ export function ProviderIntegrationHealthCard({
           <InlineErrorNotice error={error} operation="checking provider access" blocking />
         )}
 
+        {remoteTarget && (
+          <RemoteLocalOnlyNotice
+            machineName={remoteTarget.name}
+            subject="Installing or uninstalling harness hooks"
+          />
+        )}
+
         <div className="flex items-center justify-end gap-2">
           <Button
             size="compact"
@@ -197,7 +209,7 @@ export function ProviderIntegrationHealthCard({
               size="compact"
               onClick={() => void uninstall()}
               loading={action === "uninstall"}
-              disabled={busy}
+              disabled={busy || Boolean(remoteTarget)}
               aria-label={`Uninstall ${provider.display_name} integration`}
               data-provider-integration-action="uninstall"
               className="text-[10px]"
@@ -211,7 +223,7 @@ export function ProviderIntegrationHealthCard({
               size="compact"
               onClick={() => void repair()}
               loading={action === "repair"}
-              disabled={busy}
+              disabled={busy || Boolean(remoteTarget)}
               aria-label={`Repair ${provider.display_name} integration`}
               data-provider-integration-action="repair"
               data-provider-integration-consent="explicit"

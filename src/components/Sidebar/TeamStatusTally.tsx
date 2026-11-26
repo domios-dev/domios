@@ -11,18 +11,29 @@ export function TeamStatusTally(props: PlanStatusBreakdownProps) {
     const container = containerRef.current;
     const summary = container?.firstElementChild as HTMLElement | null;
     if (!container || !summary) return;
+    let cachedFullWidth: number | null = null;
     const measure = () => {
-      container.removeAttribute("data-compact");
-      const compact = compactTeamStatus(summary.getBoundingClientRect().width, container.getBoundingClientRect().width);
-      container.toggleAttribute("data-compact", compact);
+      const availableWidth = container.getBoundingClientRect().width;
+      if (cachedFullWidth === null) {
+        if (container.hasAttribute("data-compact")) container.removeAttribute("data-compact");
+        cachedFullWidth = summary.getBoundingClientRect().width;
+      }
+      const compact = compactTeamStatus(cachedFullWidth, availableWidth);
+      if (container.hasAttribute("data-compact") !== compact) {
+        container.toggleAttribute("data-compact", compact);
+      }
+    };
+    const onFontsLoaded = () => {
+      cachedFullWidth = null;
+      measure();
     };
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     if (observer) observer.observe(container);
     else measure();
-    document.fonts?.addEventListener("loadingdone", measure);
+    document.fonts?.addEventListener("loadingdone", onFontsLoaded);
     return () => {
       observer?.disconnect();
-      document.fonts?.removeEventListener("loadingdone", measure);
+      document.fonts?.removeEventListener("loadingdone", onFontsLoaded);
     };
   }, [props.counts]);
 

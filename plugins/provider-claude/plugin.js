@@ -1183,6 +1183,41 @@ function shellOutputPath(content, session, id) {
     return /^claude(?:-[0-9]+)?$/.test(root ?? "") && key && owner === session && directory === "tasks" && filename === `${id}.output` ? path : void 0;
   }
 }
+function boundedLabel(value) {
+  if (typeof value !== "string") return void 0;
+  const trimmed = value.trim();
+  if (!trimmed) return void 0;
+  return [...trimmed].slice(0, 256).join("");
+}
+function singleToolResultUseId(content) {
+  if (!Array.isArray(content)) return void 0;
+  const results = content.map(object4).filter((block) => block?.type === "tool_result");
+  if (results.length !== 1 || results[0].is_error === true) return void 0;
+  const id = results[0].tool_use_id;
+  return typeof id === "string" && TASK_ID.test(id) ? id : void 0;
+}
+function parseBackgroundToolCalls(value) {
+  const row = object4(value);
+  if (!row || row.type !== "assistant") return [];
+  const content = object4(row.message)?.content;
+  if (!Array.isArray(content)) return [];
+  const calls = [];
+  for (const item of content) {
+    const block = object4(item);
+    if (block?.type !== "tool_use" || typeof block.id !== "string" || !TASK_ID.test(block.id)) continue;
+    const name = typeof block.name === "string" ? block.name.trim() : "";
+    const lower = name.toLowerCase();
+    const input = object4(block.input);
+    if (lower === "bash" || lower === "shell" || lower === "exec") {
+      const command = boundedLabel(input?.command);
+      if (command) calls.push({ id: block.id, label: command, kind: "shell" });
+    } else if ((name === "Agent" || name === "Task") && typeof input?.prompt === "string") {
+      const description = boundedLabel(input.description);
+      if (description) calls.push({ id: block.id, label: description, kind: "subagent" });
+    }
+  }
+  return calls;
+}
 function parseBackgroundWork(value) {
   const row = object4(value);
   if (!row) return [];
@@ -1192,19 +1227,36 @@ function parseBackgroundWork(value) {
   const result = object4(row.toolUseResult);
   const content = object4(row.message)?.content;
   const events = [];
+  const resultToolUseId = singleToolResultUseId(content);
   const shellId = result?.backgroundTaskId;
   if (typeof shellId === "string" && TASK_ID.test(shellId)) {
+    const label = boundedLabel(result?.command);
     const outputPath = shellOutputPath(content, row.sessionId, shellId);
-    events.push({ id: shellId, state: "running", kind: "shell", ...outputPath && { output_path: outputPath } });
+    events.push({
+      id: shellId,
+      state: "running",
+      kind: "shell",
+      ...label && { label },
+      ...resultToolUseId && { tool_use_id: resultToolUseId },
+      ...outputPath && { output_path: outputPath }
+    });
   }
   const agentId = result?.agentId;
   const agentStatus = result?.status === "async_launched" ? "running" : result?.status;
   if (typeof agentId === "string" && TASK_ID.test(agentId) && (agentStatus === "running" || agentStatus === "completed" || agentStatus === "killed" || agentStatus === "failed")) {
-    events.push({ id: agentId, state: agentStatus, kind: "subagent" });
+    const label = boundedLabel(result?.description);
+    events.push({
+      id: agentId,
+      state: agentStatus,
+      kind: "subagent",
+      ...label && { label },
+      ...resultToolUseId && { tool_use_id: resultToolUseId }
+    });
   }
   const stoppedId = result?.task_id;
   if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" && typeof stoppedId === "string" && TASK_ID.test(stoppedId) && !(Array.isArray(content) && content.some((block) => object4(block)?.is_error === true))) {
-    events.push({ id: stoppedId, state: "killed", kind: "shell" });
+    const label = boundedLabel(result.command);
+    events.push({ id: stoppedId, state: "killed", kind: "shell", ...label && { label } });
   }
   const attachment = object4(row.attachment);
   const origin = object4(row.origin);
@@ -3003,6 +3055,7 @@ var plugin = {
   accountIdentity,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,
+  parseBackgroundToolCalls,
   reasoningEffortLaunchArgsForModel,
   modelCatalogueSeed: manifestModels,
   parseAuthStatus,
@@ -3586,8 +3639,8 @@ function* parseSessionDelta(chunk) {
     stampRows(previousRow);
     previousRow = row;
     const emitObservations = () => {
-      const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
-      if (!observations && !background.length) return false;
+      const observations = parseSessionObservations(v), background = parseBackgroundWork(v), toolCalls = parseBackgroundToolCalls(v);
+      if (!observations && !background.length && !toolCalls.length) return false;
       out.push({
         role: "system",
         blocks: [],
@@ -3595,6 +3648,7 @@ function* parseSessionDelta(chunk) {
         uuid: null,
         provider_observations: observations,
         background_work: background,
+        ...toolCalls.length ? { background_tool_calls: toolCalls } : {},
         provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null
       });
       return true;
@@ -3763,11 +3817,13 @@ function* parseSessionDelta(chunk) {
       timelineMarker = { kind: "context_compaction" };
     }
     const context = parseContextUsage(v);
+    const backgroundToolCalls = parseBackgroundToolCalls(v);
     out.push({
       ...context ? { context_usage: context } : {},
       provider_observations: parseSessionObservations(v),
       provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
       background_work: parseBackgroundWork(v),
+      ...backgroundToolCalls.length ? { background_tool_calls: backgroundToolCalls } : {},
       role,
       blocks,
       ts,

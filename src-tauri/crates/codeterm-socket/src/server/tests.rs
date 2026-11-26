@@ -65,7 +65,7 @@ impl<F: Fn() -> bool> Write for FlushProbe<F> {
 
 #[test]
 fn cron_settle_cron_complete_closes_after_response_flush() {
-    for replacement in [false, true] {
+    for (replacement, status) in [(false, None), (true, None), (false, Some("failed"))] {
         use codeterm_service_core::cron::store::{
             CronCreateParams, CronRunInfo, CronRunStatus, CronStore,
         };
@@ -144,7 +144,7 @@ fn cron_settle_cron_complete_closes_after_response_flush() {
             .lock()
             .api
             .token = Some("flush-owner-credential".into());
-        let request = serde_json::json!({
+        let mut request = serde_json::json!({
             "jsonrpc": "2.0",
             "credential": "flush-owner-credential",
             "id": 1,
@@ -156,6 +156,9 @@ fn cron_settle_cron_complete_closes_after_response_flush() {
                 "human_confirmed": true
             }
         });
+        if let Some(status) = status {
+            request["params"]["status"] = status.into();
+        }
         let input = format!("{}\n", serde_json::to_string(&request).unwrap()).into_bytes();
         let mux = fixture.service.mux.clone();
         let flush_mux = mux.clone();
@@ -177,6 +180,21 @@ fn cron_settle_cron_complete_closes_after_response_flush() {
         };
         let svc = Arc::new(fixture.service.clone());
 
+        if status == Some("failed") {
+            let mut invalid = request["params"].clone();
+            invalid["status"] = "running".into();
+            assert_eq!(
+                super::cron::dispatch_complete(&Some(invalid), &svc)
+                    .err()
+                    .unwrap()
+                    .code,
+                -32602
+            );
+            assert_eq!(
+                cron.lock().get_history(&job_id)[0].status,
+                CronRunStatus::Running
+            );
+        }
         let (ended, settled) = mpsc::channel();
         fixture.ui.listen("cron-run-finished", move |_| {
             let _ = ended.send(());
@@ -216,7 +234,19 @@ fn cron_settle_cron_complete_closes_after_response_flush() {
                 .unwrap();
         }
         let receipt = cron.lock().get_history(&job_id)[0].clone();
-        assert_eq!(receipt.status, CronRunStatus::Success);
+        let expected = if status == Some("failed") {
+            CronRunStatus::Failed
+        } else {
+            CronRunStatus::Success
+        };
+        assert_eq!(receipt.status, expected);
+        let store = cron.lock();
+        let job = store.get(&job_id).unwrap();
+        assert_eq!(job.last_run.as_ref().unwrap().status, expected);
+        assert_eq!(
+            job.consecutive_failures,
+            u32::from(expected == CronRunStatus::Failed)
+        );
         assert_eq!(receipt.summary.as_deref(), Some("response-flush-summary"));
         assert_eq!(receipt.report_delivery.as_deref(), Some("no report target"));
     }

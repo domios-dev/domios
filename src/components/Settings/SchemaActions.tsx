@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { Button, type ButtonVariant } from "../shared/Button";
 import type { ActionStyle, SettingField } from "../../lib/types";
+import { RemoteLocalOnlyNotice } from "./shared";
 
 export type ActionSetting = Extract<SettingField, { kind: "action" }>;
 export type FieldSegment =
@@ -61,18 +62,31 @@ export function actionStateFromQuery(result: unknown, declared: ActionPresentati
   return declared;
 }
 
-export function SchemaActionBar({ actions }: { actions: readonly ActionSetting[] }) {
+export function SchemaActionBar({
+  actions,
+  disabled = false,
+  remoteMachineName,
+}: {
+  actions: readonly ActionSetting[];
+  disabled?: boolean;
+  remoteMachineName?: string;
+}) {
   const firstDanger = actions.findIndex((action) => action.style === "danger");
   return (
-    <div role="group" aria-label="Actions" className="flex flex-wrap items-center gap-2 pt-1" data-testid="settings-schema-actions">
-      {actions.map((action, index) => (
-        <ActionField key={action.id} action={action} trailing={index === firstDanger && index > 0} />
-      ))}
+    <div className="space-y-2 pt-1">
+      {disabled && remoteMachineName && (
+        <RemoteLocalOnlyNotice machineName={remoteMachineName} subject="Harness setup actions" />
+      )}
+      <div role="group" aria-label="Actions" className="flex flex-wrap items-center gap-2" data-testid="settings-schema-actions">
+        {actions.map((action, index) => (
+          <ActionField key={action.id} action={action} trailing={index === firstDanger && index > 0} disabled={disabled} />
+        ))}
+      </div>
     </div>
   );
 }
 
-function ActionField({ action, trailing }: { action: ActionSetting; trailing: boolean }) {
+function ActionField({ action, trailing, disabled = false }: { action: ActionSetting; trailing: boolean; disabled?: boolean }) {
   const { label, command, state_query: stateQuery, args, confirm, style } = action;
   const [state, setState] = useState<ActionPresentation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,16 +95,16 @@ function ActionField({ action, trailing }: { action: ActionSetting; trailing: bo
   const argsKey = JSON.stringify(args ?? null);
 
   const refreshState = useCallback(() => {
-    if (!stateQuery) return;
+    if (!stateQuery || disabled) return;
     const parsed = argsKey === "null" ? undefined : (JSON.parse(argsKey) as Record<string, unknown>);
     invoke<unknown>(stateQuery, parsed)
       .then((result) => setState(actionStateFromQuery(result, { label, style })))
       .catch(() => setState({ label, style }));
-  }, [stateQuery, argsKey, label, style]);
+  }, [stateQuery, argsKey, label, style, disabled]);
 
   useEffect(() => {
-    if (stateQuery) refreshState();
-  }, [stateQuery, refreshState]);
+    if (stateQuery && !disabled) refreshState();
+  }, [stateQuery, refreshState, disabled]);
 
   useEffect(() => {
     if (!justDone) return;
@@ -99,6 +113,7 @@ function ActionField({ action, trailing }: { action: ActionSetting; trailing: bo
   }, [justDone]);
 
   const click = useCallback(async () => {
+    if (disabled) return;
     if (confirm && !window.confirm(confirm)) return;
     setBusy(true);
     setError(null);
@@ -112,7 +127,7 @@ function ActionField({ action, trailing }: { action: ActionSetting; trailing: bo
     } finally {
       setBusy(false);
     }
-  }, [command, argsKey, confirm, stateQuery, refreshState]);
+  }, [command, argsKey, confirm, stateQuery, refreshState, disabled]);
 
   const effective = state ?? { label, style };
   return (
@@ -125,7 +140,7 @@ function ActionField({ action, trailing }: { action: ActionSetting; trailing: bo
         data-action-style={effective.style}
         onClick={click}
         loading={busy}
-        disabled={justDone}
+        disabled={disabled || justDone}
         className={trailing ? "gap-1.5 sm:ml-auto" : "gap-1.5"}
       >
         {justDone && <Check size={12} aria-hidden />}

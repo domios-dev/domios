@@ -20,18 +20,29 @@ interface HastNode {
   children?: HastNode[];
 }
 
+const DOMIOS_HTML_TAG = /<\/?domios(?=$|[\s/>])(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi;
+
 export function remarkReferenceMarkers() {
   interface Node { type: string; value?: string; children?: Node[] }
   function split(child: Node): Node[] {
-    if (child.type !== "html" || !child.value) return [walk(child)];
+    if (child.type !== "html" || !child.value || !/<\/?domios(?=$|[\s/>])/i.test(child.value)) return [walk(child)];
+    // `<domios ...>` is never allowed HTML: lifting both valid and malformed tags to text lets rehypePlanRefs
+    // render valid chips while incomplete or malformed tags stay inert instead of being stripped by rehype-sanitize.
+    const ranges: Array<[number, number]> = referenceMarkers(child.value).map((marker) => [marker.start, marker.end]);
+    for (const match of child.value.matchAll(DOMIOS_HTML_TAG)) {
+      const start = match.index!;
+      const end = start + match[0].length;
+      if (!ranges.some(([a, b]) => start < b && end > a)) ranges.push([start, end]);
+    }
+    if (!ranges.length) return [child];
+    ranges.sort((a, b) => a[0] - b[0]);
     const nodes: Node[] = [];
     let cursor = 0;
-    for (const marker of referenceMarkers(child.value)) {
-      if (marker.start > cursor) nodes.push({ type: "html", value: child.value.slice(cursor, marker.start) });
-      nodes.push({ type: "text", value: marker.text });
-      cursor = marker.end;
+    for (const [start, end] of ranges) {
+      if (start > cursor) nodes.push({ type: "html", value: child.value.slice(cursor, start) });
+      nodes.push({ type: "text", value: child.value.slice(start, end) });
+      cursor = end;
     }
-    if (!cursor) return [child];
     if (cursor < child.value.length) nodes.push({ type: "html", value: child.value.slice(cursor) });
     return nodes;
   }

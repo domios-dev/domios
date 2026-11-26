@@ -33,6 +33,7 @@ fn apply_mesh_enabled_with<R, F>(
     if enabled {
         log::info!("[mesh] enabled — resuming announce to paired peers");
         resume(mesh);
+        mesh.lock().note_mesh_enabled();
         schedule_announce(mesh.clone());
     } else {
         log::info!("[mesh] disabled — going offline, marking peers offline");
@@ -47,12 +48,15 @@ fn apply_mesh_enabled_with<R, F>(
 }
 
 pub async fn announce_enabled_mesh(mesh: MeshState) {
-    let _ = broadcast_announce(&mesh, None).await;
+    let online = mesh.lock().build_announce().online;
+    if online {
+        let _ = broadcast_announce(&mesh, None).await;
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
 
     use parking_lot::Mutex;
@@ -60,10 +64,22 @@ mod tests {
     use super::*;
     use crate::MeshManager;
 
-    struct RecordingSink;
+    struct RecordingSink {
+        mesh_changes: AtomicUsize,
+    }
+
+    impl RecordingSink {
+        fn new() -> Self {
+            Self {
+                mesh_changes: AtomicUsize::new(0),
+            }
+        }
+    }
 
     impl MeshEventSink for RecordingSink {
-        fn emit_mesh_state_changed(&self) {}
+        fn emit_mesh_state_changed(&self) {
+            self.mesh_changes.fetch_add(1, Ordering::AcqRel);
+        }
 
         fn emit_config_changed(&self, _: serde_json::Value) {}
     }
@@ -77,17 +93,72 @@ mod tests {
             let mut manager = MeshManager::new("toggle-off-runtime".into(), 0);
             manager.disk_persist = false;
             let mesh = Arc::new(Mutex::new(manager));
+            let sink = RecordingSink::new();
             apply_mesh_enabled_with(
                 &mesh,
                 true,
-                &RecordingSink,
+                &sink,
                 |_| {},
                 |_| scheduled_on_thread.store(true, Ordering::Release),
             );
+            assert_eq!(mesh.lock().mesh_enable_generation(), 1);
+            assert_eq!(sink.mesh_changes.load(Ordering::Acquire), 1);
         })
         .join();
 
         assert!(result.is_ok(), "mesh enable must not require Tokio runtime");
         assert!(scheduled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn off_then_on_marks_peers_offline_notifies_gate_and_bumps_enable_generation() {
+        let mut manager = MeshManager::new("toggle-cycle".into(), 0);
+        manager.disk_persist = false;
+        let peer_id = "peer-1".to_string();
+        manager.paired_peers.insert(
+            peer_id.clone(),
+            crate::types::PairedPeer {
+                instance_id: peer_id.clone(),
+                instance_name: "Peer".into(),
+                addresses: vec![crate::types::PeerAddress::from_ip("192.0.2.10")],
+                api_port: 7685,
+                public_key: "key".into(),
+                paired_at: "2026-01-01T00:00:00Z".into(),
+                last_seen: None,
+                online: true,
+                is_primary: false,
+                access_level: crate::types::AccessLevel::Full,
+                domios_version: None,
+                domios_build: None,
+                web_ui: None,
+                relay_protocol_version: crate::types::RELAY_PROTOCOL_VERSION,
+                consecutive_misses: 0,
+                last_active_ms: None,
+            },
+        );
+        let mesh = Arc::new(Mutex::new(manager));
+        let mut gate = mesh.lock().gate_watch();
+        let sink = RecordingSink::new();
+
+        apply_mesh_enabled_with(&mesh, false, &sink, |_| {}, |_| panic!("must not announce"));
+        assert!(!mesh.lock().paired_peers[&peer_id].online);
+        assert_eq!(mesh.lock().mesh_enable_generation(), 0);
+        assert!(gate.has_changed().unwrap());
+        gate.borrow_and_update();
+
+        let scheduled = AtomicBool::new(false);
+        apply_mesh_enabled_with(
+            &mesh,
+            true,
+            &sink,
+            |_| {},
+            |_| {
+                scheduled.store(true, Ordering::Release);
+            },
+        );
+        assert!(scheduled.load(Ordering::Acquire));
+        assert_eq!(mesh.lock().mesh_enable_generation(), 1);
+        assert!(gate.has_changed().unwrap());
+        assert_eq!(sink.mesh_changes.load(Ordering::Acquire), 2);
     }
 }

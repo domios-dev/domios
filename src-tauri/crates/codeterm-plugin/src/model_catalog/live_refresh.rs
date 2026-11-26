@@ -83,7 +83,7 @@ pub async fn refresh_live(
             return Err(RefreshFailure::OnlyNonChatModels);
         }
         let default = resolve_live_default(&models, seed_default);
-        let binary = provider.cli_binary().and_then(fingerprint_bin);
+        let binary = fingerprint_provider_bin(provider.as_ref());
         let credentials = credential_fingerprints(provider.as_ref());
         inputs::publish_current(provider.as_ref(), &inputs, || {
             put_live_with_credentials(&publish_id, models.clone(), default, binary, credentials);

@@ -74,13 +74,14 @@ export function useWorkspaceTabActions(workspaceId: string, cwd: string | null, 
 }
 
 /** The selected workspace's header and tab tree. */
-export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent, allowObservedWorkspaceClose }: {
+export function SidebarWorkspaceDetail({ workspace, status, data, actions, observedContent, allowObservedWorkspaceClose, observedWorkspaceCloseDisabledReason }: {
   workspace: Workspace;
   status: TabStatus | null;
   data: SidebarWorkspaceDetailData;
   actions: SidebarWorkspaceDetailActions;
   observedContent?: ReactNode;
   allowObservedWorkspaceClose?: boolean;
+  observedWorkspaceCloseDisabledReason?: string | null;
 }) {
   const readOnly = observedContent != null;
   const workspaceId = workspace.id;
@@ -113,6 +114,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions, obser
         onNewAgent={(agentId) => actions.newAgent(agentId, workspaceId, cwd)}
         canClose={!readOnly || canCloseObservedWorkspace}
         allowReadOnlyClose={canCloseObservedWorkspace}
+        readOnlyCloseDisabledReason={readOnly && !workspace.protected ? observedWorkspaceCloseDisabledReason ?? null : null}
         readOnly={readOnly}
         status={status}
         showDisclosure={false}

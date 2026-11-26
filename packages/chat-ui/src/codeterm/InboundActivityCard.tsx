@@ -73,7 +73,7 @@ export function InboundActivityCard({ message, testId, title, summary, subtitle,
       visualOverride={visual}
       disclosureLabel={disclosureLabel}
       disclosureToggleLabel={disclosureToggleLabel}
-      metric={chips.length ? <ToolCardChips chips={chips} /> : undefined}
+      metric={chips.length ? <ToolCardChips chips={chips} wrap /> : undefined}
       menu={menu}
       action={onFocusTab ? <ToolCardActionButton label="Show Tab" ariaLabel={focusTabName ? `Show tab ${focusTabName}` : undefined} compactIcon={Boolean(focusTabName)} onClick={onFocusTab} testId={focusTabTestId} /> : undefined}
     >

@@ -998,3 +998,80 @@ fn live_multi_tag_commands_reach_frontend_enrichment_unchanged() {
         assert!(!messages[index].content.contains("<local-command-stdout>"));
     }
 }
+
+#[test]
+fn parse_session_records_and_delta_survive_v2_1_332_session_with_native_parity() {
+    require_plugins().expect("bundled plugins are required for the session fixture");
+    let (native, js) = pair();
+    let fixture_path = plugin_fixture_root().join("tests/fixtures/cli-2-1-332-session.jsonl");
+    let contents = std::fs::read_to_string(&fixture_path).unwrap();
+    let total = contents.len() as u64;
+
+    let source = js
+        .record_source("sessionTranscript")
+        .expect("provider declares sessionTranscript record source");
+    let window =
+        crate::jsonl_window::records::read_records(&fixture_path, 0, total, source, None).unwrap();
+    let from_records = js
+        .parse_session_records(&window)
+        .expect("session fixture must parse cleanly via parse_session_records");
+    let from_delta = js.parse_session_delta(&fixture_path, 0);
+    assert_eq!(from_records.new_offset, total);
+    assert_eq!(from_delta.new_offset, total);
+    assert_eq!(
+        serde_json::to_value(&from_records).unwrap(),
+        serde_json::to_value(&from_delta).unwrap(),
+        "parse_session_records and parse_session_delta must agree on the session fixture"
+    );
+
+    // Expected rows: permission-mode observation, user prompt, ai-title, thinking, Bash tool_use,
+    // tool_result, final assistant reply, stop_hook_summary, turn_duration.
+    assert_eq!(from_records.messages.len(), 9);
+    let bash_row = from_records
+        .messages
+        .iter()
+        .find(|row| row.uuid.as_deref() == Some("a-0002"))
+        .expect("Bash tool_use row preserved");
+    assert_eq!(bash_row.blocks[0].kind, "tool_use");
+    assert!(bash_row.background_work.is_empty());
+    assert_eq!(bash_row.background_tool_calls.len(), 1);
+    assert_eq!(bash_row.background_tool_calls[0].id, "toolu_opaque_332");
+    assert_eq!(
+        bash_row.background_tool_calls[0].label,
+        "opaque-command --check"
+    );
+    assert_eq!(
+        bash_row.background_tool_calls[0].kind,
+        Some(codeterm_types::agent::background_work::BackgroundWorkKind::Shell)
+    );
+    let reply = from_records
+        .messages
+        .iter()
+        .find(|row| row.uuid.as_deref() == Some("a-0003"))
+        .expect("assistant reply row preserved");
+    assert_eq!(reply.blocks[0].data["text"], "OK");
+
+    for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        let value: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(
+            native.parse_background_work(&value),
+            js.parse_background_work(&value)
+        );
+        assert_eq!(
+            native.parse_background_tool_calls(&value),
+            js.parse_background_tool_calls(&value)
+        );
+        assert_eq!(
+            native.parse_session_observations(&value),
+            js.parse_session_observations(&value)
+        );
+        assert_eq!(
+            native.parse_context_usage(&value),
+            js.parse_context_usage(&value)
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(native.parse_session_messages(&fixture_path).unwrap()).unwrap(),
+        serde_json::to_value(js.parse_session_messages(&fixture_path).unwrap()).unwrap(),
+    );
+}

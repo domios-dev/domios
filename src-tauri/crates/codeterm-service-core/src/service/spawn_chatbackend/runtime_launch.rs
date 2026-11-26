@@ -82,16 +82,26 @@ impl ChatBackendRuntimeLaunch {
     }
 
     pub(crate) fn run(self) -> Result<(), String> {
+        self.run_with_auth(false)
+    }
+
+    pub(super) fn run_with_auth(self, require_signed_in: bool) -> Result<(), String> {
         let svc = self.svc;
         let runtime_boundary = std::sync::atomic::AtomicBool::new(false);
-        if let Err(error) = svc.chatbackend_launch_with_runtime_fork(
+        if let Err(error) = svc.chatbackend_launch_with_context(
             self.plugin_id,
             self.tab_id.clone(),
             self.config,
             self.history_meta,
-            self.runtime_fork.clone(),
-            Some(&runtime_boundary),
-            self.cron_owner.as_ref(),
+            LaunchContext {
+                fork: self
+                    .runtime_fork
+                    .as_ref()
+                    .map(|fork| (fork.source_thread_id.as_str(), fork.turn_id.as_str())),
+                boundary: Some(&runtime_boundary),
+                cron_owner: self.cron_owner.as_ref(),
+                require_signed_in,
+            },
         ) {
             if let Some(owner) = &self.cron_owner {
                 if self.cron_owned && !runtime_boundary.load(std::sync::atomic::Ordering::Acquire) {

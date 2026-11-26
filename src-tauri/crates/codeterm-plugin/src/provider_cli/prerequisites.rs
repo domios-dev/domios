@@ -1,4 +1,4 @@
-use crate::js_runtime::{probe_bin, BinResolution};
+use crate::js_runtime::{probe_bin_with_extra_dirs, BinResolution};
 
 #[cfg(any(windows, test))]
 mod powershell;
@@ -165,7 +165,7 @@ pub(super) fn observe(command: Option<&str>) -> Vec<CommandPrerequisite> {
         .into_iter()
         .flat_map(command_binaries)
         .map(|binary| {
-            let installed = match probe_bin(&binary).resolution {
+            let installed = match probe_bin_with_extra_dirs(&binary, &[]).resolution {
                 BinResolution::Found(_) => Some(true),
                 BinResolution::Missing => Some(false),
                 BinResolution::Unknown => None,

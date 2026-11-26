@@ -72,7 +72,7 @@ function toolMenuItems(event: ToolEvent, label: string, host: ChatBlockHost): Ch
 export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[]; wrap?: boolean }) {
   if (chips.length === 0) return null;
   return (
-    <span className={`flex min-w-0 gap-1 ${wrap ? "flex-wrap" : ""}`}>
+    <span className={`flex min-w-0 max-w-full items-center gap-1 ${wrap ? "flex-wrap" : "shrink-0"}`}>
       {chips.map((chip) => <span key={chip} className="ct-card__chip">{chip}</span>)}
     </span>
   );
@@ -157,15 +157,19 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           aria-controls={canExpand ? detailsId : undefined}
           disabled={!canExpand}
           onClick={onToggle}
-          className={`flex min-w-0 flex-1 gap-2 text-left ${subtitle ? "items-start" : "items-center"}`}
+          className={`flex min-w-0 flex-1 overflow-hidden gap-2 text-left ${subtitle ? "items-start" : "items-center"}`}
         >
           <span className="ct-card__icon" style={{ color: iconColor, ...(subtitle ? { height: 20, alignSelf: "flex-start" as const } : {}) }}>
             <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: iconColor }} />
           </span>
-          <span className={subtitle ? "ct-tool-labels flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "ct-tool-labels flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
-            {label && <span className={inlineCommand ? "sr-only" : `${communication ? "min-w-0 max-w-full flex-[1_1_auto]" : "max-w-[60%] shrink-0"} truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
+          <span className={subtitle
+            ? "ct-tool-labels flex min-w-0 flex-1 flex-col items-start gap-0 overflow-hidden font-mono text-[12.5px] leading-[18px]"
+            : communication
+              ? "ct-tool-labels flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 overflow-hidden font-mono text-[12.5px]"
+              : "ct-tool-labels flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden font-mono text-[12.5px]"}>
+            {label && <span className={inlineCommand ? "sr-only" : `${communication ? "min-w-0 max-w-full shrink" : "max-w-[60%] shrink-0"} truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
             {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal leading-[14px]" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
-            <span className={resolvedSummary === null ? "hidden" : "ct-tool-subject min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{resolvedSummary}</span>
+            <span className={resolvedSummary === null ? "hidden" : "ct-tool-subject min-w-0 max-w-full truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{resolvedSummary}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />
             {!expanded && tail}

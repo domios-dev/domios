@@ -9,6 +9,7 @@ import type { ChatSendStatus } from "../../components/Terminal/chatSendStatus";
 import type { SessionBindingFact } from "../../components/Terminal/sessionBindingSurface";
 import type { ResizeOwnerClaim } from "../resizeOwner";
 import { isPromptNotOnScreenResponse } from "../webApi";
+import { hydrateMuxSnapshot } from "../muxRuntimeAssets";
 import { RemotePtyIdCache, writeRemotePty, type RemotePtyWriteResponse } from "../remotePtyIdCache";
 import type { AtomicSpawn, MultiplexerState, ShellProfile } from "../types";
 import type { TransportClient } from "../transportClient";
@@ -28,13 +29,19 @@ function exactPeerId(args: Args): string {
 function hasPeerTarget(args: Args): boolean {
     return args.peerId !== undefined || args.peer_id !== undefined;
 }
+function hasExplicitPeer(args: Args): boolean {
+    return (args.peerId !== undefined && args.peerId !== null) || (args.peer_id !== undefined && args.peer_id !== null);
+}
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
 /** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
 export async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
     if (!peer.trim()) throw new Error("An exact peer installation id is required");
-    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } }>("POST", "/api/mesh/relay-to", {
-        target_instance_id: peer, method, path, body,
-    });
+    const isRead = method.toUpperCase() === "GET" || method.toUpperCase() === "HEAD";
+    type RelayResponse = { ok?: boolean; data?: unknown; error?: string | null; peer?: { instance_id: string } };
+    const request = { target_instance_id: peer, method, path, body };
+    const response = isRead
+        ? await client.json<RelayResponse>("POST", "/api/mesh/relay-to", request, { timeoutMs: REST_READ_TIMEOUT_MS })
+        : await client.json<RelayResponse>("POST", "/api/mesh/relay-to", request);
     if (!response.ok) throw new Error(response.error ?? `${peer} did not answer ${method} ${path}`);
     if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
     return response.data;
@@ -54,9 +61,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         provider_registry_install: (a: Args) => clientFor(a).json("POST", `/api/agents/providers/${enc(s(a, "providerId"))}/registry/install`, {id: s(a, "id")}, {timeoutMs: null}),
         provider_remove_profile: (a: Args) => clientFor(a).json("DELETE", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles/${enc(s(a, "name"))}`),
         wake_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/wake`),
-        mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
+        mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state").then(hydrateMuxSnapshot),
         agent_runtime_child_authority: async (a: Args) => {
-            const state = await clientFor(a).json<MultiplexerState>("GET", "/api/mux/state");
+            const state = hydrateMuxSnapshot(await clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"));
             return currentChildAuthority(state.tabs[s(a, "tabId")]);
         },
         agent_runtime_answer_question: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/questions/${enc(s(a, "itemId"))}/answer`, { answers: a.answers }),
@@ -91,7 +98,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         mux_rename_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/rename`, {
             name: a.name,
         }),
-        shell_profiles: (a: Args) => clientFor(a).json<ShellProfile[]>("GET", `/api/shells?refresh=${a.refresh === true}`),
+        shell_profiles: (a: Args = {}) => hasExplicitPeer(a)
+            ? relayToPeer(clientFor(a), exactPeerId(a), "GET", `/api/shells?refresh=${a.refresh === true}`, null) as Promise<ShellProfile[]>
+            : clientFor(a).json<ShellProfile[]>("GET", `/api/shells?refresh=${a.refresh === true}`),
         mux_create_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
             eager: a.eager === true,
             shell: a.shell,
@@ -193,7 +202,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             if (!response.ok)
                 throw new Error(response.error ?? "Failed to list remote Tabs");
             if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
-            const snapshot = response.data;
+            const snapshot = hydrateMuxSnapshot(response.data);
             if (!snapshot?.tabs || typeof snapshot.tabs !== "object") throw new Error("Remote peer returned no multiplexer snapshot");
             const tabs = Object.values(snapshot.tabs).filter(tab =>
                 !tab.id.startsWith("mesh:") && !tab.remote_peer_id && !tab.remote_tab_id);
@@ -208,7 +217,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         },
         mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
         // The peer's published multiplexer state: the only read that names both its workspaces and Teams.
-        mesh_peer_mux_state: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/mux/state", null),
+        mesh_peer_mux_state: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/mux/state", null).then(hydrateMuxSnapshot),
         mesh_peer_notifications_list: (a: Args) => relayToPeer(clientFor(a), exactPeerId(a), "GET", "/api/notifications", null),
         mesh_peer_notification_action: (a: Args) => {
             const peerId = exactPeerId(a);
@@ -369,7 +378,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             force: a.force === true,
         }),
         save_session: (a: Args = {}) => clientFor(a).json("POST", "/api/session/save"),
-        restart_general_agent: (a: Args = {}) => clientFor(a).json("POST", "/api/agents/general/restart"),
+        restart_general_agent: (a: Args = {}) => hasExplicitPeer(a)
+            ? relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/general/restart", null)
+            : clientFor(a).json("POST", "/api/agents/general/restart"),
         spawn_general_agent_session: (a: Args) => hasPeerTarget(a)
             ? relayToPeer(clientFor(a), exactPeerId(a), "POST", "/api/agents/general/sessions", a.params) as Promise<AtomicSpawn>
             : clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
@@ -445,7 +456,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 reasoning_effort: p.reasoningEffort, preset: p.preset, launch_profile: p.launchProfile,
                 account_id: p.accountId,
             });
-            const snapshot = await clientFor(a).json<AtomicSpawn["snapshot"]>("GET", "/api/mux/state");
+            const snapshot = hydrateMuxSnapshot(await clientFor(a).json<AtomicSpawn["snapshot"]>("GET", "/api/mux/state"));
             return { tab_id: result.tab_id, workspace_id: result.workspace_id ?? p.workspaceId, snapshot };
         },
     };

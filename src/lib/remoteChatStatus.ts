@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { MeshPeersResponse } from "./types";
 import { parseCompositeTabId } from "./remoteTabTransport";
-import { remoteChatState, type RemoteChatFailure, type RemoteChatPresence } from "./remoteChatState";
+import { isRemoteMessageAttachmentRefusal, remoteChatState, type RemoteChatFailure, type RemoteChatPresence } from "./remoteChatState";
 
 interface Peer {
   name?: string;
@@ -65,9 +65,21 @@ export function remoteChatPeer(peerId?: string | null): Peer | undefined {
 }
 
 export function setRemoteChatFailure(tabId: string, failure?: RemoteChatFailure) {
+  if (isRemoteMessageAttachmentRefusal(failure)) return;
   if (failure) failures.set(tabId, failure);
   else if (!failures.delete(tabId)) return;
   publish();
+}
+
+export function clearPeerRemoteChatFailures(peerId: string) {
+  let deleted = false;
+  for (const tabId of [...failures.keys()]) {
+    if (parseCompositeTabId(tabId)?.peerId === peerId) {
+      failures.delete(tabId);
+      deleted = true;
+    }
+  }
+  if (deleted) publish();
 }
 
 export function readRemoteChatStatus(tabId: string, peerId?: string | null) {

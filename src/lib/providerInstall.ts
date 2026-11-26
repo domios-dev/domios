@@ -27,7 +27,11 @@ export function installSource(command: string | null | undefined): string | null
   return url.replace(/^https?:\/\//, "").replace(/\?.*$/, "").replace(/\/$/, "");
 }
 
-export async function launchProviderInstaller(providerId: string): Promise<ProviderInstallLaunch> {
-  const result = await invoke<ProviderInstallLaunch>("install_provider_in_tab", { providerId });
+export async function launchProviderInstaller(
+  providerId: string,
+  peerId?: string | null,
+): Promise<ProviderInstallLaunch> {
+  const args = peerId !== undefined ? { providerId, peerId } : { providerId };
+  const result = await invoke<ProviderInstallLaunch>("install_provider_in_tab", args);
   return requireProviderInstallLaunch(result);
 }

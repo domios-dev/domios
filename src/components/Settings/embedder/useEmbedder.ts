@@ -1,3 +1,4 @@
+import { daemonTransportForPeer } from "../../../lib/daemonBootstrap";
 import { localFetch } from "../../../lib/webApi";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../../lib/bridge";
@@ -19,17 +20,25 @@ async function readJson<T>(response: Response): Promise<T> {
   throw normalizeRefusal(reason ?? `HTTP ${response.status}`);
 }
 
-export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
+export function useEmbedder(apiBase: string, apiHeaders: HeadersInit, peerId?: string) {
   const [listing, setListing] = useState<EmbedderListing | null>(null);
   const [status, setStatus] = useState<EmbedderStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const headers = useRef(apiHeaders);
   headers.current = apiHeaders;
 
+  const request = useCallback(
+    (path: string, init: RequestInit = {}) =>
+      peerId
+        ? daemonTransportForPeer(peerId).request!(path, init)
+        : localFetch(path, { ...init, headers: { ...headers.current, ...init.headers } }),
+    [peerId],
+  );
+
   const load = useCallback(async () => {
     try {
       const next = await readJson<EmbedderListing>(
-        await localFetch(`/api/mem/embedder/providers`, { headers: headers.current }),
+        await request(`/api/mem/embedder/providers`),
       );
       setListing(next);
       setStatus(next.status);
@@ -37,10 +46,14 @@ export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
     } catch (reason) {
       setError(normalizeRefusal(reason).message);
     }
-  }, [apiBase]);
+  }, [apiBase, request]);
 
   useEffect(() => {
+    setListing(null);
+    setStatus(null);
+    setError(null);
     void load();
+    if (peerId) return;
     let active = true;
     let stop: (() => void) | undefined;
     void listen(EMBEDDER_CHANGED_EVENT, (event: { payload: unknown }) => {
@@ -56,33 +69,33 @@ export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
       active = false;
       stop?.();
     };
-  }, [load]);
+  }, [load, peerId]);
 
   const preview = useCallback(
     async (value: string): Promise<SwitchPreview> => {
       const { provider, model } = parseOption(value);
       const query = new URLSearchParams({ provider, model });
       return readJson<SwitchPreview>(
-        await localFetch(`/api/mem/embedder/preview?${query}`, { headers: headers.current }),
+        await request(`/api/mem/embedder/preview?${query}`),
       );
     },
-    [apiBase],
+    [apiBase, request],
   );
 
   const switchTo = useCallback(
     async (value: string): Promise<SwitchPreview> => {
       const { provider, model } = parseOption(value);
       const result = await readJson<SwitchPreview>(
-        await localFetch(`/api/mem/embedder/use`, {
+        await request(`/api/mem/embedder/use`, {
           method: "POST",
-          headers: { ...headers.current, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ provider, model }),
         }),
       );
       await load();
       return result;
     },
-    [apiBase, load],
+    [apiBase, load, request],
   );
 
   return { listing, status, error, preview, switchTo };

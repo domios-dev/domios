@@ -1,29 +1,63 @@
 // No daemon round-trip — these mutations are local-only.
 
-use codeterm_mem_store::{graph, migrations};
+use codeterm_mem_store::{graph, migrations, MemStoreError};
 
-use crate::data_dir_name;
+use crate::cmd::error_contract::ErrorCode;
+use crate::cmd::print::CliError;
 use crate::MemGraphAction;
 
-fn default_db_path() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("home dir not found")?;
-    Ok(home.join(data_dir_name()).join("mem").join("knowledge.db"))
+pub(crate) const SQLITE_BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn resolve_db_path(db_path_arg: Option<&str>) -> std::path::PathBuf {
+    match db_path_arg {
+        Some(p) => std::path::PathBuf::from(p),
+        None => crate::data_root().join("mem").join("knowledge.db"),
+    }
 }
 
-pub(crate) fn open_conn(db_path_arg: Option<&str>) -> Result<rusqlite::Connection, String> {
-    let db_path = match db_path_arg {
-        Some(p) => std::path::PathBuf::from(p),
-        None => default_db_path()?,
-    };
-    let conn = rusqlite::Connection::open(&db_path)
-        .map_err(|e| format!("open {}: {}", db_path.display(), e))?;
-    conn.busy_timeout(std::time::Duration::from_secs(5))
-        .map_err(|e| format!("busy_timeout: {}", e))?;
-    migrations::run(&conn).map_err(|e| format!("migrations: {}", e))?;
+fn mem_store_error(error: MemStoreError) -> CliError {
+    match error {
+        MemStoreError::NotFound(msg) => CliError::typed(ErrorCode::NotFound, msg),
+        MemStoreError::Conflict(msg) => CliError::typed(ErrorCode::Conflict, msg),
+        MemStoreError::InvalidArgument(msg) => CliError::typed(ErrorCode::InvalidArgument, msg),
+        other => CliError::new(other.to_string()),
+    }
+}
+
+pub(crate) fn open_readonly_conn(
+    db_path_arg: Option<&str>,
+) -> Result<rusqlite::Connection, CliError> {
+    let db_path = resolve_db_path(db_path_arg);
+    if !db_path.exists() {
+        return Err(CliError::typed(
+            ErrorCode::NotFound,
+            format!("memory database not found: {}", db_path.display()),
+        ));
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| CliError::new(format!("open {}: {}", db_path.display(), e)))?;
+    conn.busy_timeout(SQLITE_BUSY_TIMEOUT)
+        .map_err(|e| CliError::new(format!("busy_timeout: {}", e)))?;
+    conn.execute_batch("PRAGMA query_only = ON;")
+        .map_err(|e| CliError::new(format!("query_only pragma: {}", e)))?;
     Ok(conn)
 }
 
-pub(crate) fn print_or_exit<T: serde::Serialize>(result: Result<T, String>) -> ! {
+pub(crate) fn open_conn(db_path_arg: Option<&str>) -> Result<rusqlite::Connection, CliError> {
+    let db_path = resolve_db_path(db_path_arg);
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| CliError::new(format!("open {}: {}", db_path.display(), e)))?;
+    conn.busy_timeout(SQLITE_BUSY_TIMEOUT)
+        .map_err(|e| CliError::new(format!("busy_timeout: {}", e)))?;
+    migrations::run(&conn)
+        .map_err(|e| CliError::typed(ErrorCode::MigrationFailed, format!("migrations: {}", e)))?;
+    Ok(conn)
+}
+
+pub(crate) fn print_or_exit<T: serde::Serialize>(result: Result<T, CliError>) -> ! {
     match result {
         Ok(v) => {
             let val = serde_json::to_value(&v).unwrap_or(serde_json::json!({}));
@@ -40,7 +74,7 @@ pub(crate) fn print_or_exit<T: serde::Serialize>(result: Result<T, String>) -> !
             std::process::exit(0);
         }
         Err(e) => {
-            crate::cmd::print::fail(1, e);
+            crate::cmd::print::fail_with(1, &e);
         }
     }
 }
@@ -54,7 +88,7 @@ pub fn run_route(
     reason: Option<&str>,
     db_path: Option<&str>,
 ) -> ! {
-    let result = (|| -> Result<graph::RouteReport, String> {
+    let result = (|| -> Result<graph::RouteReport, CliError> {
         let conn = open_conn(db_path)?;
         graph::route(
             &conn,
@@ -67,7 +101,7 @@ pub fn run_route(
                 reason: reason.map(String::from),
             },
         )
-        .map_err(|e| e.to_string())
+        .map_err(mem_store_error)
     })();
     print_or_exit(result);
 }
@@ -81,8 +115,12 @@ pub fn run_purge_invalidated(
     let actor = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| "cli".to_string());
-    let result = (|| -> Result<graph::PurgeReport, String> {
-        let conn = open_conn(db_path)?;
+    let result = (|| -> Result<graph::PurgeReport, CliError> {
+        let conn = if dry_run {
+            open_readonly_conn(db_path)?
+        } else {
+            open_conn(db_path)?
+        };
         graph::purge_invalidated(
             &conn,
             graph::PurgeOptions {
@@ -92,14 +130,18 @@ pub fn run_purge_invalidated(
                 actor,
             },
         )
-        .map_err(|e| e.to_string())
+        .map_err(mem_store_error)
     })();
     print_or_exit(result);
 }
 
 pub fn run_revive_broken(since: Option<&str>, dry_run: bool, db_path: Option<&str>) -> ! {
-    let result = (|| -> Result<graph::ReviveBrokenReport, String> {
-        let conn = open_conn(db_path)?;
+    let result = (|| -> Result<graph::ReviveBrokenReport, CliError> {
+        let conn = if dry_run {
+            open_readonly_conn(db_path)?
+        } else {
+            open_conn(db_path)?
+        };
         graph::revive_broken(
             &conn,
             graph::ReviveBrokenOptions {
@@ -107,7 +149,7 @@ pub fn run_revive_broken(since: Option<&str>, dry_run: bool, db_path: Option<&st
                 dry_run,
             },
         )
-        .map_err(|e| e.to_string())
+        .map_err(mem_store_error)
     })();
     print_or_exit(result);
 }
@@ -204,10 +246,10 @@ fn suggested_anchor(members: &[(&str, &NodeMeta)]) -> String {
 }
 
 pub fn run_islands(max_size: usize, limit: usize, db_path: Option<&str>) -> ! {
-    let result = (|| -> Result<serde_json::Value, String> {
-        let conn = open_conn(db_path)?;
-        let meta = load_node_meta(&conn)?;
-        let edges = load_active_edges(&conn)?;
+    let result = (|| -> Result<serde_json::Value, CliError> {
+        let conn = open_readonly_conn(db_path)?;
+        let meta = load_node_meta(&conn).map_err(CliError::new)?;
+        let edges = load_active_edges(&conn).map_err(CliError::new)?;
 
         // Build adjacency over all node ids so BFS can detect isolated entities as singleton components.
         let mut adj: std::collections::HashMap<String, std::collections::HashSet<String>> =
@@ -292,10 +334,10 @@ pub fn run_islands(max_size: usize, limit: usize, db_path: Option<&str>) -> ! {
 }
 
 pub fn run_orphans(limit: usize, db_path: Option<&str>) -> ! {
-    let result = (|| -> Result<serde_json::Value, String> {
-        let conn = open_conn(db_path)?;
-        let meta = load_node_meta(&conn)?;
-        let edges = load_active_edges(&conn)?;
+    let result = (|| -> Result<serde_json::Value, CliError> {
+        let conn = open_readonly_conn(db_path)?;
+        let meta = load_node_meta(&conn).map_err(CliError::new)?;
+        let edges = load_active_edges(&conn).map_err(CliError::new)?;
 
         let mut degree: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
         for id in meta.keys() {
@@ -355,10 +397,13 @@ pub fn run_introduce_topic(
     reason: Option<&str>,
     db_path: Option<&str>,
 ) -> ! {
-    let result = (|| -> Result<graph::IntroduceTopicReport, String> {
-        let sources = parse_sources(sources_arg)?;
+    let result = (|| -> Result<graph::IntroduceTopicReport, CliError> {
+        let sources = parse_sources(sources_arg).map_err(CliError::new)?;
         if sources.is_empty() {
-            return Err("no sources resolved".into());
+            return Err(CliError::typed(
+                ErrorCode::InvalidArgument,
+                "no sources resolved",
+            ));
         }
         let conn = open_conn(db_path)?;
         graph::introduce_topic(
@@ -373,7 +418,7 @@ pub fn run_introduce_topic(
                 reason: reason.map(String::from),
             },
         )
-        .map_err(|e| e.to_string())
+        .map_err(mem_store_error)
     })();
     print_or_exit(result);
 }
@@ -467,8 +512,8 @@ pub fn try_dispatch_local(action: &MemGraphAction) -> Option<()> {
 }
 
 pub fn run_entity_get(id: &str, db_path: Option<&str>) -> ! {
-    let result = (|| -> Result<serde_json::Value, String> {
-        let conn = open_conn(db_path)?;
+    let result = (|| -> Result<serde_json::Value, CliError> {
+        let conn = open_readonly_conn(db_path)?;
         let row: Option<(String, String, String, String, String)> = conn
             .query_row(
                 "SELECT id, entity_type, scope, properties_json, created_at
@@ -485,8 +530,9 @@ pub fn run_entity_get(id: &str, db_path: Option<&str>) -> ! {
                 },
             )
             .ok();
-        let (id, entity_type, scope, props_str, created_at) =
-            row.ok_or_else(|| format!("entity not found: {}", id))?;
+        let (id, entity_type, scope, props_str, created_at) = row.ok_or_else(|| {
+            CliError::typed(ErrorCode::NotFound, format!("entity not found: {}", id))
+        })?;
         let in_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL AND to_id = ?1",
@@ -519,7 +565,13 @@ pub fn run_entity_get(id: &str, db_path: Option<&str>) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_sources;
+    use std::sync::{mpsc, Arc, Barrier};
+
+    use super::{
+        load_active_edges, load_node_meta, open_conn, open_readonly_conn, parse_sources,
+        SQLITE_BUSY_TIMEOUT,
+    };
+    use crate::cmd::error_contract::{classify, ErrorCode};
 
     #[test]
     fn parse_sources_csv() {
@@ -542,5 +594,118 @@ mod tests {
         let v = parse_sources(&arg).unwrap();
         let _ = std::fs::remove_file(&tmp);
         assert_eq!(v, vec!["s1", "s2", "s3"]);
+    }
+
+    #[test]
+    fn open_readonly_conn_enforces_query_only_and_skips_migrations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("knowledge.db");
+        {
+            let seed = rusqlite::Connection::open(&path).unwrap();
+            seed.execute_batch("CREATE TABLE dummy(id INTEGER PRIMARY KEY);")
+                .unwrap();
+        }
+        let path_str = path.to_str().unwrap();
+        let ro = open_readonly_conn(Some(path_str)).expect("readonly open succeeds");
+        let has_version_table: i64 = ro
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='mem_schema_version')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            has_version_table, 0,
+            "read-only open must not run migrations"
+        );
+        assert!(
+            ro.execute("INSERT INTO dummy(id) VALUES (1)", []).is_err(),
+            "read-only connection must refuse writes"
+        );
+    }
+
+    #[test]
+    fn concurrent_readonly_and_writable_cli_opens_never_lock_fail() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("knowledge.db");
+        let path_str = path.to_str().unwrap().to_string();
+        {
+            let conn = open_conn(Some(&path_str)).expect("initial writable open");
+            conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        }
+
+        let (locked_tx, locked_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let writer_path = path.clone();
+        let writer = std::thread::spawn(move || -> Result<(), String> {
+            let conn = rusqlite::Connection::open(&writer_path).map_err(|e| e.to_string())?;
+            conn.busy_timeout(SQLITE_BUSY_TIMEOUT)
+                .map_err(|e| e.to_string())?;
+            let tx = rusqlite::Transaction::new_unchecked(
+                &conn,
+                rusqlite::TransactionBehavior::Immediate,
+            )
+            .map_err(|e| e.to_string())?;
+            locked_tx.send(()).expect("signal writer locked");
+            release_rx.recv().expect("wait for writer release");
+            tx.execute(
+                "INSERT INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
+                 VALUES ('topic_cli_lock', 'Topic', 'global', '{}', '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())
+        });
+
+        locked_rx.recv().expect("writer holds write lock");
+        let barrier = Arc::new(Barrier::new(8));
+        let mut handles = Vec::with_capacity(8);
+        for index in 0..8 {
+            let path_str = path_str.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || -> Result<(), String> {
+                barrier.wait();
+                if index % 2 == 0 {
+                    let conn = open_readonly_conn(Some(&path_str)).map_err(|e| e.message)?;
+                    let _ = load_node_meta(&conn)?;
+                    let _ = load_active_edges(&conn)?;
+                } else {
+                    let _conn = open_conn(Some(&path_str)).map_err(|e| e.message)?;
+                }
+                Ok(())
+            }));
+        }
+        for handle in handles {
+            handle
+                .join()
+                .expect("cli open thread panicked")
+                .expect("concurrent CLI opens must succeed without database-is-locked");
+        }
+        release_tx.send(()).expect("release writer");
+        writer
+            .join()
+            .expect("writer thread panicked")
+            .expect("writer commit succeeds");
+    }
+
+    #[test]
+    fn open_conn_maps_migration_failure_to_typed_migration_failed_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("knowledge.db");
+        {
+            let seed = rusqlite::Connection::open(&path).unwrap();
+            seed.execute_batch(
+                "CREATE TABLE mem_schema_version (version INTEGER NOT NULL);
+                 INSERT INTO mem_schema_version VALUES (1);
+                 CREATE TABLE mem_items (id TEXT PRIMARY KEY, author_uid TEXT);",
+            )
+            .unwrap();
+        }
+        let err = open_conn(Some(path.to_str().unwrap()))
+            .expect_err("conflicting migration must return a typed error");
+        assert_eq!(
+            classify(&err.message, err.code, err.data.as_ref()),
+            ErrorCode::MigrationFailed
+        );
     }
 }
