@@ -99,8 +99,8 @@ pub fn transition(
             next.apply_unconfirmed = false;
             next.state = Awake;
             next.last_awake_at_ms = Some(now_ms);
-            next.last_activity_refresh_ms = Some(now_ms);
             next.idle_since_ms = None;
+            next.exhaustion_pending = false;
             next.last_error = None;
         }
         (Awake, LifecycleEvent::DrainStarted) => {
@@ -113,6 +113,9 @@ pub fn transition(
         (Draining, LifecycleEvent::ProviderStopped) => {
             settle_awake_interval(&mut next, now_ms);
             next.state = Asleep;
+            next.lease_id = None;
+            next.lease_expires_at_ms = None;
+            next.exhaustion_pending = false;
             next.idle_since_ms = None;
             next.last_error = None;
         }
@@ -123,8 +126,8 @@ pub fn transition(
         (Waking, LifecycleEvent::WakeReady) => {
             next.state = Awake;
             next.last_awake_at_ms = Some(now_ms);
-            next.last_activity_refresh_ms = Some(now_ms);
             next.idle_since_ms = None;
+            next.exhaustion_pending = false;
             next.last_error = None;
         }
         (Waking, LifecycleEvent::WakeFailed(reason)) => {
@@ -134,7 +137,11 @@ pub fn transition(
         (Awake | Draining | Asleep | Waking, LifecycleEvent::CreditsExhausted) => {
             settle_awake_interval(&mut next, now_ms);
             next.state = OutOfCredits;
+            next.lease_id = None;
+            next.lease_expires_at_ms = None;
+            next.exhaustion_pending = false;
             next.idle_since_ms = None;
+            next.last_error = Some("Out of credits: top up to wake".into());
         }
         (OutOfCredits, LifecycleEvent::CreditsRestored) => {
             next.state = Asleep;
@@ -152,6 +159,9 @@ pub fn transition(
         (state, LifecycleEvent::Deleted) if state != Deleted => {
             settle_awake_interval(&mut next, now_ms);
             next.state = Deleted;
+            next.lease_id = None;
+            next.lease_expires_at_ms = None;
+            next.exhaustion_pending = false;
             next.idle_since_ms = None;
             next.last_error = None;
         }
@@ -307,15 +317,18 @@ pub fn reconcile_provider_machines(
                 sleep_mode,
                 installation_id: None,
                 peer_instance_id: None,
+                endpoint_addr: None,
                 rate_per_hour: default_rate.clone(),
                 created_at_ms: now_ms,
                 last_awake_at_ms: (initial_state == CloudLifecycleState::Awake).then_some(now_ms),
                 accumulated_awake_secs: 0,
                 period_start_ms: now_ms,
-                auto_stop_minutes: super::types::DEFAULT_AUTO_STOP_MINUTES,
-                last_activity_refresh_ms: None,
+                lease_id: None,
+                lease_expires_at_ms: None,
+                exhaustion_pending: false,
                 idle_since_ms: None,
                 apply_unconfirmed: false,
+                pending_request: None,
                 last_error: None,
                 ownership: CloudOwnershipReceipt {
                     provider_machine_id: remote.provider_machine_id.clone(),

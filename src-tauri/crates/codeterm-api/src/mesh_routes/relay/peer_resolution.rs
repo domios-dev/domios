@@ -348,6 +348,20 @@ fn relay_target_route(
                 version,
             ));
         }
+        if let Some(record) = cloud_machines
+            .find_by_peer(&instance_id)
+            .or_else(|| cloud_machines.find_by_peer(inst_id))
+        {
+            return Ok((
+                RelayTargetRoute::CloudIngress {
+                    installation_id: inst_id.clone(),
+                    address: record.endpoint_addr,
+                },
+                instance_id,
+                name,
+                version,
+            ));
+        }
     }
     if let Some((primary, alternatives)) = mesh.peer_route_endpoints(&instance_id) {
         return Ok((
@@ -359,21 +373,6 @@ fn relay_target_route(
             name,
             version,
         ));
-    }
-    if let Some(inst_id) = installation_id {
-        if cloud_machines.find_by_peer(&instance_id).is_some()
-            || cloud_machines.find_by_peer(&inst_id).is_some()
-        {
-            return Ok((
-                RelayTargetRoute::CloudIngress {
-                    installation_id: inst_id,
-                    address: None,
-                },
-                instance_id,
-                name,
-                version,
-            ));
-        }
     }
     Err(peer_unroutable_error(&name))
 }

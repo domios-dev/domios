@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
+use std::net::SocketAddrV4;
 
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_BYO_MACHINE_LIMIT: u32 = 3;
 pub const DEFAULT_IDLE_SLEEP_MINUTES: u32 = 15;
-pub const DEFAULT_AUTO_STOP_MINUTES: u32 = 10;
+pub const DEFAULT_LEASE_RENEW_LEAD_MS: u64 = 120_000;
 pub const CLOUD_INGRESS_PORT: u16 = 7687;
 pub const CLOUD_WAKE_SEND_PREFIX: &str = "cloud-wake:";
 pub const COST_WARNING_TEXT: &str =
@@ -62,19 +62,45 @@ pub enum CloudSleepMode {
     DeleteRecreate,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudRateBasis {
-    #[default]
-    Estimate,
-    Managed,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CloudRate {
     pub amount: f64,
     pub currency: String,
-    pub basis: CloudRateBasis,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits_per_hour: Option<f64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingProvisioningOp {
+    Create,
+    Wake,
+    Sleep,
+    Delete,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PendingProvisioningRequest {
+    pub op: PendingProvisioningOp,
+    pub request_id: String,
+    pub started_at_ms: u64,
+    #[serde(default)]
+    pub unconfirmed: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CloudUsageSummary {
+    pub used: f64,
+    pub allowance: f64,
+    pub purchased: f64,
+    pub remaining: f64,
+    pub cap: f64,
+    #[serde(default)]
+    pub burn_per_size: BTreeMap<String, f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period_end_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -103,6 +129,8 @@ pub struct CloudMachineRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_instance_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_addr: Option<SocketAddrV4>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_per_hour: Option<CloudRate>,
     pub created_at_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,21 +138,21 @@ pub struct CloudMachineRecord {
     #[serde(default)]
     pub accumulated_awake_secs: u64,
     pub period_start_ms: u64,
-    #[serde(default = "default_auto_stop_minutes")]
-    pub auto_stop_minutes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_activity_refresh_ms: Option<u64>,
+    pub lease_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at_ms: Option<u64>,
+    #[serde(default)]
+    pub exhaustion_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_since_ms: Option<u64>,
     #[serde(default)]
     pub apply_unconfirmed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_request: Option<PendingProvisioningRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     pub ownership: CloudOwnershipReceipt,
-}
-
-fn default_auto_stop_minutes() -> u32 {
-    DEFAULT_AUTO_STOP_MINUTES
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -158,6 +186,10 @@ pub struct CloudReceipt {
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_instance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_addr: Option<SocketAddrV4>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at_ms: Option<u64>,
     pub billing_notice: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
@@ -172,6 +204,14 @@ impl CloudMachineRecord {
             _ => 0,
         };
         self.accumulated_awake_secs.saturating_add(live_secs)
+    }
+
+    pub fn backend_machine_id(&self) -> &str {
+        if self.ownership.provider_machine_id.is_empty() {
+            &self.machine_id
+        } else {
+            &self.ownership.provider_machine_id
+        }
     }
 
     pub fn cost_summary(&self, now_ms: u64) -> CloudCostSummary {
@@ -202,6 +242,8 @@ impl CloudMachineRecord {
             uptime_secs: self.uptime_secs(now_ms),
             installation_id: self.installation_id.clone(),
             peer_instance_id: self.peer_instance_id.clone(),
+            endpoint_addr: self.endpoint_addr,
+            lease_expires_at_ms: self.lease_expires_at_ms,
             billing_notice: COST_WARNING_TEXT.into(),
             warning,
         }
@@ -231,8 +273,10 @@ impl CloudMachineRecord {
 pub enum CloudError {
     LimitReached {
         limit: u32,
+        active_count: u32,
     },
-    FreePlanManagedRefused,
+    LeaseRequired,
+    CreditsExhausted,
     ImplicitCreateRefused,
     MachineNotFound(String),
     MachineAmbiguous(String),
@@ -254,8 +298,13 @@ pub enum CloudError {
         machine_id: String,
         warning: String,
     },
-    ProviderNotFound(String),
+    ProviderRefused(String),
+    ProviderUnconfirmed(String),
     ProviderUnavailable(String),
+    Conflict(String),
+    RateLimited {
+        retry_after_seconds: u64,
+    },
     EnrollmentFailed(String),
     ApplyUnconfirmed {
         machine_id: String,
@@ -272,17 +321,20 @@ impl CloudError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::LimitReached { .. } => "limit_reached",
-            Self::FreePlanManagedRefused => "free_plan_managed_refused",
+            Self::LeaseRequired => "lease_required",
+            Self::CreditsExhausted | Self::MachineOutOfCredits { .. } => "credits_exhausted",
             Self::ImplicitCreateRefused => "implicit_create_refused",
             Self::MachineNotFound(_) => "machine_not_found",
             Self::MachineAmbiguous(_) => "machine_ambiguous",
             Self::MachineSleeping { .. } => "machine_sleeping",
             Self::MachineBusy { .. } => "machine_busy",
-            Self::MachineOutOfCredits { .. } => "out_of_credits",
             Self::InvalidTransition { .. } => "invalid_transition",
             Self::DeleteConfirmationRequired { .. } => "delete_confirmation_required",
-            Self::ProviderNotFound(_) => "provider_not_found",
+            Self::ProviderRefused(_) => "provider_refused",
+            Self::ProviderUnconfirmed(_) => "provider_unconfirmed",
             Self::ProviderUnavailable(_) => "provider_unavailable",
+            Self::Conflict(_) => "conflict",
+            Self::RateLimited { .. } => "rate_limited",
             Self::EnrollmentFailed(_) => "enrollment_failed",
             Self::ApplyUnconfirmed { .. } => "apply_unconfirmed",
             Self::WakeDeadlineExceeded { .. } => "wake_deadline_exceeded",
@@ -295,26 +347,41 @@ impl CloudError {
         match self {
             Self::MachineSleeping { .. }
             | Self::MachineOutOfCredits { .. }
+            | Self::CreditsExhausted
+            | Self::LeaseRequired
             | Self::WakeDeadlineExceeded { .. } => Some(false),
             _ => None,
         }
+    }
+
+    pub fn is_uncertain_provisioning_outcome(&self) -> bool {
+        matches!(
+            self,
+            Self::ProviderUnconfirmed(_) | Self::ProviderUnavailable(_)
+        )
     }
 }
 
 impl std::fmt::Display for CloudError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::LimitReached { limit } => {
+            Self::LimitReached {
+                limit,
+                active_count,
+            } => {
                 write!(
                     f,
-                    "cloud machine limit reached ({limit}); reuse an existing cloud machine or delete one before creating another"
+                    "cloud machine limit reached ({active_count}/{limit}); reuse an existing cloud machine or delete one before creating another"
                 )
             }
-            Self::FreePlanManagedRefused => {
+            Self::LeaseRequired => {
                 write!(
                     f,
-                    "managed cloud machines are unavailable on the Free plan; configure a BYO cloud provider plugin or upgrade"
+                    "a paid cloud credit lease is required before starting or creating a cloud machine"
                 )
+            }
+            Self::CreditsExhausted => {
+                write!(f, "Out of credits: top up to wake or create a cloud machine")
             }
             Self::ImplicitCreateRefused => {
                 write!(
@@ -324,16 +391,28 @@ impl std::fmt::Display for CloudError {
             }
             Self::MachineNotFound(target) => write!(f, "cloud machine not found: {target}"),
             Self::MachineAmbiguous(target) => {
-                write!(f, "cloud machine selector is ambiguous: {target}; use the exact machine id")
+                write!(
+                    f,
+                    "cloud machine selector is ambiguous: {target}; use the exact machine id"
+                )
             }
             Self::MachineSleeping { machine_id } => {
-                write!(f, "cloud machine {machine_id} is draining or sleeping; nothing written")
+                write!(
+                    f,
+                    "cloud machine {machine_id} is draining or sleeping; nothing written"
+                )
             }
             Self::MachineBusy { machine_id, reason } => {
-                write!(f, "cloud machine {machine_id} is busy and cannot sleep: {reason}")
+                write!(
+                    f,
+                    "cloud machine {machine_id} is busy and cannot sleep: {reason}"
+                )
             }
             Self::MachineOutOfCredits { machine_id } => {
-                write!(f, "cloud machine {machine_id} is out of credits")
+                write!(
+                    f,
+                    "Out of credits: top up to wake cloud machine {machine_id}"
+                )
             }
             Self::InvalidTransition { from, event } => {
                 write!(
@@ -343,10 +422,18 @@ impl std::fmt::Display for CloudError {
                 )
             }
             Self::DeleteConfirmationRequired { warning, .. } => f.write_str(warning),
-            Self::ProviderNotFound(provider) => {
-                write!(f, "cloud provider not available: {provider}")
+            Self::ProviderRefused(detail) => write!(f, "cloud provisioning refused: {detail}"),
+            Self::ProviderUnconfirmed(detail) => {
+                write!(f, "cloud provisioning outcome unconfirmed: {detail}")
             }
-            Self::ProviderUnavailable(detail) => write!(f, "cloud provider unavailable: {detail}"),
+            Self::ProviderUnavailable(detail) => write!(f, "cloud backend unavailable: {detail}"),
+            Self::Conflict(detail) => write!(f, "cloud provisioning conflict: {detail}"),
+            Self::RateLimited {
+                retry_after_seconds,
+            } => write!(
+                f,
+                "cloud provisioning rate-limited; retry after {retry_after_seconds}s"
+            ),
             Self::EnrollmentFailed(detail) => write!(f, "cloud enrollment failed: {detail}"),
             Self::ApplyUnconfirmed {
                 machine_id,
@@ -356,7 +443,10 @@ impl std::fmt::Display for CloudError {
                 "cloud enrollment Apply outcome unconfirmed for {machine_id} (installation {installation_id}); awaiting enrolled channel status without re-applying"
             ),
             Self::WakeDeadlineExceeded { machine_id } => {
-                write!(f, "cloud machine {machine_id} did not become ready before the wake deadline")
+                write!(
+                    f,
+                    "cloud machine {machine_id} did not become ready before the wake deadline"
+                )
             }
             Self::SendAlreadyClaimed(detail) => f.write_str(detail),
             Self::Internal(detail) => f.write_str(detail),

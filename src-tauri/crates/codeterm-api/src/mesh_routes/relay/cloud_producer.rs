@@ -14,15 +14,10 @@ use codeterm_mesh::{
     },
     transport::TransportError,
 };
-use codeterm_service_core::{
-    mesh::{
-        crown::{AuthenticatedAgent, AuthenticatedOrigin},
-        types::{RelayCommand, RelayResponse},
-        AnnounceReport,
-    },
-    service::cloud_machines::{
-        CloudBackendPort, CloudRouteSpec, PluginCloudBackend, CLOUD_INGRESS_PORT,
-    },
+use codeterm_service_core::mesh::{
+    crown::{AuthenticatedAgent, AuthenticatedOrigin},
+    types::{RelayCommand, RelayResponse},
+    AnnounceReport,
 };
 
 use super::{
@@ -190,8 +185,8 @@ pub(crate) async fn send_via_cloud_ingress(
 }
 
 /// Resolves an enrolled cloud peer's direct ingress address from gossiped
-/// endpoint records first, falling back to Warden's managed backend route.
-pub(crate) async fn resolve_cloud_ingress_address(
+/// endpoint records first, falling back to Warden's persisted managed `endpoint_addr`.
+pub(crate) fn resolve_cloud_ingress_address(
     state: &AppState,
     peer_id: &str,
     installation_id: &str,
@@ -201,21 +196,10 @@ pub(crate) async fn resolve_cloud_ingress_address(
         return Some(address);
     }
     let machines = state.svc.cloud_machines();
-    let record = machines
+    machines
         .find_by_peer(peer_id)
-        .or_else(|| machines.find_by_peer(installation_id))?;
-    if record.ownership.provider_machine_id.trim().is_empty() {
-        return None;
-    }
-    let (_, backend) =
-        PluginCloudBackend::resolve_from_service(&state.svc, Some(&record.provider)).ok()?;
-    match backend
-        .access(&record.ownership.provider_machine_id, CLOUD_INGRESS_PORT)
-        .await
-    {
-        Ok(CloudRouteSpec::Direct { address }) => Some(address),
-        _ => None,
-    }
+        .or_else(|| machines.find_by_peer(installation_id))
+        .and_then(|record| record.endpoint_addr)
 }
 
 pub(crate) fn has_cloud_outbox(state: &AppState) -> bool {
@@ -346,7 +330,7 @@ pub(super) enum ReadyOutboundTransport {
 }
 
 impl ReadyOutboundTransport {
-    pub(super) async fn prepare(
+    pub(super) fn prepare(
         state: &AppState,
         peer_id: &str,
         peer_name: &str,
@@ -362,7 +346,7 @@ impl ReadyOutboundTransport {
                 agent,
             } => {
                 let Some(address) =
-                    resolve_cloud_ingress_address(state, peer_id, &installation_id, address).await
+                    resolve_cloud_ingress_address(state, peer_id, &installation_id, address)
                 else {
                     return Err(peer_unroutable_error(peer_name));
                 };

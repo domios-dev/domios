@@ -1,5 +1,15 @@
 #cloud-config
 write_files:
+  - path: /etc/cloud/cloud.cfg.d/99-domios-oracle-network.cfg
+    owner: root:root
+    permissions: '0600'
+    content: |
+      network: {config: disabled}
+  - path: /etc/netplan/99-domios-oracle-dhcp.yaml
+    owner: root:root
+    permissions: '0600'
+    content: |
+      network: {version: 2, ethernets: {uplink: {match: {name: "e*"}, dhcp4: true}}}
   - path: /etc/domios-cloud/creation.env
     owner: root:root
     permissions: '0600'
@@ -124,6 +134,14 @@ write_files:
       set -eu
       umask 077
       /usr/lib/systemd/systemd-networkd-wait-online --any --ipv4 --timeout=180
+      archive=/etc/domios-cloud/original-netplan
+      install -d -m 0700 "$archive"
+      for config in /etc/netplan/*.yaml; do
+        [ -f "$config" ] || continue
+        [ "$config" != /etc/netplan/99-domios-oracle-dhcp.yaml ] || continue
+        mv -- "$config" "$archive/"
+      done
+      netplan generate
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
       apt-get install -y --no-install-recommends skopeo umoci ufw

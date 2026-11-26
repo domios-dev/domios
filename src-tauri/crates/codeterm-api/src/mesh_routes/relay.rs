@@ -368,8 +368,7 @@ pub async fn mesh_relay_to_peer(
         return Ok(answered_by(resp));
     }
     let transport =
-        cloud_producer::ReadyOutboundTransport::prepare(&state, &peer_id, &peer_name, transport)
-            .await?;
+        cloud_producer::ReadyOutboundTransport::prepare(&state, &peer_id, &peer_name, transport)?;
     if is_tab_send(&req.method, &req.path) && req.body["require_agent"].as_bool() == Some(true) {
         let identify = transport.fetch_identify(&state).await;
         if !identify

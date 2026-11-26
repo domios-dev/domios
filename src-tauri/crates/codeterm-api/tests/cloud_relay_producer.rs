@@ -7,9 +7,10 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::{
@@ -18,7 +19,7 @@ use axum::{
 };
 use codeterm_api::{
     cloud_mesh_runtime::{dispatcher, drain_policy},
-    cloud_routes::MeshPeerControlAdapter,
+    cloud_routes::{CloudProvisioningOverride, MeshPeerControlAdapter},
     mesh_routes::relay::{
         CloudIngressConnector, CloudIngressConnectorOverride, CloudIngressSendError,
         CloudOutboxOverride, CLOUD_NOTIFICATION_RELAY_REFUSED,
@@ -46,16 +47,17 @@ use codeterm_service_core::{
     service::{
         chat_send_transaction::ChatSendState,
         cloud_machines::{
-            CloudBackendPort, CloudCreateRequest, CloudError, CloudLifecycleState,
-            CloudMachineController, CloudMachineRecord, CloudMachineStore, CloudOwnershipReceipt,
-            CloudRate, CloudRouteSpec, CloudSleepMode, ObservedProviderMachine, SystemClock,
-            DEFAULT_WAKE_HOLD_DEADLINE_MS,
+            CloudError, CloudLifecycleState, CloudMachineController, CloudMachineRecord,
+            CloudMachineStore, CloudOwnershipReceipt, CloudProvisioningPort, CloudRate,
+            CloudSleepMode, CloudUsageSummary, ProvisionedLease, ProvisionedMachine,
+            ProvisioningCreateRequest, SystemClock,
         },
         test_fixture::ServiceFixture,
     },
 };
 use parking_lot::Mutex;
 use serde_json::{json, Value};
+use tokio::sync::Notify;
 use tower::ServiceExt;
 
 #[path = "../src/test_support.rs"]
@@ -75,6 +77,7 @@ type ChannelReplyFactory =
 struct FakeCloudChannel {
     calls: Mutex<Vec<RecordedChannelCall>>,
     replies: Mutex<VecDeque<ChannelReplyFactory>>,
+    calls_notify: Arc<Notify>,
 }
 
 impl FakeCloudChannel {
@@ -82,6 +85,7 @@ impl FakeCloudChannel {
         Arc::new(Self {
             calls: Mutex::new(Vec::new()),
             replies: Mutex::new(VecDeque::new()),
+            calls_notify: Arc::new(Notify::new()),
         })
     }
 
@@ -97,6 +101,22 @@ impl FakeCloudChannel {
 
     fn recorded(&self) -> Vec<RecordedChannelCall> {
         self.calls.lock().clone()
+    }
+
+    async fn wait_for_calls(&self, expected: usize) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let notified = self.calls_notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if self.calls.lock().len() >= expected {
+                    return;
+                }
+                notified.await;
+            }
+        })
+        .await
+        .expect("timed out waiting for fake cloud channel call");
     }
 }
 
@@ -116,7 +136,9 @@ impl CloudIngressConnector for FakeCloudChannel {
             signed_token,
         });
         let reply = self.replies.lock().pop_front().map(|f| f(&command));
+        let notify = Arc::clone(&self.calls_notify);
         Box::pin(async move {
+            notify.notify_waiters();
             reply.unwrap_or_else(|| {
                 Ok(RelayResponse {
                     ok: true,
@@ -185,53 +207,92 @@ impl ReverseStreamSink for ScriptedReverseSink {
     }
 }
 
-struct FakeWakeBackend {
-    starts: AtomicUsize,
+struct FakeWakeProvisioning {
+    endpoint: SocketAddrV4,
+    wakes: AtomicUsize,
+    allow_wake: AtomicBool,
+    wake_gate: Notify,
 }
 
-impl FakeWakeBackend {
-    fn new() -> Self {
-        Self {
-            starts: AtomicUsize::new(0),
-        }
+impl FakeWakeProvisioning {
+    fn new(endpoint: SocketAddrV4) -> Arc<Self> {
+        Arc::new(Self {
+            endpoint,
+            wakes: AtomicUsize::new(0),
+            allow_wake: AtomicBool::new(false),
+            wake_gate: Notify::new(),
+        })
+    }
+
+    fn release_wake(&self) {
+        self.allow_wake.store(true, Ordering::SeqCst);
+        self.wake_gate.notify_waiters();
     }
 }
 
 #[async_trait]
-impl CloudBackendPort for FakeWakeBackend {
-    async fn prepare_image(&self, _: &str) -> Result<String, CloudError> {
-        Ok("img-test".into())
-    }
-    async fn create(&self, _: &CloudCreateRequest) -> Result<ObservedProviderMachine, CloudError> {
-        Err(CloudError::Internal("unused in wake test".into()))
-    }
-    async fn start(&self, _: &str, _: u32) -> Result<(), CloudError> {
-        self.starts.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-    async fn stop(&self, _: &str) -> Result<(), CloudError> {
-        Ok(())
-    }
-    async fn delete(&self, _: &CloudOwnershipReceipt) -> Result<(), CloudError> {
-        Ok(())
-    }
-    async fn list(
+impl CloudProvisioningPort for FakeWakeProvisioning {
+    async fn create(
         &self,
-        _: &BTreeMap<String, String>,
-    ) -> Result<Vec<ObservedProviderMachine>, CloudError> {
-        Ok(Vec::new())
-    }
-    async fn access(&self, _: &str, _: u16) -> Result<CloudRouteSpec, CloudError> {
+        _: &ProvisioningCreateRequest,
+    ) -> Result<ProvisionedMachine, CloudError> {
         Err(CloudError::Internal("unused in wake test".into()))
     }
-    async fn refresh_activity(&self, _: &str, _: u32) -> Result<(), CloudError> {
+
+    async fn wake(
+        &self,
+        machine_id: &str,
+        _request_id: &str,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        loop {
+            let notified = self.wake_gate.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.allow_wake.load(Ordering::SeqCst) {
+                break;
+            }
+            notified.await;
+        }
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+        Ok(ProvisionedMachine {
+            machine_id: machine_id.to_owned(),
+            provider: "managed".into(),
+            endpoint: self.endpoint,
+            size: "small".into(),
+            rate: CloudRate {
+                amount: 0.05,
+                currency: "USD".into(),
+                credits_per_hour: Some(0.05),
+            },
+            sleep_mode: CloudSleepMode::Stop,
+            lease_id: "lease-wake-1".into(),
+            lease_expires_at_ms: 9_999_999_999_000,
+        })
+    }
+
+    async fn sleep(&self, _: &str, _: &str) -> Result<CloudSleepMode, CloudError> {
+        Ok(CloudSleepMode::Stop)
+    }
+
+    async fn delete(&self, _: &str, _: &str) -> Result<(), CloudError> {
         Ok(())
     }
-    async fn hourly_rate(&self, _: &str) -> Result<Option<CloudRate>, CloudError> {
-        Ok(None)
+
+    async fn renew_lease(
+        &self,
+        machine_id: &str,
+        lease_id: &str,
+        _: &str,
+    ) -> Result<ProvisionedLease, CloudError> {
+        Ok(ProvisionedLease {
+            machine_id: machine_id.to_owned(),
+            lease_id: lease_id.to_owned(),
+            lease_expires_at_ms: 9_999_999_999_000,
+        })
     }
-    async fn sleep_mode(&self) -> Result<CloudSleepMode, CloudError> {
-        Ok(CloudSleepMode::Stop)
+
+    async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
+        Ok(CloudUsageSummary::default())
     }
 }
 
@@ -250,6 +311,29 @@ fn configure_peer_state(fixture: &ServiceFixture, instance_id: &str) -> (AppStat
     (state, public)
 }
 
+fn test_paired_peer(instance_id: &str, instance_name: &str) -> PairedPeer {
+    let (_, public_key) = crown::generate_peer_keypair();
+    PairedPeer {
+        instance_id: instance_id.into(),
+        instance_name: instance_name.into(),
+        addresses: Vec::new(),
+        api_port: 0,
+        public_key,
+        paired_at: "now".into(),
+        last_seen: None,
+        // Matches endpoint_gossip::receive_endpoint_record for DirectIngress peers.
+        online: false,
+        is_primary: false,
+        access_level: AccessLevel::Full,
+        domios_version: None,
+        domios_build: None,
+        web_ui: None,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    }
+}
+
 fn enroll_cloud_peer(
     home: &AppState,
     cloud_instance_id: &str,
@@ -257,29 +341,10 @@ fn enroll_cloud_peer(
     cloud_installation_id: &str,
     address: SocketAddrV4,
 ) {
-    let (_, cloud_pub) = crown::generate_peer_keypair();
     let mut mesh = home.mesh.lock();
     mesh.insert_account_peer_with_installation_for_test(
         cloud_installation_id.into(),
-        PairedPeer {
-            instance_id: cloud_instance_id.into(),
-            instance_name: cloud_name.into(),
-            addresses: Vec::new(),
-            api_port: 0,
-            public_key: cloud_pub,
-            paired_at: "now".into(),
-            last_seen: None,
-            // Matches endpoint_gossip::receive_endpoint_record for DirectIngress peers.
-            online: false,
-            is_primary: false,
-            access_level: AccessLevel::Full,
-            domios_version: None,
-            domios_build: None,
-            web_ui: None,
-            relay_protocol_version: RELAY_PROTOCOL_VERSION,
-            consecutive_misses: 0,
-            last_active_ms: None,
-        },
+        test_paired_peer(cloud_instance_id, cloud_name),
     );
     mesh.insert_direct_ingress_endpoint_for_test(cloud_installation_id.into(), address);
 }
@@ -308,6 +373,49 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
     let fixture = ServiceFixture::new(mux);
     let (home, home_pub) = configure_peer_state(&fixture, "home-inst");
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 10), 7687);
+    let managed_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 22), 7687);
+    // Register managed-only peer (persisted endpoint_addr, no gossip DirectIngress) before
+    // enroll_cloud_peer populates registry_members and before cloud_machines() initializes.
+    home.mesh
+        .lock()
+        .insert_account_peer_with_installation_for_test(
+            "cloud-inst-managed".into(),
+            test_paired_peer("cloud-peer-managed", "cloud-managed"),
+        );
+    let managed_dir = tempfile::tempdir().unwrap();
+    let managed_store = CloudMachineStore::new(managed_dir.path().join("managed.json"));
+    managed_store
+        .save(&[CloudMachineRecord {
+            machine_id: "cloud-managed-1".into(),
+            name: "cloud-managed".into(),
+            provider: "managed".into(),
+            size: "small".into(),
+            state: CloudLifecycleState::Awake,
+            sleep_mode: CloudSleepMode::Stop,
+            installation_id: Some("cloud-inst-managed".into()),
+            peer_instance_id: Some("cloud-peer-managed".into()),
+            endpoint_addr: Some(managed_addr),
+            rate_per_hour: None,
+            created_at_ms: 1_000,
+            last_awake_at_ms: Some(1_000),
+            accumulated_awake_secs: 0,
+            period_start_ms: 1_000,
+            lease_id: None,
+            lease_expires_at_ms: None,
+            exhaustion_pending: false,
+            idle_since_ms: None,
+            apply_unconfirmed: false,
+            pending_request: None,
+            last_error: None,
+            ownership: CloudOwnershipReceipt::default(),
+        }])
+        .unwrap();
+    home.svc
+        .install_cloud_machines_for_test(Arc::new(CloudMachineController::new(
+            managed_store,
+            "home-inst".into(),
+            Arc::new(SystemClock),
+        )));
     enroll_cloud_peer(
         &home,
         "cloud-peer-1",
@@ -459,7 +567,7 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
         ))
     });
     let (status, unconfirmed) = post_relay_to(
-        app,
+        app.clone(),
         "owner-secret",
         &json!({
             "target_peer_id": "cloud-worker",
@@ -485,6 +593,30 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
         before_lost + 1,
         "SubmitUnconfirmed must never replay"
     );
+
+    // 5. Persisted managed endpoint_addr fallback works when gossip has no DirectIngress record.
+    assert!(home
+        .mesh
+        .lock()
+        .direct_ingress_address("cloud-inst-managed")
+        .is_none());
+    let (status, managed_resp) = post_relay_to(
+        app,
+        "owner-secret",
+        &json!({
+            "target_peer_id": "cloud-managed",
+            "method": "POST",
+            "path": "/api/tabs/remote-tab/send",
+            "body": { "text": "hello managed endpoint_addr" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{managed_resp}");
+    assert_eq!(managed_resp["ok"], true, "{managed_resp}");
+    let managed_call = channel.recorded().pop().unwrap();
+    let CloudRoute::Direct(sent_managed) = managed_call.route;
+    assert_eq!(sent_managed, managed_addr);
+    assert_eq!(managed_call.installation_id, "cloud-inst-managed");
 }
 
 #[tokio::test]
@@ -493,30 +625,12 @@ async fn cloud_to_home_requests_enqueue_through_outbox_and_surface_delivery_unco
     let (mux, worker_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let (cloud, _) = configure_peer_state(&fixture, "cloud-inst");
-    let (_, home_pub) = crown::generate_peer_keypair();
     cloud
         .mesh
         .lock()
         .insert_account_peer_with_installation_for_test(
             "home-inst".into(),
-            PairedPeer {
-                instance_id: "home-peer".into(),
-                instance_name: "HomeMac".into(),
-                addresses: Vec::new(),
-                api_port: 0,
-                public_key: home_pub,
-                paired_at: "now".into(),
-                last_seen: None,
-                online: false,
-                is_primary: false,
-                access_level: AccessLevel::Full,
-                domios_version: None,
-                domios_build: None,
-                web_ui: None,
-                relay_protocol_version: RELAY_PROTOCOL_VERSION,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
+            test_paired_peer("home-peer", "HomeMac"),
         );
 
     let outbox_dir = tempfile::tempdir().unwrap();
@@ -721,30 +835,12 @@ async fn cloud_to_home_requests_enqueue_through_outbox_and_surface_delivery_unco
     // 3. Outbox full surfaces typed refusal with bytes_written=false.
     let small_fixture = ServiceFixture::new(MultiplexerState::new().0);
     let (small_cloud, _) = configure_peer_state(&small_fixture, "small-cloud");
-    let (_, small_home_pub) = crown::generate_peer_keypair();
     small_cloud
         .mesh
         .lock()
         .insert_account_peer_with_installation_for_test(
             "home-inst".into(),
-            PairedPeer {
-                instance_id: "home-peer".into(),
-                instance_name: "HomeMac".into(),
-                addresses: Vec::new(),
-                api_port: 0,
-                public_key: small_home_pub,
-                paired_at: "now".into(),
-                last_seen: None,
-                online: false,
-                is_primary: false,
-                access_level: AccessLevel::Full,
-                domios_version: None,
-                domios_build: None,
-                web_ui: None,
-                relay_protocol_version: RELAY_PROTOCOL_VERSION,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
+            test_paired_peer("home-peer", "HomeMac"),
         );
     let small_outbox = Arc::new(
         CloudOutbox::open(
@@ -811,21 +907,24 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
         .save(&[CloudMachineRecord {
             machine_id: "cloud-sleeper-1".into(),
             name: "cloud-sleeper".into(),
-            provider: "fake-provider".into(),
+            provider: "managed".into(),
             size: "small".into(),
             state: CloudLifecycleState::Asleep,
             sleep_mode: CloudSleepMode::Stop,
             installation_id: Some("cloud-inst-wake".into()),
             peer_instance_id: Some("cloud-peer-wake".into()),
+            endpoint_addr: None,
             rate_per_hour: None,
             created_at_ms: 1_000,
             last_awake_at_ms: None,
             accumulated_awake_secs: 0,
             period_start_ms: 1_000,
-            auto_stop_minutes: 10,
-            last_activity_refresh_ms: None,
+            lease_id: None,
+            lease_expires_at_ms: None,
+            exhaustion_pending: false,
             idle_since_ms: None,
             apply_unconfirmed: false,
+            pending_request: None,
             last_error: None,
             ownership: CloudOwnershipReceipt {
                 provider_machine_id: "prov-1".into(),
@@ -842,6 +941,12 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
         Arc::new(SystemClock),
     ));
     home.svc.install_cloud_machines_for_test(controller.clone());
+
+    let provisioning = FakeWakeProvisioning::new(cloud_addr);
+    assert!(home
+        .svc
+        .set_ext(CloudProvisioningOverride(provisioning.clone()))
+        .is_ok());
 
     let channel = FakeCloudChannel::new();
     assert!(home
@@ -872,19 +977,14 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
         "held send must not hit the channel while asleep"
     );
 
-    let backend = FakeWakeBackend::new();
-    let peer_ctrl = MeshPeerControlAdapter::new(home.clone());
-    let receipt = controller
-        .wake(
-            "cloud-sleeper-1",
-            &backend,
-            &peer_ctrl,
-            DEFAULT_WAKE_HOLD_DEADLINE_MS,
-        )
-        .await
-        .expect("wake succeeds and flushes held send over cloud ingress channel");
-    assert_eq!(receipt.state, CloudLifecycleState::Awake);
-    assert_eq!(backend.starts.load(Ordering::SeqCst), 1);
+    // Release the managed provisioning wake started by preflight_cloud_wake.
+    provisioning.release_wake();
+    channel.wait_for_calls(1).await;
+
+    let woken_record = controller.find_by_peer("cloud-sleeper-1").unwrap();
+    assert_eq!(woken_record.state, CloudLifecycleState::Awake);
+    assert_eq!(woken_record.endpoint_addr, Some(cloud_addr));
+    assert_eq!(provisioning.wakes.load(Ordering::SeqCst), 1);
 
     let delivered = channel.recorded();
     assert_eq!(delivered.len(), 1, "held send delivered once after wake");
@@ -905,6 +1005,7 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
     );
 
     // Flushing again must never deliver a second time.
+    let peer_ctrl = MeshPeerControlAdapter::new(home.clone());
     let second_flush = controller
         .flush_held_sends("cloud-sleeper-1", &peer_ctrl)
         .await;
@@ -917,30 +1018,12 @@ async fn cloud_relayed_notifications_are_refused_with_typed_error_not_widened() 
     let (mux, worker_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let (cloud, _) = configure_peer_state(&fixture, "cloud-notif");
-    let (_, home_pub) = crown::generate_peer_keypair();
     cloud
         .mesh
         .lock()
         .insert_account_peer_with_installation_for_test(
             "home-inst".into(),
-            PairedPeer {
-                instance_id: "home-peer".into(),
-                instance_name: "HomeMac".into(),
-                addresses: Vec::new(),
-                api_port: 0,
-                public_key: home_pub,
-                paired_at: "now".into(),
-                last_seen: None,
-                online: false,
-                is_primary: false,
-                access_level: AccessLevel::Full,
-                domios_version: None,
-                domios_build: None,
-                web_ui: None,
-                relay_protocol_version: RELAY_PROTOCOL_VERSION,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
+            test_paired_peer("home-peer", "HomeMac"),
         );
 
     let outbox_dir = tempfile::tempdir().unwrap();
