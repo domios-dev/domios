@@ -435,6 +435,11 @@ function TabSessionChatBody({
     onViewportChange: mountedWindow.syncViewport,
     userScrollingRef: chatUserScrollingRef,
     foldLayoutDrift: mountedWindow.foldDrift,
+    onJumpToTop: mountedWindow.jumpToTop,
+    onJumpToLatest: () => {
+      showLatest();
+      mountedWindow.jumpToTail();
+    },
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,

@@ -64,6 +64,14 @@ export function chatScrollKeyDirection(code: string, shiftKey = false): -1 | 1 |
   }
 }
 
+/** Home and End jump directly across a virtualized log instead of running a multi-frame smooth animation. */
+export function chatInstantScrollKey(code: string, shiftKey = false): "top" | "bottom" | null {
+  if (shiftKey) return null;
+  if (code === "Home") return "top";
+  if (code === "End") return "bottom";
+  return null;
+}
+
 export function isPointerOnChatScrollbar(
   rect: { left: number; right: number; top: number; bottom: number },
   box: { clientLeft: number; clientTop: number; clientWidth: number; clientHeight: number; offsetWidth: number; offsetHeight: number },
