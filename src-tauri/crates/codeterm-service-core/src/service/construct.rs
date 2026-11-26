@@ -164,6 +164,7 @@ pub fn build_service_context(
     extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
     crate::ports::lifecycle::register_extensions(&mut extensions);
     extensions.insert(crate::ports::lifecycle::InstalledLifecycle::default());
+    crate::ports::rest::register_extensions(&mut extensions);
     extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(
         Default::default(),
     )));

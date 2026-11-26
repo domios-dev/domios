@@ -298,6 +298,11 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
     }
 }
 
+fn cloud_fixture(mux: MultiplexerState) -> ServiceFixture {
+    codeterm_api::register_api_extensions();
+    ServiceFixture::new(mux)
+}
+
 fn configure_peer_state(fixture: &ServiceFixture, instance_id: &str) -> (AppState, String) {
     let state = test_support::app_state(fixture);
     state.config.lock().api.token = Some("owner-secret".into());
@@ -372,7 +377,7 @@ async fn post_relay_to(app: axum::Router, token: &str, payload: &Value) -> (Stat
 #[tokio::test]
 async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards() {
     let (mux, local_tab) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = cloud_fixture(mux);
     let (home, home_pub) = configure_peer_state(&fixture, "home-inst");
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 10), 7687);
     let managed_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 22), 7687);
@@ -522,7 +527,7 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
             "method": "POST",
             "path": "/api/agents/spawn",
             "body": {
-                "agent": "claude",
+                "agent": "alpha",
                 "spawned_by_tab_id": local_tab,
                 "report_to": local_tab,
             },
@@ -625,7 +630,7 @@ async fn home_to_cloud_relay_travels_over_ingress_channel_after_all_relay_guards
 async fn cloud_to_home_requests_enqueue_through_outbox_and_surface_delivery_unconfirmed_without_replay(
 ) {
     let (mux, worker_tab) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = cloud_fixture(mux);
     let (cloud, _) = configure_peer_state(&fixture, "cloud-inst");
     cloud
         .mesh
@@ -835,7 +840,7 @@ async fn cloud_to_home_requests_enqueue_through_outbox_and_surface_delivery_unco
     );
 
     // 3. Outbox full surfaces typed refusal with bytes_written=false.
-    let small_fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let small_fixture = cloud_fixture(MultiplexerState::new().0);
     let (small_cloud, _) = configure_peer_state(&small_fixture, "small-cloud");
     small_cloud
         .mesh
@@ -892,7 +897,7 @@ async fn cloud_to_home_requests_enqueue_through_outbox_and_surface_delivery_unco
 
 #[tokio::test]
 async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
-    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let fixture = cloud_fixture(MultiplexerState::new().0);
     let (home, home_pub) = configure_peer_state(&fixture, "home-wake");
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 11), 7687);
     enroll_cloud_peer(
@@ -1018,7 +1023,7 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
 #[tokio::test]
 async fn cloud_relayed_notifications_are_refused_with_typed_error_not_widened() {
     let (mux, worker_tab) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = cloud_fixture(mux);
     let (cloud, _) = configure_peer_state(&fixture, "cloud-notif");
     cloud
         .mesh

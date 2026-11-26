@@ -32,7 +32,7 @@ async fn post_mesh_relay(
 async fn cloud_mode_router_without_listener_serves_forwarded_tabs_and_send() {
     codeterm_service_core::ports::socket::register_test_stub();
     let (mux, target_tab) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = cloud_fixture(mux);
     let deliveries =
         fixture.bind_recorded_agent_recipient(&target_tab, "cloud-session", "cloud-nonce");
     let (cloud, _) = configure_peer_state(&fixture, "cloud-inst");
@@ -96,21 +96,23 @@ async fn cloud_mode_router_without_listener_serves_forwarded_tabs_and_send() {
     assert_eq!(status, StatusCode::OK, "{send_resp}");
     assert_eq!(send_resp["ok"], true, "{send_resp}");
     assert_eq!(send_resp["status"], 200, "{send_resp}");
-    deliveries.wait_for_flush();
+    assert_eq!(send_resp["data"]["delivery"], "sent", "{send_resp}");
+    assert_eq!(send_resp["data"]["bytes_written"], true, "{send_resp}");
+    // Target is already BootStage::AgentReady, so gateway_deliver submits synchronously at
+    // the recorded PTY boundary without entering the deferred outbox flush loop.
+    let texts = deliveries.texts.lock();
+    assert_eq!(texts.len(), 1, "expected exactly one delivered message");
     assert!(
-        deliveries
-            .texts
-            .lock()
-            .iter()
-            .any(|text| text.contains("hello cloud tab")),
-        "forwarded POST /api/tabs/{{id}}/send must reach the target tab"
+        texts[0].contains("hello cloud tab"),
+        "forwarded POST /api/tabs/{{id}}/send must reach the target tab: {:?}",
+        *texts
     );
 }
 
 #[tokio::test]
 async fn live_drain_policy_defers_missing_peer_refuses_unpaired_or_revoked_and_closed_agent_tab() {
     let (mux, worker_tab) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = cloud_fixture(mux);
     let (cloud, _) = configure_peer_state(&fixture, "cloud-pol");
     let policy = drain_policy(&cloud.svc, cloud.mesh.clone());
 
@@ -227,7 +229,7 @@ async fn live_drain_policy_defers_missing_peer_refuses_unpaired_or_revoked_and_c
 
 #[tokio::test]
 async fn cloud_producer_mints_relay_token_after_transfer_artifacts() {
-    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let fixture = cloud_fixture(MultiplexerState::new().0);
     let (home, original_pub) = configure_peer_state(&fixture, "home-artifact");
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 30), 7687);
     enroll_cloud_peer(
@@ -245,7 +247,7 @@ async fn cloud_producer_mints_relay_token_after_transfer_artifacts() {
         .is_ok());
 
     let temp = tempfile::tempdir().unwrap();
-    let artifact_path = temp.path().canonicalize().unwrap().join("note.txt");
+    let artifact_path = temp.path().canonicalize().unwrap().join("note.md");
     std::fs::write(&artifact_path, b"cloud artifact body").unwrap();
     let artifact_display =
         codeterm_service_core::paths::strip_verbatim_prefix(&artifact_path.to_string_lossy())
@@ -268,7 +270,7 @@ async fn cloud_producer_mints_relay_token_after_transfer_artifacts() {
             status: 200,
             data: Some(
                 serde_json::to_value(IngestedAttachment {
-                    path: "/remote/ingested/note.txt".into(),
+                    path: "/remote/ingested/note.md".into(),
                     kind: AttachmentKind::File,
                     size: 19,
                     reference: None,
@@ -287,7 +289,7 @@ async fn cloud_producer_mints_relay_token_after_transfer_artifacts() {
             "target_peer_id": "cloud-art",
             "method": "POST",
             "path": "/api/tabs/remote-tab/send",
-            "body": { "text": format!("See <ds-document src=\"{artifact_display}\" />") },
+            "body": { "text": format!("See\n<ds-document src=\"{artifact_display}\" />\n") },
         }),
     )
     .await;
@@ -306,7 +308,7 @@ async fn cloud_producer_mints_relay_token_after_transfer_artifacts() {
         recorded[1].command.body["text"]
             .as_str()
             .unwrap()
-            .contains("/remote/ingested/note.txt"),
+            .contains("/remote/ingested/note.md"),
         "artifact path must be rewritten before send_relay"
     );
 

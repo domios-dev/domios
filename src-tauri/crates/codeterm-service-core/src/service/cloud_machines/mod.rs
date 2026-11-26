@@ -40,12 +40,15 @@ pub use types::{
 };
 
 #[derive(Clone)]
-struct CloudMachinesHandle(Arc<CloudMachineController>);
+pub(crate) struct CloudMachinesHandle(Arc<CloudMachineController>);
 
 impl ServiceContext {
     #[cfg(any(test, feature = "test-support"))]
     pub fn install_cloud_machines_for_test(&self, controller: Arc<CloudMachineController>) {
-        let _ = self.set_ext(CloudMachinesHandle(controller));
+        assert!(
+            self.set_ext(CloudMachinesHandle(controller)).is_ok(),
+            "cloud_machines test controller must be installed before first access"
+        );
     }
 
     pub fn cloud_machines(&self) -> Arc<CloudMachineController> {

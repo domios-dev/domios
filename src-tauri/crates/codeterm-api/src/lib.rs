@@ -125,3 +125,12 @@ pub mod app_quit_routes;
 mod ui_status_tests;
 
 pub mod blueprint_viewer_routes;
+
+pub fn register_api_extensions() {
+    codeterm_service_core::ports::rest::register_rest_extensions(register_extensions);
+}
+
+fn register_extensions(builder: &mut codeterm_service_core::service::ExtensionsBuilder) {
+    crate::mesh_routes::relay::register_extensions(builder);
+    crate::cloud_routes::register_extensions(builder);
+}

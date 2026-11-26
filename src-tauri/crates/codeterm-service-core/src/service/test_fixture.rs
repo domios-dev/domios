@@ -481,6 +481,7 @@ impl ServiceFixture {
         extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
         crate::ports::lifecycle::register_fixture_extensions(&mut extensions);
         extensions.insert(crate::ports::lifecycle::InstalledLifecycle::default());
+        crate::ports::rest::register_extensions(&mut extensions);
         extensions.insert::<crate::ShellCapabilityState>(Arc::new(Mutex::new(Default::default())));
         extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(
             crate::service::protocol_recorder::ProtocolRecorder::new(
