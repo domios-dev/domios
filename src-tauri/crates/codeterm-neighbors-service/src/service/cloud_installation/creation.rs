@@ -2,6 +2,33 @@
 use std::io::Read;
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "linux")]
+struct PipeGuard(libc::c_int);
+
+#[cfg(target_os = "linux")]
+impl Drop for PipeGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.0);
+        }
+    }
+}
+
+pub(super) fn discard() {
+    std::env::remove_var("DOMIOS_BOOTSTRAP_CONTROLLER_KEY");
+    std::env::remove_var("DOMIOS_BOOTSTRAP_NONCE");
+    let fd = std::env::var_os("DOMIOS_CLOUD_BINDING_PIPE");
+    std::env::remove_var("DOMIOS_CLOUD_BINDING_PIPE");
+    #[cfg(target_os = "linux")]
+    if fd.as_deref() == Some(std::ffi::OsStr::new("9")) {
+        unsafe {
+            libc::close(9);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = fd;
+}
+
 pub(super) fn take() -> Result<Option<(String, Zeroizing<String>)>, String> {
     if std::env::var_os("DOMIOS_BOOTSTRAP_CONTROLLER_KEY").is_some()
         || std::env::var_os("DOMIOS_BOOTSTRAP_NONCE").is_some()
@@ -18,6 +45,7 @@ pub(super) fn take() -> Result<Option<(String, Zeroizing<String>)>, String> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+        let _guard = PipeGuard(9);
         let mut pipe = std::fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NONBLOCK)
