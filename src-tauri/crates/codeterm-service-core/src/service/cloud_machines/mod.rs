@@ -46,6 +46,11 @@ pub use types::{
 struct CloudMachinesHandle(Arc<CloudMachineController>);
 
 impl ServiceContext {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn install_cloud_machines_for_test(&self, controller: Arc<CloudMachineController>) {
+        let _ = self.set_ext(CloudMachinesHandle(controller));
+    }
+
     pub fn cloud_machines(&self) -> Arc<CloudMachineController> {
         let handle = self.ext_or_init(|| {
             let controller_id = self

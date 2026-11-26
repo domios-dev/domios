@@ -8,12 +8,20 @@ use std::sync::LazyLock;
 
 mod caller;
 mod capability;
+mod cloud_producer;
 mod cloud_wake;
 mod observation_limit;
 mod origin;
 mod peer_asset;
 mod peer_rail;
 mod peer_stream;
+pub(crate) use cloud_producer::{
+    cloud_outbox_announce, resolve_cloud_ingress_address, send_via_cloud_ingress,
+};
+pub use cloud_producer::{
+    CloudIngressConnector, CloudIngressConnectorOverride, CloudIngressSendError,
+    CloudOutboxOverride, CLOUD_NOTIFICATION_RELAY_REFUSED, CLOUD_OUTBOUND_OPERATION_UNSUPPORTED,
+};
 #[cfg(test)]
 use peer_asset::is_relay_asset_path;
 pub use peer_asset::mesh_relay_asset;
@@ -323,20 +331,11 @@ pub async fn mesh_relay_to_peer(
     if let Some(early) = cloud_wake::preflight_cloud_wake(&state, &req).await? {
         return Ok(Json(early));
     }
+    let inbound_only = cloud_producer::has_cloud_outbox(&state);
     let target = (req.target_instance_id.clone(), req.target_peer_id.clone());
-    let (request_origin, client, peer_id, peer_name, peer_version) =
+    let (request_origin, transport, peer_id, peer_name, peer_version) =
         crate::auth::off_runtime(&state, &headers, move |state, headers| {
-            let ((primary, alternatives), peer_id, peer_name, peer_version) = {
-                let mesh = state.mesh.lock();
-                match &target {
-                    (Some(id), None) => resolve_exact_relay_peer_route(&mesh, id)?,
-                    (None, Some(target)) => resolve_relay_peer_route(&mesh, target)?,
-                    _ => return Err((StatusCode::BAD_REQUEST, "Provide one relay target".into())),
-                }
-            };
-            let (request_origin, client) =
-                origin::signed_peer_client(state, headers, primary, alternatives)?;
-            Ok((request_origin, client, peer_id, peer_name, peer_version))
+            cloud_producer::resolve_outbound_transport(state, headers, &target, inbound_only)
         })
         .await?;
     let actor =
@@ -350,8 +349,29 @@ pub async fn mesh_relay_to_peer(
             },
         })
     };
+    if let cloud_producer::OutboundRelayTransport::CloudOutbox {
+        target,
+        origin,
+        agent,
+    } = transport
+    {
+        let resp = cloud_producer::relay_via_cloud_outbox(
+            &state,
+            target,
+            origin,
+            agent,
+            &req.method,
+            &req.path,
+            req.body,
+        )
+        .await?;
+        return Ok(answered_by(resp));
+    }
+    let transport =
+        cloud_producer::ReadyOutboundTransport::prepare(&state, &peer_id, &peer_name, transport)
+            .await?;
     if is_tab_send(&req.method, &req.path) && req.body["require_agent"].as_bool() == Some(true) {
-        let identify = client.auth_get_json("/api/identify").await.ok();
+        let identify = transport.fetch_identify(&state).await;
         if !identify
             .as_ref()
             .is_some_and(|identify| identify_supports_feature(identify, REQUIRE_AGENT_SEND_FEATURE))
@@ -365,7 +385,7 @@ pub async fn mesh_relay_to_peer(
         }
     }
     if is_recurring_delayed_relay(&req.method, &req.path, &req.body) {
-        let identify = client.auth_get_json("/api/identify").await.ok();
+        let identify = transport.fetch_identify(&state).await;
         if let Some(refusal) = recurrence_capability_refusal_response(
             &peer_name,
             identify.as_ref(),
@@ -412,19 +432,19 @@ pub async fn mesh_relay_to_peer(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .map_err(|error| (StatusCode::FORBIDDEN, error))?;
     }
-    codeterm_service_core::service::mesh_artifacts_transfer(
-        &state.svc,
-        actor
-            .as_ref()
-            .map(crate::tab_routes::caller_tab_header)
-            .map_err(|(_, message)| message.clone()),
-        &client,
-        &req.method,
-        &req.path,
-        &mut relay_body,
-    )
-    .await
-    .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
+    transport
+        .transfer_artifacts(
+            &state,
+            actor
+                .as_ref()
+                .map(crate::tab_routes::caller_tab_header)
+                .map_err(|(_, message)| message.clone()),
+            &req.method,
+            &req.path,
+            &mut relay_body,
+        )
+        .await
+        .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
     crate::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &relay_body)
         .await
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
@@ -448,16 +468,9 @@ pub async fn mesh_relay_to_peer(
     };
     // The sender hop's own transport failure classifies into the same
     // relay_failure() vocabulary the receiving hop uses (see relay_error_summary).
-    let resp = match client.send_relay(&cmd).await {
+    let resp = match transport.send_relay(&state, &cmd).await {
         Ok(resp) => resp,
-        Err(err) => {
-            return Ok(answered_by(relay_failure(
-                err.http_status(),
-                err.code(),
-                err.bytes_written(),
-                err.to_string(),
-            )));
-        }
+        Err(failure) => return Ok(answered_by(failure)),
     };
 
     if let Some(held) = cloud_wake::hold_if_drain_raced(&state, &peer_id, &cmd, &resp) {
@@ -1086,8 +1099,7 @@ use peer_authorization::authorize_peer_relay;
 #[cfg(test)]
 use peer_authorization::PeerRelayAuthorization;
 use peer_resolution::{
-    peer_not_paired_error, peer_unroutable_error, resolve_exact_relay_peer_route,
-    resolve_relay_peer_route, AnsweringPeer, PeerRelayResponse,
+    peer_not_paired_error, peer_unroutable_error, AnsweringPeer, PeerRelayResponse,
 };
 #[cfg(test)]
 use peer_resolution::{

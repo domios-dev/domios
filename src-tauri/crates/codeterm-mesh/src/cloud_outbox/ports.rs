@@ -98,6 +98,12 @@ pub trait CloudOutboxPort: Send + Sync {
 
     fn record_status(&self, id: &OutboxId) -> Option<OutboxRecordStatus>;
 
+    fn wait_for_settlement<'a>(
+        &'a self,
+        id: &'a OutboxId,
+        pair: &'a InstallationPair,
+    ) -> BoxFuture<'a, Option<OutboxRecordStatus>>;
+
     fn application_reply(&self, id: &OutboxId) -> Option<CompletedApplicationReply>;
 
     fn unconfirmed_records(&self) -> Vec<(OutboxId, OutboxRecordStatus)>;
