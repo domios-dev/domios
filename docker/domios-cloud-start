@@ -1,8 +1,23 @@
-#!/bin/sh
-set -eu
-case "$(cat /etc/domios-cloud-profile)" in
-    qa) set -- --development --port 7686 ;;
-    release) set -- --production ;;
-    *) exit 1 ;;
-esac
-exec /opt/domios/domios-server/domios-server start "$@" --pid-file /run/domios/server.pid
+#!/usr/bin/python3
+import os
+import re
+from pathlib import Path
+
+server = "/opt/domios/domios-server/domios-server"
+profile = Path("/etc/domios-cloud-profile").read_text().strip()
+selectors = {"qa": ["--development", "--port", "7686"], "release": ["--production"]}[profile]
+controller = os.environ.pop("DOMIOS_BOOTSTRAP_CONTROLLER_KEY", None)
+nonce = os.environ.pop("DOMIOS_BOOTSTRAP_NONCE", None)
+os.environ.pop("DOMIOS_CLOUD_BINDING_PIPE", None)
+if controller is not None or nonce is not None:
+    if not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", v) for v in (controller, nonce)):
+        raise SystemExit("Invalid cloud creation binding")
+    reader, writer = os.pipe()
+    with os.fdopen(writer, "wb") as stream:
+        stream.write((controller + "\n" + nonce + "\n").encode("ascii"))
+    os.dup2(reader, 9, inheritable=True)
+    os.set_inheritable(9, True)
+    if reader != 9:
+        os.close(reader)
+    os.environ["DOMIOS_CLOUD_BINDING_PIPE"] = "9"
+os.execv(server, [server, "start", *selectors, "--pid-file", "/run/domios/server.pid"])

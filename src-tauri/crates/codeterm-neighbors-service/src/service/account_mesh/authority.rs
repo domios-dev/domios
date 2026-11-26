@@ -99,6 +99,9 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::InstallationUnverified
         | AccountMeshRefusal::CutoffAfterCurrentSession
         | AccountMeshRefusal::Conflict
+        | AccountMeshRefusal::Replay
+        | AccountMeshRefusal::NonceReused
+        | AccountMeshRefusal::CloudMachineLimit { .. }
         | AccountMeshRefusal::KeyConflict
         | AccountMeshRefusal::GenerationMismatch
         | AccountMeshRefusal::ChallengeInvalid

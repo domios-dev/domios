@@ -198,7 +198,15 @@ pub fn write_human_ready(
         serde_json::to_writer(&mut *output, ready).map_err(io::Error::other)?;
         output.write_all(b"\n")?;
     } else {
-        writeln!(output, "Domios server ready: http://{}/", ready.api_address)?;
+        if std::env::var_os("DOMIOS_CLOUD_MACHINE").is_some() {
+            writeln!(
+                output,
+                "Domios cloud ingress ready on {}",
+                ready.api_address
+            )?;
+        } else {
+            writeln!(output, "Domios server ready: http://{}/", ready.api_address)?;
+        }
         writeln!(output, "PID: {}  Epoch: {}", ready.process.pid, ready.epoch)?;
         writeln!(output, "Executable: {}", ready.process.executable.display())?;
         writeln!(output, "Build: {}  API: {}", ready.build, ready.api_version)?;

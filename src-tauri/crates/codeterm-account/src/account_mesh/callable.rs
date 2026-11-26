@@ -324,6 +324,14 @@ impl<T: CallableTransport> CallableRegistry<T> {
 
 #[async_trait]
 impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
+    async fn enroll_cloud(
+        &self,
+        session: &Session,
+        request: &super::cloud_enrollment::EnrollmentRequest,
+    ) -> RegistryResult<super::cloud_enrollment::EnrollmentReply> {
+        self.call("enrollDelegatedCloudInstallation", session, request)
+            .await
+    }
     async fn renew_cloud(
         &self,
         session: &Session,
@@ -486,7 +494,17 @@ impl CallableTransport for HttpCallable {
         id_token: &str,
         data: Value,
     ) -> Result<Value, CallableFailure> {
-        let url = callable_url(&self.base, route)?;
+        let endpoints = crate::firebase_endpoints::current();
+        let url = if matches!(
+            route,
+            "enrollDelegatedCloudInstallation" | "renewDelegatedCloudInstallation"
+        ) && !endpoints.emulator
+        {
+            let redeem = url::Url::parse(endpoints.redeem).map_err(|_| CallableFailure::Offline)?;
+            redeem.join(route).map_err(|_| CallableFailure::Offline)?
+        } else {
+            callable_url(&self.base, route)?
+        };
         let response = self
             .client
             .post(url)

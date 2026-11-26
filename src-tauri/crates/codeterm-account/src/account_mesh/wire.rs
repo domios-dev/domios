@@ -549,6 +549,16 @@ pub enum RegistryRefusal {
     ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
+    #[serde(rename = "replay")]
+    Replay,
+    #[serde(rename = "nonce_reused")]
+    NonceReused,
+    #[serde(rename = "cloud.machines")]
+    CloudMachineLimit {
+        mode: super::cloud_enrollment::CloudMode,
+        limit: u32,
+        active_count: u32,
+    },
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
     #[serde(rename = "authority-unavailable")]

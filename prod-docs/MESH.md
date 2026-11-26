@@ -31,6 +31,8 @@ Windows Defender may ask to allow incoming connections for Domios on first use; 
 
 ## Cloud enrollment
 
+On Timeweb the system service starts at boot. Its public ingress listens on TCP 7687. Use the local command socket to inspect account status on the VPS. After enrollment the creation secret cannot authorize another Apply. If the controller loses the Apply reply, the result is unconfirmed until the enrolled installation confirms its identity.
+
 Cloud enrollment uses a dedicated ingress. A direct Timeweb endpoint carries a public IPv4 address and TCP port 7687. A preview endpoint carries an HTTPS origin and the name of its access header. The signed endpoint record contains only that metadata. Neither endpoint is a browser URL for opening the Domios UI.
 
 The controller and cloud installation protect enrollment messages inside the connection with a Noise session bound to the one-time creation secret and installation proofs. A preview front that refuses its access header produces `provider_access_stale`. Cloud ingress does not serve the ordinary API, health or ping routes.
@@ -177,4 +179,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 84 -->
+<!-- revision: 85 -->

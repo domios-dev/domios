@@ -12,6 +12,13 @@ pub type RegistryResult<T> = std::result::Result<T, RegistryRefusal>;
 /// Server registry seam; the HTTP adapter binds the reviewed callable names.
 #[async_trait]
 pub trait MeshRegistry: Send + Sync {
+    async fn enroll_cloud(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_enrollment::EnrollmentRequest,
+    ) -> RegistryResult<super::cloud_enrollment::EnrollmentReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     async fn renew_cloud(
         &self,
         _session: &Session,

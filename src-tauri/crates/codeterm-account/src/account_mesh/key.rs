@@ -71,6 +71,27 @@ impl InstallationKey {
         secret
     }
 
+    pub fn public_bytes(&self) -> [u8; 32] {
+        self.signing.verifying_key().to_bytes()
+    }
+
+    pub fn sign_cloud_channel_proof(&self, message: &[u8]) -> Option<[u8; 64]> {
+        let transcript = [
+            b"domios-cloud-ingress-bootstrap-controller-v1\0".as_slice(),
+            b"domios-cloud-ingress-bootstrap-responder-v1\0".as_slice(),
+        ]
+        .iter()
+        .find_map(|domain| message.strip_prefix(*domain))?;
+        if transcript.len() != 64 || transcript[32..] != self.public_bytes() {
+            return None;
+        }
+        Some(self.signing.sign(message).to_bytes())
+    }
+
+    pub(super) fn sign_cloud_enrollment(&self, message: &[u8]) -> String {
+        URL_SAFE_NO_PAD.encode(self.signing.sign(message).to_bytes())
+    }
+
     pub fn spki_der(&self) -> Vec<u8> {
         spki_der(&self.signing.verifying_key())
     }
@@ -134,7 +155,7 @@ impl InstallationKey {
     }
 }
 
-fn spki_der(key: &VerifyingKey) -> Vec<u8> {
+pub(super) fn spki_der(key: &VerifyingKey) -> Vec<u8> {
     let mut der = Vec::with_capacity(44);
     der.extend_from_slice(&ED25519_SPKI_PREFIX);
     der.extend_from_slice(key.as_bytes());
