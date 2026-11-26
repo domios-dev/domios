@@ -1,10 +1,9 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Weak},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use codeterm_decision::{DecisionAnswer, DecisionQuestion, DecisionRequest};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -28,6 +27,7 @@ use crate::service::{
 mod delivery;
 mod forward;
 mod local;
+mod scout;
 mod training_log;
 pub(in crate::service) use delivery::{external_handoff, is_transcript_delivery_token};
 
@@ -56,6 +56,8 @@ pub struct LiveTranscriptStatus {
     pub binding: super::TranscriptBinding,
     pub trigger: TranscriptTrigger,
     pub scout: ScoutStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scout_reason: Option<String>,
     pub awaiting_delivery: bool,
     pub concierge: ConciergeStatus,
     pub configured: bool,
@@ -122,7 +124,6 @@ struct OwnerDispatch {
     running: bool,
     waiting_for_idle: bool,
     pending: Option<TranscriptRange>,
-    scout_unavailable: bool,
     last_route_error: Option<String>,
     dispatch_finished: Arc<tokio::sync::Notify>,
 }
@@ -152,7 +153,6 @@ impl ServiceContext {
         }
         let entry = entries.get(owner);
         let trigger = state.trigger;
-        let unavailable = entry.is_some_and(|entry| entry.scout_unavailable);
         let last_route_error = entry.and_then(|entry| entry.last_route_error.clone());
         drop(entries);
         if awaiting_delivery && state.pending.is_none() {
@@ -164,16 +164,10 @@ impl ServiceContext {
         } else {
             None
         };
-        let scout = match trigger {
-            _ if binding.target == super::BindingTarget::Local => ScoutStatus::Disabled,
-            TranscriptTrigger::ScoutThenConcierge
-                if !unavailable && scout_model(self).is_some() =>
-            {
-                ScoutStatus::Ready
-            }
-            TranscriptTrigger::ScoutThenConcierge => ScoutStatus::Unavailable,
-            _ => ScoutStatus::Disabled,
-        };
+        let scout_decision =
+            scout::resolve(self, binding.target == super::BindingTarget::Local, trigger).decision;
+        let scout = scout_decision.status();
+        let scout_reason = scout_decision.reason();
         let epoch = match &binding.target {
             super::BindingTarget::Attached { epoch_id } => store
                 .epoch(epoch_id)
@@ -244,6 +238,7 @@ impl ServiceContext {
             binding,
             trigger,
             scout,
+            scout_reason,
             awaiting_delivery: state.pending.is_some(),
             concierge,
             configured: setup.configured,
@@ -454,11 +449,9 @@ impl ServiceContext {
         let trigger = trigger.or_else(|| {
             let setup = self.configuration().live_transcript;
             (setup.configured && !store.inner.root.join("routing.json").exists()).then(|| {
-                let scout = if scout_model(self).is_some() {
-                    ScoutStatus::Ready
-                } else {
-                    ScoutStatus::Unavailable
-                };
+                let scout = scout::resolve(self, false, TranscriptTrigger::ScoutThenConcierge)
+                    .decision
+                    .status();
                 default_trigger(&setup.trigger, scout)
             })
         });
@@ -506,9 +499,6 @@ impl ServiceContext {
             entry.running = false;
             entry.pending = None;
             entry.dispatch_finished.notify_waiters();
-            if result.is_ok() && trigger.is_some() {
-                entry.scout_unavailable = false;
-            }
             if result.is_ok() {
                 entry.last_route_error = None;
             }
@@ -585,7 +575,6 @@ impl ServiceContext {
         let mut state = store.routing_state()?;
         state.trigger = trigger;
         store.save_routing_state(&state)?;
-        entry.scout_unavailable = false;
         entry.last_route_error = None;
         drop(owners);
         self.emit_live_transcript_changed(owner);
@@ -1015,13 +1004,7 @@ fn process(
     let range = TranscriptRange { from_seq, to_seq };
     let rationale = match state.trigger {
         TranscriptTrigger::ScoutThenConcierge => {
-            let decision = classify(svc, &speech);
-            if matches!(decision, Ok(None)) {
-                return Ok(false);
-            }
-            let mut entries = svc.ext_or_init(Dispatch::default).owners.lock();
-            entries.entry(owner.into()).or_default().scout_unavailable = decision.is_err();
-            if decision.map_err(str::to_string)? != Some(true) {
+            if scout::classify(svc, owner, &speech)? != Some(true) {
                 return Ok(false);
             }
             "Scout identified an explicit request"
@@ -1057,78 +1040,6 @@ fn wake_word(text: &str) -> bool {
         && words
             .next()
             .is_some_and(|word| word.eq_ignore_ascii_case("domios"))
-}
-
-fn scout_model(svc: &ServiceContext) -> Option<Arc<dyn codeterm_decision::DecisionModel>> {
-    let config = svc.supporter_decision_config();
-    let mut model = codeterm_supporter::configured_model(&config, &svc.supporter_models)?;
-    if !model.primitives().choice {
-        return None;
-    }
-    let runtime = crate::service::supporter::runtime_with_notifications(svc);
-    let tokens = codeterm_supporter::read_token_snapshot(
-        &runtime,
-        &crate::service::supporter::registry::token_store(),
-        config.active_id()?,
-    );
-    if !codeterm_supporter::supporter_connected(&config, &svc.supporter_models, &tokens) {
-        return None;
-    }
-    model = codeterm_supporter::budgeted_model_with_activity(
-        model,
-        runtime,
-        config.calls_per_hour.unwrap_or(0),
-        codeterm_supporter::VerdictKind::TabState,
-        None,
-        None,
-        None,
-    );
-    Some(model)
-}
-
-const MAX_SCOUT_SEGMENT_CHARS: usize = 512;
-
-fn scout_segment(seq: u64, text: &str) -> Option<serde_json::Value> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let bounded: String = trimmed.chars().take(MAX_SCOUT_SEGMENT_CHARS).collect();
-    let redacted = codeterm_supporter::privacy::value(&json!(bounded));
-    Some(json!({
-        "seq": seq,
-        "text": redacted,
-    }))
-}
-
-fn classify(svc: &ServiceContext, speech: &[(u64, &str)]) -> Result<Option<bool>, &'static str> {
-    let segments: Vec<_> = speech
-        .iter()
-        .filter_map(|(seq, text)| scout_segment(*seq, text))
-        .collect();
-    if segments.is_empty() {
-        return Ok(None);
-    }
-    let model = scout_model(svc).ok_or("Scout unavailable")?;
-    let request = DecisionRequest {
-        state: json!({ "segments": segments }),
-        instructions: "Decide whether this recent transcript contains an actionable request, instruction, or message meant for an assistant or agent in any language (Russian, English, or any other language). Ignore pure ambient chatter or filler with no request.".into(),
-        question: DecisionQuestion::Choice { options: [
-            ("wake".into(), "Actionable request".into()),
-            ("ignore".into(), "No actionable request".into()),
-        ].into() },
-    };
-    let ms = svc.supporter_decision_config().deadline_ms.clamp(100, 5000);
-    let answer = model
-        .decide(&request, Instant::now() + Duration::from_millis(ms))
-        .map_err(|_| "Scout unavailable")?;
-    request
-        .question
-        .validate_answer(&answer)
-        .map_err(|_| "Scout unavailable")?;
-    Ok(Some(
-        matches!(answer, DecisionAnswer::Choice { choice, .. } if choice == "wake"),
-    ))
 }
 
 #[cfg(test)]

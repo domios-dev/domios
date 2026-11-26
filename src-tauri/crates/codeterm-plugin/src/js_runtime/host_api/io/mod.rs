@@ -266,6 +266,8 @@ fn execute(
             operation
                 .begin_effect()
                 .map_err(|error| error.to_string())?;
+            codeterm_decision::physical::before_request()
+                .map_err(|_| Failure::from("decision request refused"))?;
             let started: Value = serde_json::from_str(&host_exec::start_with_host_env(
                 sandbox.plugin_id(),
                 &options,
