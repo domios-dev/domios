@@ -324,6 +324,14 @@ impl<T: CallableTransport> CallableRegistry<T> {
 
 #[async_trait]
 impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
+    async fn renew_cloud(
+        &self,
+        session: &Session,
+        request: &super::delegated_renewal::RenewalRequest,
+    ) -> RegistryResult<super::delegated_renewal::RenewalReply> {
+        self.call("renewDelegatedCloudInstallation", session, request)
+            .await
+    }
     fn handles_call_deadline(&self) -> bool {
         true
     }

@@ -4,14 +4,44 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-pub const ENDPOINT_RECORD_VERSION: u8 = 1;
+pub const ENDPOINT_RECORD_VERSION: u8 = 2;
 pub const MAX_ENDPOINT_RECORDS: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EndpointAddress {
-    pub tailnet_ip: String,
-    pub api_port: u16,
+#[serde(tag = "transport", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EndpointAddress {
+    DirectIngress { address: std::net::SocketAddrV4 },
+    Tailnet { tailnet_ip: String, api_port: u16 },
+    ProviderHttps { origin: String, header_name: String },
+}
+
+impl EndpointAddress {
+    pub(crate) fn tailnet(&self) -> Option<(&str, u16)> {
+        match self {
+            Self::Tailnet {
+                tailnet_ip,
+                api_port,
+            } => Some((tailnet_ip, *api_port)),
+            Self::ProviderHttps { .. } | Self::DirectIngress { .. } => None,
+        }
+    }
+
+    fn valid(&self) -> bool {
+        match self {
+            Self::DirectIngress { address } => {
+                address.port() == 7687
+                    && codeterm_util::network_host::public_ip((*address.ip()).into())
+            }
+            Self::Tailnet {
+                tailnet_ip,
+                api_port,
+            } => *api_port != 0 && crate::types::is_tailscale_ip(tailnet_ip),
+            Self::ProviderHttps {
+                origin,
+                header_name,
+            } => crate::cloud_ingress::valid_endpoint(origin, header_name),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,7 +58,7 @@ impl EndpointClaim {
     pub fn digest(&self) -> Result<[u8; 32], AdmissionRefusal> {
         let bytes = serde_json::to_vec(self).map_err(|_| AdmissionRefusal::AuthRefused)?;
         let mut digest = Sha256::new();
-        digest.update(b"domios-mesh-endpoint-v1\0");
+        digest.update(b"domios-mesh-endpoint-v2\0");
         digest.update(bytes);
         Ok(digest.finalize().into())
     }
@@ -88,10 +118,12 @@ impl MeshManager {
         if claim.membership.len() > 16384 || record.signature.len() > 2048 {
             return Err(AdmissionRefusal::AuthRefused);
         }
-        if let Some(endpoint) = &claim.endpoint {
-            if endpoint.api_port == 0 || !crate::types::is_tailscale_ip(&endpoint.tailnet_ip) {
-                return Err(AdmissionRefusal::AuthRefused);
-            }
+        if claim
+            .endpoint
+            .as_ref()
+            .is_some_and(|endpoint| !endpoint.valid())
+        {
+            return Err(AdmissionRefusal::AuthRefused);
         }
         let authority = self
             .account_authority()
@@ -138,15 +170,16 @@ impl MeshManager {
             .collect();
         for peer in peers {
             if let Some(peer) = self.paired_peers.get_mut(&peer) {
-                peer.addresses = record
+                if let Some((ip, port)) = record
                     .claim
                     .endpoint
                     .as_ref()
-                    .map(|endpoint| vec![crate::types::PeerAddress::from_ip(&endpoint.tailnet_ip)])
-                    .unwrap_or_default();
-                if let Some(endpoint) = &record.claim.endpoint {
-                    peer.api_port = endpoint.api_port;
+                    .and_then(EndpointAddress::tailnet)
+                {
+                    peer.addresses = vec![crate::types::PeerAddress::from_ip(ip)];
+                    peer.api_port = port;
                 } else {
+                    peer.addresses.clear();
                     peer.online = false;
                 }
             }
@@ -207,10 +240,11 @@ impl MeshManager {
             .claim
             .endpoint
             .as_ref()
-            .map(|endpoint| LinkTarget {
+            .and_then(EndpointAddress::tailnet)
+            .map(|(ip, port)| LinkTarget {
                 installation_id: installation_id.to_owned(),
-                ip: endpoint.tailnet_ip.clone(),
-                api_port: endpoint.api_port,
+                ip: ip.to_owned(),
+                api_port: port,
             })
     }
 

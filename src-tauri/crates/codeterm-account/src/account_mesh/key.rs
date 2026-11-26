@@ -121,6 +121,17 @@ impl InstallationKey {
             URL_SAFE_NO_PAD.encode(signature)
         )
     }
+
+    pub(super) fn sign_renewal(
+        &self,
+        body: &super::delegated_renewal::RenewalBody,
+        project: &str,
+        account_id: &str,
+    ) -> Option<String> {
+        let message = serde_json::json!({"domain": "domios.cloud-renew.v1", "project":project, "account_id":account_id, "body":body});
+        let canonical = codeterm_entitlements::jcs::encode(&message).ok()?;
+        Some(URL_SAFE_NO_PAD.encode(self.signing.sign(canonical.as_bytes()).to_bytes()))
+    }
 }
 
 fn spki_der(key: &VerifyingKey) -> Vec<u8> {
