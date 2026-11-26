@@ -23,6 +23,7 @@ import {
 } from "./servicesView";
 
 export interface PeerStatus {
+  reachabilityHint?: string;
   instance_id: string;
   name: string;
   ip: string;
@@ -226,18 +227,23 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       // A failed peer list is an error state, never an authoritative "0 peers".
       const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers");
       const paired: PeerStatus[] = (meshPeers.paired ?? []).map(
-        (p: PairedPeer) => ({
-          instance_id: p.instance_id,
-          name: p.instance_name,
-          ip: p.addresses[0]?.ip ?? "",
-          api_port: p.api_port,
-          online: p.online,
-          access_level: typeof p.access_level === "string" ? p.access_level : "custom",
-          last_seen: p.last_seen,
-          domios_version: p.domios_version || dataRef.current.peers.find((peer) => peer.instance_id === p.instance_id)?.domios_version,
-          domios_build: p.domios_build || dataRef.current.peers.find((peer) => peer.instance_id === p.instance_id)?.domios_build,
-          relay_protocol_version: p.relay_protocol_version,
-        }),
+        (p: PairedPeer) => {
+          const installation = meshPeers.installations?.find((row) => row.instance_id === p.instance_id);
+          const ingress = installation && meshPeers.direct_ingress?.[installation.installation_id];
+          return {
+            instance_id: p.instance_id,
+            name: p.instance_name,
+            ip: p.addresses[0]?.ip ?? "",
+            api_port: p.api_port,
+            online: ingress?.stream_attached ?? p.online,
+            reachabilityHint: ingress && !ingress.stream_attached ? "Reachable only while one of your machines is online" : undefined,
+            access_level: typeof p.access_level === "string" ? p.access_level : "custom",
+            last_seen: p.last_seen,
+            domios_version: p.domios_version || dataRef.current.peers.find((peer) => peer.instance_id === p.instance_id)?.domios_version,
+            domios_build: p.domios_build || dataRef.current.peers.find((peer) => peer.instance_id === p.instance_id)?.domios_build,
+            relay_protocol_version: p.relay_protocol_version,
+          };
+        },
       );
 
       const remotePromises = paired

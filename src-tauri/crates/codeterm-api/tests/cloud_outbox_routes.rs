@@ -152,6 +152,7 @@ fn build_valid_operation_request(op: OutboundOperation, source_id: &str) -> Outb
                 expires_at_ms: None,
             },
             serde_json::to_value(PeerAnnounce {
+                inbound_only: false,
                 machine_identity: None,
                 domios_version: None,
                 domios_build: None,

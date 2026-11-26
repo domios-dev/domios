@@ -133,7 +133,11 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                                 .is_some_and(|at| at <= now)
                             {
                                 "Membership expired"
-                            } else if row["online"] == true {
+                            } else if val["direct_ingress"][id]["stream_attached"] == false {
+                                "Reachable only while one of your machines is online"
+                            } else if val["direct_ingress"][id]["stream_attached"] == true
+                                || row["online"] == true
+                            {
                                 "Connected"
                             } else if row["endpoint_expires_at"]
                                 .as_u64()

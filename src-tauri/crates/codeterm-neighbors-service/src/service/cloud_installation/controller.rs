@@ -137,16 +137,52 @@ pub async fn enroll(
         return Err(ControllerError::InvalidEvidence);
     }
     let bytes = serde_json::to_vec(&apply).map_err(|_| ControllerError::InvalidEvidence)?;
+    mesh.mesh
+        .receive_registry_snapshot(&apply.reply.signed_registry)
+        .await
+        .map_err(ControllerError::Account)?;
     let uncertain = || ControllerError::ApplyUnconfirmed {
         installation_id: local.cloud_installation_id.clone(),
     };
-    let result = client
-        .request(EnrollmentOperation::Apply, &bytes)
-        .await
-        .map_err(|_| uncertain())?;
+    let result = match client.request(EnrollmentOperation::Apply, &bytes).await {
+        Ok(result) => result,
+        Err(_) => {
+            let channel = enrolled_channel(service, route, &local.cloud_installation_id)
+                .await
+                .map_err(|_| uncertain())?;
+            channel.peer_membership().map_err(|_| uncertain())?;
+            return Ok(local.cloud_installation_id);
+        }
+    };
     let ack: Applied = serde_json::from_slice(&result).map_err(|_| uncertain())?;
     if !ack.signed_in || ack.installation_id != local.cloud_installation_id {
         return Err(uncertain());
     }
     Ok(ack.installation_id)
+}
+
+async fn enrolled_channel(
+    service: &ServiceContext,
+    route: CloudRoute,
+    id: &str,
+) -> Result<codeterm_mesh::cloud_ingress::EnrolledChannel, ControllerError> {
+    let mesh = service
+        .try_ext::<crate::MeshStateHandle>()
+        .cloned()
+        .ok_or(ControllerError::Unavailable)?;
+    codeterm_mesh::cloud_ingress::connect_enrolled(mesh, route, id)
+        .await
+        .map_err(ControllerError::Ingress)
+}
+
+pub async fn publish_direct_endpoint(
+    service: &ServiceContext,
+    address: std::net::SocketAddrV4,
+    id: &str,
+) -> Result<(), ControllerError> {
+    enrolled_channel(service, CloudRoute::Direct(address), id)
+        .await?
+        .publish_endpoint(address)
+        .await
+        .map_err(ControllerError::Ingress)
 }

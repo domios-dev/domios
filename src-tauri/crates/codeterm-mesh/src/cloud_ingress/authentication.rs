@@ -165,9 +165,4 @@ pub trait CloudIngressAuthority: Send + Sync {
         key: &[u8; 32],
         binding: &[u8; 32],
     ) -> Result<(), IngressError>;
-    fn authorize_enrolled_peer(
-        &self,
-        peer: &crate::account_mesh::transcript::Party,
-        binding: &[u8; 32],
-    ) -> Result<(), IngressError>;
 }

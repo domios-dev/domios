@@ -311,13 +311,6 @@ impl CloudIngressAuthority for CloudInstallation {
             _ => Err(IngressError::Rejected),
         }
     }
-    fn authorize_enrolled_peer(
-        &self,
-        _: &codeterm_mesh::account_mesh::transcript::Party,
-        _: &[u8; 32],
-    ) -> Result<(), IngressError> {
-        Err(IngressError::Rejected)
-    }
 }
 
 impl EnrollmentHandler for CloudInstallation {

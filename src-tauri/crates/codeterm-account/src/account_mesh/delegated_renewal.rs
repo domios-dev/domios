@@ -44,6 +44,8 @@ fn eligible(state: &LifecycleState, target: &MeshTarget, now: u64) -> bool {
         && state.signed_registry.as_ref().is_some_and(|registry| {
             registry.rows.iter().any(|row| {
                 row.active
+                    && row.presence == super::wire::RegistryPresence::Present
+                    && row.eligibility == super::wire::Eligibility::Eligible
                     && row.installation_id == target.installation_id
                     && row.key_id == target.key_id
                     && row.key_generation == target.key_generation
@@ -108,13 +110,10 @@ impl AccountMesh {
         if state.account_epoch != signed.epoch || !eligible(&state, target, now) {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        let matches_issued_slot = state.signed_registry.as_ref().is_some_and(|registry| {
-            registry.grant == reply.signed_registry
-                && registry.rows.iter().any(|row| {
-                    row.target() == *target
-                        && row.membership_expires_at == Some(membership.expires_at)
-                })
-        });
+        let matches_issued_slot = state
+            .signed_registry
+            .as_ref()
+            .is_some_and(|registry| registry.grant == reply.signed_registry);
         if !matches_issued_slot || !membership.is_current(now) {
             return Err(AccountMeshRefusal::Invalid);
         }
