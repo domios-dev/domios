@@ -394,13 +394,16 @@ pub(super) async fn serve(
         }
         Request::Endpoint => {
             use crate::endpoint_gossip::EndpointAddress;
-            let endpoint = match local_address {
-                std::net::SocketAddr::V4(address) if super::direct_address_allowed(address) => {
-                    Some(EndpointAddress::DirectIngress { address })
+            let endpoint = match proxy_host {
+                Some(host) if super::provider_proxy_host_allowed(&host) => {
+                    Some(EndpointAddress::ProviderProxy { host })
                 }
-                _ => match proxy_host.filter(|host| super::provider_proxy_host_allowed(host)) {
-                    Some(host) => Some(EndpointAddress::ProviderProxy { host }),
-                    None => return Err(IngressError::Rejected),
+                Some(_) => return Err(IngressError::Rejected),
+                None => match local_address {
+                    std::net::SocketAddr::V4(address) if super::direct_address_allowed(address) => {
+                        Some(EndpointAddress::DirectIngress { address })
+                    }
+                    _ => return Err(IngressError::Rejected),
                 },
             };
             let local = channel.mesh.lock().admission_context()?;

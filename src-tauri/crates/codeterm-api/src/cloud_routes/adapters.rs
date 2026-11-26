@@ -410,9 +410,7 @@ impl MeshPeerControlAdapter {
             .and_then(|link| link.installation_id())
             .map(str::to_owned)
             .or_else(|| record.installation_id.clone())?;
-        let known_endpoint = mesh
-            .cloud_ingress_endpoint(&installation_id)
-            .or_else(|| record.endpoint.clone());
+        let known_endpoint = record.endpoint.clone();
         if known_endpoint.is_none() && mesh.peer_route_endpoints(&peer_id).is_some() {
             return None;
         }
@@ -606,6 +604,12 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         record: &CloudMachineRecord,
         endpoint: &CloudEndpoint,
     ) -> Result<(), CloudError> {
+        if let Some(installation_id) = self.resolve_installation_id(record) {
+            self.state
+                .mesh
+                .lock()
+                .pin_managed_cloud_endpoint(installation_id, endpoint.clone());
+        }
         let CloudEndpoint::Direct(address) = endpoint else {
             return Ok(());
         };
@@ -641,6 +645,10 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
                 record.machine_id
             ))
         })?;
+        self.state
+            .mesh
+            .lock()
+            .pin_managed_cloud_endpoint(installation_id.clone(), endpoint.clone());
         #[cfg(any(test, feature = "test-support"))]
         if let Some(override_pub) = self.state.svc.try_ext::<CloudEndpointPublisherOverride>() {
             return (override_pub.0)(endpoint.clone(), installation_id)
