@@ -12,9 +12,25 @@ fn pending() -> (ServiceFixture, String, watch::Receiver<bool>) {
     let fixture = ServiceFixture::new(mux);
     let (stop, stopping) = watch::channel(false);
     JOBS.lock().insert(tab.clone(), Job {
-        provider: "fixture".into(), account: "default".into(), nonce: Some("own-nonce".into()),
-        state: json!({"state":"loginPending","auth":"signedOut","login":{"status":"pending","loginId":"own-login","url":"https://example.test/start"}}),
-        stop: Some(stop), notification: None, input: None,
+        installation_id: None,
+        provider: "fixture".into(),
+        account: "default".into(),
+        session_id: None,
+        nonce: Some("own-nonce".into()),
+        epoch: 1,
+        expires_at_ms: Some(now_ms().saturating_add(60_000)),
+        code_submission: None,
+        state: json!({
+            "state": "loginPending",
+            "epoch": 1,
+            "auth": "signedOut",
+            "loginCodeInput": true,
+            "loginBinding": {"tabId": tab, "providerId": "fixture", "nonce": "own-nonce", "epoch": 1},
+            "login": {"status": "pending", "loginId": "own-login", "url": "https://example.test/start"}
+        }),
+        stop: Some(stop),
+        notification: None,
+        input: None,
     });
     (fixture, tab, stopping)
 }
@@ -246,6 +262,341 @@ fn cli_follow_up_requires_the_current_challenge_id() {
         assert_eq!(
             require_challenge(&fixture.service, &tab, &jobs[&tab], &request).is_ok(),
             login_id == Some("own-login")
+        );
+    }
+    close(&tab);
+}
+
+fn register_cli_login_provider(fixture: &ServiceFixture) {
+    let manifest = json!({
+        "id": "fixture",
+        "version": "1.0.0",
+        "displayName": "Fixture CLI",
+        "cliLogin": {
+            "methods": [
+                {"id": "subscription", "label": "Subscription", "args": ["auth", "login"]}
+            ],
+            "urlPattern": "(https://example\\.test/[^\\s]+)\\s",
+            "timeoutMs": 60000,
+            "codeInput": true
+        },
+        "capabilities": {
+            "agentProvider": true
+        }
+    });
+    let provider = codeterm_plugin::js_runtime::JsProvider::new(
+        codeterm_plugin::js_runtime::PluginManifest::from_json_str(&manifest.to_string()).unwrap(),
+        Arc::new(
+            codeterm_plugin::js_runtime::PluginVm::from_source(
+                "fixture",
+                "module.exports={};".into(),
+            )
+            .unwrap(),
+        ),
+    );
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+}
+
+fn pending_with_code_channel(
+    epoch: u64,
+    expires_at_ms: u64,
+) -> (ServiceFixture, String, mpsc::Receiver<CodeSubmission>) {
+    let (mut mux, tab) = MultiplexerState::new();
+    {
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.agent_type = Some("fixture".into());
+        target.agent_session_id = Some("own-session".into());
+        target.session_binding_nonce = Some("own-nonce".into());
+    }
+    let fixture = ServiceFixture::new(mux);
+    register_cli_login_provider(&fixture);
+    let (stop, _stopping) = watch::channel(false);
+    let (input, codes) = mpsc::channel(1);
+    JOBS.lock().insert(
+        tab.clone(),
+        Job {
+            installation_id: Some("inst-target".into()),
+            provider: "fixture".into(),
+            account: "default".into(),
+            session_id: Some("own-session".into()),
+            nonce: Some("own-nonce".into()),
+            epoch,
+            expires_at_ms: Some(expires_at_ms),
+            code_submission: None,
+            state: json!({
+                "state": "loginPending",
+                "epoch": epoch,
+                "auth": "signedOut",
+                "loginCodeInput": true,
+                "loginBinding": {
+                    "installationId": "inst-target",
+                    "tabId": tab,
+                    "providerId": "fixture",
+                    "sessionId": "own-session",
+                    "nonce": "own-nonce",
+                    "epoch": epoch,
+                },
+                "login": {
+                    "status": "pending",
+                    "loginId": "flow-current",
+                    "method": "browser",
+                    "url": "https://example.test/oauth/authorize?state=current",
+                    "expiresAtMs": expires_at_ms,
+                }
+            }),
+            stop: Some(stop),
+            notification: None,
+            input: Some(input),
+        },
+    );
+    (fixture, tab, codes)
+}
+
+#[tokio::test]
+async fn cli_code_submission_rejects_binding_mismatch_stale_epoch_expired_and_different_flow() {
+    let (fixture, tab, mut codes) = pending_with_code_channel(7, now_ms().saturating_add(60_000));
+
+    let mismatched_cases = [
+        (
+            "wrong installation",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+                "binding": {"installationId": "inst-other", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 7}
+            }),
+        ),
+        (
+            "missing installation",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+                "binding": {"tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 7}
+            }),
+        ),
+        (
+            "wrong tab",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+                "binding": {"installationId": "inst-target", "tabId": "foreign-tab", "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 7}
+            }),
+        ),
+        (
+            "wrong provider",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+                "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "other-provider", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 7}
+            }),
+        ),
+        (
+            "wrong session",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+                "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "foreign-session", "nonce": "own-nonce", "epoch": 7}
+            }),
+        ),
+        (
+            "wrong nonce",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+                "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "foreign-nonce", "epoch": 7}
+            }),
+        ),
+        (
+            "stale epoch",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+                "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 6}
+            }),
+        ),
+        (
+            "different login flow id (URL correlation hazard)",
+            json!({
+                "action": "code", "code": "one-time-pkce-code", "loginId": "flow-other-pty-url", "providerId": "fixture",
+                "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 7}
+            }),
+        ),
+        (
+            "missing binding",
+            json!({"action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture"}),
+        ),
+    ];
+
+    for (label, body) in mismatched_cases {
+        let request: LoginRequest = serde_json::from_value(body).unwrap();
+        let err = operate(&fixture.service, &tab, request)
+            .await
+            .expect_err(label);
+        assert!(
+            !err.contains("one-time-pkce-code"),
+            "{label}: error must not echo code"
+        );
+        assert!(
+            codes.try_recv().is_err(),
+            "{label}: mismatched request must never reach provider stdin"
+        );
+    }
+    close(&tab);
+
+    // Expired flow must also be rejected before touching stdin.
+    let (expired_fixture, expired_tab, mut expired_codes) =
+        pending_with_code_channel(8, now_ms().saturating_sub(1));
+    let request: LoginRequest = serde_json::from_value(json!({
+        "action": "code", "code": "one-time-pkce-code", "loginId": "flow-current", "providerId": "fixture",
+        "binding": {"installationId": "inst-target", "tabId": expired_tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 8}
+    }))
+    .unwrap();
+    assert!(operate(&expired_fixture.service, &expired_tab, request)
+        .await
+        .is_err());
+    assert!(expired_codes.try_recv().is_err());
+    close(&expired_tab);
+}
+
+#[tokio::test]
+async fn cli_code_submission_writes_once_and_refuses_replay_after_uncertainty() {
+    // 1. Accepted submission writes once and blocks replay.
+    let (fixture, tab, mut codes) = pending_with_code_channel(10, now_ms().saturating_add(60_000));
+    let make_req = || -> LoginRequest {
+        serde_json::from_value(json!({
+            "action": "code", "code": "secret-accepted-code", "loginId": "flow-current", "providerId": "fixture",
+            "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 10}
+        }))
+        .unwrap()
+    };
+    let receiver = tokio::spawn(async move {
+        let (code, receipt) = codes.recv().await.expect("receives code once");
+        assert_eq!(code.as_str(), "secret-accepted-code");
+        receipt.send(process::CodeWriteOutcome::Written).unwrap();
+        assert!(
+            codes.recv().await.is_none(),
+            "channel closes after one send"
+        );
+    });
+    let accepted = operate(&fixture.service, &tab, make_req()).await.unwrap();
+    assert_eq!(accepted["outcome"], "accepted");
+    assert_eq!(accepted["codeSubmission"]["status"], "accepted");
+    receiver.await.unwrap();
+    let replay = operate(&fixture.service, &tab, make_req()).await;
+    assert!(replay.is_err(), "replay after accepted must be refused");
+    close(&tab);
+
+    // 2. Uncertain delivery returns typed uncertain outcome and refuses replay.
+    let (fixture, tab, mut codes) = pending_with_code_channel(11, now_ms().saturating_add(60_000));
+    let make_req = || -> LoginRequest {
+        serde_json::from_value(json!({
+            "action": "code", "code": "secret-uncertain-code", "loginId": "flow-current", "providerId": "fixture",
+            "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 11}
+        }))
+        .unwrap()
+    };
+    let receiver = tokio::spawn(async move {
+        let (code, receipt) = codes.recv().await.expect("receives code once");
+        assert_eq!(code.as_str(), "secret-uncertain-code");
+        receipt
+            .send(process::CodeWriteOutcome::Uncertain(
+                "flush unconfirmed".into(),
+            ))
+            .unwrap();
+        assert!(codes.recv().await.is_none(), "no replay reaches stdin");
+    });
+    let uncertain = operate(&fixture.service, &tab, make_req()).await.unwrap();
+    assert_eq!(uncertain["outcome"], "uncertain");
+    assert_eq!(uncertain["codeSubmission"]["status"], "uncertain");
+    receiver.await.unwrap();
+    let replay = operate(&fixture.service, &tab, make_req())
+        .await
+        .expect_err("replay after uncertainty must be refused");
+    assert!(replay.contains("uncertain"), "{replay}");
+    close(&tab);
+}
+
+#[tokio::test]
+async fn cli_code_submission_never_leaks_secret_to_logs_events_or_state() {
+    struct CaptureLogs(Mutex<Vec<String>>);
+    impl log::Log for CaptureLogs {
+        fn enabled(&self, _metadata: &log::Metadata<'_>) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            self.0.lock().push(format!("{}", record.args()));
+        }
+        fn flush(&self) {}
+    }
+    static CAPTURE_LOGS: LazyLock<CaptureLogs> =
+        LazyLock::new(|| CaptureLogs(Mutex::new(Vec::new())));
+
+    let _ = log::set_logger(&*CAPTURE_LOGS);
+    log::set_max_level(log::LevelFilter::Trace);
+    CAPTURE_LOGS.0.lock().clear();
+
+    let sentinel = "pkce-sentinel-secret-9f4e2a1b";
+    let (fixture, tab, mut codes) = pending_with_code_channel(12, now_ms().saturating_add(60_000));
+    let mut bus_events = fixture.service.events.subscribe();
+
+    // 1. Trigger logged refusal through top-level operate() (wrong epoch -> log::warn!).
+    let bad_req: LoginRequest = serde_json::from_value(json!({
+        "action": "code", "code": sentinel, "loginId": "flow-current", "providerId": "fixture",
+        "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 1}
+    }))
+    .unwrap();
+    let refused = super::super::operate(&fixture.service, &tab, bad_req)
+        .await
+        .unwrap_err();
+    assert!(!refused.contains(sentinel));
+
+    // 2. Trigger accepted submission through top-level operate().
+    let good_req: LoginRequest = serde_json::from_value(json!({
+        "action": "code", "code": sentinel, "loginId": "flow-current", "providerId": "fixture",
+        "binding": {"installationId": "inst-target", "tabId": tab, "providerId": "fixture", "sessionId": "own-session", "nonce": "own-nonce", "epoch": 12}
+    }))
+    .unwrap();
+    let receiver = tokio::spawn(async move {
+        let (code, receipt) = codes.recv().await.unwrap();
+        assert_eq!(code.as_str(), sentinel);
+        receipt.send(process::CodeWriteOutcome::Written).unwrap();
+    });
+    let response = super::super::operate(&fixture.service, &tab, good_req)
+        .await
+        .unwrap();
+    receiver.await.unwrap();
+
+    // Scan captured logs, HTTP response, show(), mux state, UI events, and event bus.
+    let logs = CAPTURE_LOGS.0.lock().join("\n");
+    assert!(!logs.contains(sentinel), "secret leaked into logs: {logs}");
+    assert!(
+        !response.to_string().contains(sentinel),
+        "secret leaked into response"
+    );
+    let shown = show(&fixture.service, &tab).unwrap();
+    assert!(
+        !shown.to_string().contains(sentinel),
+        "secret leaked into show()"
+    );
+    let mux_state = serde_json::to_string(
+        &fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .agent_runtime_state,
+    )
+    .unwrap();
+    assert!(
+        !mux_state.contains(sentinel),
+        "secret leaked into mux agent_runtime_state"
+    );
+    let ui_events = serde_json::to_string(&*fixture.ui.0.lock()).unwrap();
+    assert!(
+        !ui_events.contains(sentinel),
+        "secret leaked into UI events"
+    );
+    while let Ok(event) = bus_events.try_recv() {
+        let serialized = format!("{event:?}");
+        assert!(
+            !serialized.contains(sentinel),
+            "secret leaked into system event bus"
         );
     }
     close(&tab);

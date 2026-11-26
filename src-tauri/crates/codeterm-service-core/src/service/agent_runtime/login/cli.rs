@@ -1,22 +1,39 @@
-use super::{now_ms, Completion, LoginRequest};
+use super::{
+    build_login_binding, local_installation_id, now_ms, validate_binding_fields,
+    CodeSubmissionRecord, CodeSubmissionStatus, Completion, LoginRequest,
+};
 use crate::service::{MuxEmitCause, ServiceContext};
 use codeterm_plugin::provider::{AgentProvider, CliLoginCapability};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, LazyLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, LazyLock,
+    },
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
-type CodeSubmission = (String, oneshot::Sender<Result<(), String>>);
+use zeroize::Zeroizing;
+type CodeSubmission = (
+    Zeroizing<String>,
+    oneshot::Sender<process::CodeWriteOutcome>,
+);
 
 mod process;
 
+static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
+
 struct Job {
+    installation_id: Option<String>,
     provider: String,
     account: String,
+    session_id: Option<String>,
     nonce: Option<String>,
+    epoch: u64,
+    expires_at_ms: Option<u64>,
+    code_submission: Option<CodeSubmissionRecord>,
     state: Value,
     stop: Option<watch::Sender<bool>>,
     notification: Option<String>,
@@ -78,6 +95,7 @@ fn provider_for(
 
 fn matches_tab(job: &Job, target: &crate::multiplexer::types::Tab) -> bool {
     target.session_binding_nonce == job.nonce
+        && target.agent_session_id == job.session_id
         && target
             .restorable_launch
             .account_id
@@ -88,7 +106,10 @@ fn matches_tab(job: &Job, target: &crate::multiplexer::types::Tab) -> bool {
             || target.agent_type.as_deref() == Some(job.provider.as_str()))
 }
 
-fn selected(svc: &ServiceContext, tab: &str) -> Result<(String, Option<String>), String> {
+fn tab_identity(
+    svc: &ServiceContext,
+    tab: &str,
+) -> Result<(String, Option<String>, Option<String>), String> {
     let mux = svc.mux.read();
     let target = mux.get_tab(tab).ok_or("Sign-in tab is unavailable")?;
     Ok((
@@ -98,7 +119,13 @@ fn selected(svc: &ServiceContext, tab: &str) -> Result<(String, Option<String>),
             .clone()
             .unwrap_or_else(|| "default".into()),
         target.session_binding_nonce.clone(),
+        target.agent_session_id.clone(),
     ))
+}
+
+fn selected(svc: &ServiceContext, tab: &str) -> Result<(String, Option<String>), String> {
+    let (account, nonce, _) = tab_identity(svc, tab)?;
+    Ok((account, nonce))
 }
 
 pub(super) fn invocation(
@@ -209,14 +236,49 @@ pub(super) fn supported(svc: &ServiceContext, tab: &str, provider: Option<&str>)
     provider_for(svc, tab, provider).is_ok_and(|provider| provider.cli_login().is_some())
 }
 
-fn state(provider: &dyn AgentProvider, cap: &CliLoginCapability, signed_in: bool) -> Value {
+fn state(
+    provider: &dyn AgentProvider,
+    cap: &CliLoginCapability,
+    signed_in: bool,
+    epoch: u64,
+) -> Value {
     json!({
-        "state": if signed_in { "loaded" } else { "loginPending" }, "epoch": 0,
+        "state": if signed_in { "loaded" } else { "loginPending" }, "epoch": epoch,
         "auth": if signed_in { "signedIn" } else { "signedOut" },
         "loginCodeInput": cap.code_input,
         "loginMethods": ["browser"], "loginProviderName": provider.display_name(),
         "loginChoices": cap.methods.iter().map(|method| json!({"id":method.id,"label":method.label})).collect::<Vec<_>>()
     })
+}
+
+fn job_binding(job: &Job, tab: &str) -> super::LoginBinding {
+    super::LoginBinding {
+        installation_id: job.installation_id.clone(),
+        tab_id: Some(tab.to_owned()),
+        provider_id: Some(job.provider.clone()),
+        session_id: job.session_id.clone(),
+        nonce: job.nonce.clone().unwrap_or_default(),
+        epoch: job.epoch,
+    }
+}
+
+fn project_job_state(job: &Job, now: u64) -> Value {
+    let mut snapshot = job.state.clone();
+    if job.state["login"]["status"] == "pending"
+        && job.expires_at_ms.is_some_and(|expiry| expiry <= now)
+    {
+        if let Some(login) = snapshot.get_mut("login").and_then(Value::as_object_mut) {
+            login.insert("status".into(), json!("failed"));
+            login.insert(
+                "error".into(),
+                json!("Sign-in expired. Cancel it and try again."),
+            );
+            for field in ["url", "userCode", "instructions", "codeInput"] {
+                login.remove(field);
+            }
+        }
+    }
+    snapshot
 }
 
 async fn authenticated(provider: Arc<dyn AgentProvider>) -> Result<bool, String> {
@@ -269,12 +331,19 @@ pub(super) fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
         drop(jobs);
         let provider = provider_for(svc, tab, None)?;
         let cap = provider.cli_login().ok_or("CLI sign-in unsupported")?;
-        let mut snapshot = state(provider.as_ref(), &cap, false);
+        let (_, nonce, session_id) = tab_identity(svc, tab)?;
+        let binding = build_login_binding(
+            svc,
+            tab,
+            provider.id(),
+            session_id.as_deref(),
+            nonce.as_deref().unwrap_or(""),
+            0,
+        );
+        let mut snapshot = state(provider.as_ref(), &cap, false, 0);
         snapshot["auth"] = json!("unknown");
-        if let Some(nonce) = selected(svc, tab)?.1 {
-            snapshot["loginBinding"] = json!({"nonce":nonce,"epoch":0});
-        }
-        return Ok(json!({"login":null,"state":snapshot}));
+        snapshot["loginBinding"] = serde_json::to_value(&binding).unwrap_or(Value::Null);
+        return Ok(json!({"login":null,"state":snapshot,"loginBinding":binding}));
     };
     if svc
         .mux
@@ -284,7 +353,17 @@ pub(super) fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
     {
         return Err("Sign-in tab binding changed".into());
     }
-    Ok(json!({"login":job.state.get("login"),"state":job.state}))
+    let projected = project_job_state(job, now_ms());
+    let binding = job_binding(job, tab);
+    let mut payload = json!({
+        "login": projected.get("login"),
+        "state": projected,
+        "loginBinding": binding,
+    });
+    if let Some(submission) = &job.code_submission {
+        payload["codeSubmission"] = serde_json::to_value(submission).unwrap_or(Value::Null);
+    }
+    Ok(payload)
 }
 
 fn require_challenge(
@@ -311,45 +390,221 @@ fn require_challenge(
 pub(super) async fn operate(
     svc: &ServiceContext,
     tab: &str,
-    request: LoginRequest,
+    mut request: LoginRequest,
 ) -> Result<Value, String> {
     let provider = provider_for(svc, tab, request.provider_id.as_deref())?;
     let cap = provider.cli_login().ok_or("CLI sign-in unsupported")?;
-    let (account, nonce) = selected(svc, tab)?;
-    if request.binding.as_ref().is_some_and(|binding| {
-        nonce.as_deref() != Some(binding.nonce.as_str()) || binding.epoch != 0
-    }) {
-        return Err("Sign-in belongs to a different tab binding".into());
+    let (account, nonce, session_id) = tab_identity(svc, tab)?;
+    if request.action.as_deref() != Some("code") {
+        if let Some(binding) = request.binding.as_ref() {
+            let expected_epoch = JOBS.lock().get(tab).map(|job| job.epoch).unwrap_or(0);
+            let expected = build_login_binding(
+                svc,
+                tab,
+                provider.id(),
+                session_id.as_deref(),
+                nonce.as_deref().unwrap_or(""),
+                expected_epoch,
+            );
+            validate_binding_fields(&expected, binding, false)?;
+        }
     }
     match request.action.as_deref() {
         Some("code") => {
             if !cap.code_input {
                 return Err("Provider does not accept a sign-in code".into());
             }
-            let input = {
-                let jobs = JOBS.lock();
-                let job = jobs.get(tab).ok_or("No pending CLI sign-in")?;
-                require_challenge(svc, tab, job, &request)?;
-                if job.state["login"]["status"] != "pending" {
-                    return Err("No sign-in accepts a code".into());
-                }
-                job.input.clone().ok_or("No sign-in accepts a code")?
-            };
+            if request.api_key.is_some() || request.method_id.is_some() || request.method.is_some()
+            {
+                return Err("Invalid sign-in code request".into());
+            }
             let code = request
                 .code
+                .take()
                 .filter(|code| {
                     !code.trim().is_empty() && code.len() <= 16384 && !code.contains(['\r', '\n'])
                 })
                 .ok_or("Invalid sign-in code")?;
+            let binding = request
+                .binding
+                .as_ref()
+                .ok_or("Sign-in code submission requires an active login binding")?;
+            let (input, login_id) = {
+                let mut jobs = JOBS.lock();
+                let job = jobs.get_mut(tab).ok_or("No pending CLI sign-in")?;
+                if request
+                    .provider_id
+                    .as_deref()
+                    .is_some_and(|id| id != job.provider)
+                {
+                    return Err("Sign-in belongs to a different provider".into());
+                }
+                let expected = job_binding(job, tab);
+                validate_binding_fields(&expected, binding, true)?;
+                require_challenge(svc, tab, job, &request)?;
+                if job.state["login"]["status"] != "pending" {
+                    return Err("No sign-in accepts a code".into());
+                }
+                if job.expires_at_ms.is_some_and(|expiry| expiry <= now_ms()) {
+                    job.input = None;
+                    if let Some(login) = job.state.get_mut("login").and_then(Value::as_object_mut) {
+                        login.insert("status".into(), json!("failed"));
+                        login.insert(
+                            "error".into(),
+                            json!("Sign-in expired. Cancel it and try again."),
+                        );
+                        for field in ["url", "userCode", "instructions", "codeInput"] {
+                            login.remove(field);
+                        }
+                    }
+                    drop(jobs);
+                    publish(svc, tab);
+                    return Err("Sign-in expired. Cancel it and try again.".into());
+                }
+                match job.code_submission.as_ref().map(|record| &record.status) {
+                    None => {}
+                    Some(CodeSubmissionStatus::Uncertain) => {
+                        return Err(
+                            "Previous sign-in code delivery is uncertain and cannot be replayed. Cancel and start a new sign-in."
+                                .into(),
+                        );
+                    }
+                    Some(
+                        CodeSubmissionStatus::Submitted
+                        | CodeSubmissionStatus::Accepted
+                        | CodeSubmissionStatus::Completed,
+                    ) => {
+                        return Err(
+                            "A sign-in code was already submitted for this flow. Wait for completion or cancel and start a new sign-in."
+                                .into(),
+                        );
+                    }
+                    Some(CodeSubmissionStatus::Failed) => {
+                        return Err(
+                            "This sign-in flow failed. Cancel and start a new sign-in.".into()
+                        );
+                    }
+                }
+                let input = job.input.take().ok_or("No sign-in accepts a code")?;
+                let login_id = job.state["login"]["loginId"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                let record = CodeSubmissionRecord {
+                    status: CodeSubmissionStatus::Submitted,
+                    login_id: login_id.clone(),
+                    reason: None,
+                };
+                job.code_submission = Some(record.clone());
+                job.state["codeSubmission"] = serde_json::to_value(&record).unwrap_or(Value::Null);
+                (input, login_id)
+            };
+            publish(svc, tab);
             let (sent, receipt) = oneshot::channel();
-            input
-                .try_send((code, sent))
-                .map_err(|_| "Sign-in code input is busy or unavailable")?;
-            tokio::time::timeout(Duration::from_secs(30), receipt)
-                .await
-                .map_err(|_| "Sign-in code acknowledgement timed out")?
-                .map_err(|_| "Sign-in code input closed")??;
-            return show(svc, tab);
+            if input.try_send((code.into_zeroizing(), sent)).is_err() {
+                let reason = "Sign-in code input is unavailable".to_owned();
+                {
+                    let mut jobs = JOBS.lock();
+                    if let Some(job) = jobs
+                        .get_mut(tab)
+                        .filter(|job| job.state["login"]["loginId"].as_str() == Some(&login_id))
+                    {
+                        let record = CodeSubmissionRecord {
+                            status: CodeSubmissionStatus::Failed,
+                            login_id: login_id.clone(),
+                            reason: Some(reason.clone()),
+                        };
+                        job.code_submission = Some(record.clone());
+                        job.state["codeSubmission"] =
+                            serde_json::to_value(&record).unwrap_or(Value::Null);
+                    }
+                }
+                publish(svc, tab);
+                return Err(reason);
+            }
+            let write_outcome = match tokio::time::timeout(Duration::from_secs(30), receipt).await {
+                Ok(Ok(outcome)) => outcome,
+                Ok(Err(_)) => process::CodeWriteOutcome::Uncertain(
+                    "Sign-in code acknowledgement channel closed; delivery is uncertain and was not replayed".into(),
+                ),
+                Err(_) => process::CodeWriteOutcome::Uncertain(
+                    "Sign-in code acknowledgement timed out; delivery is uncertain and was not replayed".into(),
+                ),
+            };
+            match write_outcome {
+                process::CodeWriteOutcome::Written => {
+                    let outcome = {
+                        let mut jobs = JOBS.lock();
+                        if let Some(job) = jobs
+                            .get_mut(tab)
+                            .filter(|job| job.state["login"]["loginId"].as_str() == Some(&login_id))
+                        {
+                            if job.state["auth"] == "signedIn" {
+                                "completed"
+                            } else {
+                                let record = CodeSubmissionRecord {
+                                    status: CodeSubmissionStatus::Accepted,
+                                    login_id: login_id.clone(),
+                                    reason: None,
+                                };
+                                job.code_submission = Some(record.clone());
+                                job.state["codeSubmission"] =
+                                    serde_json::to_value(&record).unwrap_or(Value::Null);
+                                "accepted"
+                            }
+                        } else {
+                            "accepted"
+                        }
+                    };
+                    publish(svc, tab);
+                    let mut response = show(svc, tab)?;
+                    response["outcome"] = json!(outcome);
+                    return Ok(response);
+                }
+                process::CodeWriteOutcome::FailedBeforeWrite(reason) => {
+                    {
+                        let mut jobs = JOBS.lock();
+                        if let Some(job) = jobs
+                            .get_mut(tab)
+                            .filter(|job| job.state["login"]["loginId"].as_str() == Some(&login_id))
+                        {
+                            let record = CodeSubmissionRecord {
+                                status: CodeSubmissionStatus::Failed,
+                                login_id: login_id.clone(),
+                                reason: Some(reason.clone()),
+                            };
+                            job.code_submission = Some(record.clone());
+                            job.state["codeSubmission"] =
+                                serde_json::to_value(&record).unwrap_or(Value::Null);
+                        }
+                    }
+                    publish(svc, tab);
+                    return Err(reason);
+                }
+                process::CodeWriteOutcome::Uncertain(reason) => {
+                    {
+                        let mut jobs = JOBS.lock();
+                        if let Some(job) = jobs
+                            .get_mut(tab)
+                            .filter(|job| job.state["login"]["loginId"].as_str() == Some(&login_id))
+                        {
+                            let record = CodeSubmissionRecord {
+                                status: CodeSubmissionStatus::Uncertain,
+                                login_id: login_id.clone(),
+                                reason: Some(reason.clone()),
+                            };
+                            job.code_submission = Some(record.clone());
+                            job.state["codeSubmission"] =
+                                serde_json::to_value(&record).unwrap_or(Value::Null);
+                        }
+                    }
+                    publish(svc, tab);
+                    let mut response = show(svc, tab)?;
+                    response["outcome"] = json!("uncertain");
+                    response["reason"] = json!(reason);
+                    return Ok(response);
+                }
+            }
         }
         Some("cancel") => {
             let mut jobs = JOBS.lock();
@@ -357,6 +612,11 @@ pub(super) async fn operate(
             require_challenge(svc, tab, job, &request)?;
             if let Some(stop) = &job.stop {
                 let _ = stop.send(true);
+            }
+            job.input = None;
+            job.code_submission = None;
+            if let Some(obj) = job.state.as_object_mut() {
+                obj.remove("codeSubmission");
             }
             job.state["login"]["status"] = json!("canceled");
             if let Some(login) = job.state["login"].as_object_mut() {
@@ -384,6 +644,9 @@ pub(super) async fn operate(
         None | Some("start" | "check") => {}
         _ => return Err("Unsupported CLI sign-in action".into()),
     }
+    if request.api_key.is_some() || request.code.is_some() {
+        return Err("Sign-in start cannot carry credentials or codes".into());
+    }
     let _permit = tokio::time::timeout(Duration::from_secs(30), START_GATE.acquire())
         .await
         .map_err(|_| "Sign-in request timed out")?
@@ -402,19 +665,32 @@ pub(super) async fn operate(
         return Err("A sign-in process is still finishing for this account".into());
     }
     let signed_in = authenticated(provider.clone()).await?;
-    if selected(svc, tab)? != (account.clone(), nonce.clone()) {
+    if tab_identity(svc, tab)? != (account.clone(), nonce.clone(), session_id.clone()) {
         return Err("Sign-in tab binding changed during authentication".into());
     }
-    let mut snapshot = state(provider.as_ref(), &cap, signed_in);
-    if let Some(nonce) = &nonce {
-        snapshot["loginBinding"] = json!({"nonce":nonce,"epoch":0});
-    }
+    let epoch = NEXT_EPOCH.fetch_add(1, Ordering::Relaxed);
+    let installation_id = local_installation_id(svc);
+    let binding = build_login_binding(
+        svc,
+        tab,
+        provider.id(),
+        session_id.as_deref(),
+        nonce.as_deref().unwrap_or(""),
+        epoch,
+    );
+    let mut snapshot = state(provider.as_ref(), &cap, signed_in, epoch);
+    snapshot["loginBinding"] = serde_json::to_value(&binding).unwrap_or(Value::Null);
     JOBS.lock().insert(
         tab.into(),
         Job {
+            installation_id,
             provider: provider.id().into(),
             account: account.clone(),
+            session_id: session_id.clone(),
             nonce: nonce.clone(),
+            epoch,
+            expires_at_ms: None,
+            code_submission: None,
             state: snapshot,
             stop: None,
             notification: None,
@@ -425,13 +701,21 @@ pub(super) async fn operate(
     if signed_in || request.action.as_deref() == Some("check") {
         return show(svc, tab);
     }
-    if !matches!(
+    if request.account.is_some()
+        && request.method_id.is_some()
+        && request.account != request.method_id
+    {
+        return Err("Conflicting CLI sign-in method selection".into());
+    }
+    let selected_choice = request.account.as_deref().or(request.method_id.as_deref());
+    let browser_requested = matches!(
         request.method,
         Some(codeterm_plugin::agent_runtime::RuntimeLoginMethod::Browser)
-    ) {
+    ) || (request.method.is_none() && selected_choice.is_some());
+    if !browser_requested {
         return Err("This provider supports browser sign-in".into());
     }
-    let method = match request.account.as_deref() {
+    let method = match selected_choice {
         Some(id) => cap.methods.iter().find(|method| method.id == id),
         None => cap.methods.first(),
     }
@@ -444,6 +728,7 @@ pub(super) async fn operate(
     let (completed, finished) = watch::channel(false);
     let (input, codes) = mpsc::channel(1);
     let id = uuid::Uuid::new_v4().to_string();
+    let expires_at_ms = now_ms().saturating_add(cap.timeout_ms.clamp(1000, 900_000));
     {
         let mut jobs = JOBS.lock();
         let job = jobs.get_mut(tab).ok_or("Sign-in tab is unavailable")?;
@@ -460,7 +745,9 @@ pub(super) async fn operate(
         );
         job.stop = Some(stop);
         job.input = Some(input);
-        job.state["login"] = json!({"status":"pending","loginId":id,"method":"browser","expiresAtMs":now_ms().saturating_add(cap.timeout_ms.clamp(1000,900_000))});
+        job.expires_at_ms = Some(expires_at_ms);
+        job.state["login"] =
+            json!({"status":"pending","loginId":id,"method":"browser","expiresAtMs":expires_at_ms});
     }
     publish(svc, tab);
     let owner = svc.clone();
@@ -524,12 +811,27 @@ fn finish(svc: &ServiceContext, tab: &str, id: &str, result: Result<bool, String
         return;
     }
     let success = matches!(result, Ok(true));
+    let failure_error = (!success).then(|| {
+        result
+            .err()
+            .unwrap_or_else(|| "The provider is still signed out. Try again.".into())
+    });
+    if let Some(submission) = job.code_submission.as_mut() {
+        if success {
+            submission.status = CodeSubmissionStatus::Completed;
+            submission.reason = None;
+        } else if submission.status != CodeSubmissionStatus::Uncertain {
+            submission.status = CodeSubmissionStatus::Failed;
+            submission.reason = failure_error.clone();
+        }
+        job.state["codeSubmission"] = serde_json::to_value(submission).unwrap_or(Value::Null);
+    }
     job.state["state"] = json!(if success { "loaded" } else { "loginPending" });
     job.state["auth"] = json!(if success { "signedIn" } else { "signedOut" });
     job.state["login"] = if success {
         json!({"status":"completed","loginId":id})
     } else {
-        json!({"status":"failed","loginId":id,"error":result.err().unwrap_or_else(|| "The provider is still signed out. Try again.".into())})
+        json!({"status":"failed","loginId":id,"error":failure_error.unwrap_or_else(|| "The provider is still signed out. Try again.".into())})
     };
     drop(jobs);
     publish(svc, tab);

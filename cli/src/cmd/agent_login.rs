@@ -37,7 +37,18 @@ pub(crate) fn request_body(device: bool, method: Option<&str>, cancel: bool) -> 
 
 /// The daemon's own refusal text, bounded, in place of a generic failure.
 fn refusal(status: u16, body: &str) -> String {
-    let reason: String = body.trim().chars().take(512).collect();
+    let extracted = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .pointer("/reason")
+                .or_else(|| parsed.pointer("/error/message"))
+                .or_else(|| parsed.pointer("/message"))
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        });
+    let text = extracted.as_deref().unwrap_or(body);
+    let reason: String = text.trim().chars().take(512).collect();
     if reason.is_empty() {
         format!("Sign-in refused (HTTP {status}). Check the tab's sign-in banner.")
     } else {
@@ -100,14 +111,19 @@ fn render(value: &serde_json::Value, json_output: bool) -> String {
     if json_output {
         return format!("{value}\n");
     }
-    let _ = writeln!(
-        output,
-        "Sign-in {}",
-        value
-            .pointer("/login/status")
-            .and_then(|value| value.as_str())
-            .unwrap_or("requested")
-    );
+    let status = value
+        .pointer("/codeSubmission/status")
+        .or_else(|| value.pointer("/outcome"))
+        .or_else(|| value.pointer("/login/status"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("requested");
+    let _ = writeln!(output, "Sign-in {status}");
+    if let Some(login_id) = value
+        .pointer("/login/loginId")
+        .and_then(|value| value.as_str())
+    {
+        let _ = writeln!(output, "Login ID: {login_id}");
+    }
     if let Some(url) = value.pointer("/login/url").and_then(|value| value.as_str()) {
         let _ = writeln!(output, "Open in your system browser: {url}");
     }
@@ -122,11 +138,42 @@ fn render(value: &serde_json::Value, json_output: bool) -> String {
     } else if value.pointer("/login/status").and_then(|v| v.as_str()) == Some("pending") {
         let _ = writeln!(output, "Expiry: not reported by provider");
     }
+    let expects_code = value
+        .pointer("/login/codeInput")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || value
+            .pointer("/state/loginCodeInput")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    if expects_code {
+        let _ = writeln!(
+            output,
+            "Authorization code required: submit the single-use code in the Domios UI sign-in card (never via CLI or chat)."
+        );
+    }
     if let Some(state) = value
         .pointer("/authentication/state")
+        .or_else(|| value.pointer("/state/auth"))
         .and_then(|v| v.as_str())
     {
         let _ = writeln!(output, "Authentication: {state}");
+    }
+    let choices = value
+        .pointer("/state/loginChoices")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if !choices.is_empty() {
+        let _ = writeln!(output, "Provider sign-in choices (use --method ID):");
+        for choice in choices {
+            let id = choice
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let label = choice.get("label").and_then(|v| v.as_str()).unwrap_or(id);
+            let _ = writeln!(output, "  {id}  {label}");
+        }
     }
     let key_methods = value
         .get("apiKeyMethods")

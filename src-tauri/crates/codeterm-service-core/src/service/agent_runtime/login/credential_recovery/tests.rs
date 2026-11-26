@@ -5,6 +5,7 @@ fn recovery_requires_the_actual_failed_login_and_runtime_binding() {
     let binding = LoginBinding {
         nonce: "own-nonce".into(),
         epoch: 4,
+        ..Default::default()
     };
     let state = json!({"epoch":4,"login":{"status":"failed","loginId":"own-login","error":"Sign-in did not complete (os error 1307)"}});
     assert!(validate_failure(Some("own-nonce"), Some(&state), &binding, "own-login").is_ok());
