@@ -590,7 +590,8 @@ async fn remote_notification_requires_full_access_and_direct_route_keeps_actor_h
         assert_eq!(response["status"], 403, "{label}: {response}");
     }
 
-    // Direct POST /api/notifications stays on ActorHeaders, refusing remote peer callers.
+    // Direct POST /api/notifications stays local-only on ActorHeaders, refusing remote peer callers
+    // before body validation or target-tab probing regardless of origin or payload validity.
     for caller in [
         CallerContext {
             origin: AuthenticatedOrigin::Owner,
@@ -608,21 +609,23 @@ async fn remote_notification_requires_full_access_and_direct_route_keeps_actor_h
             expires_at_ms: None,
         },
     ] {
-        let token = sign_for_caller(&full_source, &caller);
-        let (status, _) = send_signed(
-            app.clone(),
-            &token,
-            "POST",
-            "/api/notifications",
-            &json!({ "title": "Direct remote attempt" }),
-        )
-        .await;
-        assert_eq!(
-            status,
-            StatusCode::FORBIDDEN,
-            "direct /api/notifications must stay on ActorHeaders for {:?}",
-            caller.origin
-        );
+        for (case, payload) in [
+            ("valid-body", json!({ "title": "Direct remote attempt" })),
+            (
+                "invalid-and-tab-probe",
+                json!({ "title": "", "target_tab_id": "nonexistent-local-tab" }),
+            ),
+        ] {
+            let token = sign_for_caller(&full_source, &caller);
+            let (status, _) =
+                send_signed(app.clone(), &token, "POST", "/api/notifications", &payload).await;
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "direct /api/notifications must refuse remote peer before body vetting for {:?} ({case})",
+                caller.origin
+            );
+        }
     }
 
     assert!(target.svc.notif.lock().list(false).is_empty());
