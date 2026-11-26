@@ -2,6 +2,7 @@
 
 pub mod account_mesh;
 pub mod broadcast;
+pub mod cloud_outbox;
 pub mod contract;
 pub mod crown;
 pub mod discovery;
