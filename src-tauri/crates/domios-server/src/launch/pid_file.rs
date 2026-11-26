@@ -110,8 +110,9 @@ fn process_absent(error: &io::Error) -> bool {
     #[cfg(unix)]
     return error.raw_os_error() == Some(libc::ESRCH);
     #[cfg(windows)]
-    return error.raw_os_error()
-        == Some(windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER as i32);
+    return error
+        .get_ref()
+        .is_some_and(|cause| cause.is::<codeterm_process_identity::ProcessExited>());
 }
 
 #[cfg(test)]

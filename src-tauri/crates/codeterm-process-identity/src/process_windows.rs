@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 use windows_sys::Win32::{
-    Foundation::{FILETIME, WAIT_TIMEOUT},
+    Foundation::{ERROR_INVALID_PARAMETER, FILETIME, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::Threading::{
         GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, WaitForSingleObject,
         PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
@@ -16,6 +16,17 @@ pub struct PinnedProcess {
     handle: OwnedHandle,
     pid: u32,
 }
+
+#[derive(Debug)]
+pub struct ProcessExited;
+
+impl std::fmt::Display for ProcessExited {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Bootstrap peer exited")
+    }
+}
+
+impl std::error::Error for ProcessExited {}
 
 impl PinnedProcess {
     pub fn from_child_witness(pid: u32, handle: OwnedHandle) -> io::Result<Self> {
@@ -33,7 +44,11 @@ impl PinnedProcess {
             )
         };
         if handle.is_null() {
-            return Err(io::Error::last_os_error());
+            let error = io::Error::last_os_error();
+            if pid != 0 && error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) {
+                return Err(io::Error::other(ProcessExited));
+            }
+            return Err(error);
         }
         let result = Self {
             handle: unsafe { OwnedHandle::from_raw_handle(handle) },
@@ -58,10 +73,11 @@ impl PinnedProcess {
     }
 
     pub fn ensure_alive(&self) -> io::Result<()> {
-        if unsafe { WaitForSingleObject(self.handle.as_raw_handle(), 0) } == WAIT_TIMEOUT {
-            Ok(())
-        } else {
-            Err(io::Error::other("Bootstrap peer exited"))
+        match unsafe { WaitForSingleObject(self.handle.as_raw_handle(), 0) } {
+            WAIT_TIMEOUT => Ok(()),
+            WAIT_OBJECT_0 => Err(io::Error::other(ProcessExited)),
+            WAIT_FAILED => Err(io::Error::last_os_error()),
+            _ => Err(io::Error::other("Unexpected process wait result")),
         }
     }
 
