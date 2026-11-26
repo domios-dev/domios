@@ -29,7 +29,8 @@ import { liveRuntimePrompt, manualPendingPrompt, promptMessagePart, promptRespon
 
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
-import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
+import { AskRow, OutboundReportRow, type ChatTranscriptRowContext } from "./ChatTranscriptRow";
+import { MountedChatRows } from "./MountedChatRows";
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { composerRunningTool, projectChatTranscriptActivity, supportsChatTranscriptActivity } from "./chatTranscriptActivity";
 import { latestFailedToolCallId as findLatestFailedToolCallId, latestTurnStopNoticeId, submitTurnContinuation } from "./chatTurnTail";
@@ -71,7 +72,7 @@ import { runtimeStatusLineIdentity, statusLineModelName } from "./statusLinePick
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
+import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { mergeRuntimePromptDetail } from "./composerModels";
@@ -121,8 +122,7 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useStopSettlement, type StopReceipt } from "./useStopSettlement";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { HoldWhileHidden } from "./HoldWhileHidden";
-import { awaitsTranscriptEcho, deliveryPresentation, deliverySendForRow, queuedBehindTurn, undeliveredSends } from "./chatDeliveryModel";
+import { awaitsTranscriptEcho, undeliveredSends } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, setChatSendDraft, updateChatSendContent, useChatSendSnapshot } from "./chatSendStore";
 import { composerSendFeedback } from "./composerQueueModel";
 import { ComposerQueueTray } from "./ComposerQueueTray";
@@ -165,15 +165,6 @@ const DISABLED_PLAN_API: ApiConfig = {
 };
 
 const CHAT_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
-const NO_RAIL_INDICES: readonly number[] = [];
-const NO_REPORTS: readonly OutboundReportEntry[] = [];
-
-/** A row's own report cards first, then live receipts placed after it. */
-function rowReports(own: readonly OutboundReportEntry[] | undefined, following: readonly number[], rail: readonly OutboundReportEntry[]) {
-  if (!following.length) return own ?? NO_REPORTS;
-  return [...(own ?? []), ...following.map((index) => rail[index]).filter(Boolean)];
-}
-const NO_ASKS: readonly Notification[] = [];
 
 export const TabSessionChat = memo(function TabSessionChat(props: Props) {
   return parseCompositeTabId(props.tabId)
@@ -883,6 +874,28 @@ function TabSessionChatBody({
     onOpenTerminalFallback, handleJumpToShellCommand, resolveFocusTab, jumpToQuoted, answerNotification, deleteSend, retryChatDelivery,
     forkFrom, revertTo, continueTurn, readOnly]);
 
+  const handleScrollToLatestClick = useLatestCallback(() => {
+    showLatest();
+    scrollToBottom();
+  }, [showLatest, scrollToBottom]);
+
+  const handleLoadHistoryGap = useLatestCallback(async (message: Parameters<typeof loadHistoryGap>[0]) => {
+    prepareForHistoryPrepend();
+    await loadHistoryGap(message);
+  }, [prepareForHistoryPrepend, loadHistoryGap]);
+
+  const childTranscriptAuthority = useMemo(
+    () => (runtime.state?.state === "loaded" && tab?.agent_session_id && tab.session_binding_nonce
+      ? { rootThreadId: tab.agent_session_id, bindingNonce: tab.session_binding_nonce, epoch: runtime.state.epoch }
+      : null),
+    [runtime.state?.state, runtime.state?.epoch, tab?.agent_session_id, tab?.session_binding_nonce],
+  );
+
+  const activeComposerTool = useMemo(
+    () => composerRunningTool(allMessages, runtime.state?.state),
+    [allMessages, runtime.state?.state],
+  );
+
   const setupState = (<ChatSetupState
           visible={isActive}
           frozenRestore={frozenRestore}
@@ -909,16 +922,12 @@ function TabSessionChatBody({
 
   return (
     <ChatHighlightBudgetProvider>
-    <ChildTranscriptScope tabId={tabId} authority={runtime.state?.state === "loaded" && tab?.agent_session_id && tab.session_binding_nonce
-      ? {rootThreadId:tab.agent_session_id,bindingNonce:tab.session_binding_nonce,epoch:runtime.state.epoch} : null}>
+    <ChildTranscriptScope tabId={tabId} authority={childTranscriptAuthority}>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <ChatBlockActivityProvider active={isActive}>
     <PluginNameProvider resolve={resolvePluginName}>
-    <HistoryGapProvider label={historyGapLabel} onLoad={async message => {
-      prepareForHistoryPrepend();
-      await loadHistoryGap(message);
-    }}>
+    <HistoryGapProvider label={historyGapLabel} onLoad={handleLoadHistoryGap}>
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
@@ -997,43 +1006,36 @@ function TabSessionChatBody({
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         <div ref={mountedWindow.rowsRef}>
-        <HoldWhileHidden visible={transcriptMounted}>
-        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map((entry, mountedIndex) => {
-          const { msg } = entry;
-          const messageIndex = mountedWindow.range.start + mountedIndex;
-          const following = reportPlacement.afterIndex.get(messageIndex) ?? NO_RAIL_INDICES;
-          const followingAsks = askPlacement.afterIndex.get(messageIndex) ?? NO_RAIL_INDICES;
-          const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
-          const reports = rowReports(reportRows.byRow.get(messageIndex), following, outboundReports);
-          const deliverySend = deliverySendForRow(deliverySends, msg);
-          return (
-            <ChatTranscriptRow
-              key={msg.id}
-              entry={entry}
-              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? chatTranscriptActivity.label : undefined}
-              daySeparator={daySeparators.get(messageIndex)}
-              originProps={originPropsById.get(msg.id)}
-              reports={reports}
-              asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
-              deliverySend={deliverySend}
-              deliveryView={deliverySend ? deliveryPresentation(deliverySend,
-                Boolean(deliverySend.status && queue.claimed.includes(deliverySend.status.send_id))) : undefined}
-              deliveryBehindTurn={deliverySend ? queuedBehindTurn(deliverySend, agentActivity.kind) : undefined}
-              sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
-              selected={messageSelection.selected.has(msg.id)}
-              joinNext={nextId !== undefined && reports.length === 0 && messageSelection.selected.has(nextId)}
-              selecting={messageSelection.active}
-              cursor={messageSelection.cursor ? messageSelection.cursor === msg.id : messageIndex === renderedEnrichedMessages.length - 1}
-              streaming={msg.id === streamingId}
-              latestFailedToolCall={msg.id === latestFailedToolCallId}
-              canContinueTurn={!readOnly && !agentActivity.active && msg.id === latestStopNoticeId}
-              forkable={forkableMessages.has(msg.id)}
-              revertible={canRevertTurns}
-              context={rowContext}
-            />
-          );
-        })}
-        </HoldWhileHidden>
+        <MountedChatRows
+          visible={transcriptMounted}
+          rows={renderedEnrichedMessages}
+          start={mountedWindow.range.start}
+          end={mountedWindow.range.end}
+          identities={mountedWindow.identities}
+          liveToolId={chatTranscriptActivity.liveToolId}
+          liveActivityLabel={chatTranscriptActivity.label}
+          daySeparators={daySeparators}
+          originPropsById={originPropsById}
+          reportRowsByRow={reportRows.byRow}
+          reportAfterIndex={reportPlacement.afterIndex}
+          outboundReports={outboundReports}
+          askAfterIndex={askPlacement.afterIndex}
+          asks={asks}
+          deliverySends={deliverySends}
+          claimedSendIds={queue.claimed}
+          agentActivityKind={agentActivity.kind}
+          agentActive={agentActivity.active}
+          selected={messageSelection.selected}
+          selecting={messageSelection.active}
+          cursor={messageSelection.cursor}
+          streamingId={streamingId}
+          latestFailedToolCallId={latestFailedToolCallId}
+          latestStopNoticeId={latestStopNoticeId}
+          readOnly={readOnly}
+          forkableMessages={forkableMessages}
+          canRevertTurns={canRevertTurns}
+          rowContext={rowContext}
+        />
         </div>
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
@@ -1079,10 +1081,7 @@ function TabSessionChatBody({
           testId="chat-scroll-bottom"
           gestureOwned={gestureOwned}
           userScrollingRef={chatUserScrollingRef}
-          onClick={() => {
-            showLatest();
-            scrollToBottom();
-          }}
+          onClick={handleScrollToLatestClick}
           title={newerMessageCount > 0 ? `Show ${newerMessageCount} new messages` : "Scroll to latest"}
         />
         </div>
@@ -1109,7 +1108,7 @@ function TabSessionChatBody({
         <AgentStateIndicator
           tab={tab}
           activity={composerActivity}
-          activeTool={composerRunningTool(allMessages, runtime.state?.state)}
+          activeTool={activeComposerTool}
           runtimeState={runtime.state}
           suppressLastTurn={sendFeedback.unsettled}
           showActivity={!showRemoteState && setupView.kind === "none" && !chatLoading}

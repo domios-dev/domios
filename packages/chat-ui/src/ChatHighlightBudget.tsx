@@ -3,16 +3,47 @@ import { highlightSpanCount, reserveHighlightSpans, type HighlightNode, type Hig
 
 class HighlightBudgetStore {
   reservations: HighlightReservations = new Map();
+  private pending = new Map<string, { rowId: string; spans: number }>();
   private listeners = new Set<() => void>();
   snapshot = () => this.reservations;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   reserve(key: string, rowId: string, spans: number) {
+    if (!Number.isSafeInteger(spans) || spans <= 0) {
+      this.pending.delete(key);
+      const next = reserveHighlightSpans(this.reservations, key, rowId, 0);
+      if (next === this.reservations) return;
+      this.reservations = next;
+      this.promotePending();
+      for (const listener of this.listeners) listener();
+      return;
+    }
     const next = reserveHighlightSpans(this.reservations, key, rowId, spans);
+    if (next.get(key)?.spans === spans) {
+      this.pending.delete(key);
+    } else {
+      this.pending.set(key, { rowId, spans });
+    }
     if (next === this.reservations) return;
     this.reservations = next;
     for (const listener of this.listeners) listener();
   }
-  release(key: string) { this.reserve(key, "", 0); }
+  release(key: string) {
+    this.pending.delete(key);
+    const next = reserveHighlightSpans(this.reservations, key, "", 0);
+    if (next === this.reservations) return;
+    this.reservations = next;
+    this.promotePending();
+    for (const listener of this.listeners) listener();
+  }
+  private promotePending() {
+    for (const [key, request] of this.pending) {
+      const next = reserveHighlightSpans(this.reservations, key, request.rowId, request.spans);
+      if (next.get(key)?.spans === request.spans) {
+        this.reservations = next;
+        this.pending.delete(key);
+      }
+    }
+  }
 }
 
 const HighlightContext = createContext<{ budget: HighlightBudgetStore; rowId: string } | null>(null);
@@ -56,10 +87,13 @@ export function BudgetedHighlightRows({ rows, enabled, plain, render }: {
   const ownStore = useRef<HighlightBudgetStore | null>(null);
   if (!ownStore.current) ownStore.current = new HighlightBudgetStore();
   const budget = scope?.budget ?? ownStore.current;
-  const reservations = useSyncExternalStore(budget.subscribe, budget.snapshot, budget.snapshot);
   const spans = enabled ? highlightSpanCount(rows) : 0;
-  useLayoutEffect(() => { budget.reserve(key, scope?.rowId ?? "standalone", spans); }, [budget, key, scope?.rowId, spans, reservations]);
+  const granted = useSyncExternalStore(
+    budget.subscribe,
+    () => spans === 0 || budget.reservations.get(key)?.spans === spans,
+    () => spans === 0 || budget.reservations.get(key)?.spans === spans,
+  );
+  useLayoutEffect(() => { budget.reserve(key, scope?.rowId ?? "standalone", spans); }, [budget, key, scope?.rowId, spans]);
   useLayoutEffect(() => () => budget.release(key), [budget, key]);
-  const reservation = reservations.get(key);
-  return enabled && (spans === 0 || reservation?.spans === spans) ? render() : plain();
+  return enabled && granted ? render() : plain();
 }
