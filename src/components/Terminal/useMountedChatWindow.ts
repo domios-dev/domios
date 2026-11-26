@@ -64,6 +64,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   const [revision, setRevision] = useState(0);
   const driftRef = useRef(0);
   const shiftAnchorRef = useRef<ChatShiftAnchor | null>(null);
+  const applyingHeightsRef = useRef(false);
   const preserveTopRef = useRef(false);
   const velocityRef = useRef<ChatScrollVelocityState | null>(null);
   const flushingRef = useRef(false);
@@ -150,8 +151,13 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     // Up to the previous anchor: a row that grew above it may now reach into the view and would be the new anchor itself.
     const previous = shiftAnchorRef.current ? tops.findIndex((row) => row.id === shiftAnchorRef.current!.id) : -1;
     const pending = unrecordedRowsAbove(tops, measured, Math.max(previous, next ? tops.indexOf(next) : -1), heights.current);
-    if (pending.length > 0) {
-      applyHeightsRef.current(pending.map((index) => [elements[index], measured[index]] as const));
+    if (pending.length > 0 && !applyingHeightsRef.current) {
+      applyingHeightsRef.current = true;
+      try {
+        applyHeightsRef.current(pending.map((index) => [elements[index], measured[index]] as const));
+      } finally {
+        applyingHeightsRef.current = false;
+      }
       return null;
     }
     shiftAnchorRef.current = next;
@@ -385,8 +391,12 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     const deltas: number[] = [];
     for (const [row, height] of measured) {
       const id = row.dataset.chatWindowRow;
-      const index = id == null ? undefined : current.byId.get(id);
-      if (id == null || index == null) continue;
+      if (id == null) continue;
+      // A mounted row outside the current transcript still records its height, so a retained stale height never
+      // reads as an unreported resize and re-enters this repair.
+      heights.current.set(id, height);
+      const index = current.byId.get(id);
+      if (index == null) continue;
       if (DEV_BUILD && chatTraceActive(keyRef.current) && deltas.length < 32) {
         const delta = height - (current.geometry.offset(index + 1) - current.geometry.offset(index));
         if (delta !== 0) deltas.push(traceIdentity(id), delta);
