@@ -159,6 +159,7 @@ pub(super) struct PluginSandbox {
     token_mode: TokenMode,
     /// Whether `host.secret*` is permitted.
     secrets_allowed: bool,
+    cloud_machine_provider: bool,
     /// `agent_commands` grant — gates routing a spawned agent's `domios plugin <id> <verb>` to `onAgentCommand`.
     agent_commands_allowed: bool,
     /// `surfaces` grant — gates `host.surface.call` driving the calling agent's authorized surface.
@@ -200,6 +201,7 @@ impl PluginSandbox {
             transfer: super::host_transfer::TransferRuntime::default(),
             token_mode: TokenMode::None,
             secrets_allowed: true,
+            cloud_machine_provider: false,
             agent_commands_allowed: true,
             surfaces_allowed: true,
             manage_workspaces_allowed: true,
@@ -232,6 +234,7 @@ impl PluginSandbox {
             transfer: super::host_transfer::TransferRuntime::default(),
             token_mode: TokenMode::None,
             secrets_allowed: false,
+            cloud_machine_provider: false,
             agent_commands_allowed: false,
             surfaces_allowed: false,
             manage_workspaces_allowed: false,
@@ -347,6 +350,11 @@ impl PluginSandbox {
 
     pub(super) fn supporter_token_allowed(&self, host: &str) -> bool {
         codeterm_util::network_host::network_host_allowed(host, &self.net_allow)
+    }
+
+    pub(super) fn with_cloud_machine_provider(mut self, enabled: bool) -> Self {
+        self.cloud_machine_provider = enabled;
+        self
     }
 
     pub(super) fn secrets_allowed(&self) -> bool {

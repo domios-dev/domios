@@ -115,6 +115,7 @@ pub(crate) fn compose_observed(
     let surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle =
         Arc::new(codeterm_plugin::surfaces::SurfaceRegistry::new());
     let cap_registries = plugin::js_runtime::CapabilityRegistries {
+        cloud_machine_provider: Default::default(),
         decision_model: decision_model_registry.clone(),
         secret: Some(std::sync::Arc::new(
             codeterm_service_core::secrets::js_backend::AppSecretBackendRegistrar::new(
