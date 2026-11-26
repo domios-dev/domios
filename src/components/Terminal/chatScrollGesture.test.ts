@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  chatInstantScrollKey,
   chatScrollGestureAfterEvent,
   chatScrollKeyDirection,
   idleChatScrollGesture,
@@ -180,4 +181,15 @@ test("scrollbar hit detection recognises classic gutters, RTL gutters, and overl
   const overlay = { clientLeft: 0, clientTop: 0, clientWidth: 800, clientHeight: 700, offsetWidth: 800, offsetHeight: 700 };
   assert.equal(isPointerOnChatScrollbar(rect, overlay, { clientX: 892, clientY: 200 }), true);
   assert.equal(isPointerOnChatScrollbar(rect, overlay, { clientX: 850, clientY: 200 }), false);
+});
+
+test("only unmodified Home and End classify as instant virtualized log jumps", () => {
+  assert.equal(chatInstantScrollKey("Home"), "top");
+  assert.equal(chatInstantScrollKey("End"), "bottom");
+  assert.equal(chatInstantScrollKey("Home", true), null);
+  assert.equal(chatInstantScrollKey("End", true), null);
+  assert.equal(chatInstantScrollKey("PageUp"), null);
+  assert.equal(chatInstantScrollKey("PageDown"), null);
+  assert.equal(chatInstantScrollKey("ArrowUp"), null);
+  assert.equal(chatInstantScrollKey("Space"), null);
 });

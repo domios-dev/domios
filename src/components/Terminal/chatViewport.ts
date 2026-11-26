@@ -10,6 +10,22 @@ export interface ChatViewportGeometry {
   clientHeight: number;
 }
 
+const programmaticScrollTargets = new WeakSet<HTMLElement>();
+
+/** Marks a synchronous `scrollTop` write so scroll listeners fired synchronously by test mocks skip nested `flushSync`. */
+export function runProgrammaticScrollWrite(el: HTMLElement, write: () => void): void {
+  programmaticScrollTargets.add(el);
+  try {
+    write();
+  } finally {
+    programmaticScrollTargets.delete(el);
+  }
+}
+
+export function isProgrammaticScrollWrite(el: HTMLElement): boolean {
+  return programmaticScrollTargets.has(el);
+}
+
 export type ChatViewportMode = "pinned" | "detached";
 
 export function isChatViewportAtBottom(viewport: ChatViewportGeometry): boolean {

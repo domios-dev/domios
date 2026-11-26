@@ -5,6 +5,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, 
 import { chatInnerScrollConsumesWheel, chatUserScrollChanged } from "./chatScrollDecisions";
 import { isChatViewportAtBottom, type ChatViewportGeometry } from "./chatViewport";
 import {
+  chatInstantScrollKey,
   chatScrollGestureAfterEvent,
   chatScrollKeyDirection,
   idleChatScrollGesture,
@@ -33,6 +34,7 @@ const TRACE_EVENT_ORDER: readonly ChatScrollGestureEvent[] = [
 
 const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable='true'], [contenteditable='']";
 const SPACE_INTERACTIVE_SELECTOR = "button, a, summary, [role='button'], [role='checkbox']";
+const INSTANT_SCROLL_WIDGET_SELECTOR = "[role='menu'], [role='listbox'], [role='tablist'], [role='slider'], [role='tree']";
 
 function innerScrollConsumesDirection(el: HTMLDivElement, path: EventTarget[], direction: number): boolean {
   const view = el.ownerDocument.defaultView;
@@ -47,7 +49,8 @@ function innerScrollConsumesDirection(el: HTMLDivElement, path: EventTarget[], d
 }
 
 export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>, active: boolean, sessionKey: string,
-  onEnd: MutableRefObject<() => void>, onStart: MutableRefObject<() => void>, sharedUserScrolling?: MutableRefObject<boolean>) {
+  onEnd: MutableRefObject<() => void>, onStart: MutableRefObject<() => void>, sharedUserScrolling?: MutableRefObject<boolean>,
+  onInstantKey?: MutableRefObject<(target: "top" | "bottom") => boolean>) {
   const gesture = useRef(idleChatScrollGesture());
   const [owned, setOwned] = useState(false);
   const ownUserScrolling = useRef(false);
@@ -211,6 +214,13 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
         if (event.code === "Space" && target.closest(SPACE_INTERACTIVE_SELECTOR)) return;
       }
       if (innerScrollConsumesDirection(el, event.composedPath(), direction)) return;
+      const instant = chatInstantScrollKey(event.code, event.shiftKey);
+      if (instant != null && onInstantKey?.current && !gesture.current.pointerDown && !gesture.current.touching) {
+        if (target instanceof view.HTMLElement && target.closest(INSTANT_SCROLL_WIDGET_SELECTOR)) return;
+        lastTouchMs.current = 0;
+        if (onInstantKey.current(instant)) event.preventDefault();
+        return;
+      }
       lastTouchMs.current = 0;
       transition("keydown", false, direction > 0, chatInnerScrollConsumesWheel(el, direction));
       watchMotion();
@@ -250,7 +260,7 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       if (DEV_BUILD) stopTrace?.();
       reset();
     };
-  }, [active, onEnd, onStart, reset, scrollRef, sessionKey, userScrolling]);
+  }, [active, onEnd, onInstantKey, onStart, reset, scrollRef, sessionKey, userScrolling]);
 
   return { userScrolling, owned, reset, recordScroll, holding, held };
 }

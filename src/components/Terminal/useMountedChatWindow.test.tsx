@@ -162,7 +162,7 @@ describe("mounted chat wiring", () => {
     expect(followTail.current).toBe(true);
     expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
   });
-  it("coalesces native scroll events and skips renders within the same row window", async () => {
+  it("skips renders within the same row window and updates synchronously on large scroll jumps before rAF", async () => {
     await render();
     await move(scroller().scrollTop - 2990);
     frames.clear();
@@ -174,13 +174,14 @@ describe("mounted chat wiring", () => {
       }
     });
     expect(renders).toBe(before);
-    expect(frames.size).toBe(1);
+    expect(frames.size).toBe(0);
+    // Jumping far outside the current mounted window commits synchronously on the scroll event without waiting for rAF.
     await act(async () => {
-      const callbacks = Array.from(frames.values());
-      frames.clear();
-      callbacks.forEach((callback) => callback(0));
+      scroller().scrollTop = 2000;
+      scroller().dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    expect(renders).toBe(before);
+    expect(frames.size).toBe(0);
+    expect(mounted().some((row) => row.offsetTop >= 2000 && row.offsetTop < 2000 + VIEWPORT)).toBe(true);
   });
   it("keeps initial mount and hydrated content pinned without reader events", async () => {
     rows = [];

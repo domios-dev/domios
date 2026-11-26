@@ -47,12 +47,16 @@ const followTail = { current: true };
 const userScrolling = { current: false };
 let newerCount = 0;
 let newerReveals = 0;
+let jumpTopCalls = 0;
+let jumpLatestCalls = 0;
 let onNewerRevealHook: (() => void) | null = null;
 function Fixture({ active, revision, firstId = "first" }: { active: boolean; revision: number; firstId?: string }) {
   hook = useChatScroll({ sessionKey: "gesture-wiring", active, loading: false, messageCount: 3,
     contentVersion: revision, prependVersion: firstId, followTailRef: followTail, userScrollingRef: userScrolling,
     newerCount,
     onNewerEdge: () => { newerReveals++; onNewerRevealHook?.(); return true; },
+    onJumpToTop: () => { jumpTopCalls++; },
+    onJumpToLatest: () => { jumpLatestCalls++; newerCount = 0; },
     foldLayoutDrift: () => { foldLayout(); const value = drift; drift = 0; return value; } });
   return <><div ref={hook.scrollRef} tabIndex={-1} onScroll={hook.handleScroll} />
     <ScrollToLatestButton testId="latest" gestureOwned={hook.gestureOwned} userScrollingRef={userScrolling} onClick={hook.scrollToBottom} />
@@ -279,44 +283,74 @@ async function main() {
     assert.equal(nativeTop, 0);
     assert.equal(newerReveals, 0);
 
-    // 4. Keyboard End from mid-history: blocks writes and newer-page reveal until after scrollend completes.
+    // 4. Keyboard PageDown from mid-history: blocks writes and newer-page reveal until after scrollend completes.
     nativeTop = 400;
     newerCount = 100;
     newerReveals = 0;
     writes = 0;
     await act(async () => root.render(<Fixture active revision={17} firstId="older-2" />));
-    await act(async () => scroll.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, code: "End" })));
-    assert.equal(hook.gestureOwned, true, "End with room to move owns the gesture");
+    await act(async () => scroll.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, code: "PageDown" })));
+    assert.equal(hook.gestureOwned, true, "PageDown with room to move owns the gesture");
     nativeTop = height - 400;
     await act(async () => { fire("scroll"); repair(); root.render(<Fixture active revision={18} firstId="older-2" />); });
-    assert.equal(writes, 0, "End blocks app writes until scrollend");
-    assert.equal(newerReveals, 0, "End defers newer-page loads until scrollend settles");
+    assert.equal(writes, 0, "PageDown blocks app writes until scrollend");
+    assert.equal(newerReveals, 0, "PageDown defers newer-page loads until scrollend settles");
     const settleOrder: string[] = [];
     const observeScrollEnd = () => settleOrder.push("scrollend");
     scroll.addEventListener("scrollend", observeScrollEnd);
     onNewerRevealHook = () => settleOrder.push("reveal-newer");
     try {
       await act(async () => fire("scrollend"));
-      assert.equal(hook.gestureOwned, false, "End settles on scrollend");
-      assert.equal(newerReveals, 1, "settled End at bottom reveals held-back newer rows once");
+      assert.equal(hook.gestureOwned, false, "PageDown settles on scrollend");
+      assert.equal(newerReveals, 1, "settled PageDown at bottom reveals held-back newer rows once");
       assert.deepEqual(settleOrder, ["scrollend", "reveal-newer"], "newer-page reveal lands strictly after scrollend");
     } finally {
       scroll.removeEventListener("scrollend", observeScrollEnd);
       onNewerRevealHook = null;
     }
 
-    // 5. Keyboard Home from mid-history: owns until scrollend and blocks app writes while moving to scrollTop 0.
+    // 5. Keyboard Home and End jump instantaneously without smooth-scroll animation; End reaches latest in one press.
     nativeTop = 600;
-    writes = 0;
-    await act(async () => scroll.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, code: "Home" })));
-    assert.equal(hook.gestureOwned, true, "Home with room to move owns the gesture");
-    nativeTop = 0;
-    await act(async () => { fire("scroll"); repair(); root.render(<Fixture active revision={19} firstId="older-2" />); });
-    assert.equal(writes, 0, "Home blocks app writes until scrollend");
-    await act(async () => fire("scrollend"));
-    assert.equal(hook.gestureOwned, false, "Home settles on scrollend");
+    jumpTopCalls = 0;
+    jumpLatestCalls = 0;
+    scroll.focus();
+    const homeEvent = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "Home" });
+    await act(async () => scroll.dispatchEvent(homeEvent));
+    assert.equal(homeEvent.defaultPrevented, true, "Home prevents browser smooth scroll");
+    assert.equal(jumpTopCalls, 1, "Home synchronously prepares the top mounted window");
+    assert.equal(nativeTop, 0, "Home jumps instantaneously to scrollTop 0");
+    assert.equal(hook.gestureOwned, false, "instant Home leaves no lingering gesture ownership");
+    assert.equal(followTail.current, false, "Home detaches from tail");
+    assert.equal(document.activeElement, scroll, "Home preserves focus on the log");
 
-    console.log("13 chat gesture wiring checks passed");
+    newerCount = 400;
+    await act(async () => root.render(<Fixture active revision={19} firstId="older-2" />));
+    const endEvent = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "End" });
+    await act(async () => scroll.dispatchEvent(endEvent));
+    assert.equal(endEvent.defaultPrevented, true, "End prevents browser smooth scroll");
+    assert.equal(jumpLatestCalls, 1, "End jumps directly to the latest message in one press");
+    assert.equal(nativeTop, height - 400, "End lands at the bottom of the latest page");
+    assert.equal(followTail.current, true, "End re-pins to the latest message");
+    assert.equal(hook.gestureOwned, false, "instant End leaves no lingering gesture ownership");
+    assert.equal(document.activeElement, scroll, "End preserves focus on the log");
+
+    // End also jumps to latest when already resting at the bottom edge of an older logical page (newerCount > 0).
+    nativeTop = height - 400;
+    newerCount = 300;
+    followTail.current = false;
+    await act(async () => {
+      nativeTop = height - 500;
+      fire("scroll");
+      nativeTop = height - 400;
+      root.render(<Fixture active revision={20} firstId="older-2" />);
+    });
+    const endAtPageEdge = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "End" });
+    await act(async () => scroll.dispatchEvent(endAtPageEdge));
+    assert.equal(endAtPageEdge.defaultPrevented, true, "End at bottom of an older page still jumps to latest");
+    assert.equal(jumpLatestCalls, 2, "End from an older page bottom reaches latest in one press");
+    assert.equal(followTail.current, true);
+
+    console.log("14 chat gesture wiring checks passed");
   } finally {
     await act(async () => root.unmount());
     host.remove();
