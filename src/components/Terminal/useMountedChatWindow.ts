@@ -6,8 +6,8 @@ import { getPersistedChatScrollState } from "./chatViewport";
 import { initialChatScrollAnchor } from "./chatScrollMemory";
 import { mountedChatWindowCoversViewport, mountedChatWindowFromGeometry, sameMountedChatWindow } from "./chatMountedWindow";
 import { indexChatTranscript, indexedChatAnchor, type ChatTranscriptIndex } from "./chatMountedTranscript";
-import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerFold, chatSpacerHeight, chatSpacerTranslation, chatLayoutViewportTop, shouldAbsorbChatShift,
-  unrecordedRowsAbove, type ChatShiftAnchor } from "./chatSpacerDrift";
+import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerDriftForViewport, chatSpacerFold, chatSpacerHeight,
+  chatSpacerTranslation, chatLayoutViewportTop, shouldAbsorbChatShift, unrecordedRowsAbove, type ChatShiftAnchor } from "./chatSpacerDrift";
 
 function mountedRowTops(el: HTMLElement): { rows: ChatShiftAnchor[]; heights: number[]; elements: HTMLElement[] } {
   const origin = el.getBoundingClientRect().top - el.scrollTop;
@@ -28,6 +28,10 @@ interface ChatWindowRow { msg: { id: string; sourceMessageId?: string } }
 function translateRows(rows: HTMLElement | null, translation: number): void {
   const transform = translation === 0 ? "" : `translateY(${translation}px)`;
   if (rows && rows.style.transform !== transform) rows.style.transform = transform;
+}
+
+function spacerPrefix(el: HTMLElement, spacer: HTMLElement): number {
+  return spacer.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
 }
 
 export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, sessionKey, userScrollingRef }: {
@@ -84,7 +88,11 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     active, pinned: followTailRef.current,
     targetIndex: targetIndex >= 0 ? targetIndex : viewport.current.height === 0 && anchorIndex >= 0 ? anchorIndex : undefined });
   const live = useRef({ transcript, range, active });
-  live.current = { transcript, range, active };
+  const pendingRangeRef = useRef(range);
+  useLayoutEffect(() => {
+    live.current = { transcript, range, active };
+    pendingRangeRef.current = range;
+  });
 
   useLayoutEffect(() => {
     if (!DEV_BUILD || !active) return;
@@ -131,6 +139,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
       driftRef.current = 0;
     }
     else {
+      const prefix = spacerPrefix(el, spacer);
       const absorb = anchor != null
         && shouldAbsorbChatShift({ pinned: false, userScrolling: userScrollingRef?.current ?? false });
       const measured = absorb ? mountedRowTops(el).rows.find((row) => row.id === anchor.id) : null;
@@ -139,7 +148,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
         chatTraceEdge(keyRef.current, "absorb", [chatAnchorShift(anchor, traced), Number(absorb), driftRef.current]);
       }
       const next = chatSpacerAfterLayout({ base, drift: driftRef.current, shift: chatAnchorShift(anchor, measured), absorb,
-        viewportHeight: el.clientHeight, scrollTop: el.scrollTop });
+        viewportHeight: el.clientHeight, scrollTop: el.scrollTop, prefix });
       driftRef.current = next.drift;
     }
     const height = `${chatSpacerHeight(base, driftRef.current)}px`;
@@ -162,11 +171,24 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     const el = scrollRef.current;
     const spacer = topSpacerRef.current;
     if (!el || !spacer || el.clientHeight === 0) return;
-    if (!skipShiftAnchor) captureShiftAnchor();
-    const origin = spacer.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
-      + chatSpacerHeight(live.current.range.top, driftRef.current) - live.current.range.top;
-    const top = chatLayoutViewportTop(el.scrollTop, origin, chatSpacerTranslation(live.current.range.top, driftRef.current));
     const current = live.current;
+    const prefix = spacerPrefix(el, spacer);
+    const clampedDrift = chatSpacerDriftForViewport({
+      base: current.range.top,
+      drift: driftRef.current,
+      scrollTop: el.scrollTop,
+      prefix,
+    });
+    const driftClamped = clampedDrift !== driftRef.current;
+    if (driftClamped) {
+      driftRef.current = clampedDrift;
+      const height = `${chatSpacerHeight(current.range.top, clampedDrift)}px`;
+      if (spacer.style.height !== height) spacer.style.height = height;
+      translateRows(rowsRef.current, chatSpacerTranslation(current.range.top, clampedDrift));
+    }
+    if (!skipShiftAnchor || driftClamped) captureShiftAnchor();
+    const origin = prefix + chatSpacerHeight(current.range.top, driftRef.current) - current.range.top;
+    const top = chatLayoutViewportTop(el.scrollTop, origin, chatSpacerTranslation(current.range.top, driftRef.current));
     if (!current.active) return;
     if (captureAnchor) {
       if (preserveTopRef.current && el.scrollTop <= 0) {
@@ -197,8 +219,8 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     }
     const next = mountedChatWindowFromGeometry({ geometry: current.transcript.geometry, scrollTop: anchoredTop,
       viewportHeight: el.clientHeight, active: current.active, pinned: followTailRef.current, targetIndex });
-    if (!sameMountedChatWindow(current.range, next)) {
-      live.current = { ...current, range: next };
+    if (!sameMountedChatWindow(pendingRangeRef.current, next)) {
+      pendingRangeRef.current = next;
       setRevision((previous) => previous + 1);
     }
   }, [scrollRef, followTailRef, captureShiftAnchor, userScrollingRef]);
