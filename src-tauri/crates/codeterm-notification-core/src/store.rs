@@ -3,7 +3,9 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+mod durable_bell;
 mod questions;
+pub use durable_bell::DurableBellNotice;
 
 use crate::contract::{AnswerSlot, NotificationAction};
 use codeterm_types::pty::PromptIdentity;

@@ -356,9 +356,13 @@ impl CloudMachineController {
         provisioning: &dyn CloudProvisioningPort,
     ) -> Result<CloudUsageSummary, CloudError> {
         let mut summary = provisioning.usage().await?;
-        self.enrich_storage_usage_names(&mut summary);
-        self.restore_credits_if_available(summary.remaining);
+        self.apply_usage_summary(&mut summary);
         Ok(summary)
+    }
+
+    pub fn apply_usage_summary(&self, summary: &mut CloudUsageSummary) {
+        self.enrich_storage_usage_names(summary);
+        self.restore_credits_if_available(summary.remaining);
     }
 
     pub async fn redeem_promo(
@@ -844,6 +848,7 @@ impl CloudMachineController {
                     {
                         Ok(reconciled) => reconciled,
                         Err(error) => {
+                            provisioning.observe_wake_failure(&error);
                             guard.finish(Err(error.clone()));
                             return Err(error);
                         }
@@ -870,6 +875,7 @@ impl CloudMachineController {
                     match checked {
                         Ok(refreshed) => current = refreshed,
                         Err(error) => {
+                            provisioning.observe_wake_failure(&error);
                             guard.finish(Err(error.clone()));
                             return Err(error);
                         }
@@ -999,6 +1005,7 @@ impl CloudMachineController {
                                 });
                             }
                             self.expire_overdue_held_sends(&record.machine_id);
+                            provisioning.observe_wake_failure(&error);
                             guard.finish(Err(error.clone()));
                             return Err(error);
                         }
@@ -1078,6 +1085,7 @@ impl CloudMachineController {
                         )
                     });
                     self.expire_overdue_held_sends(&record.machine_id);
+                    provisioning.observe_wake_failure(&error);
                     guard.finish(Err(error.clone()));
                     return Err(error);
                 }

@@ -367,5 +367,6 @@ pub fn build_service_context(
     service.restore_remote_team_closures();
     let service = Arc::new(service);
     assert!(service.set_ext(Arc::downgrade(&service)).is_ok());
+    service.replay_cloud_hours_warnings();
     service
 }

@@ -38,6 +38,7 @@ pub(super) struct FakeProvisioningPort {
     clock: Arc<FakeClock>,
     create_calls: AtomicUsize,
     wake_calls: AtomicUsize,
+    wake_billing_failures: AtomicUsize,
     sleep_calls: AtomicUsize,
     delete_calls: AtomicUsize,
     renew_calls: AtomicUsize,
@@ -69,6 +70,7 @@ impl FakeProvisioningPort {
             clock,
             create_calls: AtomicUsize::new(0),
             wake_calls: AtomicUsize::new(0),
+            wake_billing_failures: AtomicUsize::new(0),
             sleep_calls: AtomicUsize::new(0),
             delete_calls: AtomicUsize::new(0),
             renew_calls: AtomicUsize::new(0),
@@ -200,6 +202,10 @@ impl CloudProvisioningPort for FakeProvisioningPort {
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
         Ok(self.usage.lock().clone())
     }
+
+    fn observe_wake_failure(&self, _error: &CloudError) {
+        self.wake_billing_failures.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 struct SecretDropProbe(Arc<AtomicBool>);
@@ -285,6 +291,7 @@ pub(super) struct FakePeerControl {
     flush_outcomes: Mutex<VecDeque<FlushWriteOutcome>>,
     flushed_payloads: Mutex<Vec<(String, String, Option<CloudEndpoint>)>>,
     events: Mutex<Vec<String>>,
+    readiness_error: Mutex<Option<CloudError>>,
     endpoint_updates: Mutex<Vec<CloudEndpoint>>,
     published_endpoints: Mutex<Vec<(String, CloudEndpoint)>>,
 }
@@ -297,6 +304,7 @@ impl FakePeerControl {
             flush_outcomes: Mutex::new(VecDeque::new()),
             flushed_payloads: Mutex::new(Vec::new()),
             events: Mutex::new(Vec::new()),
+            readiness_error: Mutex::new(None),
             endpoint_updates: Mutex::new(Vec::new()),
             published_endpoints: Mutex::new(Vec::new()),
         })
@@ -352,7 +360,7 @@ impl CloudPeerControlPort for FakePeerControl {
     ) -> Result<(), CloudError> {
         self.drain_gate.reopen();
         self.events.lock().push("ready".into());
-        Ok(())
+        self.readiness_error.lock().take().map_or(Ok(()), Err)
     }
 
     async fn flush_send(
@@ -1157,3 +1165,5 @@ async fn apply_unconfirmed_prevents_reapply_and_peer_drain_gate_refuses_writes_a
     gate.reopen();
     assert!(gate.check_write_allowed("cloud-1").is_ok());
 }
+
+mod wake_hours;

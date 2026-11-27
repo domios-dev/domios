@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use codeterm_account::account_mesh::{
     cloud_provisioning::{
-        ProvisionedMachineReply, WireCloudDeleteMode, WireCloudSleepMode, WireCloudStorageTier,
-        WireCloudStorageUsageSummary, WireProviderSnapshotResidual, WireWarmBootstrapPhase,
+        CloudUsageReply, ProvisionedMachineReply, WireCloudCreditWarnings, WireCloudDeleteMode,
+        WireCloudSleepMode, WireCloudStorageTier, WireCloudStorageUsageSummary,
+        WireProviderSnapshotResidual, WireWarmBootstrapPhase,
     },
     AccountMeshRefusal,
 };
@@ -184,6 +185,55 @@ fn map_provisioned_reply(reply: ProvisionedMachineReply) -> Result<ProvisionedMa
     })
 }
 
+fn map_usage_reply(reply: CloudUsageReply) -> CloudUsageSummary {
+    CloudUsageSummary {
+        warnings: reply.warnings,
+        used: reply.used,
+        allowance: reply.allowance,
+        purchased: reply.purchased,
+        remaining: reply.remaining,
+        cap: reply.cap,
+        burn_per_size: reply.burn_per_size,
+        currency: reply.currency,
+        period_end_at: reply.period_end_at,
+        custom_min_cents: reply.custom_min_cents,
+        custom_max_cents: reply.custom_max_cents,
+        plan: reply.plan,
+        sizes: reply.sizes.map(|sizes| {
+            sizes
+                .into_iter()
+                .map(|size| CloudUsageSize {
+                    id: size.id,
+                    cpu: size.cpu,
+                    ram_gb: size.ram_gb,
+                    hourly_rate_cents: size.hourly_rate_cents,
+                    credits_per_hour: size.credits_per_hour,
+                })
+                .collect()
+        }),
+        packs: reply.packs.map(|packs| {
+            packs
+                .into_iter()
+                .map(|pack| CloudUsagePack {
+                    pack_id: pack.pack_id,
+                    price_cents: pack.price_cents,
+                    hours: pack.hours,
+                })
+                .collect()
+        }),
+        purchased_expiry_days: reply.purchased_expiry_days,
+        allowance_hours: reply.allowance_hours.map(|hours| CloudPlanAllowances {
+            free: hours.free,
+            pro: hours.pro,
+            max: hours.max,
+            sponsor: hours.sponsor,
+        }),
+        storage: reply.storage.map(map_storage_summary),
+    }
+}
+
+mod hours;
+
 #[async_trait]
 impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
     async fn create(
@@ -209,6 +259,7 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             )
             .await
             .map_err(map_account_refusal)?;
+        self.observe_granted_lease(controller.account_id(), &reply.machine_id, reply.warnings);
         map_provisioned_reply(reply)
     }
 
@@ -231,6 +282,7 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             .wake_machine(machine_id, request_id)
             .await
             .map_err(map_account_refusal)?;
+        self.observe_granted_lease(controller.account_id(), &reply.machine_id, reply.warnings);
         map_provisioned_reply(reply)
     }
 
@@ -360,6 +412,7 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             )
             .await
             .map_err(map_account_refusal)?;
+        self.observe_granted_lease(controller.account_id(), &reply.machine_id, reply.warnings);
         map_provisioned_reply(reply)
     }
 
@@ -411,20 +464,18 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             .renew_lease(machine_id, lease_id, request_id)
             .await
             .map_err(map_account_refusal);
-        if renewed.is_ok()
-            || matches!(
-                &renewed,
-                Err(CloudError::CreditsExhausted | CloudError::LeaseRequired)
-            )
-        {
-            let adapter = Self {
-                svc: self.svc.clone(),
-            };
-            tokio::spawn(async move {
-                let _ = adapter.usage().await;
-            });
-        }
-        let reply = renewed?;
+        let reply = match renewed {
+            Ok(reply) => reply,
+            Err(error) => {
+                if hours::needs_usage_refresh(&error)
+                    || matches!(error, CloudError::ProviderUnavailable(_))
+                {
+                    self.refresh_hours_after_failure(Some(controller.account_id().to_owned()));
+                }
+                return Err(error);
+            }
+        };
+        self.observe_granted_lease(controller.account_id(), &reply.machine_id, reply.warnings);
         Ok(ProvisionedLease {
             machine_id: reply.machine_id,
             lease_id: reply.lease_id,
@@ -433,86 +484,15 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
     }
 
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
-        let mesh = self
-            .svc
-            .account_mesh()
-            .await
-            .map_err(|_| CloudError::ProviderUnavailable("account mesh unavailable".into()))?;
-        let controller = mesh
-            .mesh
-            .cloud_controller()
-            .await
-            .map_err(map_account_refusal)?;
-        let reply = controller
-            .cloud_usage()
-            .await
-            .map_err(map_account_refusal)?;
-        if let Some(warnings) = reply.warnings {
-            let remaining = reply.remaining;
-            let backend_machines = reply.storage.as_ref().map(|storage| {
-                storage
-                    .machines
-                    .iter()
-                    .filter(|machine| {
-                        !matches!(
-                            machine.tier,
-                            WireCloudStorageTier::Purged | WireCloudStorageTier::RecoverableDeleted
-                        )
-                    })
-                    .map(|machine| (machine.machine_id.clone(), machine.name.clone()))
-                    .collect()
-            });
-            let account = controller.account_id().to_owned();
-            let svc = self.svc.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                svc.observe_cloud_hours(&account, remaining, warnings, backend_machines);
-            })
-            .await;
+        let (account, reply) = self.read_usage_reply(None).await?;
+        hours::observe_usage(&self.svc, &account, &reply, None).await;
+        Ok(map_usage_reply(reply))
+    }
+
+    fn observe_wake_failure(&self, error: &CloudError) {
+        if hours::needs_usage_refresh(error) {
+            self.refresh_hours_after_failure(None);
         }
-        Ok(CloudUsageSummary {
-            warnings: reply.warnings,
-            used: reply.used,
-            allowance: reply.allowance,
-            purchased: reply.purchased,
-            remaining: reply.remaining,
-            cap: reply.cap,
-            burn_per_size: reply.burn_per_size,
-            currency: reply.currency,
-            period_end_at: reply.period_end_at,
-            custom_min_cents: reply.custom_min_cents,
-            custom_max_cents: reply.custom_max_cents,
-            plan: reply.plan,
-            sizes: reply.sizes.map(|sizes| {
-                sizes
-                    .into_iter()
-                    .map(|size| CloudUsageSize {
-                        id: size.id,
-                        cpu: size.cpu,
-                        ram_gb: size.ram_gb,
-                        hourly_rate_cents: size.hourly_rate_cents,
-                        credits_per_hour: size.credits_per_hour,
-                    })
-                    .collect()
-            }),
-            packs: reply.packs.map(|packs| {
-                packs
-                    .into_iter()
-                    .map(|pack| CloudUsagePack {
-                        pack_id: pack.pack_id,
-                        price_cents: pack.price_cents,
-                        hours: pack.hours,
-                    })
-                    .collect()
-            }),
-            purchased_expiry_days: reply.purchased_expiry_days,
-            allowance_hours: reply.allowance_hours.map(|hours| CloudPlanAllowances {
-                free: hours.free,
-                pro: hours.pro,
-                max: hours.max,
-                sponsor: hours.sponsor,
-            }),
-            storage: reply.storage.map(map_storage_summary),
-        })
     }
 
     async fn redeem_promo(&self, code: &str) -> Result<CloudPromoRedemption, CloudError> {
