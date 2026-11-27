@@ -281,7 +281,8 @@ pub(super) async fn ensure_native_client_attachment(
     app: &AppHandle,
     slot: &NativeHostClientSlot,
 ) -> Result<Arc<NativeHostClient>, String> {
-    if let Some(client) = slot.0.read().clone() {
+    let current = slot.0.read().clone();
+    if let Some(client) = current {
         if !client.retired.load(std::sync::atomic::Ordering::Acquire) {
             ensure_server_api_attachment(app).await?;
             return Ok(client);
