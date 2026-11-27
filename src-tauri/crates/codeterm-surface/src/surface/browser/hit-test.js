@@ -1,6 +1,7 @@
 function domiosHitTest(x, y) {
-  if (!this.isConnected) return 'stale: detached pointer target';
-  const doc = this.ownerDocument;
+  const targetEl = this;
+  if (!targetEl || !targetEl.isConnected) return 'stale: detached pointer target';
+  const doc = targetEl.ownerDocument;
   if (!doc || !doc.defaultView || doc.defaultView !== doc.defaultView.top) {
     return 'target_occluded: cannot verify an embedded frame target';
   }
@@ -9,7 +10,7 @@ function domiosHitTest(x, y) {
   }
 
   const targetRoots = new Map();
-  for (let node = this; node && node.getRootNode; node = node.getRootNode().host) {
+  for (let node = targetEl; node && node.getRootNode; node = node.getRootNode().host) {
     const root = node.getRootNode();
     if (!root || !root.host) break;
     targetRoots.set(root.host, root);
@@ -231,7 +232,7 @@ function domiosHitTest(x, y) {
     const opacity = parseFloat(style.opacity);
     if (Number.isFinite(opacity) && opacity === 0) return true;
     if (colorAlpha(style.backgroundColor) > 0) return false;
-    if (style.backgroundImage && style.backgroundImage !== 'none') return false;
+    if (style.backgroundImage && style.backgroundImage !== 'none' && style.backgroundImage !== 'initial') return false;
     const tag = (el.localName || '').toLowerCase();
     if (MEDIA_TAGS.has(tag)) return false;
     if (el.querySelector && el.querySelector('img, svg, canvas, video, iframe, object, embed')) {
@@ -278,8 +279,8 @@ function domiosHitTest(x, y) {
   }
 
   const associatedLabels = new Set();
-  if (this.labels) {
-    for (const label of this.labels) associatedLabels.add(label);
+  if (targetEl.labels) {
+    for (const label of targetEl.labels) associatedLabels.add(label);
   }
 
   const stackSet = new Set(stack);
@@ -300,14 +301,14 @@ function domiosHitTest(x, y) {
     const associatedLabel =
       tag === 'label' &&
       (associatedLabels.has(el) ||
-        el.control === this ||
+        el.control === targetEl ||
         Boolean(
-          this.id &&
+          targetEl.id &&
             el.getAttribute &&
-            el.getAttribute('for') === this.id &&
+            el.getAttribute('for') === targetEl.id &&
             el.getRootNode &&
-            this.getRootNode &&
-            el.getRootNode() === this.getRootNode()
+            targetEl.getRootNode &&
+            el.getRootNode() === targetEl.getRootNode()
         ));
     const modal =
       tag === 'dialog' ||
@@ -335,11 +336,11 @@ function domiosHitTest(x, y) {
       let innerModal = el.querySelector ? el.querySelector(MODAL_SELECTOR) : null;
       if (!innerModal && el.parentElement && el.parentElement.querySelector) {
         const parentTag = (el.parentElement.localName || '').toLowerCase();
-        if (!LANDMARK_TAGS.has(parentTag) && (!el.parentElement.contains || !el.parentElement.contains(this))) {
+        if (!LANDMARK_TAGS.has(parentTag) && (!el.parentElement.contains || !el.parentElement.contains(targetEl))) {
           innerModal = el.parentElement.querySelector(MODAL_SELECTOR);
         }
       }
-      if (innerModal && innerModal !== this && (!innerModal.contains || !innerModal.contains(this))) {
+      if (innerModal && innerModal !== targetEl && (!innerModal.contains || !innerModal.contains(targetEl))) {
         const innerRole = roleOf(innerModal);
         containedModal = {
           role: innerRole,
@@ -373,7 +374,7 @@ function domiosHitTest(x, y) {
     return id;
   }
 
-  const target = register(this);
+  const target = register(targetEl);
   const stackIds = stack.map(register);
   return { target, stack: stackIds, nodes };
 }

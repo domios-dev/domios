@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Reply composer card fixture</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: #e7e9ea; font-family: system-ui, sans-serif; }
+  .composer-card { position: relative; width: 600px; margin: 24px auto; padding: 16px; border: 1px solid #2f3336; background: #0a0c0e; }
+  .card-wrapper-overlay { position: absolute; inset: 0; background-color: transparent; }
+  .composer-body { position: relative; z-index: 1; }
+  .draft-box { min-height: 72px; padding: 10px; border: 1px solid #2f3336; }
+  .link-card { margin: 12px 0; padding: 14px; border: 1px solid #2f3336; border-radius: 12px; background: #16181c; }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+  .reply-btn { padding: 8px 20px; border: none; border-radius: 9999px; background: #eff3f4; color: #0f1419; font-weight: 700; cursor: pointer; }
+  .sticky-footer { position: fixed; left: 0; right: 0; bottom: 0; height: 48px; background: rgba(0, 0, 0, 0.92); border-top: 1px solid #2f3336; z-index: 20; display: flex; align-items: center; justify-content: center; }
+  .consent-row { position: relative; margin-top: 12px; }
+</style>
+<main>
+  <section class="composer-card" id="composer-card">
+    <div class="card-wrapper-overlay" id="card-overlay"></div>
+    <div class="composer-body" id="composer-body">
+      <div class="draft-box" id="draft-box" contenteditable="true">Draft reply text</div>
+      <div class="link-card" id="link-card">Preview card</div>
+      <div class="consent-row" id="consent-row">
+        <input type="checkbox" id="reply-consent">
+        <label for="reply-consent" id="consent-label"><span id="consent-text">Include preview</span></label>
+      </div>
+      <div class="toolbar" id="toolbar">
+        <span>Tools</span>
+        <button class="reply-btn" id="reply-btn" type="button">
+          <div id="reply-inner"><span id="reply-label">Reply</span></div>
+        </button>
+      </div>
+    </div>
+  </section>
+  <div class="sticky-footer" id="sticky-footer">Sticky footer bar</div>
+</main>
+</html>

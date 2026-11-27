@@ -169,6 +169,28 @@ impl BrowserRuntime {
         Ok(json!({"width":viewport.width,"height":viewport.height,"dpr":viewport.dpr,"mobile":viewport.mobile}).to_string())
     }
 
+    async fn capture_restored_viewport(
+        &self,
+        page: &codeterm_browser::PageChannel,
+        viewport: Viewport,
+        full: bool,
+        include_overlay: bool,
+    ) -> Result<serde_json::Value, String> {
+        let guard = if !include_overlay {
+            Some(self.suppress_overlay(page).await?)
+        } else {
+            None
+        };
+        let shot = self.host.capture_with_viewport(viewport, full).await;
+        let restored = match guard {
+            Some(guard) => guard.restore(self).await,
+            None => Ok(()),
+        };
+        let shot = shot?;
+        restored?;
+        Ok(shot)
+    }
+
     pub(super) async fn screenshot_verb(
         &self,
         ctx: &SurfaceCallCtx,
@@ -202,44 +224,63 @@ impl BrowserRuntime {
             if width * height * scale.powi(2) > 16_777_216.0 {
                 return Err("capture exceeds pixel limit".into());
             }
-            let shot = self.capture_screenshot(&page,json!({"format":"png","captureBeyondViewport":true,"clip":{"x":x,"y":y,"width":width,"height":height,"scale":scale}}),options.include_overlay).await?;
-            (
-                shot["data"]
-                    .as_str()
-                    .ok_or("screenshot returned no image")?
-                    .to_string(),
-                metrics,
-            )
-        } else if let Some(viewport) = options.viewport.filter(|_| options.restore) {
-            let guard = if !options.include_overlay {
-                Some(self.suppress_overlay(&page).await?)
-            } else {
-                None
-            };
+            let params = json!({
+                "format": "png",
+                "captureBeyondViewport": true,
+                "clip": {"x": x, "y": y, "width": width, "height": height, "scale": scale}
+            });
             let shot = self
-                .host
-                .capture_with_viewport(viewport, options.full)
-                .await;
-            let restored = match guard {
-                Some(guard) => guard.restore(self).await,
-                None => Ok(()),
-            };
-            let shot = shot?;
-            restored?;
-            (
-                shot["data"]
-                    .as_str()
-                    .ok_or("screenshot returned no image")?
-                    .to_string(),
-                shot["metrics"].clone(),
-            )
+                .capture_screenshot(&page, params.clone(), options.include_overlay)
+                .await?;
+            let first = shot["data"]
+                .as_str()
+                .ok_or("screenshot returned no image")?
+                .to_string();
+            let verified = self
+                .ensure_rendered_screenshot(&page, first, options.region.is_some(), || async {
+                    let retry = self
+                        .capture_screenshot(&page, params.clone(), options.include_overlay)
+                        .await?;
+                    retry["data"]
+                        .as_str()
+                        .ok_or_else(|| "screenshot returned no image".to_string())
+                        .map(str::to_string)
+                })
+                .await?;
+            (verified, metrics)
+        } else if let Some(viewport) = options.viewport.filter(|_| options.restore) {
+            let shot = self
+                .capture_restored_viewport(&page, viewport, options.full, options.include_overlay)
+                .await?;
+            let first = shot["data"]
+                .as_str()
+                .ok_or("screenshot returned no image")?
+                .to_string();
+            let metrics = shot["metrics"].clone();
+            let verified = self
+                .ensure_rendered_screenshot(&page, first, false, || async {
+                    let retry = self
+                        .capture_restored_viewport(
+                            &page,
+                            viewport,
+                            options.full,
+                            options.include_overlay,
+                        )
+                        .await?;
+                    retry["data"]
+                        .as_str()
+                        .ok_or_else(|| "screenshot returned no image".to_string())
+                        .map(str::to_string)
+                })
+                .await?;
+            (verified, metrics)
         } else {
             if let Some(viewport) = options.viewport {
                 self.apply_metrics(viewport).await?;
             }
             let metrics = self.screenshot_metrics(&page).await?;
             (
-                self.screenshot_base64(&page, options.full, options.include_overlay)
+                self.verified_screenshot_base64(&page, options.full, options.include_overlay)
                     .await?,
                 metrics,
             )

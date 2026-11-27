@@ -49,3 +49,11 @@ fn explicit_region_and_scale_survive_owned_capture_parameter_resolution() {
     )
     .is_err());
 }
+
+#[test]
+fn capture_deadline_reports_surface_not_rendering() {
+    let timeout = map_capture_error(CdpError::Deadline("Page.captureScreenshot".into()));
+    assert!(timeout.starts_with("surface not rendering:"), "{timeout}");
+    let closed = map_capture_error(CdpError::Closed("socket dropped".into()));
+    assert!(closed.contains("socket dropped"), "{closed}");
+}

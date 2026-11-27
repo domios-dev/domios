@@ -1,9 +1,18 @@
 use crate::{
     runtime,
     viewport::{Viewport, ViewportMode},
-    BrowserHost, PageChannel,
+    BrowserHost, CdpError, PageChannel,
 };
 use serde_json::{json, Value};
+
+fn map_capture_error(error: CdpError) -> String {
+    match error {
+        CdpError::Deadline(_) => {
+            "surface not rendering: screenshot capture timed out (target may be hidden, minimized, or occluded)".into()
+        }
+        other => other.to_string(),
+    }
+}
 
 fn screenshot_params(mut params: Value, metrics: &Value) -> Result<Value, String> {
     if params.get("clip").is_some() {
@@ -44,6 +53,10 @@ impl BrowserHost {
         params: Value,
     ) -> Result<Value, String> {
         let owned = self.viewport.lock().mode() == ViewportMode::Owned;
+        if owned {
+            // Wake hidden or backgrounded owned targets before measuring layout and capturing.
+            let _ = page.send("Page.bringToFront", json!({})).await;
+        }
         let params = if owned && params.get("clip").is_none() {
             let metrics = page
                 .send("Page.getLayoutMetrics", json!({}))
@@ -55,7 +68,7 @@ impl BrowserHost {
         };
         page.send("Page.captureScreenshot", params)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(map_capture_error)
     }
 
     pub async fn capture_with_viewport(
@@ -83,6 +96,7 @@ impl BrowserHost {
                     viewport,
                 )
                 .await?;
+                let _ = runtime.page.send("Page.bringToFront", json!({})).await;
                 let mut metrics = runtime
                     .page
                     .send("Page.getLayoutMetrics", json!({}))
@@ -99,7 +113,7 @@ impl BrowserHost {
                         )?,
                     )
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(map_capture_error)?;
                 Ok(json!({"data": shot.get("data"), "metrics": metrics}))
             }
             .await;

@@ -454,6 +454,16 @@ pub(super) fn candidate_points(result: &Value) -> Vec<(f64, f64)> {
 }
 
 fn hit_test_result(reply: &Value) -> Result<(), String> {
+    if let Some(details) = reply.get("exceptionDetails") {
+        log::debug!(
+            "[browser-hit-test] in-page hit-test threw: {}",
+            details
+                .pointer("/exception/description")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown exception")
+        );
+        return Err("target_occluded: pointer hit-test unavailable".into());
+    }
     let Some(value) = reply.pointer("/result/value") else {
         return Err("target_occluded: pointer hit-test unavailable".into());
     };
