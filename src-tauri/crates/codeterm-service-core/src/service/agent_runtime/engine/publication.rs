@@ -42,8 +42,19 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
         super::super::declared_controls::project(session, snapshot);
         snapshot.insert(
             "loginBinding".into(),
-            serde_json::json!({"nonce":context.binding_nonce,"epoch":context.epoch}),
+            serde_json::to_value(super::super::login::session_login_binding(
+                svc, tab, session,
+            ))
+            .unwrap_or_else(
+                |_| serde_json::json!({"nonce":context.binding_nonce,"epoch":context.epoch}),
+            ),
         );
+        if let Some(submission) = session.login.lock().code_submission.clone() {
+            snapshot.insert(
+                "codeSubmission".into(),
+                serde_json::to_value(submission).unwrap_or(Value::Null),
+            );
+        }
         snapshot.insert(
             "auth".into(),
             serde_json::to_value(session.auth.lock().clone()).unwrap_or(Value::Null),

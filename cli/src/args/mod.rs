@@ -24,6 +24,7 @@ pub mod plugin;
 pub mod radar;
 pub mod rest_api;
 pub mod role;
+pub mod secret;
 pub mod service;
 pub mod sessions;
 pub mod spec;

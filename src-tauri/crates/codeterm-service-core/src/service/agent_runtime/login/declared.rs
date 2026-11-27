@@ -110,9 +110,9 @@ pub(super) async fn operate(
     svc: &ServiceContext,
     tab: &str,
     session: &Arc<Session>,
-    request: LoginRequest,
+    mut request: LoginRequest,
 ) -> Result<Value, String> {
-    validate_request(session, &request)?;
+    validate_request(svc, tab, session, &request)?;
     if request.action.as_deref() == Some("cancel") {
         let context = session.context.lock().clone();
         {
@@ -130,6 +130,7 @@ pub(super) async fn operate(
             login.instructions = None;
             login.code_input = None;
             login.expires_at_ms = None;
+            state.code_submission = None;
         }
         forget(session);
         engine::publish(svc, tab, session);
@@ -146,18 +147,55 @@ pub(super) async fn operate(
         .map_err(|_| "Sign-in deadline exceeded")?
         .map_err(|_| "Runtime unavailable")?;
     engine::validate_binding(svc, session).map_err(|error| error.to_string())?;
-    validate_request(session, &request)?;
+    validate_request(svc, tab, session, &request)?;
     let context = session.context.lock().clone();
-    let value = if request.action.as_deref() == Some("code") {
+    let is_code_action = request.action.as_deref() == Some("code");
+    let secret = request
+        .api_key
+        .as_ref()
+        .or(request.code.as_ref())
+        .map(|value| Zeroizing::new(value.as_str().to_owned()));
+    let value = if is_code_action {
         if request.api_key.is_some() || request.method_id.is_some() || request.method.is_some() {
             return Err("Invalid browser-code response".into());
         }
+        let binding = request
+            .binding
+            .as_ref()
+            .ok_or("Sign-in code submission requires an active login binding")?;
+        let expected = session_login_binding(svc, tab, session);
+        validate_binding_fields(&expected, binding, true)?;
         let code = request
             .code
-            .as_deref()
-            .filter(|code| !code.trim().is_empty() && code.len() <= 16384)
-            .ok_or("Browser code required (maximum 16 KiB)")?;
+            .take()
+            .filter(|code| {
+                !code.trim().is_empty() && code.len() <= 16384 && !code.contains(['\r', '\n'])
+            })
+            .ok_or("Browser code required (maximum 16 KiB)")?
+            .into_zeroizing();
         let mut state = session.login.lock();
+        match state.code_submission.as_ref().map(|record| &record.status) {
+            None => {}
+            Some(CodeSubmissionStatus::Uncertain) => {
+                return Err(
+                    "Previous sign-in code delivery is uncertain and cannot be replayed. Cancel and start a new sign-in."
+                        .into(),
+                );
+            }
+            Some(
+                CodeSubmissionStatus::Submitted
+                | CodeSubmissionStatus::Accepted
+                | CodeSubmissionStatus::Completed,
+            ) => {
+                return Err(
+                    "A sign-in code was already submitted for this flow. Wait for completion or cancel and start a new sign-in."
+                        .into(),
+                );
+            }
+            Some(CodeSubmissionStatus::Failed) => {
+                return Err("This sign-in flow failed. Cancel and start a new sign-in.".into());
+            }
+        }
         let claim = state.declared.as_ref().ok_or("No sign-in is pending")?;
         if request.login_id.as_deref() != Some(claim.id.as_str()) {
             return Err("Sign-in challenge cannot accept this code".into());
@@ -167,7 +205,13 @@ pub(super) async fn operate(
         if !claim.begin_callback(login.as_ref(), &context, now_ms(), true) {
             return Err("Sign-in challenge cannot accept this code".into());
         }
-        json!({"action":"code","methodId":claim.method,"loginId":claim.id,"code":code})
+        let (method_id, login_id) = (claim.method.clone(), claim.id.clone());
+        state.code_submission = Some(CodeSubmissionRecord {
+            status: CodeSubmissionStatus::Submitted,
+            login_id: login_id.clone(),
+            reason: None,
+        });
+        json!({"action":"code","methodId":method_id,"loginId":login_id,"code":code.as_str()})
     } else {
         if request
             .action
@@ -201,6 +245,7 @@ pub(super) async fn operate(
         let id = uuid::Uuid::new_v4().to_string();
         let mut state = session.login.lock();
         state.phone_notification = None;
+        state.code_submission = None;
         state.declared = Some(Claim {
             method: method.id.clone(),
             id: id.clone(),
@@ -224,7 +269,7 @@ pub(super) async fn operate(
             expires_at_ms: Some(now_ms().saturating_add(15 * 60 * 1000)),
             error: None,
         });
-        json!({"action":"start","methodId":method.id,"loginId":id,"apiKey":request.api_key})
+        json!({"action":"start","methodId":method.id,"loginId":id,"apiKey":request.api_key.as_deref()})
     };
     engine::publish(svc, tab, session);
     let witness = {
@@ -235,11 +280,62 @@ pub(super) async fn operate(
             .ok_or("Sign-in ownership unavailable")?;
         (claim.method.clone(), claim.id.clone())
     };
-    let secret = request.api_key.as_deref().or(request.code.as_deref());
-    run(svc, session, &context, value)
-        .await
-        .map_err(|failure| fail(svc, session, &context, &witness, failure, secret))?;
-    show(svc, tab)
+    let secret_str = secret.as_deref().map(String::as_str);
+    match run(svc, session, &context, value).await {
+        Ok(()) => {
+            if is_code_action {
+                let signed_in = *session.auth.lock() == RuntimeAuthState::SignedIn;
+                {
+                    let mut state = session.login.lock();
+                    state.code_submission = Some(CodeSubmissionRecord {
+                        status: if signed_in {
+                            CodeSubmissionStatus::Completed
+                        } else {
+                            CodeSubmissionStatus::Accepted
+                        },
+                        login_id: witness.1.clone(),
+                        reason: None,
+                    });
+                }
+                engine::publish(svc, tab, session);
+                let mut payload = show(svc, tab)?;
+                payload["outcome"] = json!(if signed_in { "completed" } else { "accepted" });
+                return Ok(payload);
+            }
+            show(svc, tab)
+        }
+        Err(failure) if is_code_action && is_uncertain_code_failure(&failure) => {
+            let reason = safe_reason(
+                "Sign-in code delivery is uncertain and was not replayed. Wait for completion or cancel and start a new sign-in.",
+                secret_str,
+            );
+            {
+                let mut state = session.login.lock();
+                state.code_submission = Some(CodeSubmissionRecord {
+                    status: CodeSubmissionStatus::Uncertain,
+                    login_id: witness.1.clone(),
+                    reason: Some(reason.clone()),
+                });
+            }
+            engine::publish(svc, tab, session);
+            let mut payload = show(svc, tab)?;
+            payload["outcome"] = json!("uncertain");
+            payload["reason"] = json!(reason);
+            Ok(payload)
+        }
+        Err(failure) => Err(fail(svc, session, &context, &witness, failure, secret_str)),
+    }
+}
+
+fn is_uncertain_code_failure(failure: &RuntimeFailure) -> bool {
+    matches!(
+        failure,
+        RuntimeFailure::Deadline
+            | RuntimeFailure::PipeEof
+            | RuntimeFailure::PipeFailure { .. }
+            | RuntimeFailure::ProcessExited { .. }
+            | RuntimeFailure::Superseded
+    )
 }
 
 async fn run(
@@ -298,6 +394,12 @@ fn fail(
             login.instructions = None;
             login.code_input = None;
             login.error = Some(reason.clone());
+        }
+        if let Some(submission) = state.code_submission.as_mut() {
+            if submission.status != CodeSubmissionStatus::Uncertain {
+                submission.status = CodeSubmissionStatus::Failed;
+                submission.reason = Some(reason.clone());
+            }
         }
         drop(state);
         forget(session);

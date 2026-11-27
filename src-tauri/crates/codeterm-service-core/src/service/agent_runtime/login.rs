@@ -12,6 +12,7 @@ use std::{
     sync::{Arc, LazyLock, Weak},
     time::Duration,
 };
+use zeroize::{Zeroize, Zeroizing};
 
 mod account_context;
 mod cli;
@@ -36,6 +37,72 @@ mod terminal;
 static OWNERS: LazyLock<Mutex<HashMap<(String, String), Weak<Session>>>> =
     LazyLock::new(Default::default);
 
+#[derive(Default, Clone)]
+pub struct SecretString(String);
+
+impl SecretString {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_zeroizing(mut self) -> Zeroizing<String> {
+        Zeroizing::new(std::mem::take(&mut self.0))
+    }
+}
+
+impl From<&str> for SecretString {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+impl From<String> for SecretString {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl std::ops::Deref for SecretString {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
+impl Drop for SecretString {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(Self)
+    }
+}
+
+/// Zeroizes any string values stored under `code` or `apiKey` keys in a JSON object
+/// before the value is dropped.
+pub fn zeroize_login_json_value(value: &mut Value) {
+    if let Value::Object(map) = value {
+        for key in ["code", "apiKey"] {
+            if let Some(Value::String(secret)) = map.get_mut(key) {
+                secret.zeroize();
+            }
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LoginRequest {
@@ -52,20 +119,48 @@ pub struct LoginRequest {
     #[serde(default)]
     pub account: Option<String>,
     #[serde(default)]
-    pub code: Option<String>,
+    pub code: Option<SecretString>,
     #[serde(default)]
     pub method_id: Option<String>,
     pub method: Option<RuntimeLoginMethod>,
     #[serde(default)]
-    pub api_key: Option<String>,
+    pub api_key: Option<SecretString>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LoginBinding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     pub nonce: String,
     pub epoch: u64,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CodeSubmissionStatus {
+    Submitted,
+    Accepted,
+    Completed,
+    Uncertain,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeSubmissionRecord {
+    pub status: CodeSubmissionStatus,
+    pub login_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 #[derive(Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct LoginState {
@@ -74,10 +169,103 @@ pub(super) struct LoginState {
     pub phone_notification: Option<String>,
     #[serde(skip)]
     declared: Option<declared::Claim>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_submission: Option<CodeSubmissionRecord>,
 }
 
-fn validate_request(session: &Session, request: &LoginRequest) -> Result<(), String> {
-    validate_login_binding(session, request.binding.as_ref())?;
+pub(crate) fn local_installation_id(svc: &ServiceContext) -> Option<String> {
+    svc.try_ext::<crate::MeshStateHandle>()
+        .map(|mesh| mesh.lock().status().instance_id)
+        .filter(|id| !id.trim().is_empty())
+}
+
+pub(crate) fn build_login_binding(
+    svc: &ServiceContext,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: Option<&str>,
+    nonce: &str,
+    epoch: u64,
+) -> LoginBinding {
+    LoginBinding {
+        installation_id: local_installation_id(svc),
+        tab_id: Some(tab_id.to_owned()),
+        provider_id: Some(provider_id.to_owned()),
+        session_id: session_id.filter(|s| !s.is_empty()).map(str::to_owned),
+        nonce: nonce.to_owned(),
+        epoch,
+    }
+}
+
+pub(crate) fn session_login_binding(
+    svc: &ServiceContext,
+    tab_id: &str,
+    session: &Session,
+) -> LoginBinding {
+    let context = session.context.lock();
+    let tab_session_id = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|target| target.agent_session_id.clone());
+    let session_id = context.thread_id.as_deref().or(tab_session_id.as_deref());
+    build_login_binding(
+        svc,
+        tab_id,
+        &session.provider,
+        session_id,
+        &context.binding_nonce,
+        context.epoch,
+    )
+}
+
+pub(super) fn validate_binding_fields(
+    expected: &LoginBinding,
+    provided: &LoginBinding,
+    require_exact_context: bool,
+) -> Result<(), String> {
+    if provided.nonce != expected.nonce || provided.epoch != expected.epoch {
+        return Err("Sign-in belongs to a different runtime session".into());
+    }
+    if let Some(provided_inst) = provided.installation_id.as_deref() {
+        if expected.installation_id.as_deref() != Some(provided_inst) {
+            return Err("Sign-in belongs to a different installation".into());
+        }
+    } else if require_exact_context && expected.installation_id.is_some() {
+        return Err("Sign-in code requires an exact installation binding".into());
+    }
+    if let Some(provided_tab) = provided.tab_id.as_deref() {
+        if expected.tab_id.as_deref() != Some(provided_tab) {
+            return Err("Sign-in belongs to a different tab".into());
+        }
+    }
+    if let Some(provided_provider) = provided.provider_id.as_deref() {
+        if expected.provider_id.as_deref() != Some(provided_provider) {
+            return Err("Sign-in belongs to a different provider".into());
+        }
+    }
+    if require_exact_context {
+        if provided.session_id != expected.session_id {
+            return Err("Sign-in belongs to a different agent session".into());
+        }
+    } else if let Some(provided_session) = provided.session_id.as_deref() {
+        if expected.session_id.as_deref() != Some(provided_session) {
+            return Err("Sign-in belongs to a different agent session".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_request(
+    svc: &ServiceContext,
+    tab: &str,
+    session: &Session,
+    request: &LoginRequest,
+) -> Result<(), String> {
+    if let Some(binding) = request.binding.as_ref() {
+        let expected = session_login_binding(svc, tab, session);
+        validate_binding_fields(&expected, binding, false)?;
+    }
     if let Some(id) = request.login_id.as_deref() {
         if session
             .login
@@ -242,7 +430,11 @@ pub async fn operate(
     request: LoginRequest,
 ) -> Result<Value, String> {
     let label = request_label(&request);
-    let secret = request.api_key.clone().or_else(|| request.code.clone());
+    let secret = request
+        .api_key
+        .as_ref()
+        .or(request.code.as_ref())
+        .map(|value| Zeroizing::new(value.as_str().to_owned()));
     cli::cleanup(svc);
     if request.action.as_deref() == Some("backupCredentials") {
         if request.api_key.is_some()
@@ -290,7 +482,7 @@ pub async fn operate(
     codeterm_plugin::provider_account::scope(invocation, operate_unlogged(svc, tab, request))
         .await
         .map_err(|reason| {
-            let reason = safe_reason(&reason, secret.as_deref());
+            let reason = safe_reason(&reason, secret.as_deref().map(String::as_str));
             log::warn!("[agent_runtime.login] tab={tab} request={label} refused: {reason}");
             reason
         })
@@ -323,7 +515,7 @@ async fn operate_unlogged(
         return Err("The sign-in request belongs to a different harness".into());
     }
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
-    validate_request(&session, &request)?;
+    validate_request(svc, tab, &session, &request)?;
     if declared::handles(&session, &request) {
         return declared::operate(svc, tab, &session, request).await;
     }
@@ -381,7 +573,7 @@ async fn operate_unlogged(
         .map_err(|_| "Sign-in deadline exceeded")?
         .map_err(|_| "Runtime unavailable")?;
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
-    validate_request(&session, &request)?;
+    validate_request(svc, tab, &session, &request)?;
     if request.action.as_deref() == Some("notify") {
         return relay::notify(svc, tab, &session);
     }
@@ -423,21 +615,25 @@ async fn operate_unlogged(
             return Err("API key required (maximum 16 KiB)".into());
         }
         claim(&session, tab)?;
-        session.login.lock().declared = None;
-        session.login.lock().phone_notification = None;
-        session.login.lock().login = Some(RuntimeLoginState {
-            instructions: None,
-            code_input: None,
-            status: RuntimeLoginStatus::Pending,
-            method: Some(method.clone()),
-            login_id: None,
-            url: None,
-            user_code: None,
-            expires_at_ms: None,
-            error: None,
-        });
+        {
+            let mut state = session.login.lock();
+            state.declared = None;
+            state.phone_notification = None;
+            state.code_submission = None;
+            state.login = Some(RuntimeLoginState {
+                instructions: None,
+                code_input: None,
+                status: RuntimeLoginStatus::Pending,
+                method: Some(method.clone()),
+                login_id: None,
+                url: None,
+                user_code: None,
+                expires_at_ms: None,
+                error: None,
+            });
+        }
         engine::publish(svc, tab, &session);
-        json!({"action":"start","method":method,"apiKey":request.api_key})
+        json!({"action":"start","method":method,"apiKey":request.api_key.as_deref()})
     };
     let result = engine::run(
         svc,
@@ -518,6 +714,7 @@ pub fn apply(
             if !matching_completion(session.login.lock().login.as_ref(), &login) {
                 return;
             }
+            session.login.lock().code_submission = None;
             forget(session);
         }
         session.login.lock().login = Some(login);
@@ -558,7 +755,19 @@ async fn finish(
         return Ok(());
     }
     let successful = login.status == RuntimeLoginStatus::Completed;
-    session.login.lock().login = Some(login);
+    {
+        let mut state = session.login.lock();
+        if let Some(submission) = state.code_submission.as_mut() {
+            if successful {
+                submission.status = CodeSubmissionStatus::Completed;
+                submission.reason = None;
+            } else if submission.status != CodeSubmissionStatus::Uncertain {
+                submission.status = CodeSubmissionStatus::Failed;
+                submission.reason = login.error.clone();
+            }
+        }
+        state.login = Some(login);
+    }
     forget(session);
     let context = session.context.lock().clone();
     engine::publish(svc, &context.tab_id, session);
@@ -605,16 +814,28 @@ pub fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
     }
     let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
-    let login = project(session.login.lock().login.as_ref(), now_ms());
+    let (login, code_submission) = {
+        let state = session.login.lock();
+        (
+            project(state.login.as_ref(), now_ms()),
+            state.code_submission.clone(),
+        )
+    };
     let authentication = session.maps.lock().authentication.clone();
     let api_key_methods = super::auth_env::selected_profile(svc, tab, &session)
         .map(|profile| super::auth_env::api_key_methods(&profile))
         .unwrap_or_default();
-    let context = session.context.lock();
-    Ok(
-        json!({"login":login,"authentication":authentication,"apiKeyMethods":api_key_methods,
-        "loginBinding":{"nonce":context.binding_nonce,"epoch":context.epoch}}),
-    )
+    let binding = session_login_binding(svc, tab, &session);
+    let mut payload = json!({
+        "login": login,
+        "authentication": authentication,
+        "apiKeyMethods": api_key_methods,
+        "loginBinding": binding,
+    });
+    if let Some(submission) = code_submission {
+        payload["codeSubmission"] = serde_json::to_value(submission).unwrap_or(Value::Null);
+    }
+    Ok(payload)
 }
 
 pub(super) fn now_ms() -> u64 {

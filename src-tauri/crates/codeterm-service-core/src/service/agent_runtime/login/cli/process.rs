@@ -1,15 +1,57 @@
 use super::*;
 use std::process::Stdio;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use zeroize::Zeroizing;
 
-async fn submit_code(input: &mut (impl AsyncWrite + Unpin), code: &str) -> Result<(), String> {
-    async {
-        input.write_all(code.as_bytes()).await?;
-        input.write_all(b"\n").await?;
-        input.flush().await
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum CodeWriteOutcome {
+    Written,
+    FailedBeforeWrite(String),
+    Uncertain(String),
+}
+
+async fn submit_code(
+    input: &mut (impl AsyncWrite + Unpin),
+    code: &Zeroizing<String>,
+) -> CodeWriteOutcome {
+    let mut payload = Zeroizing::new(Vec::with_capacity(code.len() + 1));
+    payload.extend_from_slice(code.as_bytes());
+    payload.push(b'\n');
+    let mut written = 0usize;
+    while written < payload.len() {
+        match input.write(&payload[written..]).await {
+            Ok(0) if written == 0 => {
+                return CodeWriteOutcome::FailedBeforeWrite(
+                    "Sign-in code input closed before accepting the code".into(),
+                );
+            }
+            Ok(0) => {
+                return CodeWriteOutcome::Uncertain(
+                    "Sign-in code input closed mid-write; delivery is uncertain and was not replayed"
+                        .into(),
+                );
+            }
+            Ok(count) => written += count,
+            Err(_) if written == 0 => {
+                return CodeWriteOutcome::FailedBeforeWrite(
+                    "Sign-in code could not be written to provider stdin".into(),
+                );
+            }
+            Err(_) => {
+                return CodeWriteOutcome::Uncertain(
+                    "Sign-in code write ended after bytes were sent; delivery is uncertain and was not replayed"
+                        .into(),
+                );
+            }
+        }
     }
-    .await
-    .map_err(|_| "Sign-in code could not be submitted".into())
+    match input.flush().await {
+        Ok(()) => CodeWriteOutcome::Written,
+        Err(_) => CodeWriteOutcome::Uncertain(
+            "Sign-in code flush was not confirmed; delivery is uncertain and was not replayed"
+                .into(),
+        ),
+    }
 }
 
 async fn capture(
@@ -146,14 +188,38 @@ async fn run_inner(
                 _ = &mut deadline => break Err("Sign-in timed out. Try again.".into()),
                 _ = stopping.changed() => break Err("Sign-in canceled".into()),
                 Some((code, receipt)) = codes.recv() => {
-                    let result = tokio::select! {
-                        result = submit_code(&mut input, &code) => result,
-                        _ = &mut deadline => Err("Sign-in timed out".into()),
-                        _ = stopping.changed() => Err("Sign-in canceled".into()),
+                    codes.close();
+                    enum StopReason {
+                        TimedOut,
+                        Canceled,
+                        None,
+                    }
+                    let (result, stop_reason) = tokio::select! {
+                        result = submit_code(&mut input, &code) => (result, StopReason::None),
+                        _ = &mut deadline => (
+                            CodeWriteOutcome::Uncertain(
+                                "Sign-in timed out while delivering the code; delivery is uncertain and was not replayed".into(),
+                            ),
+                            StopReason::TimedOut,
+                        ),
+                        _ = stopping.changed() => (
+                            CodeWriteOutcome::Uncertain(
+                                "Sign-in canceled while delivering the code; delivery is uncertain and was not replayed".into(),
+                            ),
+                            StopReason::Canceled,
+                        ),
                     };
-                    let failed = result.is_err();
+                    drop(code);
+                    let failed_before_write = matches!(result, CodeWriteOutcome::FailedBeforeWrite(_));
                     let _ = receipt.send(result);
-                    if failed { break Err("Sign-in code input ended before acknowledgement".into()); }
+                    match stop_reason {
+                        StopReason::TimedOut => break Err("Sign-in timed out. Try again.".into()),
+                        StopReason::Canceled => break Err("Sign-in canceled".into()),
+                        StopReason::None if failed_before_write => {
+                            break Err("Sign-in code input ended before acknowledgement".into())
+                        }
+                        StopReason::None => {}
+                    }
                 }
             }
         }
