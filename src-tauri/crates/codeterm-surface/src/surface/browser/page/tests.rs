@@ -96,6 +96,7 @@ fn browser_page_target_info_counts_only_our_page() {
         Some(PageUpdate::DialogOpened(ActiveDialog {
             kind: super::super::dialog::DialogKind::Alert,
             message: "Stop".into(),
+            url: "https://a.dev".into(),
         }))
     );
     assert_eq!(

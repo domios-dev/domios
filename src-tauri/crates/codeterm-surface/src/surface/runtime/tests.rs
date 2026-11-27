@@ -33,6 +33,7 @@ impl SurfaceRuntime for FakeRuntime {
         _viewport: Option<ViewportRequest>,
         _viewer: Option<String>,
         _viewer_target: Option<String>,
+        _interactive: bool,
     ) -> SurfaceEvents {
         Box::pin(futures_util::stream::empty())
     }
@@ -270,6 +271,7 @@ impl SurfaceRuntime for ClosingRuntime {
         _viewport: Option<ViewportRequest>,
         _viewer: Option<String>,
         _viewer_target: Option<String>,
+        _interactive: bool,
     ) -> SurfaceEvents {
         Box::pin(futures_util::stream::empty())
     }

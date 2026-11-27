@@ -68,6 +68,13 @@ impl ViewportOwner {
         Some(viewport)
     }
 
+    pub fn viewer_generation(&self, viewer: &str) -> Option<u64> {
+        self.viewers
+            .iter()
+            .find(|(id, _)| id == viewer)
+            .map(|(_, generation)| *generation)
+    }
+
     pub fn leave(&mut self, viewer: &str, generation: u64) -> bool {
         let before = self.viewers.len();
         self.viewers

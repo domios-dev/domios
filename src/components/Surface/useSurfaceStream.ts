@@ -19,6 +19,7 @@ export interface SurfaceStream {
   onViewport(viewport: StreamViewport): void;
   onHidden(): void;
   takeControl(): void;
+  releaseControl(): void;
 }
 
 interface Connection {
@@ -27,13 +28,15 @@ interface Connection {
   latest: StreamViewport | null;
 }
 
-export function useSurfaceStream(transport: SurfaceStreamTransport, initialState: SurfaceState, visible = true): SurfaceStream {
+export function useSurfaceStream(transport: SurfaceStreamTransport, initialState: SurfaceState, visible = true, interactive = false): SurfaceStream {
   const [state, setState] = useState<SurfaceState>(initialState);
   const [notice, setNotice] = useState<SurfaceNotice | null>(null);
   const [paused, setPaused] = useState<SurfaceNotice | null>(null);
   const [unavailable, setUnavailable] = useState<SurfaceNotice | null>(null);
   const unavailableRef = useRef(false);
   const pausedRef = useRef(false);
+  const interactiveRef = useRef(interactive);
+  interactiveRef.current = interactive;
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null });
   const [viewer] = useState(() => crypto.randomUUID());
   const [feed] = useState(() => createFrameFeed());
@@ -80,8 +83,12 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
         pausedRef.current = true;
         setPaused(next);
       },
-      open: () => undefined,
-    }, viewer, browserViewerTarget());
+      open: () => {
+        if (interactiveRef.current) {
+          void transport.invoke("control.claim", { viewer }).catch(() => undefined);
+        }
+      },
+    }, viewer, browserViewerTarget(), interactiveRef.current);
   }, [transport, feed, viewer]);
 
   useEffect(() => {
@@ -131,5 +138,12 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       .catch((error: unknown) => publishNotice({ kind: "debug", severity: "Warning", title: "Surface viewport claim failed", detail: String(error) }));
   }, [transport, viewer, visible]);
 
-  return { state, notice, paused, unavailable, frames: feed, subscribeCursor, setNotice, onViewport, onHidden, takeControl };
+  const releaseControl = useCallback(() => {
+    const current = connection.current;
+    if (!current.disconnect) return;
+    void transport.invoke("control.release", { viewer })
+      .catch(() => undefined);
+  }, [transport, viewer]);
+
+  return { state, notice, paused, unavailable, frames: feed, subscribeCursor, setNotice, onViewport, onHidden, takeControl, releaseControl };
 }

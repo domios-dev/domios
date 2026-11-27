@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 use super::activity::sanitize_actor;
 use super::model::SurfaceOpenRequest;
-use super::runtime::{SurfaceCallOutcome, SurfaceEffect, SurfaceRuntime};
+use super::runtime::{AgentCloseMode, SurfaceCallOutcome, SurfaceEffect, SurfaceRuntime};
 use super::stream_ops::StreamBinding;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::Tab;
@@ -257,6 +257,14 @@ pub(crate) fn plan_agent_call(
     })
 }
 
+pub(crate) fn parse_close_args(args: &[String]) -> Result<AgentCloseMode, String> {
+    match args {
+        [] => Ok(AgentCloseMode::Normal),
+        [flag] if flag == "--discard-unsaved" => Ok(AgentCloseMode::DiscardUnsaved),
+        _ => Err("usage: close [--discard-unsaved]".into()),
+    }
+}
+
 /// An annotation always goes to the surface owner, whoever wrote it.
 pub(crate) fn annotation_recipient(binding: &StreamBinding) -> Result<&str, String> {
     binding
@@ -332,23 +340,46 @@ impl ServiceContext {
         let noun = surface.title.to_lowercase();
         let (tab_id, actor) = match plan {
             CallPlan::Answer(text) => {
+                if verb == "close" && !is_view {
+                    parse_close_args(&args)?;
+                }
                 return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
                     result: text
-                }))
+                }));
             }
             CallPlan::Close { tab_id } => {
-                self.note_surface_activity(&tab_id, verb, None);
-                if !is_view {
-                    let (runtime, _) = self
+                let mode = if is_view {
+                    if !args.is_empty() {
+                        return Err("usage: close".into());
+                    }
+                    AgentCloseMode::Normal
+                } else {
+                    parse_close_args(&args)?
+                };
+                let activity_verb = match mode {
+                    AgentCloseMode::Normal => verb,
+                    AgentCloseMode::DiscardUnsaved => "close.discard-unsaved",
+                };
+                let close_note = if !is_view {
+                    let (runtime, binding) = self
                         .surface_runtime(&tab_id)
                         .map_err(|error| error.message())?;
-                    block_on_runtime(async move { runtime.agent_close().await })
-                        .map_err(|error| error.message())?;
-                }
+                    let mut ctx = self.surface_call_ctx(&binding);
+                    ctx.caller_tab_id = Some(caller_tab.clone());
+                    block_on_runtime(async move { runtime.agent_close(&ctx, mode).await })
+                        .map_err(|error| error.message())?
+                } else {
+                    None
+                };
+                self.note_surface_activity(&tab_id, activity_verb, None);
                 self.close_surface(Some(caller_tab.as_str()), &tab_id)
                     .map_err(|error| error.message())?;
+                let result = match close_note {
+                    Some(note) => format!("closed {noun} {tab_id}: {note}"),
+                    None => format!("closed {noun} {tab_id}"),
+                };
                 return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
-                    result: format!("closed {noun} {tab_id}")
+                    result
                 }));
             }
             CallPlan::Open => {

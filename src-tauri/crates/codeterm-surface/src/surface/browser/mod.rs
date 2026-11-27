@@ -35,7 +35,7 @@ mod viewport;
 pub use blueprint_origins::allows_page_origin;
 pub use blueprint_read::{NamedPageRead, NamedPageResult, PageCapture};
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,8 +53,8 @@ use self::snip::SnipStore;
 #[cfg(test)]
 use super::runtime::SurfaceState;
 use super::runtime::{
-    SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice, SurfaceResume,
-    SurfaceRuntime, SurfaceRuntimeFactory,
+    AgentCloseMode, SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice,
+    SurfaceResume, SurfaceRuntime, SurfaceRuntimeFactory,
 };
 use codeterm_browser::process::CloseOutcome;
 use codeterm_browser::profile::ProfileLayout;
@@ -130,6 +130,7 @@ struct GrabStore {
 pub struct BrowserRuntime {
     host: BrowserHost,
     viewport: tokio::sync::Mutex<viewport::ViewportOwner>,
+    take_control: Mutex<HashMap<String, u64>>,
     layout: ProfileLayout,
     swept: Arc<BrowserSweep>,
     shared: Arc<PageShared>,
@@ -173,6 +174,7 @@ impl BrowserRuntime {
             layout: config.layout.clone(),
             host: BrowserHost::new(config),
             viewport: tokio::sync::Mutex::new(viewport::ViewportOwner::default()),
+            take_control: Mutex::new(HashMap::new()),
             swept,
             shared,
             launch_gate: tokio::sync::Mutex::new(()),
@@ -487,6 +489,27 @@ impl BrowserRuntime {
         }
     }
 
+    pub(super) fn claim_control(&self, viewer: &str, generation: u64) {
+        self.take_control
+            .lock()
+            .insert(viewer.to_string(), generation);
+    }
+
+    pub(super) fn release_control(&self, viewer: &str) {
+        self.take_control.lock().remove(viewer);
+    }
+
+    pub(super) fn release_control_if_generation(&self, viewer: &str, generation: u64) {
+        let mut holders = self.take_control.lock();
+        if holders.get(viewer).copied() == Some(generation) {
+            holders.remove(viewer);
+        }
+    }
+
+    pub(super) fn owner_holds_control(&self) -> bool {
+        !self.take_control.lock().is_empty()
+    }
+
     fn take_grab(&self, id: &str) -> Option<(GrabTarget, Option<String>)> {
         let mut grabs = self.grabs.lock();
         let index = grabs
@@ -503,7 +526,13 @@ impl BrowserRuntime {
 #[async_trait::async_trait]
 impl SurfaceRuntime for BrowserRuntime {
     fn view_only_methods(&self) -> &[&str] {
-        &["profiles.create", "profiles.delete", "viewport.claim"]
+        &[
+            "profiles.create",
+            "profiles.delete",
+            "viewport.claim",
+            "control.claim",
+            "control.release",
+        ]
     }
 
     fn set_owner_name(&self, name: &str) {
@@ -520,8 +549,9 @@ impl SurfaceRuntime for BrowserRuntime {
         viewport: Option<ViewportRequest>,
         viewer: Option<String>,
         viewer_target: Option<String>,
+        interactive: bool,
     ) -> SurfaceEvents {
-        stream::connect(self, viewport, viewer, viewer_target).await
+        stream::connect(self, viewport, viewer, viewer_target, interactive).await
     }
 
     async fn call(
@@ -611,15 +641,25 @@ impl SurfaceRuntime for BrowserRuntime {
             .map_err(super::model::SurfaceError::TerminationFailed)
     }
 
-    async fn agent_close(&self) -> Result<(), super::model::SurfaceError> {
-        self.shared
-            .check_page_verb()
-            .map_err(super::model::SurfaceError::Blocked)?;
-        let _launch = self.launch_gate.lock().await;
-        self.shared
-            .check_page_verb()
-            .map_err(super::model::SurfaceError::Blocked)?;
-        self.close().await
+    async fn agent_close(
+        &self,
+        ctx: &SurfaceCallCtx,
+        mode: AgentCloseMode,
+    ) -> Result<Option<String>, super::model::SurfaceError> {
+        match mode {
+            AgentCloseMode::Normal => {
+                self.shared
+                    .check_page_verb()
+                    .map_err(super::model::SurfaceError::Blocked)?;
+                let _launch = self.launch_gate.lock().await;
+                self.shared
+                    .check_page_verb()
+                    .map_err(super::model::SurfaceError::Blocked)?;
+                self.close().await?;
+                Ok(None)
+            }
+            AgentCloseMode::DiscardUnsaved => self.discard_unsaved_session(ctx).await,
+        }
     }
 
     async fn shutdown(&self, graceful: Duration) -> bool {

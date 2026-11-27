@@ -59,6 +59,10 @@ impl<H: Clone> LeaseModel<H> {
         Some((self.next_id, handle))
     }
 
+    pub fn has_other_leases(&self, id: u64) -> bool {
+        self.leases.iter().any(|lease| *lease != id)
+    }
+
     pub fn release(&mut self, id: u64) -> Option<H> {
         if !self.leases.remove(&id) || !self.leases.is_empty() {
             return None;

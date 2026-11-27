@@ -13,7 +13,7 @@ Delegate flows over 10,000 output characters to a Worker for a short evidence re
 - **Ownership.** `open` creates `<YourName>'s Browser`, visible beneath your tab and available to workspace agents. `close`, closing your tab or closing your Team ends it.
 - **Profiles.**
   - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
-  - A **named profile** retains logins, cookies and session profile across Domios restarts. Users create profiles in the Browser profile menu; agents select existing ones with `open --profile NAME` (unknown names fail). For DEV QA, use origin-bound sessions below, `profile list` and `profile remove NAME` (inactive only). Publishing, buying, deleting and sending messages require explicit user instruction.
+  - A **named profile** persists logins and cookies across restarts. Users create them in the profile menu; agents pick existing ones with `open --profile NAME` (unknown names fail). For DEV QA, use origin-bound sessions, `profile list` and `profile remove NAME` (inactive only). Publishing, buying, deleting and sending messages need explicit user instruction.
 - **Shared profiles.** Named-profile tabs share cookies/logins; pages and controls stay independent. Closing one leaves the others open.
 - **Another agent's browser.** Add `--of <title|tab-id>` to act there. Its owner sees your activity. It must already be open; you cannot close it. Use refs from its latest snapshot.
 - **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
@@ -38,14 +38,16 @@ Rules:
 - Snapshots show control states. Use `snapshot [limit]`, not `--limit`: default 200, maximum 2000; only included elements receive refs.
 - Prefer refs or role/name over coordinates/CSS. Wait on evidence with `wait --text T`, `--url U` or `--selector S`, never elapsed time; default deadline 15s.
 - Secrets: pipe exact text to `type <target> --stdin`. It requires a maskable HTML input, masks before insertion and redacts output, snapshots, events and annotations. Never put secrets in arguments or print them.
-- `type` focuses, clears (through native selection and editing on contenteditable rich editors, keeping the native value setter on inputs/textareas), inserts and reads back rendered text, refusing hidden, disabled, readonly or unfocusable fields. A readback mismatch fails closed with `typing_unconfirmed` (secret inputs verify by length only and never echo the value); inspect before continuing and never replay. `type --submit textbox "Search" "query"` holds the action through typing and Enter. Without navigation or submit evidence, it calls `requestSubmit()` on the focused field's form. Completion requires observed navigation or a submit event; inspect the page for application success. An unconfirmed result never replays typing. `press Enter` sends to the currently focused element.
+- `type` focuses, clears (native selection/editing on contenteditable; native value setter on inputs/textareas), inserts and reads back text, refusing hidden, disabled, readonly or unfocusable fields. Readback mismatches fail closed with `typing_unconfirmed` (secrets verify by length only); inspect, never replay. `type --submit textbox "Search" "query"` types and presses Enter, falling back to `requestSubmit()` on the form; completion requires observed navigation or a submit event. `press Enter` targets the focused element.
 - `text [limit] [--selector CSS] [--grep TEXT]` reads content. `--grep` keeps lines containing a literal case-insensitive substring before applying the character limit (default 4000, maximum 200000). `--selector` reads the first matching subtree and refuses a missing match. Sensitive subtrees are redacted. Screenshots are for visual claims only; show saved files with `<ds-image src="ABSOLUTE_PATH" />`.
 - Prove actions with a fresh snapshot or state wait: changed value, new heading or success message. Unread results remain unproven, especially sends, submissions, purchases or deletions.
 - Correct actionable argument errors. Never replay uncertain actions or switch browser tools to bypass a refusal. Report flaky behavior honestly.
 
 ## When the page needs the user
 
-Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Agents never answer page dialogs (`alert`, `confirm`, `prompt`, `beforeunload`). When a dialog is open or opens during page setup or a verb, the verb fails promptly with `dialog: <type>` (plus message), `status` shows `needs human: dialog` with that line, and `close` / profile switches refuse; ask the user to resolve it via *Take control*, then re-snapshot.
+Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Agents never answer page dialogs (`alert`, `confirm`, `prompt`, `beforeunload`). Any open dialog fails verbs with `dialog: <type>`, sets `needs human: dialog`, and blocks `close` / profile switches; ask the user to resolve it via *Take control*, then re-snapshot.
+
+To abandon unsaved state when `beforeunload` blocks your own session, run `domios plugin browser close --discard-unsaved` — it tears down the session without answering any dialog and logs owner and origin. It refuses during *Take control*, with `--of`, when siblings share the profile, or for `alert`/`confirm`/`prompt`/`auth` dialogs.
 
 ## User annotations
 
@@ -89,13 +91,13 @@ After QA, close ephemeral sessions. For persistent per-instance sessions, run `o
 
 `upload <ref|"button text"> <path>...` selects files on Windows without opening an OS dialog. Use an exact file-input ref or the upload button's text from the latest snapshot. Relative paths resolve inside the calling agent's pad, including with `--of`; absolute paths must stay inside that pad or an upload folder the owner granted to the active named profile. The upload activity names the granting folder. The owner manages grants in Settings > General > Browser upload folders or with an owner-authenticated config CLI/API call. Agent credentials cannot add or remove grants. Symlinks, reparse points, device names, parent traversal, directories and alternate data streams refuse. Other platforms report `unsupported` until secure file admission is available.
 
-From an owner-authenticated shell, set the complete per-profile folder map (an empty map removes all grants):
+Owner-authenticated shells set the full per-profile map (`{}` clears all grants) via `PATCH /api/config` (`{"key":"browser_upload_folders","value":...}`) or:
 
 ```bash
 domios config set browser_upload_folders '{"work":["C:/Developer/domios-promo"]}'
 ```
 
-The equivalent owner-authenticated request is `PATCH /api/config` with `{"key":"browser_upload_folders","value":{"work":["C:/Developer/domios-promo"]}}`. Changes apply to subsequent uploads without restarting the browser.
+Changes apply to subsequent uploads without restarting.
 
 The view shows filenames, sizes and target origin. Selection reads back the file list; verify server completion on the page. `upload_unconfirmed` never authorizes replay. At most 64 files per browser lifetime; closing releases their read locks.
 
@@ -148,4 +150,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

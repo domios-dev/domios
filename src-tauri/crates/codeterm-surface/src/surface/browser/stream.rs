@@ -20,6 +20,7 @@ pub async fn connect(
     viewport: Option<ViewportRequest>,
     viewer: Option<String>,
     viewer_target: Option<String>,
+    interactive: bool,
 ) -> SurfaceEvents {
     let lease = if let (Some(viewer), Some(viewport)) = (viewer, viewport) {
         let _guard = runtime.action_gate.lock().await;
@@ -30,6 +31,11 @@ pub async fn connect(
             page.as_ref().map(|page| page.target_id()),
         );
         let generation = model.join(viewer.clone(), viewport, recursive);
+        if interactive {
+            if let Some(generation) = generation {
+                runtime.claim_control(&viewer, generation);
+            }
+        }
         log::debug!(
             "[browser-viewport] join viewer={viewer} viewport={viewport:?} recursive={recursive} lease={generation:?} owner={:?}",
             model.owner()
@@ -120,6 +126,8 @@ struct ViewerLease {
 
 impl Drop for ViewerLease {
     fn drop(&mut self) {
+        self.runtime
+            .release_control_if_generation(&self.viewer, self.generation);
         let runtime = self.runtime.clone();
         let viewer = self.viewer.clone();
         let generation = self.generation;

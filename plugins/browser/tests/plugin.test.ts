@@ -80,9 +80,15 @@ describe("browser plugin onAgentCommand", () => {
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("declares annotate and --of in its verb list", () => {
+  it("declares annotate, --of, and close --discard-unsaved in its verb list and guide", () => {
     expect(manifest.agentVerbs.some((verb: string) => verb.startsWith("annotate "))).toBe(true);
     expect(manifest.agentVerbs.some((verb: string) => verb.includes("--of"))).toBe(true);
+    expect(manifest.agentVerbs).toContain("close [--discard-unsaved]");
+    expect(readFileSync(join(root, manifest.agentGuide), "utf8")).toContain("close --discard-unsaved");
+    const call = vi.fn(() => JSON.stringify({ result: "closed browser tab-1" }));
+    expect(forward({ sessionId: "tab-1", verb: "close", args: ["--discard-unsaved"] }, call))
+      .toEqual({ result: "closed browser tab-1" });
+    expect(call).toHaveBeenCalledWith("close", '["--discard-unsaved"]');
   });
 
   it("reports an unusable host answer instead of inventing a result", () => {

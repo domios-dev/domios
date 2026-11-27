@@ -8,6 +8,7 @@ fn surface_stream_viewport_needs_width_and_height() {
         dpr: None,
         viewer: None,
         viewer_target: None,
+        interactive: false,
     };
     assert_eq!(
         stream_viewport(&query),

@@ -209,6 +209,55 @@ impl ProfileLease {
         task.await.ok().flatten()
     }
 
+    pub(crate) async fn release_without_dialog_answer(
+        mut self,
+        deadline: Duration,
+    ) -> Result<Option<CloseOutcome>, (Self, String)> {
+        let Some(slot) = self.slot.clone() else {
+            return Ok(None);
+        };
+        let id = self.id;
+        let browser = self.browser.clone();
+        let mut model = slot.lock().await;
+        let same_browser = model
+            .handle()
+            .is_some_and(|current| Arc::ptr_eq(&current, &browser));
+        if same_browser && !browser.is_alive() {
+            let outcome = match model.retire() {
+                Some(retired) => retired.stop(deadline, model.generation()).await,
+                None => None,
+            };
+            self.slot = None;
+            self.target_id = None;
+            self.session_id = None;
+            return Ok(outcome);
+        }
+        if same_browser {
+            if let Some(target_id) = self.target_id.as_deref() {
+                if let Err(error) = discard_owned_target(
+                    &browser.client,
+                    target_id,
+                    self.session_id.as_deref(),
+                    model.has_other_leases(id),
+                    deadline,
+                )
+                .await
+                {
+                    drop(model);
+                    return Err((self, error));
+                }
+            }
+        }
+        let outcome = match model.release(id) {
+            Some(last) => last.stop(deadline, model.generation()).await,
+            None => None,
+        };
+        self.slot = None;
+        self.target_id = None;
+        self.session_id = None;
+        Ok(outcome)
+    }
+
     fn release_task(
         &mut self,
         deadline: Duration,
@@ -319,6 +368,65 @@ async fn close_owned_target(
     {
         log::debug!("[browser] retry close profile target {target_id}: {error}");
     }
+}
+
+async fn discard_owned_target(
+    client: &CdpClient,
+    target_id: &str,
+    session_id: Option<&str>,
+    has_siblings: bool,
+    deadline: Duration,
+) -> Result<(), String> {
+    if let Err(error) = client
+        .send_to(
+            None,
+            "Target.closeTarget",
+            json!({ "targetId": target_id }),
+            deadline,
+        )
+        .await
+    {
+        log::debug!("[browser] discard target {target_id}: {error}");
+    }
+    if !target_still_open(client, target_id, deadline).await {
+        return Ok(());
+    }
+    // Page.crash terminates the whole renderer, which same-site siblings in a shared profile may share.
+    if has_siblings {
+        return Err(
+            "blocked: cannot discard beforeunload in a shared browser profile while sibling tabs are open; close other tabs using this profile or ask the user to use Take control"
+                .into(),
+        );
+    }
+    let Some(session_id) = session_id else {
+        return Err(
+            "discard_failed: page target remained open and has no CDP session to tear down".into(),
+        );
+    };
+    if let Err(error) = client
+        .send_to(Some(session_id), "Page.crash", json!({}), deadline)
+        .await
+    {
+        log::debug!("[browser] crash discarded target {target_id}: {error}");
+    }
+    if let Err(error) = client
+        .send_to(
+            None,
+            "Target.closeTarget",
+            json!({ "targetId": target_id }),
+            deadline,
+        )
+        .await
+    {
+        log::debug!("[browser] retry discard target {target_id}: {error}");
+    }
+    if target_still_open(client, target_id, deadline).await {
+        return Err(
+            "discard_failed: page target remained open after renderer crash without answering dialog"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 impl Drop for ProfileLease {
