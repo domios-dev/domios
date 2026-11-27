@@ -225,7 +225,7 @@ jobs:
           dest: ${{ runner.tool_cache }}/setup-pnpm
         if: runner.environment == 'github-hosted'
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c
         with:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
