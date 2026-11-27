@@ -80,6 +80,7 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
             .cloud_max_awake_without_owner_minutes;
         (minutes > 0).then(|| u64::from(minutes).saturating_mul(60_000))
     });
+    let _ = spawn_wake_delivery_watcher(state.clone());
     Some(spawn_cloud_idle_driver(
         controller,
         provisioning,
@@ -88,6 +89,87 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
         CloudIdleDriverConfig::with_idle_window_reader(idle_window_ms)
             .with_max_awake_without_owner_reader(max_awake_without_owner_ms),
     ))
+}
+
+/// Event-driven watcher that re-attempts flushing held cloud-wake sends when the guest
+/// actually links (at most once per link generation) and settles overdue held sends into
+/// `expired_not_delivered` at their exact deadline without polling.
+pub fn spawn_wake_delivery_watcher(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        use codeterm_service_core::service::cloud_machines::CloudPeerControlPort;
+        let controller = state.svc.cloud_machines();
+        let peer_control = MeshPeerControlAdapter::new(state.clone());
+        let mut gate = state.mesh.lock().gate_watch();
+        let mut wake_queue_rx = controller.subscribe_wake_queue();
+        let mut lifecycle_rx = controller.subscribe_lifecycle();
+        loop {
+            gate.borrow_and_update();
+            wake_queue_rx.borrow_and_update();
+            lifecycle_rx.borrow_and_update();
+
+            controller.expire_all_overdue_held_sends();
+            for machine_id in controller.machines_with_held_sends() {
+                let Some(record) = controller.find_by_peer(&machine_id) else {
+                    continue;
+                };
+                if let Some(link_generation) = peer_control.current_link_generation(&record) {
+                    controller
+                        .flush_held_sends_for_link_generation(
+                            &record.machine_id,
+                            &link_generation,
+                            &peer_control,
+                        )
+                        .await;
+                }
+            }
+
+            let next_deadline_ms = controller.earliest_held_send_deadline_ms();
+            match next_deadline_ms {
+                Some(deadline_ms) => {
+                    let now_ms = controller.now_ms();
+                    let remaining =
+                        std::time::Duration::from_millis(deadline_ms.saturating_sub(now_ms));
+                    tokio::select! {
+                        changed = gate.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = wake_queue_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = lifecycle_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        _ = tokio::time::sleep(remaining) => {}
+                    }
+                }
+                None => {
+                    tokio::select! {
+                        changed = gate.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = wake_queue_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = lifecycle_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
 }
 
 pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
@@ -113,6 +195,7 @@ pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json:
         CloudError::MachineSleeping { .. }
         | CloudError::ProviderUnavailable(_)
         | CloudError::ProviderUnconfirmed(_)
+        | CloudError::ProviderStarting(_)
         | CloudError::WakeDeadlineExceeded { .. }
         | CloudError::ApplyUnconfirmed { .. }
         | CloudError::CheckoutUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,

@@ -69,6 +69,7 @@ impl CloudMachineController {
                     next.pending_request = None;
                     Ok(next)
                 })?;
+                peer_control.note_machine_asleep(&asleep);
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept { reason });
                 let warning = (sleep_mode == CloudSleepMode::DeleteRecreate
                     || action == IdleSleepAction::DeleteForRecreate)
@@ -83,6 +84,7 @@ impl CloudMachineController {
                 let asleep = self.update_record(&draining.machine_id, |rec| {
                     apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
                 })?;
+                peer_control.note_machine_asleep(&asleep);
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept { reason });
                 Ok(asleep.receipt(now_ms, None))
             }
@@ -92,6 +94,7 @@ impl CloudMachineController {
                 let exhausted = self.update_record(&draining.machine_id, |rec| {
                     apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
                 })?;
+                peer_control.note_machine_asleep(&exhausted);
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Exhausted,
                 });
@@ -198,6 +201,7 @@ impl CloudMachineController {
                     next.pending_request = None;
                     Ok(next)
                 })?;
+                peer_control.note_machine_asleep(&asleep);
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Idle,
                 });

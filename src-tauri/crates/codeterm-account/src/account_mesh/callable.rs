@@ -206,7 +206,8 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
                 Some(
                     reason @ (RegistryRefusal::AuthorityUnavailable
                     | RegistryRefusal::ProviderUnavailable
-                    | RegistryRefusal::ProviderUnconfirmed),
+                    | RegistryRefusal::ProviderUnconfirmed
+                    | RegistryRefusal::ProviderStarting),
                 ) => reason,
                 _ => RegistryRefusal::Unavailable,
             };

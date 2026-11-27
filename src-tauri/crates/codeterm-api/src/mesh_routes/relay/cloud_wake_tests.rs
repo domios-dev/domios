@@ -395,6 +395,13 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
     assert!(channel.recorded().is_empty());
 
     provisioning.release_wake();
+    // Persisted endpoint alone must NOT trigger delivery before the guest actually links.
+    tokio::task::yield_now().await;
+    assert!(channel.recorded().is_empty());
+
+    home.mesh
+        .lock()
+        .attach_reverse_stream_for_test("cloud-inst-wake".into(), [7u8; 32]);
     channel.wait_for_calls(1).await;
 
     let delivered = channel.recorded();
@@ -474,12 +481,15 @@ async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failu
         ChatSendState::Pending
     );
 
-    // Second wake publishes the endpoint, then encounters transient ConnectUnavailable during flush.
+    // Second wake publishes the endpoint, links the guest, then encounters transient ConnectUnavailable during flush.
     channel.push_reply(|_| {
         Err(CloudIngressSendError::ConnectUnavailable(
             "ingress listener still booting".into(),
         ))
     });
+    home.mesh
+        .lock()
+        .attach_reverse_stream_for_test("cloud-inst-wake".into(), [8u8; 32]);
     wake_machine_for_use(&home, "cloud-sleeper-1")
         .await
         .unwrap();
@@ -507,4 +517,61 @@ async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failu
         controller.inspect_held_send(&held.send_id).unwrap().state,
         ChatSendState::Sent
     );
+}
+
+#[tokio::test]
+async fn persisted_endpoint_is_not_ready_and_watcher_flushes_once_when_guest_links() {
+    crate::register_api_extensions();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 32), 7687);
+    let (home, _home_pub, _dir, controller, _provisioning, channel) =
+        setup_sleeping_cloud_peer(&fixture, "home-link-watch", cloud_addr);
+
+    let record = controller.find_by_peer("cloud-sleeper-1").unwrap();
+    let peer_ctrl = MeshPeerControlAdapter::new(home.clone());
+    assert!(
+        !peer_ctrl.peer_is_online(&record),
+        "persisted cloud ingress endpoint alone must not count as guest readiness"
+    );
+
+    let watcher = crate::cloud_routes::spawn_wake_delivery_watcher(home.clone());
+    let held = controller
+        .hold_send_for_wake(
+            "cloud-sleeper-1",
+            "cloud-tab-1",
+            "deliv-watch-1".into(),
+            "POST".into(),
+            "/api/tabs/cloud-tab-1/send".into(),
+            json!({ "text": "flush-on-real-link" }),
+            AuthenticatedOrigin::Owner,
+            None,
+            60_000,
+        )
+        .unwrap();
+
+    // Unlinked gate change must not flush.
+    home.mesh.lock().notify_connection_change();
+    tokio::task::yield_now().await;
+    assert!(channel.recorded().is_empty());
+    assert_eq!(
+        controller.inspect_held_send(&held.send_id).unwrap().state,
+        ChatSendState::Pending
+    );
+
+    // Real guest link (attached reverse stream) wakes the watcher and flushes once.
+    home.mesh
+        .lock()
+        .attach_reverse_stream_for_test("cloud-inst-wake".into(), [11u8; 32]);
+    channel.wait_for_calls(1).await;
+    assert_eq!(channel.recorded().len(), 1);
+    assert_eq!(
+        controller.inspect_held_send(&held.send_id).unwrap().state,
+        ChatSendState::Sent
+    );
+
+    // Another gate bump for the same link must never replay.
+    home.mesh.lock().notify_connection_change();
+    tokio::task::yield_now().await;
+    assert_eq!(channel.recorded().len(), 1);
+    watcher.abort();
 }

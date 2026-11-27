@@ -10,18 +10,22 @@ const LABEL: Record<Exclude<DeliveryState, "delivered">, string> = {
   failed: "Not delivered",
 };
 const QUEUED_BEHIND_TURN = "Queued until the current turn ends";
+const EXPIRED_NOT_DELIVERED = "Not delivered: wake deadline expired before the machine connected.";
 const RESEND_WITH_CLI = "Resend with domios send.";
 
 export function ChatDeliveryState({ state, error, onRetry, onRemove, onEdit, resendWithCli = false, queuedBehindTurn = false, inline = false, quietFailure = false }: {
   state: DeliveryState; error?: string | null; onRetry?: () => void; onRemove?: () => void; onEdit?: () => void; resendWithCli?: boolean; queuedBehindTurn?: boolean; inline?: boolean; quietFailure?: boolean;
 }) {
   if (state === "delivered") return null;
-  const refusalMarker = state === "failed" ? ["runtime_rejected_before_write:", "runtime_preflight_before_write:"].find(marker => error?.includes(marker))
+  const trimmedError = error?.trim() ?? "";
+  const refusalMarker = state === "failed" ? ["runtime_rejected_before_write:", "runtime_preflight_before_write:", "expired_not_delivered:"].find(marker => trimmedError.includes(marker))
     : state === "uncertain" ? "agent_refused_while_busy:" : null;
-  const refusal = refusalMarker && error?.includes(refusalMarker)
-    ? error.slice(error.indexOf(refusalMarker) + refusalMarker.length).trim() : null;
+  const refusal = refusalMarker && trimmedError.includes(refusalMarker)
+    ? trimmedError.slice(trimmedError.indexOf(refusalMarker) + refusalMarker.length).trim()
+    : state === "failed" && (trimmedError === "expired_not_delivered" || trimmedError === "wake_deadline_exceeded")
+      ? EXPIRED_NOT_DELIVERED : null;
   const resendHint = state === "failed" && resendWithCli;
-  const failure = state === "failed" && !quietFailure ? error?.trim() || "Message was not sent; the failure reason is unavailable." : null;
+  const failure = state === "failed" && !quietFailure ? trimmedError || "Message was not sent; the failure reason is unavailable." : null;
   const reason = refusal || failure || (state === "queued" && queuedBehindTurn ? QUEUED_BEHIND_TURN : LABEL[state]);
   const label = resendHint ? `${reason} ${RESEND_WITH_CLI}` : reason;
   const actions = state === "failed" || state === "uncertain"

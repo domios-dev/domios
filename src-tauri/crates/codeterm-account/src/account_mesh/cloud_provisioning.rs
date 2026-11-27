@@ -667,6 +667,8 @@ pub enum CloudProvisioningRefusal {
     ProviderUnavailable,
     #[serde(rename = "provider_unconfirmed")]
     ProviderUnconfirmed,
+    #[serde(rename = "provider_starting")]
+    ProviderStarting,
     #[serde(rename = "authority-unavailable")]
     AuthorityUnavailable,
     #[serde(rename = "unavailable")]

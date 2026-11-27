@@ -209,7 +209,9 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
                 Self::ProviderRefused
             }
             RegistryRefusal::ProviderUnavailable => Self::ProviderUnavailable,
-            RegistryRefusal::ProviderUnconfirmed => Self::ProviderUnconfirmed,
+            RegistryRefusal::ProviderUnconfirmed | RegistryRefusal::ProviderStarting => {
+                Self::ProviderUnconfirmed
+            }
             RegistryRefusal::KeyConflict => Self::KeyConflict,
             RegistryRefusal::GenerationMismatch => Self::GenerationMismatch,
             RegistryRefusal::ChallengeInvalid => Self::ChallengeInvalid,

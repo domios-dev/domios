@@ -9,9 +9,10 @@ use codeterm_neighbors_service::service::cloud_installation::controller::{
 use codeterm_service_core::{
     mesh::crown::AuthenticatedOrigin,
     service::cloud_machines::{
-        CloudEndpoint, CloudEnrollmentPort, CloudError, CloudMachineRecord, CloudPeerControlPort,
-        CloudProvisioningPort, CloudRouteSpec, DrainToken, EnrollmentBinding, EnrollmentOutcome,
-        FlushWriteOutcome, HeldCloudSend, PeerBusySnapshot,
+        evaluate_guest_link_readiness, CloudEndpoint, CloudEnrollmentPort, CloudError,
+        CloudMachineRecord, CloudPeerControlPort, CloudProvisioningPort, CloudRouteSpec,
+        DrainToken, EnrollmentBinding, EnrollmentOutcome, FlushWriteOutcome, GuestLinkReadiness,
+        GuestLinkReadinessInput, HeldCloudSend, PeerBusySnapshot,
     },
 };
 
@@ -214,28 +215,74 @@ impl MeshPeerControlAdapter {
         self.send_cloud_relay_with_token(record, cmd, token).await
     }
 
-    fn peer_is_online(&self, record: &CloudMachineRecord) -> bool {
-        let mesh = self.state.mesh.lock();
-        let target = record
-            .peer_instance_id
-            .as_deref()
-            .or(record.installation_id.as_deref())
-            .unwrap_or(&record.machine_id);
-        if mesh.resolve_peer(target).is_ok_and(|peer| peer.online) {
-            return true;
+    fn resolve_linked_peer<'a>(
+        mesh: &'a codeterm_service_core::mesh::MeshManager,
+        record: &CloudMachineRecord,
+    ) -> Option<(
+        &'a codeterm_service_core::mesh::types::PairedPeer,
+        Option<&'a str>,
+    )> {
+        if let Some(peer_id) = record.peer_instance_id.as_deref() {
+            if let Some(peer) = mesh.paired_peers.get(peer_id) {
+                let installation_id = mesh
+                    .link_record(&peer.instance_id)
+                    .and_then(|link| link.installation_id())
+                    .or(record.installation_id.as_deref());
+                return Some((peer, installation_id));
+            }
         }
-        let Ok(peer) = mesh.resolve_peer_including_offline(target) else {
-            return false;
-        };
-        if !mesh.traffic_open(&peer.instance_id) {
-            return false;
+        if let Some(inst_id) = record.installation_id.as_deref() {
+            if let Some(peer) = mesh.paired_peers.values().find(|peer| {
+                mesh.link_record(&peer.instance_id)
+                    .and_then(|link| link.installation_id())
+                    == Some(inst_id)
+            }) {
+                return Some((peer, Some(inst_id)));
+            }
         }
-        let installation_id = mesh
-            .link_record(&peer.instance_id)
-            .and_then(|link| link.installation_id())
-            .or(record.installation_id.as_deref());
-        installation_id.is_some_and(|id| mesh.cloud_ingress_endpoint(id).is_some())
+        None
     }
+
+    pub(crate) fn peer_readiness(&self, record: &CloudMachineRecord) -> GuestLinkReadiness {
+        let mesh = self.state.mesh.lock();
+        let Some((peer, installation_id)) = Self::resolve_linked_peer(&mesh, record) else {
+            return GuestLinkReadiness {
+                ready: false,
+                link_generation: None,
+            };
+        };
+        let stream_binding = installation_id.and_then(|id| mesh.reverse_stream_binding(id));
+        let link_nonce = mesh
+            .link_record(&peer.instance_id)
+            .and_then(|link| link.link_nonce.clone());
+        let has_persisted_endpoint =
+            installation_id.is_some_and(|id| mesh.cloud_ingress_endpoint(id).is_some())
+                || record.endpoint.is_some();
+        evaluate_guest_link_readiness(&GuestLinkReadinessInput {
+            traffic_open: mesh.traffic_open(&peer.instance_id),
+            auth_refused: mesh.peer_auth_refused(&peer.instance_id),
+            installation_unavailable: installation_id
+                .is_some_and(|id| mesh.account_state().unavailable_installations.contains(id)),
+            stream_attached: stream_binding.is_some(),
+            stream_binding_token: stream_binding.map(hex_binding),
+            peer_online: peer.online,
+            link_nonce,
+            has_persisted_endpoint,
+        })
+    }
+
+    pub(crate) fn peer_is_online(&self, record: &CloudMachineRecord) -> bool {
+        self.peer_readiness(record).ready
+    }
+}
+
+fn hex_binding(binding: [u8; 32]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(64);
+    for byte in binding {
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
 }
 
 #[async_trait]
@@ -433,6 +480,7 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
         let mut rx = self.state.events.subscribe();
         let mut gate = self.state.mesh.lock().gate_watch();
         loop {
+            gate.borrow_and_update();
             if self.peer_is_online(record) {
                 return Ok(());
             }
@@ -461,6 +509,25 @@ impl CloudPeerControlPort for MeshPeerControlAdapter {
                 }
             }
         }
+    }
+
+    fn current_link_generation(&self, record: &CloudMachineRecord) -> Option<String> {
+        self.peer_readiness(record).link_generation
+    }
+
+    fn note_machine_asleep(&self, record: &CloudMachineRecord) {
+        let mut mesh = self.state.mesh.lock();
+        let installation_id = record.installation_id.clone().or_else(|| {
+            record.peer_instance_id.as_deref().and_then(|peer_id| {
+                mesh.link_record(peer_id)
+                    .and_then(|link| link.installation_id())
+                    .map(str::to_owned)
+            })
+        });
+        mesh.clear_sleeping_cloud_liveness(
+            record.peer_instance_id.as_deref(),
+            installation_id.as_deref(),
+        );
     }
 
     async fn flush_send(

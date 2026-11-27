@@ -988,6 +988,14 @@ async fn cloud_wake_held_send_is_delivered_once_over_channel_after_wake() {
 
     // Release the managed provisioning wake started by preflight_cloud_wake.
     provisioning.release_wake();
+    tokio::task::yield_now().await;
+    assert!(
+        channel.recorded().is_empty(),
+        "persisted endpoint alone must not release held send before guest links"
+    );
+    home.mesh
+        .lock()
+        .attach_reverse_stream_for_test("cloud-inst-wake".into(), [9u8; 32]);
     channel.wait_for_calls(1).await;
 
     let woken_record = controller.find_by_peer("cloud-sleeper-1").unwrap();

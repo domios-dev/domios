@@ -6,13 +6,10 @@ use parking_lot::Mutex;
 use rand::RngCore;
 use zeroize::Zeroizing;
 
-use crate::mesh::crown::{AuthenticatedAgent, AuthenticatedOrigin};
-use crate::service::chat_send_transaction::ChatSendStatus;
-
 use super::controller_reconcile::require_provider_machine_id;
 use super::held_sends::{
-    CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, SingleFlightWakes, WakeSlot,
-    DEFAULT_WAKE_HOLD_DEADLINE_MS,
+    should_retry_wake_once, CloudWakeQueue, HeldCloudSend, LinkGenerationFlushTracker,
+    SingleFlightWakes, WakeSlot, DEFAULT_WAKE_HOLD_DEADLINE_MS,
 };
 use super::idle_drain::{IdlePolicy, IdleSleepAction, LocalPeerDrainGate};
 use super::placement::{select_placement, CloudTarget, PlacementDecision};
@@ -46,13 +43,15 @@ pub fn mint_request_id() -> String {
 }
 
 pub type CloudProductObserver = Arc<dyn Fn(codeterm_analytics::Event) + Send + Sync>;
+pub type CloudSendStatusObserver =
+    Arc<dyn Fn(Option<&CloudMachineRecord>, &HeldCloudSend) + Send + Sync>;
 
 pub struct CloudMachineController {
     store: CloudMachineStore,
     wake_queue_store: CloudWakeQueueStore,
     pub(super) warm_ledger_store: super::warm_bootstrap::CloudWarmLedgerStore,
     pub(super) machines: Mutex<Vec<CloudMachineRecord>>,
-    wake_queue: Mutex<CloudWakeQueue>,
+    pub(super) wake_queue: Mutex<CloudWakeQueue>,
     pub(super) warm_ledger:
         Mutex<BTreeMap<String, super::warm_bootstrap::MachineWarmBootstrapEntry>>,
     flush_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -60,8 +59,11 @@ pub struct CloudMachineController {
     active_drains: Mutex<HashSet<String>>,
     wakes: Arc<SingleFlightWakes>,
     lifecycle_tx: tokio::sync::watch::Sender<u64>,
+    pub(super) wake_queue_tx: tokio::sync::watch::Sender<u64>,
+    pub(super) link_flush_tracker: Mutex<LinkGenerationFlushTracker>,
     local_drain_gate: Arc<LocalPeerDrainGate>,
     product_observer: Mutex<Option<CloudProductObserver>>,
+    pub(super) send_status_observer: Mutex<Option<CloudSendStatusObserver>>,
     pub(super) clock: Arc<dyn Clock>,
     controller_id: String,
 }
@@ -82,6 +84,7 @@ impl CloudMachineController {
             }
         }
         let (lifecycle_tx, _) = tokio::sync::watch::channel(0u64);
+        let (wake_queue_tx, _) = tokio::sync::watch::channel(0u64);
         Self {
             store,
             wake_queue_store,
@@ -94,8 +97,11 @@ impl CloudMachineController {
             active_drains: Mutex::new(HashSet::new()),
             wakes: Arc::new(SingleFlightWakes::default()),
             lifecycle_tx,
+            wake_queue_tx,
+            link_flush_tracker: Mutex::new(LinkGenerationFlushTracker::default()),
             local_drain_gate: Arc::new(LocalPeerDrainGate::default()),
             product_observer: Mutex::new(None),
+            send_status_observer: Mutex::new(None),
             clock,
             controller_id,
         }
@@ -103,6 +109,10 @@ impl CloudMachineController {
 
     pub fn bind_product_observer(&self, observer: CloudProductObserver) {
         *self.product_observer.lock() = Some(observer);
+    }
+
+    pub fn bind_send_status_observer(&self, observer: CloudSendStatusObserver) {
+        *self.send_status_observer.lock() = Some(observer);
     }
 
     pub(super) fn record_product_event(&self, event: codeterm_analytics::Event) {
@@ -160,7 +170,7 @@ impl CloudMachineController {
         }
     }
 
-    fn machine_flush_lock(&self, machine_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    pub(super) fn machine_flush_lock(&self, machine_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.flush_locks.lock();
         Arc::clone(
             locks
@@ -175,7 +185,7 @@ impl CloudMachineController {
             .map_err(|error| CloudError::Internal(format!("persist cloud machines: {error}")))
     }
 
-    fn persist_wake_queue_locked(&self, queue: &CloudWakeQueue) -> Result<(), CloudError> {
+    pub(super) fn persist_wake_queue_locked(&self, queue: &CloudWakeQueue) -> Result<(), CloudError> {
         let (next_seq, sends) = queue.snapshot_persisted();
         self.wake_queue_store
             .save(next_seq, &sends)
@@ -744,10 +754,11 @@ impl CloudMachineController {
             });
         }
         if record.state == CloudLifecycleState::Awake {
-            self.flush_held_sends(&record.machine_id, peer_control)
-                .await;
+            self.flush_after_peer_ready(&record, peer_control).await;
             return Ok(record.receipt(self.clock.now_ms(), None));
         }
+
+        let wake_deadline_ms = self.clock.now_ms().saturating_add(deadline_ms);
 
         match self.wakes.acquire(&record.machine_id) {
             WakeSlot::Follower(in_flight) => {
@@ -793,8 +804,7 @@ impl CloudMachineController {
                 }
                 if current.state == CloudLifecycleState::Awake {
                     guard.finish(Ok(()));
-                    self.flush_held_sends(&current.machine_id, peer_control)
-                        .await;
+                    self.flush_after_peer_ready(&current, peer_control).await;
                     return Ok(current.receipt(self.clock.now_ms(), None));
                 }
 
@@ -829,39 +839,59 @@ impl CloudMachineController {
                         return Err(error);
                     }
                 };
-                let woken = match provisioning.wake(&provider_machine_id, &request_id).await {
-                    Ok(machine) => machine,
-                    Err(error) => {
-                        if matches!(error, CloudError::CreditsExhausted) {
-                            let _ = self.update_record(&record.machine_id, |rec| {
-                                let mut next = transition(
-                                    rec,
-                                    LifecycleEvent::CreditsExhausted,
-                                    self.clock.now_ms(),
-                                )?;
-                                next.pending_request = None;
-                                Ok(next)
-                            });
-                        } else {
-                            if error.is_uncertain_provisioning_outcome() {
+                let mut wake_attempt = 0u8;
+                let woken = loop {
+                    match provisioning.wake(&provider_machine_id, &request_id).await {
+                        Ok(machine) => break machine,
+                        Err(error) => {
+                            let now_ms = self.clock.now_ms();
+                            if should_retry_wake_once(&error, wake_attempt, now_ms, wake_deadline_ms)
+                            {
                                 self.mark_pending_unconfirmed(
                                     &record.machine_id,
                                     PendingProvisioningOp::Wake,
                                     &error.to_string(),
                                 );
-                            } else {
-                                self.clear_pending_request(&record.machine_id);
+                                log::debug!(
+                                    "[cloud] retrying wake for {} with same request_id after {}",
+                                    record.machine_id,
+                                    error.code()
+                                );
+                                wake_attempt = wake_attempt.saturating_add(1);
+                                continue;
                             }
-                            let _ = self.update_record(&record.machine_id, |rec| {
-                                transition(
-                                    rec,
-                                    LifecycleEvent::WakeFailed(error.to_string()),
-                                    self.clock.now_ms(),
-                                )
-                            });
+                            if matches!(error, CloudError::CreditsExhausted) {
+                                let _ = self.update_record(&record.machine_id, |rec| {
+                                    let mut next = transition(
+                                        rec,
+                                        LifecycleEvent::CreditsExhausted,
+                                        self.clock.now_ms(),
+                                    )?;
+                                    next.pending_request = None;
+                                    Ok(next)
+                                });
+                            } else {
+                                if error.is_uncertain_provisioning_outcome() {
+                                    self.mark_pending_unconfirmed(
+                                        &record.machine_id,
+                                        PendingProvisioningOp::Wake,
+                                        &error.to_string(),
+                                    );
+                                } else {
+                                    self.clear_pending_request(&record.machine_id);
+                                }
+                                let _ = self.update_record(&record.machine_id, |rec| {
+                                    transition(
+                                        rec,
+                                        LifecycleEvent::WakeFailed(error.to_string()),
+                                        self.clock.now_ms(),
+                                    )
+                                });
+                            }
+                            self.expire_overdue_held_sends(&record.machine_id);
+                            guard.finish(Err(error.to_string()));
+                            return Err(error);
                         }
-                        guard.finish(Err(error.to_string()));
-                        return Err(error);
                     }
                 };
 
@@ -926,8 +956,10 @@ impl CloudMachineController {
                     }
                 }
 
-                let ready_deadline = self.clock.now_ms().saturating_add(deadline_ms);
-                if let Err(error) = peer_control.await_peer_ready(&waking, ready_deadline).await {
+                if let Err(error) = peer_control
+                    .await_peer_ready(&waking, wake_deadline_ms)
+                    .await
+                {
                     let _ = self.update_record(&record.machine_id, |rec| {
                         transition(
                             rec,
@@ -935,6 +967,7 @@ impl CloudMachineController {
                             self.clock.now_ms(),
                         )
                     });
+                    self.expire_overdue_held_sends(&record.machine_id);
                     guard.finish(Err(error.to_string()));
                     return Err(error);
                 }
@@ -951,9 +984,27 @@ impl CloudMachineController {
                 };
                 guard.finish(Ok(()));
                 self.record_product_event(codeterm_analytics::Event::CloudMachineWoken {});
-                self.flush_held_sends(&awake.machine_id, peer_control).await;
+                self.flush_after_peer_ready(&awake, peer_control).await;
                 Ok(awake.receipt(now_ms, None))
             }
+        }
+    }
+
+    async fn flush_after_peer_ready(
+        &self,
+        record: &CloudMachineRecord,
+        peer_control: &dyn CloudPeerControlPort,
+    ) {
+        if let Some(link_generation) = peer_control.current_link_generation(record) {
+            self.flush_held_sends_for_link_generation(
+                &record.machine_id,
+                &link_generation,
+                peer_control,
+            )
+            .await;
+        } else {
+            self.flush_held_sends(&record.machine_id, peer_control)
+                .await;
         }
     }
 
@@ -989,119 +1040,6 @@ impl CloudMachineController {
                     .await
             }
         }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn hold_send_for_wake(
-        &self,
-        machine_id: &str,
-        tab_id: &str,
-        delivery_id: String,
-        method: String,
-        path: String,
-        body: serde_json::Value,
-        origin: AuthenticatedOrigin,
-        agent: Option<AuthenticatedAgent>,
-        hold_timeout_ms: u64,
-    ) -> Result<HeldCloudSend, CloudError> {
-        let now_ms = self.clock.now_ms();
-        let deadline_ms = now_ms.saturating_add(hold_timeout_ms);
-        let mut queue = self.wake_queue.lock();
-        let held = queue.admit(
-            machine_id,
-            tab_id,
-            delivery_id,
-            method,
-            path,
-            body,
-            origin,
-            agent,
-            now_ms,
-            deadline_ms,
-        )?;
-        self.persist_wake_queue_locked(&queue)?;
-        Ok(held)
-    }
-
-    pub async fn flush_held_sends(
-        &self,
-        machine_id: &str,
-        peer_control: &dyn CloudPeerControlPort,
-    ) -> Vec<HeldCloudSend> {
-        // Serialize claim, flush, and settlement per machine so concurrent wakes/flushes never race.
-        let flush_lock = self.machine_flush_lock(machine_id);
-        let _flush_guard = flush_lock.lock().await;
-
-        let Ok(record) = self.find_record(machine_id) else {
-            return Vec::new();
-        };
-        let mut settled = Vec::new();
-        loop {
-            let next = {
-                let now_ms = self.clock.now_ms();
-                let mut queue = self.wake_queue.lock();
-                let claimed = queue.claim_next_for_machine(machine_id, now_ms);
-                if claimed.is_some() {
-                    // Persist Claimed before writing so restart promotes it to SubmitUnconfirmed, never replaying.
-                    if let Err(error) = self.persist_wake_queue_locked(&queue) {
-                        log::warn!("[cloud] failed to persist claimed send before flush: {error}");
-                        if let Some(ref c) = claimed {
-                            let _ = queue.settle_claimed(
-                                &c.send_id,
-                                FlushWriteOutcome::RefusedMachineSleeping,
-                            );
-                        }
-                        break;
-                    }
-                }
-                claimed
-            };
-            let Some(claimed) = next else {
-                break;
-            };
-            let outcome = peer_control.flush_send(&record, &claimed).await;
-            let keep_held = outcome == FlushWriteOutcome::RefusedMachineSleeping;
-            let updated = {
-                let mut queue = self.wake_queue.lock();
-                let updated = queue.settle_claimed(&claimed.send_id, outcome);
-                if let Err(error) = self.persist_wake_queue_locked(&queue) {
-                    log::warn!("[cloud] failed to persist settled send outcome: {error}");
-                }
-                updated
-            };
-            if let Some(updated) = updated {
-                settled.push(updated);
-            }
-            if keep_held {
-                break;
-            }
-        }
-        settled
-    }
-
-    pub fn inspect_held_send(&self, send_id: &str) -> Option<ChatSendStatus> {
-        self.wake_queue.lock().inspect(send_id)
-    }
-
-    pub fn cancel_held_send(&self, send_id: &str) -> Result<ChatSendStatus, CloudError> {
-        let mut queue = self.wake_queue.lock();
-        let rec = queue.cancel_before_write(send_id)?;
-        self.persist_wake_queue_locked(&queue)?;
-        Ok(rec.to_chat_send_status())
-    }
-
-    pub fn held_send_count(&self) -> usize {
-        self.wake_queue.lock().total_held()
-    }
-
-    pub fn expire_overdue_held_sends(&self, machine_id: &str) -> Vec<HeldCloudSend> {
-        let now_ms = self.clock.now_ms();
-        let mut queue = self.wake_queue.lock();
-        let expired = queue.expire_overdue(machine_id, now_ms);
-        if !expired.is_empty() {
-            let _ = self.persist_wake_queue_locked(&queue);
-        }
-        expired
     }
 
     pub fn set_out_of_credits(&self, selector: &str) -> Result<CloudReceipt, CloudError> {

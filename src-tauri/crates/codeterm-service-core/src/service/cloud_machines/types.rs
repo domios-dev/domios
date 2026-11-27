@@ -432,6 +432,7 @@ pub enum CloudError {
     },
     ProviderRefused(String),
     ProviderUnconfirmed(String),
+    ProviderStarting(String),
     ProviderUnavailable(String),
     Conflict(String),
     RateLimited {
@@ -478,6 +479,7 @@ impl CloudError {
             Self::DiskFullLocal { .. } => "disk_full_local",
             Self::ProviderRefused(_) => "provider_refused",
             Self::ProviderUnconfirmed(_) => "provider_unconfirmed",
+            Self::ProviderStarting(_) => "provider_starting",
             Self::ProviderUnavailable(_) => "provider_unavailable",
             Self::Conflict(_) => "conflict",
             Self::RateLimited { .. } => "rate_limited",
@@ -503,8 +505,14 @@ impl CloudError {
     pub fn is_uncertain_provisioning_outcome(&self) -> bool {
         matches!(
             self,
-            Self::ProviderUnconfirmed(_) | Self::ProviderUnavailable(_)
+            Self::ProviderUnconfirmed(_)
+                | Self::ProviderStarting(_)
+                | Self::ProviderUnavailable(_)
         )
+    }
+
+    pub fn is_retryable_wake_error(&self) -> bool {
+        matches!(self, Self::ProviderUnconfirmed(_) | Self::ProviderStarting(_))
     }
 }
 
@@ -591,6 +599,9 @@ impl std::fmt::Display for CloudError {
             Self::ProviderRefused(detail) => write!(f, "cloud provisioning refused: {detail}"),
             Self::ProviderUnconfirmed(detail) => {
                 write!(f, "cloud provisioning outcome unconfirmed: {detail}")
+            }
+            Self::ProviderStarting(detail) => {
+                write!(f, "cloud machine is still starting: {detail}")
             }
             Self::ProviderUnavailable(detail) => write!(f, "cloud backend unavailable: {detail}"),
             Self::Conflict(detail) => write!(f, "cloud provisioning conflict: {detail}"),

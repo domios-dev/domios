@@ -13,6 +13,7 @@ use super::types::{CloudError, CLOUD_WAKE_SEND_PREFIX};
 pub const DEFAULT_WAKE_HOLD_DEADLINE_MS: u64 = 180_000;
 pub const MAX_HELD_SENDS_PER_MACHINE: usize = 32;
 pub const RELEASE_CONDITION_PEER_READY: &str = "peer_ready";
+pub const EXPIRED_NOT_DELIVERED_CODE: &str = "expired_not_delivered";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -22,6 +23,7 @@ pub enum HeldCloudSendState {
     Written,
     Delivered,
     SubmitUnconfirmed,
+    ExpiredNotDelivered,
     Failed,
     Cancelled,
 }
@@ -48,6 +50,14 @@ pub struct HeldCloudSend {
 }
 
 impl HeldCloudSend {
+    fn mark_expired(&mut self) {
+        self.state = HeldCloudSendState::ExpiredNotDelivered;
+        self.error = Some(format!(
+            "{EXPIRED_NOT_DELIVERED_CODE}: cloud machine {} did not connect before the wake deadline; nothing was written",
+            self.machine_id
+        ));
+    }
+
     pub fn to_chat_send_status(&self) -> ChatSendStatus {
         let state = match self.state {
             HeldCloudSendState::Held => ChatSendState::Pending,
@@ -56,7 +66,9 @@ impl HeldCloudSend {
             }
             HeldCloudSendState::Written => ChatSendState::Written,
             HeldCloudSendState::Delivered => ChatSendState::Sent,
-            HeldCloudSendState::Failed | HeldCloudSendState::Cancelled => ChatSendState::Failed,
+            HeldCloudSendState::ExpiredNotDelivered
+            | HeldCloudSendState::Failed
+            | HeldCloudSendState::Cancelled => ChatSendState::Failed,
         };
         let pending_reason = (self.state == HeldCloudSendState::Held).then(|| {
             format!(
@@ -64,6 +76,12 @@ impl HeldCloudSend {
                 self.machine_id, self.release_condition, self.deadline_ms, self.send_id
             )
         });
+        let correlation_id = self
+            .body
+            .get("client_token")
+            .and_then(serde_json::Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned);
         ChatSendStatus {
             send_id: self.send_id.clone(),
             tab_id: self.tab_id.clone(),
@@ -72,12 +90,105 @@ impl HeldCloudSend {
             ledger_id: "cloud-wake-hold".into(),
             sequence: self.sequence,
             retained_from: self.sequence,
-            correlation_id: None,
+            correlation_id,
             matched_row: None,
             pending_reason,
             system_send: None,
         }
     }
+}
+
+/// Pure input describing mesh state for a cloud machine's guest link readiness.
+/// A persisted cloud endpoint alone never implies readiness.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuestLinkReadinessInput {
+    pub traffic_open: bool,
+    pub auth_refused: bool,
+    pub installation_unavailable: bool,
+    pub stream_attached: bool,
+    pub stream_binding_token: Option<String>,
+    pub peer_online: bool,
+    pub link_nonce: Option<String>,
+    pub has_persisted_endpoint: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuestLinkReadiness {
+    pub ready: bool,
+    pub link_generation: Option<String>,
+}
+
+/// Evaluates whether a cloud machine guest is genuinely linked and ready to receive sends.
+/// Branches strictly on mesh link/stream state; a persisted endpoint alone is never ready.
+pub fn evaluate_guest_link_readiness(input: &GuestLinkReadinessInput) -> GuestLinkReadiness {
+    if !input.traffic_open || input.auth_refused || input.installation_unavailable {
+        return GuestLinkReadiness {
+            ready: false,
+            link_generation: None,
+        };
+    }
+    if input.stream_attached {
+        let token = input
+            .stream_binding_token
+            .as_deref()
+            .filter(|t| !t.is_empty())
+            .unwrap_or("attached");
+        return GuestLinkReadiness {
+            ready: true,
+            link_generation: Some(format!("stream:{token}")),
+        };
+    }
+    if input.peer_online {
+        let generation = match input.link_nonce.as_deref().filter(|n| !n.is_empty()) {
+            Some(nonce) => format!("link:{nonce}"),
+            None => "online".to_owned(),
+        };
+        return GuestLinkReadiness {
+            ready: true,
+            link_generation: Some(generation),
+        };
+    }
+    GuestLinkReadiness {
+        ready: false,
+        link_generation: None,
+    }
+}
+
+/// Tracks the last flushed link generation per machine so a given guest link/online generation
+/// triggers at most one flush attempt.
+#[derive(Default)]
+pub struct LinkGenerationFlushTracker {
+    last_flushed_generation: HashMap<String, String>,
+}
+
+impl LinkGenerationFlushTracker {
+    pub fn should_flush(&mut self, machine_id: &str, generation: &str) -> bool {
+        if generation.is_empty() {
+            return false;
+        }
+        if self
+            .last_flushed_generation
+            .get(machine_id)
+            .map(String::as_str)
+            == Some(generation)
+        {
+            return false;
+        }
+        self.last_flushed_generation
+            .insert(machine_id.to_owned(), generation.to_owned());
+        true
+    }
+}
+
+/// Returns true when a wake provisioning error should be retried once with the same `request_id`
+/// inside the overall wake deadline.
+pub fn should_retry_wake_once(
+    error: &CloudError,
+    attempt: u8,
+    now_ms: u64,
+    wake_deadline_ms: u64,
+) -> bool {
+    attempt == 0 && error.is_retryable_wake_error() && now_ms < wake_deadline_ms
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -219,8 +330,7 @@ impl CloudWakeQueue {
             if let Some(rec) = self.by_id.get_mut(id) {
                 if rec.state == HeldCloudSendState::Held {
                     if now_ms >= rec.deadline_ms {
-                        rec.state = HeldCloudSendState::Failed;
-                        rec.error = Some("wake_deadline_exceeded".into());
+                        rec.mark_expired();
                         continue;
                     }
                     rec.state = HeldCloudSendState::Claimed;
@@ -276,8 +386,7 @@ impl CloudWakeQueue {
         for id in queue {
             if let Some(rec) = self.by_id.get_mut(id) {
                 if rec.state == HeldCloudSendState::Held && now_ms >= rec.deadline_ms {
-                    rec.state = HeldCloudSendState::Failed;
-                    rec.error = Some("wake_deadline_exceeded".into());
+                    rec.mark_expired();
                     expired.push(rec.clone());
                 }
             }
@@ -285,12 +394,57 @@ impl CloudWakeQueue {
         expired
     }
 
-    pub fn cancel_before_write(&mut self, send_id: &str) -> Result<HeldCloudSend, CloudError> {
+    pub fn expire_all_overdue(&mut self, now_ms: u64) -> Vec<HeldCloudSend> {
+        let machine_ids: Vec<String> = self.order_by_machine.keys().cloned().collect();
+        let mut expired = Vec::new();
+        for machine_id in machine_ids {
+            expired.extend(self.expire_overdue(&machine_id, now_ms));
+        }
+        expired
+    }
+
+    pub fn earliest_held_deadline_ms(&self) -> Option<u64> {
+        self.by_id
+            .values()
+            .filter(|rec| rec.state == HeldCloudSendState::Held)
+            .map(|rec| rec.deadline_ms)
+            .min()
+    }
+
+    pub fn machines_with_held_sends(&self) -> Vec<String> {
+        let mut machines: Vec<String> = self
+            .order_by_machine
+            .iter()
+            .filter(|(_, queue)| {
+                queue.iter().any(|id| {
+                    self.by_id
+                        .get(id)
+                        .is_some_and(|rec| rec.state == HeldCloudSendState::Held)
+                })
+            })
+            .map(|(machine_id, _)| machine_id.clone())
+            .collect();
+        machines.sort();
+        machines
+    }
+
+    pub fn cancel_before_write_at(
+        &mut self,
+        send_id: &str,
+        now_ms: u64,
+    ) -> Result<HeldCloudSend, CloudError> {
         let rec = self
             .by_id
             .get_mut(send_id)
             .ok_or_else(|| CloudError::MachineNotFound(format!("retained send {send_id}")))?;
-        if rec.state == HeldCloudSendState::Cancelled {
+        if rec.state == HeldCloudSendState::Held && now_ms >= rec.deadline_ms {
+            rec.mark_expired();
+            return Ok(rec.clone());
+        }
+        if matches!(
+            rec.state,
+            HeldCloudSendState::Cancelled | HeldCloudSendState::ExpiredNotDelivered
+        ) {
             return Ok(rec.clone());
         }
         if rec.state != HeldCloudSendState::Held {
@@ -303,10 +457,33 @@ impl CloudWakeQueue {
         Ok(rec.clone())
     }
 
+    pub fn cancel_before_write(&mut self, send_id: &str) -> Result<HeldCloudSend, CloudError> {
+        self.cancel_before_write_at(send_id, 0)
+    }
+
     pub fn inspect(&self, send_id: &str) -> Option<ChatSendStatus> {
         self.by_id
             .get(send_id)
             .map(HeldCloudSend::to_chat_send_status)
+    }
+
+    /// Inspects a send at `now_ms`, transitioning an overdue `Held` send to `ExpiredNotDelivered`
+    /// so inspection past the deadline never reports a stranded `held` state.
+    pub fn inspect_at(
+        &mut self,
+        send_id: &str,
+        now_ms: u64,
+    ) -> (Option<ChatSendStatus>, Option<HeldCloudSend>) {
+        let Some(rec) = self.by_id.get_mut(send_id) else {
+            return (None, None);
+        };
+        let expired_now = if rec.state == HeldCloudSendState::Held && now_ms >= rec.deadline_ms {
+            rec.mark_expired();
+            Some(rec.clone())
+        } else {
+            None
+        };
+        (Some(rec.to_chat_send_status()), expired_now)
     }
 
     pub fn held_count_for_machine(&self, machine_id: &str) -> usize {

@@ -2,6 +2,7 @@ pub mod controller;
 mod controller_idle;
 mod controller_reconcile;
 mod controller_storage;
+mod controller_wake;
 mod controller_warm;
 mod enrichment;
 pub mod held_sends;
@@ -20,11 +21,15 @@ use std::sync::Arc;
 
 use crate::service::{background_work, ServiceContext};
 
-pub use controller::{mint_request_id, CloudMachineController, CreateCloudMachineParams};
+pub use controller::{
+    mint_request_id, CloudMachineController, CloudSendStatusObserver, CreateCloudMachineParams,
+};
 pub use controller_reconcile::{LocalReconcileReport, LocalRecordReconcileOutcome};
 pub use held_sends::{
-    CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, HeldCloudSendState, SingleFlightWakes,
-    DEFAULT_WAKE_HOLD_DEADLINE_MS, RELEASE_CONDITION_PEER_READY,
+    evaluate_guest_link_readiness, should_retry_wake_once, CloudWakeQueue, FlushWriteOutcome,
+    GuestLinkReadiness, GuestLinkReadinessInput, HeldCloudSend, HeldCloudSendState,
+    LinkGenerationFlushTracker, SingleFlightWakes, DEFAULT_WAKE_HOLD_DEADLINE_MS,
+    EXPIRED_NOT_DELIVERED_CODE, RELEASE_CONDITION_PEER_READY,
 };
 pub use idle_drain::{
     evaluate_idle_and_renewal, DrainToken, IdleDecision, IdleEvalInput, IdlePolicy,
@@ -96,6 +101,20 @@ impl ServiceContext {
                 if let Some(svc) = service.upgrade() {
                     svc.record_product_event(event);
                 }
+            }));
+            let status_service = self.weak_self();
+            controller.bind_send_status_observer(Arc::new(move |record, send| {
+                let Some(svc) = status_service.upgrade() else {
+                    return;
+                };
+                let mut status = send.to_chat_send_status();
+                if let Some(peer_id) = record.and_then(|rec| rec.peer_instance_id.as_deref()) {
+                    status.tab_id = format!("mesh:{peer_id}/{}", send.tab_id);
+                }
+                svc.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(&status).unwrap_or_default(),
+                );
             }));
             CloudMachinesHandle(Arc::new(controller))
         });

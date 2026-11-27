@@ -17,6 +17,10 @@ impl StepClock {
     fn new(start_ms: u64) -> Arc<Self> {
         Arc::new(Self(AtomicU64::new(start_ms)))
     }
+
+    fn advance(&self, delta_ms: u64) {
+        self.0.fetch_add(delta_ms, Ordering::SeqCst);
+    }
 }
 
 impl Clock for StepClock {
@@ -143,6 +147,7 @@ impl CloudEnrollmentPort for StubEnrollment {
 
 struct InstrumentedPeerControl {
     publish_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
+    flush_outcomes: Mutex<VecDeque<FlushWriteOutcome>>,
     published: Mutex<Vec<(String, CloudEndpoint)>>,
     events: Mutex<Vec<String>>,
     flushed_ids: Mutex<Vec<String>>,
@@ -157,6 +162,7 @@ impl InstrumentedPeerControl {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             publish_outcomes: Mutex::new(VecDeque::new()),
+            flush_outcomes: Mutex::new(VecDeque::new()),
             published: Mutex::new(Vec::new()),
             events: Mutex::new(Vec::new()),
             flushed_ids: Mutex::new(Vec::new()),
@@ -246,7 +252,10 @@ impl CloudPeerControlPort for InstrumentedPeerControl {
         self.flushed_ids.lock().push(send.send_id.clone());
         self.events.lock().push(format!("flush:{}", send.send_id));
         self.flush_in_flight.fetch_sub(1, Ordering::SeqCst);
-        FlushWriteOutcome::Delivered
+        self.flush_outcomes
+            .lock()
+            .pop_front()
+            .unwrap_or(FlushWriteOutcome::Delivered)
     }
 }
 
@@ -558,4 +567,465 @@ async fn publish_direct_endpoint_failure_blocks_wake_readiness_and_releases_no_h
         ctrl.inspect_held_send(&held.send_id).unwrap().state,
         ChatSendState::Sent
     );
+}
+
+struct ScriptedWakeProvisioning {
+    endpoint: CloudEndpoint,
+    clock: Arc<StepClock>,
+    advance_per_wake_ms: u64,
+    wake_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
+    seen_wake_request_ids: Mutex<Vec<String>>,
+}
+
+impl ScriptedWakeProvisioning {
+    fn new(endpoint: CloudEndpoint, clock: Arc<StepClock>, advance_per_wake_ms: u64) -> Self {
+        Self {
+            endpoint,
+            clock,
+            advance_per_wake_ms,
+            wake_outcomes: Mutex::new(VecDeque::new()),
+            seen_wake_request_ids: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl CloudProvisioningPort for ScriptedWakeProvisioning {
+    async fn create(
+        &self,
+        request: &ProvisioningCreateRequest,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        Ok(ProvisionedMachine {
+            machine_id: "cm_retry_1".into(),
+            provider: "fly".into(),
+            endpoint: self.endpoint.clone(),
+            size: request.size.clone(),
+            rate: CloudRate {
+                amount: 0.20,
+                currency: "USD".into(),
+                credits_per_hour: Some(1.0),
+            },
+            sleep_mode: CloudSleepMode::Stop,
+            lease_id: "lease-1".into(),
+            lease_expires_at_ms: 900_000,
+        })
+    }
+
+    async fn wake(
+        &self,
+        machine_id: &str,
+        request_id: &str,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        self.seen_wake_request_ids
+            .lock()
+            .push(request_id.to_owned());
+        if self.advance_per_wake_ms > 0 {
+            self.clock.advance(self.advance_per_wake_ms);
+        }
+        if let Some(Err(error)) = self.wake_outcomes.lock().pop_front() {
+            return Err(error);
+        }
+        Ok(ProvisionedMachine {
+            machine_id: machine_id.to_owned(),
+            provider: "fly".into(),
+            endpoint: self.endpoint.clone(),
+            size: "small".into(),
+            rate: CloudRate {
+                amount: 0.20,
+                currency: "USD".into(),
+                credits_per_hour: Some(1.0),
+            },
+            sleep_mode: CloudSleepMode::Stop,
+            lease_id: "lease-2".into(),
+            lease_expires_at_ms: 900_000,
+        })
+    }
+
+    async fn sleep(&self, _: &str, _: &str) -> Result<CloudSleepMode, CloudError> {
+        Ok(CloudSleepMode::Stop)
+    }
+
+    async fn delete(&self, _: &str, _: &str) -> Result<(), CloudError> {
+        Ok(())
+    }
+
+    async fn renew_lease(
+        &self,
+        machine_id: &str,
+        lease_id: &str,
+        _: &str,
+    ) -> Result<ProvisionedLease, CloudError> {
+        Ok(ProvisionedLease {
+            machine_id: machine_id.to_owned(),
+            lease_id: lease_id.to_owned(),
+            lease_expires_at_ms: 900_000,
+        })
+    }
+
+    async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
+        Ok(CloudUsageSummary::default())
+    }
+}
+
+#[test]
+fn endpoint_known_without_guest_link_is_not_ready() {
+    let endpoint_only = evaluate_guest_link_readiness(&GuestLinkReadinessInput {
+        traffic_open: true,
+        auth_refused: false,
+        installation_unavailable: false,
+        stream_attached: false,
+        stream_binding_token: None,
+        peer_online: false,
+        link_nonce: None,
+        has_persisted_endpoint: true,
+    });
+    assert!(!endpoint_only.ready);
+    assert_eq!(endpoint_only.link_generation, None);
+
+    let stream_linked = evaluate_guest_link_readiness(&GuestLinkReadinessInput {
+        traffic_open: true,
+        auth_refused: false,
+        installation_unavailable: false,
+        stream_attached: true,
+        stream_binding_token: Some("binding-a".into()),
+        peer_online: false,
+        link_nonce: None,
+        has_persisted_endpoint: true,
+    });
+    assert!(stream_linked.ready);
+    assert_eq!(
+        stream_linked.link_generation.as_deref(),
+        Some("stream:binding-a")
+    );
+
+    let account_linked = evaluate_guest_link_readiness(&GuestLinkReadinessInput {
+        traffic_open: true,
+        auth_refused: false,
+        installation_unavailable: false,
+        stream_attached: false,
+        stream_binding_token: None,
+        peer_online: true,
+        link_nonce: Some("nonce-1".into()),
+        has_persisted_endpoint: true,
+    });
+    assert!(account_linked.ready);
+    assert_eq!(
+        account_linked.link_generation.as_deref(),
+        Some("link:nonce-1")
+    );
+
+    let blocked = evaluate_guest_link_readiness(&GuestLinkReadinessInput {
+        traffic_open: false,
+        auth_refused: false,
+        installation_unavailable: false,
+        stream_attached: true,
+        stream_binding_token: Some("binding-a".into()),
+        peer_online: true,
+        link_nonce: Some("nonce-1".into()),
+        has_persisted_endpoint: true,
+    });
+    assert!(!blocked.ready);
+    assert_eq!(blocked.link_generation, None);
+}
+
+#[tokio::test]
+async fn link_event_flushes_once_per_generation_and_never_replays_written_or_uncertain() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = StepClock::new(10_000);
+    let addr = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 10),
+        CLOUD_INGRESS_PORT,
+    ));
+    let prov = StubProvisioning {
+        create_addr: addr.clone(),
+        wake_addr: addr,
+    };
+    let peer_ctrl = InstrumentedPeerControl::new();
+    let ctrl = CloudMachineController::new(
+        CloudMachineStore::new(dir.path().join("cloud_machines.json")),
+        "controller-1".into(),
+        clock,
+    );
+    let created = ctrl
+        .create(
+            CreateCloudMachineParams {
+                size: "small".into(),
+                name: Some("gen-box".into()),
+                ..Default::default()
+            },
+            &prov,
+            &StubEnrollment,
+            peer_ctrl.as_ref(),
+        )
+        .await
+        .unwrap();
+
+    let held = ctrl
+        .hold_send_for_wake(
+            &created.machine_id,
+            "tab-1",
+            "deliv-gen-1".into(),
+            "POST".into(),
+            "/api/tabs/tab-1/send".into(),
+            serde_json::json!({"text": "once-only", "client_token": "tok-1"}),
+            AuthenticatedOrigin::Owner,
+            None,
+            60_000,
+        )
+        .unwrap();
+
+    // First link generation hits proven pre-write RefusedMachineSleeping -> stays Held.
+    peer_ctrl
+        .flush_outcomes
+        .lock()
+        .push_back(FlushWriteOutcome::RefusedMachineSleeping);
+    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-1", peer_ctrl.as_ref())
+        .await;
+    assert_eq!(peer_ctrl.flushed_ids.lock().len(), 1);
+    assert_eq!(
+        ctrl.inspect_held_send(&held.send_id).unwrap().state,
+        ChatSendState::Pending
+    );
+
+    // Duplicate event for the SAME link generation must not re-attempt flush.
+    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-1", peer_ctrl.as_ref())
+        .await;
+    assert_eq!(peer_ctrl.flushed_ids.lock().len(), 1);
+
+    // New link generation flushes exactly once and delivers.
+    peer_ctrl
+        .flush_outcomes
+        .lock()
+        .push_back(FlushWriteOutcome::Delivered);
+    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-2", peer_ctrl.as_ref())
+        .await;
+    assert_eq!(peer_ctrl.flushed_ids.lock().len(), 2);
+    let status = ctrl.inspect_held_send(&held.send_id).unwrap();
+    assert_eq!(status.state, ChatSendState::Sent);
+    assert_eq!(status.correlation_id.as_deref(), Some("tok-1"));
+
+    // Subsequent link generation never replays delivered send.
+    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-3", peer_ctrl.as_ref())
+        .await;
+    assert_eq!(peer_ctrl.flushed_ids.lock().len(), 2);
+
+    // Uncertain write becomes submit_unconfirmed and is NEVER replayed on a newer link generation.
+    let uncertain = ctrl
+        .hold_send_for_wake(
+            &created.machine_id,
+            "tab-1",
+            "deliv-gen-2".into(),
+            "POST".into(),
+            "/api/tabs/tab-1/send".into(),
+            serde_json::json!({"text": "uncertain-once"}),
+            AuthenticatedOrigin::Owner,
+            None,
+            60_000,
+        )
+        .unwrap();
+    peer_ctrl
+        .flush_outcomes
+        .lock()
+        .push_back(FlushWriteOutcome::Uncertain("reset after write".into()));
+    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-4", peer_ctrl.as_ref())
+        .await;
+    assert_eq!(peer_ctrl.flushed_ids.lock().len(), 3);
+    assert_eq!(
+        ctrl.inspect_held_send(&uncertain.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
+    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-5", peer_ctrl.as_ref())
+        .await;
+    assert_eq!(peer_ctrl.flushed_ids.lock().len(), 3);
+}
+
+#[tokio::test]
+async fn deadline_expiry_reaches_expired_not_delivered_and_later_link_does_not_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    let clock = StepClock::new(10_000);
+    let addr = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 10),
+        CLOUD_INGRESS_PORT,
+    ));
+    let prov = StubProvisioning {
+        create_addr: addr.clone(),
+        wake_addr: addr,
+    };
+    let peer_ctrl = InstrumentedPeerControl::new();
+    let ctrl = CloudMachineController::new(
+        CloudMachineStore::new(store_path.clone()),
+        "controller-1".into(),
+        clock.clone(),
+    );
+    let created = ctrl
+        .create(
+            CreateCloudMachineParams {
+                size: "small".into(),
+                name: Some("expire-box".into()),
+                ..Default::default()
+            },
+            &prov,
+            &StubEnrollment,
+            peer_ctrl.as_ref(),
+        )
+        .await
+        .unwrap();
+
+    let held = ctrl
+        .hold_send_for_wake(
+            &created.machine_id,
+            "tab-1",
+            "deliv-expire-1".into(),
+            "POST".into(),
+            "/api/tabs/tab-1/send".into(),
+            serde_json::json!({"text": "keep-for-resend", "client_token": "tok-exp"}),
+            AuthenticatedOrigin::Owner,
+            None,
+            5_000,
+        )
+        .unwrap();
+
+    clock.advance(4_999);
+    assert_eq!(
+        ctrl.inspect_held_send(&held.send_id).unwrap().state,
+        ChatSendState::Pending
+    );
+
+    // Reaching the deadline settles honestly to expired_not_delivered, never stranded held.
+    clock.advance(1);
+    let expired_status = ctrl.inspect_held_send(&held.send_id).unwrap();
+    assert_eq!(expired_status.state, ChatSendState::Failed);
+    assert!(expired_status.pending_reason.is_none());
+    assert!(expired_status
+        .error
+        .as_deref()
+        .is_some_and(|e| e.starts_with(EXPIRED_NOT_DELIVERED_CODE)));
+    assert_eq!(expired_status.correlation_id.as_deref(), Some("tok-exp"));
+
+    // A later link event after expiry must never write the expired send.
+    ctrl.flush_held_sends_for_link_generation(
+        &created.machine_id,
+        "stream:late-link",
+        peer_ctrl.as_ref(),
+    )
+    .await;
+    assert!(peer_ctrl.flushed_ids.lock().is_empty());
+
+    // Reloading from disk preserves the terminal expired_not_delivered state.
+    let reloaded = CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "controller-1".into(),
+        clock,
+    );
+    let persisted_status = reloaded.inspect_held_send(&held.send_id).unwrap();
+    assert_eq!(persisted_status.state, ChatSendState::Failed);
+    assert!(persisted_status
+        .error
+        .as_deref()
+        .is_some_and(|e| e.starts_with(EXPIRED_NOT_DELIVERED_CODE)));
+}
+
+#[tokio::test]
+async fn unconfirmed_and_starting_wake_retry_once_with_same_request_id_inside_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = StepClock::new(50_000);
+    let endpoint = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 77),
+        CLOUD_INGRESS_PORT,
+    ));
+    let prov = ScriptedWakeProvisioning::new(endpoint.clone(), clock.clone(), 1_000);
+    let peer_ctrl = InstrumentedPeerControl::new();
+    let ctrl = CloudMachineController::new(
+        CloudMachineStore::new(dir.path().join("cloud_machines.json")),
+        "controller-1".into(),
+        clock.clone(),
+    );
+    let created = ctrl
+        .create(
+            CreateCloudMachineParams {
+                size: "small".into(),
+                name: Some("retry-wake-box".into()),
+                ..Default::default()
+            },
+            &prov,
+            &StubEnrollment,
+            peer_ctrl.as_ref(),
+        )
+        .await
+        .unwrap();
+
+    // Case 1: provider_unconfirmed retries ONCE with the exact same request_id and succeeds.
+    ctrl.sleep(&created.machine_id, &prov, peer_ctrl.as_ref(), true)
+        .await
+        .unwrap();
+    prov.wake_outcomes
+        .lock()
+        .push_back(Err(CloudError::ProviderUnconfirmed("adopt in flight".into())));
+    prov.wake_outcomes.lock().push_back(Ok(()));
+    let receipt = ctrl
+        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 10_000)
+        .await
+        .unwrap();
+    assert_eq!(receipt.state, CloudLifecycleState::Awake);
+    {
+        let ids = prov.seen_wake_request_ids.lock().clone();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], ids[1], "retry must reuse the exact same request_id");
+    }
+
+    // Case 2: provider_starting retries ONCE with the exact same request_id and succeeds.
+    prov.seen_wake_request_ids.lock().clear();
+    ctrl.sleep(&created.machine_id, &prov, peer_ctrl.as_ref(), true)
+        .await
+        .unwrap();
+    prov.wake_outcomes
+        .lock()
+        .push_back(Err(CloudError::ProviderStarting("vm booting".into())));
+    prov.wake_outcomes.lock().push_back(Ok(()));
+    let receipt = ctrl
+        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 10_000)
+        .await
+        .unwrap();
+    assert_eq!(receipt.state, CloudLifecycleState::Awake);
+    {
+        let ids = prov.seen_wake_request_ids.lock().clone();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], ids[1], "provider_starting retry must reuse request_id");
+    }
+
+    // Case 3: bounded to ONE retry (two total attempts) if both fail.
+    prov.seen_wake_request_ids.lock().clear();
+    ctrl.sleep(&created.machine_id, &prov, peer_ctrl.as_ref(), true)
+        .await
+        .unwrap();
+    prov.wake_outcomes
+        .lock()
+        .push_back(Err(CloudError::ProviderUnconfirmed("first fail".into())));
+    prov.wake_outcomes
+        .lock()
+        .push_back(Err(CloudError::ProviderUnconfirmed("second fail".into())));
+    let err = ctrl
+        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 10_000)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "provider_unconfirmed");
+    {
+        let ids = prov.seen_wake_request_ids.lock().clone();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], ids[1]);
+    }
+
+    // Case 4: no retry when the first attempt already reached the overall wake deadline.
+    let slow_prov = ScriptedWakeProvisioning::new(endpoint, clock, 10_000);
+    slow_prov
+        .wake_outcomes
+        .lock()
+        .push_back(Err(CloudError::ProviderUnconfirmed("slow timeout".into())));
+    let err = ctrl
+        .wake(&created.machine_id, &slow_prov, peer_ctrl.as_ref(), 5_000)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "provider_unconfirmed");
+    assert_eq!(slow_prov.seen_wake_request_ids.lock().len(), 1);
 }

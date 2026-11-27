@@ -39,12 +39,25 @@ export function useChatSendStatusSubscription(
     const refresh = reconcile ?? (() => { void reconcileTrackedChatMessages(tabId).catch(() => {}); });
     const remote = parseCompositeTabId(tabId);
     if (remote) {
-      const stop = peerEventRail.observe(remote.peerId, event => {
+      let cancelled = false;
+      let releaseLocal: UnlistenFn | undefined;
+      const stopRail = peerEventRail.observe(remote.peerId, event => {
         if (event.type === "reconcile"
           || (event.type === "chat-send-status" && event.data.tab_id === remote.remoteTabId)) refresh();
       });
+      // Home-owned cloud-wake transitions (for example expired_not_delivered) emit directly for the composite tab.
+      void listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
+        if (!cancelled && payload.tab_id === tabId) void observeStatus(payload);
+      }).then(release => {
+        if (cancelled) release();
+        else releaseLocal = release;
+      }).catch(() => {});
       refresh();
-      return stop;
+      return () => {
+        cancelled = true;
+        releaseLocal?.();
+        stopRail();
+      };
     }
     let cancelled = false;
     const releases: UnlistenFn[] = [];
