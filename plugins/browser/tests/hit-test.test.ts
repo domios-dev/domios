@@ -8,6 +8,10 @@ const source = resolve(import.meta.dirname, "../../../src-tauri/crates/codeterm-
 const hitTest = readFileSync(resolve(source, "hit-test.js"), "utf8");
 
 // hit-test.js collects stack facts; Rust classifies them (hit_test/tests.rs). This checks DOM collection wiring.
+function stackAt(window: Window, elements: unknown[]): void {
+  Object.defineProperty(window.document, "elementsFromPoint", { value: () => elements, configurable: true });
+}
+
 function topDomId(facts: { stack: number[]; nodes: Array<{ id: number; domId: string }> }): string | undefined {
   const top = facts.stack[0];
   return facts.nodes.find((node) => node.id === top)?.domId;
@@ -72,25 +76,25 @@ describe("Browser pointer hit testing", () => {
       const check = window.eval(`(${hitTest})`);
 
       // Nested button inside non-landmark <div>/<section> containers must not throw on parentElement.contains(targetEl).
-      window.document.elementsFromPoint = () => [replyLabel, replyInner, replyBtn, toolbar, window.document.body];
+      stackAt(window, [replyLabel, replyInner, replyBtn, toolbar, window.document.body]);
       const clearFacts = check.call(replyBtn, 480, 220);
       assert.equal(typeof clearFacts, "object");
       assert.equal(topDomId(clearFacts), "reply-label");
       assert.equal(clearFacts.nodes.find((node: { id: number }) => node.id === clearFacts.target)?.domId, "reply-btn");
 
       // Transparent wrapper div and opaque sticky footer inside composer card collect accurate metadata.
-      window.document.elementsFromPoint = () => [cardOverlay, replyBtn, toolbar, window.document.body];
+      stackAt(window, [cardOverlay, replyBtn, toolbar, window.document.body]);
       const overlayFacts = check.call(replyBtn, 480, 220);
       assert.equal(topDomId(overlayFacts), "card-overlay");
       assert.equal(overlayFacts.nodes.find((node: { domId: string }) => node.domId === "card-overlay")?.transparent, true);
 
-      window.document.elementsFromPoint = () => [stickyFooter, replyBtn, toolbar, window.document.body];
+      stackAt(window, [stickyFooter, replyBtn, toolbar, window.document.body]);
       const footerFacts = check.call(replyBtn, 480, 220);
       assert.equal(topDomId(footerFacts), "sticky-footer");
       assert.equal(footerFacts.nodes.find((node: { domId: string }) => node.domId === "sticky-footer")?.transparent, false);
 
       // Associated <label for="..."> inside a non-landmark div must recognize targetEl.id inside register().
-      window.document.elementsFromPoint = () => [consentText, consentLabel, consentInput, window.document.body];
+      stackAt(window, [consentText, consentLabel, consentInput, window.document.body]);
       const labelFacts = check.call(consentInput, 40, 180);
       assert.equal(labelFacts.nodes.find((node: { domId: string }) => node.domId === "consent-label")?.associatedLabel, true);
     } finally { window.happyDOM.abort(); }
