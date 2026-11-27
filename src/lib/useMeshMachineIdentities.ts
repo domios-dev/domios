@@ -84,9 +84,13 @@ export function useMeshPeerName(peerId?: string | null): string | undefined {
   const readName = () => {
     if (!peerId) return undefined;
     const peer = snapshot.peers?.find(peer => peer.instance_id === peerId);
+    const cloud = snapshot.cloudByPeer?.get(peerId);
     const installation = snapshot.installations?.find(candidate =>
       candidate.instance_id === peerId || candidate.installation_id === peerId);
-    return accountPeerMachineName(peerId) ?? cleanMachineName(peer?.instance_name, peerId) ?? cleanMachineName(installation?.name, peerId);
+    return cleanMachineName(cloud?.name, peerId)
+      ?? accountPeerMachineName(peerId)
+      ?? cleanMachineName(peer?.instance_name, peerId)
+      ?? cleanMachineName(installation?.name, peerId);
   };
   return useSyncExternalStore(peerId ? subscribe : ignoreSubscription, readName, readName);
 }

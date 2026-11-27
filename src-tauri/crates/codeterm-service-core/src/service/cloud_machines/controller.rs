@@ -49,7 +49,7 @@ pub struct CloudMachineController {
     store: CloudMachineStore,
     wake_queue_store: CloudWakeQueueStore,
     pub(super) warm_ledger_store: super::warm_bootstrap::CloudWarmLedgerStore,
-    machines: Mutex<Vec<CloudMachineRecord>>,
+    pub(super) machines: Mutex<Vec<CloudMachineRecord>>,
     wake_queue: Mutex<CloudWakeQueue>,
     pub(super) warm_ledger:
         Mutex<BTreeMap<String, super::warm_bootstrap::MachineWarmBootstrapEntry>>,
@@ -154,7 +154,7 @@ impl CloudMachineController {
         )
     }
 
-    fn persist_locked(&self, machines: &[CloudMachineRecord]) -> Result<(), CloudError> {
+    pub(super) fn persist_locked(&self, machines: &[CloudMachineRecord]) -> Result<(), CloudError> {
         self.store
             .save(machines)
             .map_err(|error| CloudError::Internal(format!("persist cloud machines: {error}")))

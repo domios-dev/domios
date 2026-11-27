@@ -43,6 +43,7 @@ impl MeshManager {
         if state.signed_in_account() != self.account.signed_in_account() {
             self.signed_registry = None;
             self.endpoint_records.records.clear();
+            self.cloud_relay_ok_at.clear();
         }
         self.account = state;
         self.account_ready = true;
@@ -293,14 +294,7 @@ impl MeshManager {
                     instance_id: peer.instance_id.clone(),
                     installation_id: record.installation_id().map(str::to_string),
                     admission: record.admission.label().to_string(),
-                    online: peer.online
-                        && !self.peer_auth_refused(&peer.instance_id)
-                        && self.traffic_open(&peer.instance_id)
-                        && !record.installation_id().is_some_and(|installation| {
-                            self.account
-                                .unavailable_installations
-                                .contains(installation)
-                        }),
+                    online: self.effective_peer_online(peer),
                     name: peer.instance_name.clone(),
                 })
             })

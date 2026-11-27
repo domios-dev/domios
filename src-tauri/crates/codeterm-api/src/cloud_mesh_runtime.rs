@@ -13,7 +13,7 @@ use codeterm_service_core::{
     service::{ServiceContext, ServiceState},
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Weak},
     time::Duration,
 };
@@ -275,6 +275,7 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
     tokio::spawn(async move {
         let dispatcher = Arc::new(Dispatcher(service.clone()));
         let mut tasks = HashMap::<String, RouteTask>::new();
+        let mut prev_attached = HashSet::<String>::new();
         let mut gate = mesh.lock().gate_watch();
         let dedupe = tokio::sync::OnceCell::new();
         loop {
@@ -284,7 +285,7 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
             let enabled = owner.configuration().mesh.enabled;
             let managed_records = owner.cloud_machines().list_records();
             let mut managed_endpoints = HashMap::new();
-            let routes = {
+            let (routes, bindings, attached) = {
                 let mut manager = mesh.lock();
                 for record in managed_records {
                     let Some(inst_id) = record.installation_id else {
@@ -300,7 +301,7 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                     }
                 }
                 let epoch = manager.remote_access_epoch();
-                manager
+                let routes = manager
                     .endpoint_records()
                     .into_iter()
                     .filter_map(|r| {
@@ -313,8 +314,20 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                             .or_else(|| r.claim.endpoint.and_then(|e| e.cloud_endpoint()))?;
                         Some((r.claim.installation_id, (epoch?, r.claim.sequence, route)))
                     })
-                    .collect::<HashMap<_, _>>()
+                    .collect::<HashMap<_, _>>();
+                let bindings = manager.installation_instance_bindings();
+                let attached = manager.attached_reverse_streams();
+                (routes, bindings, attached)
             };
+            let backfilled = owner.cloud_machines().observe_peer_instance_ids(
+                bindings
+                    .iter()
+                    .map(|(inst, peer)| (inst.as_str(), peer.as_str())),
+            );
+            if attached != prev_attached || backfilled > 0 {
+                prev_attached = attached;
+                owner.ui.emit("mesh-state-changed", serde_json::Value::Null);
+            }
             drop(owner);
             tasks.retain(|id, task| {
                 routes.get(id).is_some_and(|(epoch, sequence, route)| {

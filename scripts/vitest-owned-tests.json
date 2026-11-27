@@ -494,5 +494,7 @@
   "src/components/MeshPanel/MeshMachineList.wiring.test.tsx",
   "src/lib/cloudBootstrap/model.test.ts",
   "src/components/CloudBootstrap/CloudBootstrapPanel.test.tsx",
-  "src/components/Usage/cloudStorageModel.test.ts"
+  "src/components/Usage/cloudStorageModel.test.ts",
+  "src/components/WebPeerPicker/peerPickerModel.test.ts",
+  "src/store/multiplexer/pairedWorkspaceProjection.test.ts"
 ]

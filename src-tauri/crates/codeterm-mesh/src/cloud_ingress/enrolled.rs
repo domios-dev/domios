@@ -183,6 +183,11 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> EnrolledCha
         Ok(self.peer.remote_membership())
     }
 
+    pub fn peer_instance_id(&self) -> Result<&str, IngressError> {
+        self.admit()?;
+        Ok(&self.peer.remote_party().instance_id)
+    }
+
     pub async fn renew(self) -> Result<(), IngressError> {
         let target = self.peer_membership()?;
         let authority = self

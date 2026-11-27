@@ -33,12 +33,16 @@ export interface PairedGeneral {
   cached?: boolean;
 }
 
-export function pairedPeerIdentity(peer: Pick<PairedPeer, "instance_id" | "instance_name">,
-  installations: MeshPeersResponse["installations"], displayName?: string) {
+export function pairedPeerIdentity(
+  peer: Pick<PairedPeer, "instance_id" | "instance_name"> & { kind?: string; cloud?: { name?: string } | null },
+  installations: MeshPeersResponse["installations"],
+  displayName?: string,
+) {
+  const cloudName = peer.kind === "cloud" ? cleanMachineName(peer.cloud?.name, peer.instance_id) : undefined;
   return {
     peerId: peer.instance_id,
     instanceName: peer.instance_name,
-    name: displayName ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
+    name: cloudName ?? displayName ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine",
     installation: installations?.find(row => row.active && row.instance_id === peer.instance_id),
   };
 }

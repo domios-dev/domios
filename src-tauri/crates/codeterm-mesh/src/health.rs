@@ -22,7 +22,10 @@ struct HealthProbe {
 
 impl HealthProbe {
     fn capture(manager: &mut MeshManager, peer_id: &str) -> Option<Self> {
-        if !manager.traffic_open(peer_id) || !manager.peer_requests_allowed(peer_id) {
+        if !manager.traffic_open(peer_id)
+            || !manager.peer_requests_allowed(peer_id)
+            || manager.is_inbound_only_cloud_peer(peer_id)
+        {
             return None;
         }
         let peer = manager.paired_peers.get(peer_id)?;

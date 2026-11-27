@@ -187,6 +187,10 @@ impl VerifiedIngressPeer {
         &self.remote_membership
     }
 
+    pub(super) fn remote_party(&self) -> &Party {
+        &self.remote
+    }
+
     pub(super) fn local_id(&self) -> &str {
         &self.local.installation_id
     }

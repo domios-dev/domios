@@ -106,12 +106,7 @@ impl MeshManager {
 
     pub fn has_healthy_connection(&self, installation_id: &str) -> bool {
         self.paired_peers.values().any(|peer| {
-            peer.online
-                && !self
-                    .account
-                    .unavailable_installations
-                    .contains(installation_id)
-                && self.traffic_open(&peer.instance_id)
+            self.effective_peer_online(peer)
                 && self
                     .links
                     .get(&peer.instance_id)

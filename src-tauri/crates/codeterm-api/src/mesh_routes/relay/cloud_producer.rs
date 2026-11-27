@@ -160,13 +160,35 @@ pub(crate) async fn send_via_cloud_ingress(
     command: RelayCommand,
     signed_token: String,
 ) -> Result<RelayResponse, CloudIngressSendError> {
-    #[cfg(any(test, feature = "test-support"))]
-    if let Some(connector) = state
-        .svc
-        .try_ext::<CloudIngressConnectorOverride>()
-        .map(|ext| Arc::clone(&ext.0))
-    {
-        return connector
+    let result = {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(connector) = state
+            .svc
+            .try_ext::<CloudIngressConnectorOverride>()
+            .map(|ext| Arc::clone(&ext.0))
+        {
+            connector
+                .send_relay(
+                    state.mesh.clone(),
+                    route,
+                    installation_id.to_owned(),
+                    command,
+                    signed_token,
+                )
+                .await
+        } else {
+            LiveCloudIngressConnector
+                .send_relay(
+                    state.mesh.clone(),
+                    route,
+                    installation_id.to_owned(),
+                    command,
+                    signed_token,
+                )
+                .await
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        LiveCloudIngressConnector
             .send_relay(
                 state.mesh.clone(),
                 route,
@@ -174,17 +196,26 @@ pub(crate) async fn send_via_cloud_ingress(
                 command,
                 signed_token,
             )
-            .await;
+            .await
+    };
+    let online_changed = match &result {
+        Ok(_) => state
+            .mesh
+            .lock()
+            .record_cloud_relay_outcome(installation_id, true),
+        Err(CloudIngressSendError::ConnectUnavailable(_)) => state
+            .mesh
+            .lock()
+            .record_cloud_relay_outcome(installation_id, false),
+        Err(_) => false,
+    };
+    if online_changed {
+        state
+            .svc
+            .ui
+            .emit("mesh-state-changed", serde_json::Value::Null);
     }
-    LiveCloudIngressConnector
-        .send_relay(
-            state.mesh.clone(),
-            route,
-            installation_id.to_owned(),
-            command,
-            signed_token,
-        )
-        .await
+    result
 }
 
 /// Resolves an enrolled cloud peer's ingress endpoint. For managed cloud
