@@ -39,10 +39,13 @@ export function readReloadCredentials(storage: Pick<Storage, "getItem">): Reload
 let bootstrap: DaemonBootstrap | undefined;
 let base: TransportClient | undefined;
 let eventSubscriptions: ReturnType<typeof createEventSubscriptionRegistry> | undefined;
+let gatewayAvailable: boolean | null = null;
 const peers = new Map<string, TransportClient>();
 const listeners = new Set<(client: TransportClient) => void>();
 
 function gateway(available: boolean): void {
+  if (gatewayAvailable === available) return;
+  gatewayAvailable = available;
   if (typeof window !== "undefined") {
     const EventConstructor = window.CustomEvent ?? CustomEvent;
     window.dispatchEvent(new EventConstructor("codeterm-gateway-state", { detail: { available } }));
@@ -56,6 +59,7 @@ export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredenti
     "frontendOrigin" in input ? input.frontendOrigin : undefined);
   if (typeof input.token === "string" && !input.token) throw new Error("Daemon bearer token required");
   if (base && bootstrap?.origin === origin && bootstrap.token === input.token) return base;
+  gatewayAvailable = null;
   bootstrap = { origin, token: input.token };
   const client = withStreamMux({ ...bootstrap, onGatewayState: gateway });
   if (eventSubscriptions) eventSubscriptions.replace(client.subscribe);

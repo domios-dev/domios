@@ -95,9 +95,67 @@ pub(crate) struct VerifiedEndpointRecord {
 #[derive(Default)]
 pub(crate) struct EndpointRecords {
     pub(crate) records: BTreeMap<String, VerifiedEndpointRecord>,
+    pub(crate) pinned_cloud_endpoints: BTreeMap<String, CloudEndpoint>,
 }
 
 impl MeshManager {
+    fn endpoint_transition_allowed(&self, id: &str, incoming: &Option<EndpointAddress>) -> bool {
+        if let Some(CloudEndpoint::ProviderProxy { host: pinned_host }) =
+            self.endpoint_records.pinned_cloud_endpoints.get(id)
+        {
+            return matches!(
+                incoming,
+                Some(EndpointAddress::ProviderProxy { host }) if host == pinned_host
+            );
+        }
+        if let Some(known) = self.endpoint_records.records.get(id) {
+            if let Some(EndpointAddress::ProviderProxy {
+                host: existing_host,
+            }) = &known.record.claim.endpoint
+            {
+                return matches!(
+                    incoming,
+                    Some(EndpointAddress::ProviderProxy { host }) if host == existing_host
+                );
+            }
+        }
+        true
+    }
+
+    pub fn pin_managed_cloud_endpoint(&mut self, installation_id: String, endpoint: CloudEndpoint) {
+        if self
+            .endpoint_records
+            .pinned_cloud_endpoints
+            .get(&installation_id)
+            == Some(&endpoint)
+        {
+            return;
+        }
+        let expected = Some(EndpointAddress::from(endpoint.clone()));
+        let mismatch = self
+            .endpoint_records
+            .records
+            .get(&installation_id)
+            .is_some_and(|known| known.record.claim.endpoint != expected);
+        if mismatch {
+            self.endpoint_records.records.remove(&installation_id);
+        }
+        self.endpoint_records
+            .pinned_cloud_endpoints
+            .insert(installation_id, endpoint);
+        self.bump_gate();
+    }
+
+    pub fn unpin_managed_cloud_endpoint(&mut self, installation_id: &str) {
+        if self
+            .endpoint_records
+            .pinned_cloud_endpoints
+            .remove(installation_id)
+            .is_some()
+        {
+            self.bump_gate();
+        }
+    }
     fn endpoint_membership_current(&self, membership: &VerifiedMembership) -> bool {
         if self.account_authority().is_none() {
             return false;
@@ -168,6 +226,9 @@ impl MeshManager {
             .records
             .retain(|id, _| members.contains_key(id));
         let id = &record.claim.installation_id;
+        if !self.endpoint_transition_allowed(id, &record.claim.endpoint) {
+            return Err(AdmissionRefusal::AuthRefused);
+        }
         if let Some(known) = self.endpoint_records.records.get(id) {
             if record.claim.sequence <= known.record.claim.sequence {
                 return Ok(false);
@@ -412,12 +473,16 @@ pub async fn receive_endpoint_records(
                 .verify_endpoint_record(&record)
                 .ok()
                 .and_then(|membership| {
+                    let allowed = manager.endpoint_transition_allowed(
+                        &record.claim.installation_id,
+                        &record.claim.endpoint,
+                    );
                     let newer = manager
                         .endpoint_records
                         .records
                         .get(&record.claim.installation_id)
                         .is_none_or(|known| record.claim.sequence > known.record.claim.sequence);
-                    newer
+                    (allowed && newer)
                         .then(|| {
                             manager
                                 .account_authority()

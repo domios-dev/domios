@@ -578,8 +578,9 @@ async fn provider_proxy_wss_runs_bootstrap_enrolled_publication_renewal_and_enfo
         cloud_key: cloud_bootstrap_key,
         allowed_controller: controller_key.verifying_key().to_bytes(),
     });
-    let (handle, ready) = super::start(
+    let (handle, ready) = super::start_with_proxy_host(
         "127.0.0.1:0".parse().unwrap(),
+        Some(HOST.to_owned()),
         enrollment.clone(),
         bootstrap_authority,
     );
@@ -760,4 +761,294 @@ async fn provider_proxy_wss_runs_bootstrap_enrolled_publication_renewal_and_enfo
     );
     trusted_task.abort();
     untrusted_task.abort();
+}
+
+#[tokio::test]
+async fn guest_derives_authoritative_host_from_platform_and_rejects_mismatched_host_header() {
+    use crate::account_mesh::link::link_installation_with;
+    use crate::account_mesh::tests::support::*;
+    use ed25519_dalek::SigningKey;
+    use std::sync::atomic::{AtomicU64, AtomicUsize};
+    use std::sync::Arc;
+
+    // Pure platform-env derivation checks.
+    assert_eq!(
+        super::listener::authoritative_proxy_host_from_vars(
+            Some("fly_machines"),
+            Some("domios-a1b2c3d4"),
+        ),
+        Some("domios-a1b2c3d4.fly.dev".into())
+    );
+    for (platform, app) in [
+        (Some("timeweb"), Some("domios-a1b2c3d4")),
+        (None, Some("domios-a1b2c3d4")),
+        (Some("fly_machines"), None),
+        (Some("fly_machines"), Some("")),
+        (Some("fly_machines"), Some("BadApp")),
+        (Some("fly_machines"), Some("evil.example.com")),
+        (Some("fly_machines"), Some("127.0.0.1")),
+    ] {
+        assert_eq!(
+            super::listener::authoritative_proxy_host_from_vars(platform, app),
+            None,
+            "expected None for platform={platform:?}, app={app:?}"
+        );
+    }
+
+    const EXPECTED_HOST: &str = "domios-authoritative.fly.dev";
+    const MISMATCHED_HOST: &str = "attacker.example.test";
+    let mismatched_pki = test_pki::issue(
+        [41; 32],
+        [42; 32],
+        "domios-test-mismatch-ca",
+        MISMATCHED_HOST,
+    );
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add(mismatched_pki.ca_cert).unwrap();
+    let roots = Arc::new(root_store);
+
+    let enrollment = Arc::new(TestEnrollmentHandler {
+        ops: parking_lot::Mutex::new(Vec::new()),
+    });
+    let bootstrap_authority = Arc::new(TestBootstrapAuthority {
+        psk: [5u8; 32],
+        cloud_key: SigningKey::from_bytes(&[43; 32]),
+        allowed_controller: SigningKey::from_bytes(&[44; 32]).verifying_key().to_bytes(),
+    });
+    let (handle, ready) = super::start_with_proxy_host(
+        "127.0.0.1:0".parse().unwrap(),
+        Some(EXPECTED_HOST.to_owned()),
+        enrollment.clone(),
+        bootstrap_authority.clone(),
+    );
+    let backend = ready.await.unwrap().bound_address();
+    let (proxy_addr, _, proxy_task) = spawn_tls_proxy(
+        backend,
+        mismatched_pki.leaf_cert.clone(),
+        mismatched_pki.leaf_key.clone_key(),
+    )
+    .await;
+
+    let clock = clock();
+    let (home, cloud) = (machine(1, &clock), machine(2, &clock));
+    cloud
+        .mesh
+        .lock()
+        .bind_account_authority(Arc::new(TestEndpointAuthority {
+            inner: Arc::clone(&cloud.authority),
+            next_seq: AtomicU64::new(1),
+        }));
+    enroll_all(&[&home, &cloud]);
+    home.sign_in(1, ACCOUNT, START + 4 * MEMBERSHIP_TTL);
+    cloud.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    link_installation_with(
+        &home.mesh,
+        &Loopback::new(&[&home, &cloud]),
+        &cloud.installation_id,
+    )
+    .await
+    .unwrap();
+    let receiver = Arc::new(TestRenewalReceiver {
+        cloud: cloud.mesh.clone(),
+        authority: Arc::clone(&cloud.authority),
+        cloud_id: cloud.installation_id.clone(),
+        calls: AtomicUsize::new(0),
+    });
+    assert!(handle.bind_enrolled(
+        cloud.mesh.clone(),
+        receiver.clone(),
+        Arc::new(TestDispatcher)
+    ));
+
+    // 1. TLS succeeds for MISMATCHED_HOST, but the guest listener rejects the mismatched HTTP Host.
+    let mismatched_route = super::CloudRoute::ProviderProxy {
+        host: MISMATCHED_HOST.to_owned(),
+    };
+    let tls_override = super::dial::TestTlsOverride {
+        target: proxy_addr,
+        roots: Arc::clone(&roots),
+    };
+    super::dial::TEST_TLS_OVERRIDE
+        .scope(tls_override, async {
+            assert!(
+                super::connect_enrolled(
+                    home.mesh.clone(),
+                    mismatched_route.clone(),
+                    &cloud.installation_id,
+                )
+                .await
+                .is_err(),
+                "guest listener must reject HTTP Host header that does not match authoritative host"
+            );
+        })
+        .await;
+    proxy_task.abort();
+
+    // 2. Without authoritative platform host, Request::Endpoint never signs a client Host header.
+    let (unconfigured_handle, unconfigured_ready) = super::start_with_proxy_host(
+        "127.0.0.1:0".parse().unwrap(),
+        None,
+        enrollment,
+        bootstrap_authority,
+    );
+    let unconfigured_backend = unconfigured_ready.await.unwrap().bound_address();
+    let (unconfigured_proxy, _, unconfigured_task) = spawn_tls_proxy(
+        unconfigured_backend,
+        mismatched_pki.leaf_cert,
+        mismatched_pki.leaf_key,
+    )
+    .await;
+    assert!(unconfigured_handle.bind_enrolled(
+        cloud.mesh.clone(),
+        receiver,
+        Arc::new(TestDispatcher)
+    ));
+    let unconfigured_override = super::dial::TestTlsOverride {
+        target: unconfigured_proxy,
+        roots,
+    };
+    super::dial::TEST_TLS_OVERRIDE
+        .scope(unconfigured_override, async {
+            let channel = super::connect_enrolled(
+                home.mesh.clone(),
+                mismatched_route.clone(),
+                &cloud.installation_id,
+            )
+            .await
+            .unwrap();
+            assert!(
+                channel.publish_endpoint(&mismatched_route).await.is_err(),
+                "guest without authoritative platform host must never sign a client-supplied Host"
+            );
+        })
+        .await;
+    unconfigured_task.abort();
+}
+
+#[tokio::test]
+async fn provider_proxy_dial_refuses_private_loopback_and_mixed_resolved_ips() {
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+
+    let route = super::CloudRoute::ProviderProxy {
+        host: "domios-ssrf.fly.dev".into(),
+    };
+
+    for (label, resolved) in [
+        (
+            "loopback_v4",
+            vec!["127.0.0.1:443".parse::<SocketAddr>().unwrap()],
+        ),
+        ("rfc1918_10", vec!["10.0.0.5:443".parse().unwrap()]),
+        (
+            "link_local_metadata",
+            vec!["169.254.169.254:443".parse().unwrap()],
+        ),
+        ("rfc1918_172", vec!["172.16.0.1:443".parse().unwrap()]),
+        ("rfc1918_192", vec!["192.168.1.1:443".parse().unwrap()]),
+        ("cgnat", vec!["100.64.0.1:443".parse().unwrap()]),
+        ("loopback_v6", vec!["[::1]:443".parse().unwrap()]),
+        (
+            "v4_mapped_loopback",
+            vec!["[::ffff:127.0.0.1]:443".parse().unwrap()],
+        ),
+        (
+            "mixed_public_and_private",
+            vec![
+                "8.8.8.8:443".parse().unwrap(),
+                "10.0.0.1:443".parse().unwrap(),
+            ],
+        ),
+        ("non_443_port", vec!["8.8.8.8:7687".parse().unwrap()]),
+    ] {
+        let resolver: super::dial::TestResolverFn =
+            Arc::new(move |_host, _port| Ok(resolved.clone()));
+        let err = super::dial::TEST_RESOLVER
+            .scope(resolver, super::dial::open(&route, "/cloud/enrolled/v1"))
+            .await
+            .err();
+        assert_eq!(
+            err,
+            Some(super::IngressError::Rejected),
+            "expected Rejected for {label}"
+        );
+    }
+
+    let empty_resolver: super::dial::TestResolverFn = Arc::new(|_host, _port| Ok(Vec::new()));
+    assert_eq!(
+        super::dial::TEST_RESOLVER
+            .scope(
+                empty_resolver,
+                super::dial::open(&route, "/cloud/enrolled/v1")
+            )
+            .await
+            .err(),
+        Some(super::IngressError::Unavailable)
+    );
+
+    // Pure vetting accepts all-public port-443 results (both IPv4 and IPv6).
+    let vetted = super::dial::vet_resolved_provider_proxy_addrs(&[
+        "8.8.8.8:443".parse().unwrap(),
+        "[2606:2800:220:1:248:1893:25c8:1946]:443".parse().unwrap(),
+    ])
+    .unwrap();
+    assert_eq!(vetted.len(), 2);
+}
+
+#[tokio::test]
+async fn enrollment_wait_bounds_cover_cold_fly_boot_and_fail_when_stalled() {
+    use ed25519_dalek::{Signer, SigningKey};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    assert!(
+        super::ENROLLMENT_CONNECT_TIMEOUT >= Duration::from_secs(180),
+        "enrollment connect failure bound must cover cold Fly boot (>= 180 s)"
+    );
+    assert!(
+        super::ENROLLMENT_REQUEST_TIMEOUT >= Duration::from_secs(180),
+        "enrollment request failure bound must cover guest startup wait (>= 180 s)"
+    );
+    assert!(
+        super::BOOTSTRAP_SESSION_TIMEOUT >= super::ENROLLMENT_CONNECT_TIMEOUT,
+        "guest bootstrap session bound must not expire before the controller connect bound"
+    );
+
+    // A silent remote that accepts TLS/TCP without completing the WebSocket/Noise handshake
+    // must fail cleanly with IngressError::Unavailable at the configured failure bound.
+    const HOST: &str = "stalled-boot.example.test";
+    let pki = test_pki::issue([51; 32], [52; 32], "domios-test-stall-ca", HOST);
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add(pki.ca_cert).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stalled_addr = listener.local_addr().unwrap();
+    let stall_task = tokio::spawn(async move {
+        if let Ok((stream, _)) = listener.accept().await {
+            let _hold = stream;
+            std::future::pending::<()>().await;
+        }
+    });
+
+    let controller_key = SigningKey::from_bytes(&[53; 32]);
+    let route = super::CloudRoute::ProviderProxy {
+        host: HOST.to_owned(),
+    };
+    let tls_override = super::dial::TestTlsOverride {
+        target: stalled_addr,
+        roots: Arc::new(root_store),
+    };
+    let outcome = super::dial::TEST_TLS_OVERRIDE
+        .scope(
+            tls_override,
+            super::controller::connect_enrollment_within(
+                route,
+                &[7u8; 32],
+                controller_key.verifying_key().to_bytes(),
+                Duration::from_millis(50),
+                |proof| Ok(controller_key.sign(proof.as_bytes()).to_bytes()),
+            ),
+        )
+        .await;
+    assert_eq!(outcome.err(), Some(super::IngressError::Unavailable));
+    stall_task.abort();
 }

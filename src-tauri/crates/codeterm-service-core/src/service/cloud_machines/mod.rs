@@ -1,20 +1,27 @@
 pub mod controller;
 mod controller_idle;
+mod controller_reconcile;
+mod controller_storage;
+mod controller_warm;
 mod enrichment;
 pub mod held_sends;
 pub mod idle_drain;
 pub mod idle_driver;
 pub mod placement;
 pub mod ports;
+pub mod reconcile;
 pub mod state;
+pub mod storage;
 pub mod store;
 pub mod types;
+pub mod warm_bootstrap;
 
 use std::sync::Arc;
 
 use crate::service::{background_work, ServiceContext};
 
 pub use controller::{mint_request_id, CloudMachineController, CreateCloudMachineParams};
+pub use controller_reconcile::{LocalReconcileReport, LocalRecordReconcileOutcome};
 pub use held_sends::{
     CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, HeldCloudSendState, SingleFlightWakes,
     DEFAULT_WAKE_HOLD_DEADLINE_MS, RELEASE_CONDITION_PEER_READY,
@@ -33,18 +40,36 @@ pub use ports::{
     EnrollmentBinding, EnrollmentOutcome, ProvisionedLease, ProvisionedMachine,
     ProvisioningCreateRequest, SystemClock,
 };
+pub use reconcile::{
+    apply_local_record_adoption, apply_local_record_delete, backend_machines_from_usage,
+    plan_local_record_reconcile, BackendMachineEntry, BackendMatchReason, LocalReconcilePolicy,
+    LocalRecordReconcileAction, LocalRecordReconcileIntent, DEFAULT_CREATE_MATCH_WINDOW_MS,
+    DEFAULT_UNCERTAIN_CREATE_GRACE_MS,
+};
 pub use state::{
-    can_issue_enrollment_apply, ownership_labels, reconcile_provider_machines, transition,
-    LifecycleEvent, ObservedProviderMachine, ObservedProviderState, ReconcileOutcome,
+    apply_draining_truth, can_issue_enrollment_apply, infer_backend_truth_from_usage,
+    ownership_labels, plan_draining_recovery, reconcile_provider_machines, transition,
+    usage_reports_credits_exhausted, BackendDrainingTruth, DrainingReconcileIntent,
+    DrainingRecoveryPlan, LifecycleEvent, ObservedProviderMachine, ObservedProviderState,
+    ReconcileOutcome, LABEL_CREATE_REQUEST_ID,
+};
+pub use storage::{
+    is_local_disk_full, validate_volume_upgrade_gb, CloudColdWakeParams, CloudDeleteMode,
+    CloudDeleteReceipt, CloudMachineStorageUsage, CloudStorageTier, CloudStorageUsageSummary,
+    CloudVolumeResizeReply, ProviderSnapshotResidual, AUX_KEY_ALLOCATED_GB, AUX_KEY_PURGE_AT,
+    AUX_KEY_RECOVERABLE_ARCHIVE_ID, AUX_KEY_STORAGE_TIER, DEFAULT_COLD_PURGE_DAYS,
+    DEFAULT_HOT_GB_MONTH_RATE_CENTS, DEFAULT_HOT_RETENTION_DAYS, MAX_VOLUME_SIZE_GB,
 };
 pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{
-    CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
-    CloudOwnershipReceipt, CloudPromoRedemption, CloudRate, CloudReceipt, CloudSleepMode,
-    CloudUsageSummary, PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT,
-    CLOUD_WAKE_SEND_PREFIX, COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES,
-    DEFAULT_LEASE_RENEW_LEAD_MS, PROVIDER_PROXY_PORT,
+    CloudCheckoutSession, CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState,
+    CloudMachineRecord, CloudOwnershipReceipt, CloudPlanAllowances, CloudPromoRedemption,
+    CloudRate, CloudReceipt, CloudSleepMode, CloudUsagePack, CloudUsageSize, CloudUsageSummary,
+    PendingProvisioningOp, PendingProvisioningRequest, CLOUD_INGRESS_PORT, CLOUD_WAKE_SEND_PREFIX,
+    COST_WARNING_TEXT, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_LEASE_RENEW_LEAD_MS,
+    PROVIDER_PROXY_PORT,
 };
+pub use warm_bootstrap::{BackendCreatePhases, WarmBootstrapPhaseEvent};
 
 #[derive(Clone)]
 pub(crate) struct CloudMachinesHandle(Arc<CloudMachineController>);
@@ -148,9 +173,13 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
+mod draining_recovery_tests;
+#[cfg(test)]
 mod endpoint_tests;
 #[cfg(test)]
 mod idle_driver_tests;
+#[cfg(test)]
+mod reconcile_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

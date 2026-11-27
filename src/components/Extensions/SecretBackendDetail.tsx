@@ -20,7 +20,10 @@ const STATUS_REFRESH_DELAY_MS = 5000;
 
 interface SecretStatus {
   backend: string;
-  status: { status: "logged_out" | "locked" | "unlocked"; endpoint?: string; user?: string | null };
+  configured_backend?: string;
+  fallback_active?: boolean;
+  fallback_reason?: string | null;
+  status: { status: "logged_out" | "locked" | "unlocked" | "unavailable"; endpoint?: string; user?: string | null };
   auto_unlock_capable?: boolean;
   master_password_saved?: boolean;
 }
@@ -56,6 +59,11 @@ export function SecretBackendDetail({
   // the config prop — the parent doesn't reload config after a switch.
   const configActive = (config.integrations?.secrets?.backend ?? "local") === backendId;
   const isActive = status ? status.backend === backendId : configActive;
+  const isFallbackForThis = Boolean(
+    status?.fallback_active &&
+      status.configured_backend === backendId &&
+      status.backend !== backendId,
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -197,6 +205,22 @@ export function SecretBackendDetail({
           </div>
         </div>
       </label>
+
+      {isFallbackForThis && (
+        <div
+          role="status"
+          data-testid="extensions-secret-backend-fallback"
+          className="ct-card ct-card--static border border-[var(--ct-yellow)]/40 px-3.5 py-3 text-xs space-y-1"
+        >
+          <div className="font-medium text-[var(--ct-yellow)]">
+            Local secret storage is active ({backendId} unavailable)
+          </div>
+          <div className="text-[var(--ct-muted-fg)] leading-relaxed">
+            {status?.fallback_reason ||
+              `This plugin is configured as the default secret store, but local storage is active until a compatible version loads.`}
+          </div>
+        </div>
+      )}
 
       {isActive && (
         <>

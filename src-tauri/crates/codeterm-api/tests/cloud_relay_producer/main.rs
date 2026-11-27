@@ -60,6 +60,8 @@ use serde_json::{json, Value};
 use tokio::sync::Notify;
 use tower::ServiceExt;
 
+// Shared support module; this binary uses only part of it.
+#[allow(dead_code)]
 #[path = "../../src/test_support.rs"]
 mod test_support;
 

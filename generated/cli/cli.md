@@ -2010,14 +2010,23 @@ Create and enroll a new managed cloud machine
 
 #### `domios mesh cloud delete`
 
-Permanently delete a cloud machine (warns about unpushed work without --confirm)
+Delete a cloud machine (permanent by default; pass --recoverable to retain verified archive)
 
-- `--confirm` — Confirm permanent deletion of the machine and any unpushed work
+- `--archive-id` — Verified archive ID for recoverable deletion
+- `--confirm` — Confirm deletion of the machine
 - `<machine>` — Cloud machine ID, name, or peer ID
+- `--recoverable` — Retain the verified encrypted essentials archive for recreate within the purge window
 
 #### `domios mesh cloud list`
 
 List cloud machines with state, hourly rate, and uptime
+
+#### `domios mesh cloud recreate`
+
+Recreate a cold or recoverably deleted cloud machine onto a fresh volume from its archive
+
+- `--archive-id` — Optional archive ID override
+- `<machine>` — Cloud machine ID, name, or peer ID
 
 #### `domios mesh cloud redeem`
 
@@ -2025,11 +2034,26 @@ Redeem a cloud credit promo code into your account balance
 
 - `<code>` — Promo code to redeem
 
+#### `domios mesh cloud resize-volume`
+
+Increase a cloud machine's hot volume capacity (grow-only, requires owner --confirm)
+
+- `--confirm` — Confirm volume expansion and increased hot storage billing
+- `<machine>` — Cloud machine ID, name, or peer ID
+- `--size-gb` — Target volume size in GB (must exceed current allocation, max 500)
+
 #### `domios mesh cloud sleep`
 
 Drain an idle cloud machine and put it to sleep (refuses while work runs)
 
 - `<machine>` — Cloud machine ID, name, or peer ID
+
+#### `domios mesh cloud topup`
+
+Create a checkout link to top up managed cloud credits
+
+- `--amount` — Custom top-up amount in USD
+- `--pack` — Credit pack ID from `domios mesh cloud usage`
 
 #### `domios mesh cloud usage`
 

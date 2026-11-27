@@ -1,4 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { ProviderPrerequisitesNotice } from "../shared/ProviderPrerequisitesNotice";
 import { CodeBlock } from "@codeterm/chat-ui/CodeBlock";
 import { ChartColumn } from "lucide-react";
 import { useMemo } from "react";
@@ -21,7 +22,7 @@ export function FirstRunGeneralPicker({ providers, providersLoading = false, pro
   const navigation = usePickerNavigation();
   const { enabled: analyticsOn } = useAnalyticsConsent();
 
-  const { busy, phase, error, failedInstallProviderId, progress, onConfirm, onInstall } = useFirstRunStart(navigation.show);
+  const { busy, phase, error, failedInstallProviderId, failedInstallPrerequisites, progress, onConfirm, onInstall } = useFirstRunStart(navigation.show);
   const failedProvider = failedInstallProviderId
     ? eligibleProviders.find((provider) => provider.id === failedInstallProviderId) ?? null
     : null;
@@ -60,6 +61,7 @@ export function FirstRunGeneralPicker({ providers, providersLoading = false, pro
             operation="setting up the General agent"
             blocking
           />
+          <ProviderPrerequisitesNotice prerequisites={failedInstallPrerequisites} />
           {failedProvider?.install_command && (
             <div aria-label="Manual install command" role="region" className="w-full min-w-0 text-left">
               <p className="mb-1 text-xs text-[var(--ct-muted-fg)]">Install manually, then click Retry or Re-check:</p>

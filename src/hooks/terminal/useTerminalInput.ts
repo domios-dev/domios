@@ -2,8 +2,11 @@ import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { isMac } from "../../lib/keybindings";
 import { routeClipboardToTerm } from "../../lib/clipboardPaste";
+import { writeViewerClipboardText } from "../../lib/clipboardWrite";
 import { createTerminalReplyFilter } from "./terminalReplyFilter";
 import { writeTerminalInput } from "./terminalInputWrite";
+import { normalizeCopiedTerminalSelection } from "./terminalLinks";
+import { evaluateOsc52ClipboardWrite } from "./terminalOsc52";
 
 export interface UseTerminalInputOptions {
   tabId: string;
@@ -13,6 +16,8 @@ export interface UseTerminalInputOptions {
   termReady: boolean;
   terminalActive: boolean;
   readOnly?: boolean;
+  isRemote?: boolean;
+  replayingHistory?: boolean;
   onTabKey: () => boolean;
   onNonTabKey: () => void;
   onInputData: (data: string) => void;
@@ -31,6 +36,8 @@ export function useTerminalInput({
   termReady,
   terminalActive,
   readOnly = false,
+  isRemote = false,
+  replayingHistory = false,
   onTabKey,
   onNonTabKey,
   onInputData,
@@ -38,10 +45,14 @@ export function useTerminalInput({
   const terminalReplyFilterRef = useRef(createTerminalReplyFilter());
   const terminalReplyFilterPtyRef = useRef<string | null>(null);
   const terminalReplyFlushTimerRef = useRef<number | null>(null);
+  const lastUserIntentAtRef = useRef<number | null>(null);
+  const osc52StateRef = useRef({ isRemote, terminalActive, replayingHistory });
+  osc52StateRef.current = { isRemote, terminalActive, replayingHistory };
 
   const copySelection = useCallback(() => {
     const selection = termRef.current?.getSelection();
-    if (selection) navigator.clipboard.writeText(selection).catch(() => {});
+    if (!selection) return;
+    void writeViewerClipboardText(normalizeCopiedTerminalSelection(selection));
   }, [termRef]);
 
   // route as the keyboard path so file/image/text handling is consistent.
@@ -52,37 +63,59 @@ export function useTerminalInput({
 
   useEffect(() => {
     const term = termRef.current;
+    if (!term || !termReady || !term.parser?.registerOscHandler) return;
+    const osc52Disposable = term.parser.registerOscHandler(52, (data) => {
+      const state = osc52StateRef.current;
+      const decision = evaluateOsc52ClipboardWrite(data, {
+        isRemoteTab: state.isRemote,
+        terminalActive: state.terminalActive,
+        replayingHistory: state.replayingHistory,
+        nowMs: Date.now(),
+        lastUserIntentAtMs: lastUserIntentAtRef.current,
+      });
+      if (decision.action === "write") {
+        void writeViewerClipboardText(decision.text);
+      }
+      return true;
+    });
+    return () => osc52Disposable.dispose();
+  }, [termReady, termRef]);
+
+  useEffect(() => {
+    const term = termRef.current;
     if (!term || !termReady) return;
     // No connectedPtyRef guard — PTY connects async; onData checks the ref at write time.
 
     // Ctrl+V/Cmd+V: handle paste at keydown so we don't depend on WebView2's flaky `paste` event.
     term.attachCustomKeyEventHandler((e) => {
       if (!terminalActive) return false;
-      if (readOnly) return false;
-      if (e.type !== "keydown") return true;
+      if (e.type !== "keydown") return !readOnly;
+      lastUserIntentAtRef.current = Date.now();
       const mod = isMac ? e.metaKey : e.ctrlKey;
-      if (!mod || e.altKey) return true;
-      if (isMac && e.ctrlKey && e.metaKey) return true;
-
-      if (e.code === "KeyV" && !e.shiftKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!readOnly) void routeClipboardToTerm(term);
-        return false;
-      }
-
-      if (e.shiftKey) return true;
+      if (!mod || e.altKey) return !readOnly;
+      if (isMac && e.ctrlKey && e.metaKey) return !readOnly;
 
       if (e.code === "KeyC") {
         const sel = term.getSelection();
         if (sel) {
           e.preventDefault();
           e.stopPropagation();
-          navigator.clipboard.writeText(sel).catch(() => {});
-          term.clearSelection();
+          void writeViewerClipboardText(normalizeCopiedTerminalSelection(sel));
+          if (!e.shiftKey) term.clearSelection();
           return false;
         }
+        if (e.shiftKey) return false;
       }
+
+      if (readOnly) return false;
+
+      if (e.code === "KeyV") {
+        e.preventDefault();
+        e.stopPropagation();
+        void routeClipboardToTerm(term);
+        return false;
+      }
+
       return true;
     });
 
@@ -116,6 +149,7 @@ export function useTerminalInput({
     });
 
     const forwardInput = (data: string, currentPty: string | null) => {
+      lastUserIntentAtRef.current = Date.now();
       if (data === "\t" && onTabKey()) return;
       if (data !== "\t") onNonTabKey();
       onInputData(data);
@@ -127,9 +161,27 @@ export function useTerminalInput({
     const onPaste = (ev: Event) => {
       ev.stopImmediatePropagation();
       ev.preventDefault();
-      if (!readOnly) void routeClipboardToTerm(term);
+      if (readOnly) return;
+      const clipboardData = (ev as ClipboardEvent).clipboardData;
+      const fallbackPlain = clipboardData?.getData("text/plain") || undefined;
+      void routeClipboardToTerm(term, fallbackPlain);
+    };
+    const onCopy = (ev: Event) => {
+      if (!terminalActive || !term.hasSelection?.()) return;
+      const sel = term.getSelection();
+      if (!sel) return;
+      const clipboardData = (ev as ClipboardEvent).clipboardData;
+      if (!clipboardData) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      clipboardData.setData("text/plain", normalizeCopiedTerminalSelection(sel));
+    };
+    const markUserIntent = () => {
+      if (terminalActive) lastUserIntentAtRef.current = Date.now();
     };
     el?.addEventListener("paste", onPaste, true);
+    el?.addEventListener("copy", onCopy, true);
+    el?.addEventListener("pointerdown", markUserIntent, true);
 
     const focusXterm = () => { if (terminalActive) term.focus(); };
     el?.addEventListener("mousedown", focusXterm);
@@ -142,6 +194,8 @@ export function useTerminalInput({
       onDataDisposable.dispose();
       el?.removeEventListener("mousedown", focusXterm);
       el?.removeEventListener("paste", onPaste, true);
+      el?.removeEventListener("copy", onCopy, true);
+      el?.removeEventListener("pointerdown", markUserIntent, true);
     };
   }, [tabId, termReady, terminalActive, readOnly, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
 

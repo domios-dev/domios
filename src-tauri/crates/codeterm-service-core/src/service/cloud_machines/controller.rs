@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -9,6 +9,7 @@ use zeroize::Zeroizing;
 use crate::mesh::crown::{AuthenticatedAgent, AuthenticatedOrigin};
 use crate::service::chat_send_transaction::ChatSendStatus;
 
+use super::controller_reconcile::require_provider_machine_id;
 use super::held_sends::{
     CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, SingleFlightWakes, WakeSlot,
     DEFAULT_WAKE_HOLD_DEADLINE_MS,
@@ -19,7 +20,10 @@ use super::ports::{
     Clock, CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, EnrollmentOutcome,
     ProvisioningCreateRequest, SystemClock,
 };
-use super::state::{can_issue_enrollment_apply, ownership_labels, transition, LifecycleEvent};
+use super::state::{
+    can_issue_enrollment_apply, ownership_labels, transition, DrainingReconcileIntent,
+    LifecycleEvent, LABEL_CREATE_REQUEST_ID,
+};
 use super::store::{CloudMachineStore, CloudWakeQueueStore};
 use super::types::{
     CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
@@ -44,9 +48,14 @@ pub fn mint_request_id() -> String {
 pub struct CloudMachineController {
     store: CloudMachineStore,
     wake_queue_store: CloudWakeQueueStore,
+    pub(super) warm_ledger_store: super::warm_bootstrap::CloudWarmLedgerStore,
     machines: Mutex<Vec<CloudMachineRecord>>,
     wake_queue: Mutex<CloudWakeQueue>,
+    pub(super) warm_ledger:
+        Mutex<BTreeMap<String, super::warm_bootstrap::MachineWarmBootstrapEntry>>,
     flush_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    drain_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    active_drains: Mutex<HashSet<String>>,
     wakes: Arc<SingleFlightWakes>,
     lifecycle_tx: tokio::sync::watch::Sender<u64>,
     local_drain_gate: Arc<LocalPeerDrainGate>,
@@ -58,6 +67,9 @@ impl CloudMachineController {
     pub fn new(store: CloudMachineStore, controller_id: String, clock: Arc<dyn Clock>) -> Self {
         let loaded = store.load();
         let wake_queue_store = store.wake_queue_store();
+        let warm_ledger_store =
+            super::warm_bootstrap::CloudWarmLedgerStore::beside_machine_store(store.path());
+        let warm_ledger = warm_ledger_store.load();
         let (next_seq, sends) = wake_queue_store.load();
         let (queue, reconciled_claimed) = CloudWakeQueue::from_persisted(next_seq, sends);
         if reconciled_claimed {
@@ -70,9 +82,13 @@ impl CloudMachineController {
         Self {
             store,
             wake_queue_store,
+            warm_ledger_store,
             machines: Mutex::new(loaded),
             wake_queue: Mutex::new(queue),
+            warm_ledger: Mutex::new(warm_ledger),
             flush_locks: Mutex::new(HashMap::new()),
+            drain_locks: Mutex::new(HashMap::new()),
+            active_drains: Mutex::new(HashSet::new()),
             wakes: Arc::new(SingleFlightWakes::default()),
             lifecycle_tx,
             local_drain_gate: Arc::new(LocalPeerDrainGate::default()),
@@ -93,7 +109,7 @@ impl CloudMachineController {
         self.lifecycle_tx.subscribe()
     }
 
-    fn notify_lifecycle(&self) {
+    pub(super) fn notify_lifecycle(&self) {
         self.lifecycle_tx
             .send_modify(|rev| *rev = rev.wrapping_add(1));
     }
@@ -104,6 +120,29 @@ impl CloudMachineController {
 
     pub fn now_ms(&self) -> u64 {
         self.clock.now_ms()
+    }
+
+    pub(super) fn machine_drain_lock(&self, machine_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.drain_locks.lock();
+        Arc::clone(
+            locks
+                .entry(machine_id.to_owned())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    }
+
+    pub(super) fn has_active_drain(&self, machine_id: &str) -> bool {
+        self.active_drains.lock().contains(machine_id)
+    }
+
+    pub(super) fn mark_active_drain(&self, machine_id: &str) {
+        self.active_drains.lock().insert(machine_id.to_owned());
+    }
+
+    pub(super) fn clear_active_drain(&self, machine_id: &str) {
+        if self.active_drains.lock().remove(machine_id) {
+            self.notify_lifecycle();
+        }
     }
 
     fn machine_flush_lock(&self, machine_id: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -133,6 +172,19 @@ impl CloudMachineController {
         let matches: Vec<&CloudMachineRecord> = machines
             .iter()
             .filter(|m| m.state != CloudLifecycleState::Deleted && m.matches_selector(selector))
+            .collect();
+        match matches.as_slice() {
+            [] => Err(CloudError::MachineNotFound(selector.to_owned())),
+            [single] => Ok((*single).clone()),
+            _ => Err(CloudError::MachineAmbiguous(selector.to_owned())),
+        }
+    }
+
+    pub(super) fn find_any_record(&self, selector: &str) -> Result<CloudMachineRecord, CloudError> {
+        let machines = self.machines.lock();
+        let matches: Vec<&CloudMachineRecord> = machines
+            .iter()
+            .filter(|m| m.matches_selector(selector))
             .collect();
         match matches.as_slice() {
             [] => Err(CloudError::MachineNotFound(selector.to_owned())),
@@ -234,11 +286,16 @@ impl CloudMachineController {
 
     pub fn list(&self) -> Vec<CloudReceipt> {
         let now_ms = self.clock.now_ms();
-        self.machines
+        let records: Vec<CloudMachineRecord> = self
+            .machines
             .lock()
             .iter()
             .filter(|m| m.state != CloudLifecycleState::Deleted)
-            .map(|m| m.receipt(now_ms, None))
+            .cloned()
+            .collect();
+        records
+            .iter()
+            .map(|m| self.receipt_for_record(m, now_ms, None))
             .collect()
     }
 
@@ -329,6 +386,9 @@ impl CloudMachineController {
                 if let Some(pending) = rec.pending_request.as_mut() {
                     pending.unconfirmed = false;
                 }
+                rec.ownership
+                    .labels
+                    .insert(LABEL_CREATE_REQUEST_ID.into(), req_id.clone());
                 let mid = rec.machine_id.clone();
                 let mname = rec.name.clone();
                 self.persist_locked(&machines)?;
@@ -339,13 +399,14 @@ impl CloudMachineController {
                 let short = &request_id[..8.min(request_id.len())];
                 let machine_id = format!("cloud-{short}");
                 let name = requested_name.unwrap_or_else(|| format!("cloud-{short}"));
-                let labels = ownership_labels(
+                let mut labels = ownership_labels(
                     &self.controller_id,
                     &machine_id,
                     &name,
                     &size,
                     &params.extra_labels,
                 );
+                labels.insert(LABEL_CREATE_REQUEST_ID.into(), request_id.clone());
                 let initial = CloudMachineRecord {
                     machine_id: machine_id.clone(),
                     name: name.clone(),
@@ -388,6 +449,16 @@ impl CloudMachineController {
             }
         };
 
+        let requested_at_ms = self.clock.now_ms();
+        let creation_generation = format!("{machine_id}:{request_id}");
+        self.update_warm_entry(&machine_id, |entry| {
+            entry.creation_generation = Some(creation_generation.clone());
+            let phases = entry
+                .create_phases
+                .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+            phases.requested_at_ms.get_or_insert(requested_at_ms);
+        });
+
         let binding = match enrollment.prepare_binding().await {
             Ok(binding) => binding,
             Err(error) => {
@@ -413,17 +484,22 @@ impl CloudMachineController {
             Err(error) => {
                 drop(binding);
                 if error.is_uncertain_provisioning_outcome() {
-                    self.mark_pending_unconfirmed(
-                        &machine_id,
-                        PendingProvisioningOp::Create,
-                        &error.to_string(),
-                    );
-                } else {
-                    self.remove_tentative_record(&machine_id);
+                    return Err(self
+                        .handle_uncertain_create_outcome(&machine_id, error, provisioning)
+                        .await);
                 }
+                self.remove_tentative_record(&machine_id);
                 return Err(error);
             }
         };
+
+        let provisioned_at_ms = self.clock.now_ms();
+        self.update_warm_entry(&machine_id, |entry| {
+            let phases = entry
+                .create_phases
+                .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+            phases.provisioned_at_ms = Some(provisioned_at_ms);
+        });
 
         let enrolling = self.update_record(&machine_id, |rec| {
             let mut next = transition(
@@ -464,6 +540,13 @@ impl CloudMachineController {
                 installation_id,
                 peer_instance_id,
             }) => {
+                let enrolled_at_ms = self.clock.now_ms();
+                self.update_warm_entry(&machine_id, |entry| {
+                    let phases = entry
+                        .create_phases
+                        .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+                    phases.enrolled_at_ms = Some(enrolled_at_ms);
+                });
                 let enrolled = self.update_record(&machine_id, |rec| {
                     let mut next = rec.clone();
                     next.installation_id = Some(installation_id.clone());
@@ -509,7 +592,21 @@ impl CloudMachineController {
                         awake_now,
                     )
                 })?;
-                Ok(awake.receipt(awake_now, None))
+                // Preserve original peer_ready milestone before starting warm bootstrap.
+                self.update_warm_entry(&machine_id, |entry| {
+                    let phases = entry
+                        .create_phases
+                        .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
+                    phases.peer_ready_at_ms = Some(awake_now);
+                });
+                self.run_post_enrollment_warm_bootstrap(
+                    &awake,
+                    &creation_generation,
+                    provisioning,
+                    peer_control,
+                )
+                .await;
+                Ok(self.receipt_for_record(&awake, self.clock.now_ms(), None))
             }
             Ok(EnrollmentOutcome::ApplyUnconfirmed { installation_id }) => {
                 let _ = self.update_record(&machine_id, |rec| {
@@ -546,7 +643,12 @@ impl CloudMachineController {
         peer_control: &dyn CloudPeerControlPort,
         delete_on_stop_billed: bool,
     ) -> Result<CloudReceipt, CloudError> {
-        let record = self.find_record(selector)?;
+        let initial = self.find_record(selector)?;
+        let drain_lock = self.machine_drain_lock(&initial.machine_id);
+        let _drain_lock_guard = drain_lock.lock().await;
+        let _active_drain = self.acquire_active_drain(&initial.machine_id);
+
+        let record = self.find_record(&initial.machine_id)?;
         if record.state == CloudLifecycleState::Asleep {
             return Ok(record.receipt(self.clock.now_ms(), None));
         }
@@ -559,6 +661,25 @@ impl CloudMachineController {
             delete_on_stop_billed,
         };
         let action = policy.sleep_action();
+        if record.state == CloudLifecycleState::Draining {
+            let reconciled = self
+                .reconcile_draining_locked(
+                    &record.machine_id,
+                    DrainingReconcileIntent::FinishDrainOrRecover,
+                    delete_on_stop_billed,
+                    provisioning,
+                    peer_control,
+                )
+                .await?;
+            let warning = (reconciled.state == CloudLifecycleState::Asleep
+                && (reconciled.sleep_mode == CloudSleepMode::DeleteRecreate
+                    || action == IdleSleepAction::DeleteForRecreate))
+                .then(|| {
+                    "machine uses delete_recreate sleep mode; instance was imaged and deleted to stop billing and will recreate with a new IPv4 on next wake".into()
+                });
+            return Ok(reconciled.receipt(self.clock.now_ms(), warning));
+        }
+
         if action == IdleSleepAction::KeepUnderLease {
             return Ok(record.receipt(
                 self.clock.now_ms(),
@@ -571,52 +692,8 @@ impl CloudMachineController {
         let draining = self.update_record(&record.machine_id, |rec| {
             transition(rec, LifecycleEvent::DrainStarted, self.clock.now_ms())
         })?;
-
-        if let Err(error) = peer_control.enter_drain(&draining).await {
-            let _ = self.update_record(&record.machine_id, |rec| {
-                transition(rec, LifecycleEvent::DrainAbortedBusy, self.clock.now_ms())
-            });
-            return Err(error);
-        }
-
-        let request_id =
-            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
-        match provisioning
-            .sleep(draining.backend_machine_id(), &request_id)
+        self.complete_drain_sleep_locked(&draining, action, provisioning, peer_control)
             .await
-        {
-            Ok(sleep_mode) => {
-                let now_ms = self.clock.now_ms();
-                let asleep = self.update_record(&record.machine_id, |rec| {
-                    let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
-                    next.sleep_mode = sleep_mode;
-                    next.pending_request = None;
-                    Ok(next)
-                })?;
-                let warning = (sleep_mode == CloudSleepMode::DeleteRecreate
-                    || action == IdleSleepAction::DeleteForRecreate)
-                    .then(|| {
-                        "machine uses delete_recreate sleep mode; instance was imaged and deleted to stop billing and will recreate with a new IPv4 on next wake".into()
-                    });
-                Ok(asleep.receipt(now_ms, warning))
-            }
-            Err(error) => {
-                if error.is_uncertain_provisioning_outcome() {
-                    self.mark_pending_unconfirmed(
-                        &record.machine_id,
-                        PendingProvisioningOp::Sleep,
-                        &error.to_string(),
-                    );
-                } else {
-                    self.clear_pending_request(&record.machine_id);
-                }
-                let _ = peer_control.reopen_drain(&draining).await;
-                let _ = self.update_record(&record.machine_id, |rec| {
-                    transition(rec, LifecycleEvent::DrainAbortedBusy, self.clock.now_ms())
-                });
-                Err(error)
-            }
-        }
     }
 
     pub async fn wake(
@@ -648,10 +725,49 @@ impl CloudMachineController {
                 Ok(refreshed.receipt(self.clock.now_ms(), None))
             }
             WakeSlot::Leader(guard) => {
-                let waking = if record.state == CloudLifecycleState::Waking {
-                    record.clone()
+                let mut current = match self.find_record(&record.machine_id) {
+                    Ok(found) => found,
+                    Err(error) => {
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
+                };
+                if current.state == CloudLifecycleState::Draining {
+                    current = match self
+                        .reconcile_draining(
+                            &current.machine_id,
+                            DrainingReconcileIntent::PrepareForWake,
+                            true,
+                            provisioning,
+                            peer_control,
+                        )
+                        .await
+                    {
+                        Ok(reconciled) => reconciled,
+                        Err(error) => {
+                            guard.finish(Err(error.to_string()));
+                            return Err(error);
+                        }
+                    };
+                }
+                if current.state == CloudLifecycleState::OutOfCredits {
+                    let error = CloudError::MachineOutOfCredits {
+                        machine_id: current.machine_id,
+                    };
+                    guard.finish(Err(error.to_string()));
+                    return Err(error);
+                }
+                if current.state == CloudLifecycleState::Awake {
+                    guard.finish(Ok(()));
+                    self.flush_held_sends(&current.machine_id, peer_control)
+                        .await;
+                    return Ok(current.receipt(self.clock.now_ms(), None));
+                }
+
+                let waking = if current.state == CloudLifecycleState::Waking {
+                    current
                 } else {
-                    match self.update_record(&record.machine_id, |rec| {
+                    match self.update_record(&current.machine_id, |rec| {
                         transition(rec, LifecycleEvent::WakeRequested, self.clock.now_ms())
                     }) {
                         Ok(updated) => updated,
@@ -672,10 +788,14 @@ impl CloudMachineController {
                     }
                 };
 
-                let woken = match provisioning
-                    .wake(waking.backend_machine_id(), &request_id)
-                    .await
-                {
+                let provider_machine_id = match require_provider_machine_id(&waking) {
+                    Ok(id) => id.to_owned(),
+                    Err(error) => {
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
+                };
+                let woken = match provisioning.wake(&provider_machine_id, &request_id).await {
                     Ok(machine) => machine,
                     Err(error) => {
                         if matches!(error, CloudError::CreditsExhausted) {
@@ -800,48 +920,6 @@ impl CloudMachineController {
                 Ok(awake.receipt(now_ms, None))
             }
         }
-    }
-
-    pub async fn delete(
-        &self,
-        selector: &str,
-        confirm: bool,
-        provisioning: &dyn CloudProvisioningPort,
-    ) -> Result<CloudReceipt, CloudError> {
-        let record = self.find_record(selector)?;
-        if !confirm {
-            return Err(CloudError::DeleteConfirmationRequired {
-                machine_id: record.machine_id.clone(),
-                warning: format!(
-                    "Deleting cloud machine '{}' ({}) permanently destroys any unpushed work on it. Re-run with --confirm to proceed.",
-                    record.name, record.machine_id
-                ),
-            });
-        }
-        let request_id =
-            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Delete)?;
-        if let Err(error) = provisioning
-            .delete(record.backend_machine_id(), &request_id)
-            .await
-        {
-            if error.is_uncertain_provisioning_outcome() {
-                self.mark_pending_unconfirmed(
-                    &record.machine_id,
-                    PendingProvisioningOp::Delete,
-                    &error.to_string(),
-                );
-            } else {
-                self.clear_pending_request(&record.machine_id);
-            }
-            return Err(error);
-        }
-        let now_ms = self.clock.now_ms();
-        let deleted = self.update_record(&record.machine_id, |rec| {
-            let mut next = transition(rec, LifecycleEvent::Deleted, now_ms)?;
-            next.pending_request = None;
-            Ok(next)
-        })?;
-        Ok(deleted.receipt(now_ms, None))
     }
 
     pub async fn resolve_placement(

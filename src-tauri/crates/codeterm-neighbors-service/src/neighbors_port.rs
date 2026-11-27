@@ -37,6 +37,7 @@ fn register_extensions(builder: &mut ExtensionsBuilder) {
     builder.insert_late::<crate::service::account::startup::IdentityWriter>();
     builder.insert_late::<crate::service::account::logout::LogoutCell>();
     builder.insert_late::<crate::service::account_mesh::AccountMeshCell>();
+    builder.insert_late::<crate::service::cloud_installation::CloudInstallation>();
     #[cfg(any(test, feature = "test-support"))]
     builder.insert_late::<crate::service::neighbors::runtime::logout::LogoutKeyPorts>();
 }

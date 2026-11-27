@@ -1,0 +1,321 @@
+name: Cloud image candidate
+
+# Builds docker/cloud.Dockerfile with ARCHIVE_SOURCE=ci-smoke (qa profile) for an exact SHA,
+# pushes by digest to ghcr.io/domios-dev/domios-cloud tagged candidate-<sha12>, and verifies
+# anonymous pullability plus the compressed size budget.
+on:
+  push:
+    branches:
+      - release/next
+    tags:
+      - 'cloud-candidate-*'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-hex commit SHA to build (defaults to the dispatching branch head)
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cloud-image-candidate-${{ github.ref_name }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
+env:
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+  CODETERM_BUILD_GATEWAY_MODE: queue
+  RUSTUP_TOOLCHAIN: 1.99.1
+  RUSTC_WRAPPER: sccache
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: 'line-tables-only'
+  CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  candidate:
+    name: build and verify candidate cloud image (amd64)
+    if: >-
+      !cancelled() &&
+      (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') &&
+      github.actor == 'rollacode' &&
+      github.triggering_actor == 'rollacode' &&
+      (github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' &&
+          (github.ref == 'refs/heads/release/next' || startsWith(github.ref, 'refs/tags/cloud-candidate-'))))
+    # domios-trusted allows self-hosted runners only on release/next; candidate tags and dispatches elsewhere run hosted.
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/release/next' && (vars.RELEASE_LINUX_X64_RUNNER || '"ubuntu-24.04"') || '"ubuntu-24.04"') }}
+    timeout-minutes: 120
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      DOMIOS_CLOUD_CANDIDATE: '1'
+      IMAGE_REPO: ghcr.io/domios-dev/domios-cloud
+      BUILDER_NAME: domios-cloud-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Admit and resolve candidate SHA
+        id: source
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        with:
+          script: |-
+            const requested = (process.env.REQUESTED_SHA || '').trim();
+            const sha = context.eventName === 'workflow_dispatch' && requested ? requested : context.sha;
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              throw new Error('source_sha must be a full 40-hex commit SHA');
+            }
+            const sha12 = sha.slice(0, 12);
+            if (context.eventName === 'push' && context.ref.startsWith('refs/tags/')) {
+              const tag = context.ref.slice('refs/tags/'.length);
+              if (tag !== `cloud-candidate-${sha12}`) {
+                throw new Error(`Candidate tag '${tag}' must equal 'cloud-candidate-${sha12}' for ${sha}`);
+              }
+            }
+            if (context.eventName === 'workflow_dispatch' && requested && requested !== context.sha) {
+              const branches = [...new Set([context.ref.replace(/^refs\/heads\//, ''), 'release/next', 'develop', 'master'])];
+              let reachable = false;
+              for (const branch of branches) {
+                const status = await github.rest.repos.compareCommitsWithBasehead({
+                  ...context.repo,
+                  basehead: `${sha}...${branch}`,
+                  per_page: 1,
+                }).then(reply => reply.data.status, error => {
+                  if (error.status === 404) return 'missing';
+                  throw error;
+                });
+                if (status === 'ahead' || status === 'identical') {
+                  reachable = true;
+                  break;
+                }
+              }
+              if (!reachable) {
+                throw new Error('source_sha is not reachable from an owner-trusted branch');
+              }
+            }
+            core.setOutput('sha', sha);
+            core.setOutput('sha12', sha12);
+
+      - name: Hosted pinned Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.99.1
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Select hosted cache policy
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: |
+          sccache --stop-server >/dev/null 2>&1 || true
+          echo CI_HOSTED=true >> "$GITHUB_ENV"
+          echo SCCACHE_GHA_ENABLED=true >> "$GITHUB_ENV"
+          echo CODETERM_SCCACHE_VERIFY_ONLY=0 >> "$GITHUB_ENV"
+
+      - name: Hosted Linux native headless dependencies
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev libdbus-1-dev minisign
+
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+
+      - name: Setup Node.js
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+
+      - name: Checkout candidate source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Enter stable physical CI checkout
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-stable-checkout.mjs enter
+
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+
+      - name: Pinned CI sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        with:
+          version: v0.19.0
+          disable_annotations: true
+
+      - name: Cache Cargo registry on hosted runner
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cloud-candidate-cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'cli/Cargo.lock') }}
+          restore-keys: |
+            cloud-candidate-cargo-${{ runner.os }}-
+
+      - name: Setup pnpm
+        if: runner.environment == 'github-hosted'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+
+      - name: Verify pinned toolchain and Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.source.outputs.sha }}"
+          rustup show active-toolchain
+          rustup target list --installed | grep -qx "$CARGO_BUILD_TARGET" || rustup target add "$CARGO_BUILD_TARGET"
+          docker info >/dev/null
+          docker buildx version
+
+      - name: Verify shared compile cache
+        run: bash build.sh cache-verify
+
+      - name: Install frozen Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build QA headless candidate archive
+        id: compile
+        shell: bash
+        env:
+          DOMIOS_QA_PROJECT_ID: ${{ secrets.DOMIOS_QA_PROJECT_ID }}
+          DOMIOS_QA_FIREBASE_API_KEY: ${{ secrets.DOMIOS_QA_FIREBASE_API_KEY }}
+          DOMIOS_QA_FIREBASE_APP_ID: ${{ secrets.DOMIOS_QA_FIREBASE_APP_ID }}
+        run: bash scripts/docker/build-cloud-candidate-inputs.sh
+
+      - name: Upload separate QA debug symbols artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cloud-qa-debug-symbols-${{ steps.source.outputs.sha12 }}
+          path: target/cloud-qa/debug-symbols
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Free hosted Cargo build outputs before Docker build
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: rm -rf src-tauri/target cli/target target/cloud-qa/stage target/cloud-qa/stripped target/cloud-qa/debug-symbols
+
+      - name: Prepare runner Buildx and authenticate to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          set +x
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          docker buildx create --use --name "$BUILDER_NAME" --driver docker-container >/dev/null
+          docker buildx inspect --bootstrap "$BUILDER_NAME" >/dev/null
+
+      - name: Build and push candidate cloud image by digest
+        id: image
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SHA12: ${{ steps.source.outputs.sha12 }}
+          RUNNER_ENV: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          tag="candidate-${SHA12}"
+          metadata_file="$RUNNER_TEMP/cloud-candidate-metadata.json"
+          cache_args=(
+            --cache-from "type=registry,ref=${IMAGE_REPO}:buildcache-amd64"
+            --cache-to "type=registry,ref=${IMAGE_REPO}:buildcache-amd64,mode=max"
+          )
+          local_cache="/tmp/domios-ci/buildx-cache/domios-cloud"
+          if [[ "$RUNNER_ENV" == "self-hosted" ]]; then
+            mkdir -p /tmp/domios-ci/buildx-cache
+            if [[ -d "$local_cache" ]]; then
+              cache_args+=(--cache-from "type=local,src=${local_cache}")
+            fi
+            cache_args+=(--cache-to "type=local,dest=${local_cache}.new,mode=max")
+          fi
+          docker buildx build \
+            --builder "$BUILDER_NAME" \
+            --platform linux/amd64 \
+            --provenance=false \
+            --build-context "release=target/cloud-qa/archives" \
+            --build-arg "VERSION=${version}" \
+            --build-arg "SOURCE_SHA=${SOURCE_SHA}" \
+            --build-arg ARCHIVE_SOURCE=ci-smoke \
+            --build-arg ALLOW_CI_SMOKE=1 \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --annotation "manifest:org.domios.environment=qa" \
+            --annotation "manifest:org.opencontainers.image.revision=${SOURCE_SHA}" \
+            --annotation "manifest:org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            "${cache_args[@]}" \
+            --metadata-file "$metadata_file" \
+            -f docker/cloud.Dockerfile \
+            -t "${IMAGE_REPO}:${tag}" \
+            --push \
+            .
+          if [[ "$RUNNER_ENV" == "self-hosted" && -d "${local_cache}.new" ]]; then
+            rm -rf "$local_cache"
+            mv "${local_cache}.new" "$local_cache"
+          fi
+          digest=$(jq -er '."containerimage.digest"' "$metadata_file")
+          {
+            echo "digest=$digest"
+            echo "tag=$tag"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify anonymous pullability, tags, and compressed size budget
+        shell: bash
+        run: |
+          node scripts/docker/verify-cloud-image.mjs \
+            --repo "$IMAGE_REPO" \
+            --digest "${{ steps.image.outputs.digest }}" \
+            --expected-sha "${{ steps.source.outputs.sha }}" \
+            --expected-env qa \
+            --tag "${{ steps.image.outputs.tag }}" \
+            --max-compressed-mib 2048 \
+            --summary-file "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove job Buildx builder
+        if: always()
+        shell: bash
+        run: docker buildx rm --force "$BUILDER_NAME" >/dev/null 2>&1 || true
+
+      - name: Shared compile cache statistics
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
+        run: bash build.sh cache-stats
+
+      - name: Stop this job's local compile cache
+        if: always()
+        run: bash build.sh cache-release
+
+      - name: Remove this job's Rust targets and archives
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
+
+      - name: Restore runner checkout
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        run: node scripts/ci-stable-checkout.mjs leave

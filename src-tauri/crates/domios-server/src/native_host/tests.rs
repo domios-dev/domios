@@ -704,6 +704,25 @@ fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetim
 }
 
 #[test]
+fn native_integrity_hash_uses_one_mib_buffer_across_multi_chunk_images() {
+    assert_eq!(
+        super::enrollment::INTEGRITY_HASH_BUFFER_BYTES,
+        1024 * 1024,
+        "native integrity hash must read with a 1 MiB buffer"
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("multi-chunk.bin");
+    // Exercise more than two 1 MiB reads plus an odd tail chunk.
+    let size = 2 * 1024 * 1024 + 37_123;
+    let payload: Vec<u8> = (0..size).map(|i| ((i * 31) % 251) as u8).collect();
+    fs::write(&path, &payload).unwrap();
+    assert_eq!(
+        super::enrollment::sha256_file(&path).unwrap(),
+        digest(&payload)
+    );
+}
+
+#[test]
 fn transient_accept_errors_never_kill_the_native_host_listener() {
     use super::listener::is_transient_accept_error;
     use std::io::{Error, ErrorKind};

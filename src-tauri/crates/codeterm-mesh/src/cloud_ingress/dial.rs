@@ -1,6 +1,8 @@
 use super::{IngressError, MAX_ENROLLMENT_FRAME_BYTES};
 use codeterm_util::cloud_endpoint::{CloudEndpoint, PROVIDER_PROXY_PORT};
+use codeterm_util::network_host::public_ip;
 use rustls_pki_types::ServerName;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
@@ -19,14 +21,45 @@ pub(super) type ClientStream = MaybeTlsStream<TcpStream>;
 pub(super) type ClientSocket = WebSocketStream<ClientStream>;
 
 #[cfg(test)]
+pub(super) type TestResolverFn =
+    Arc<dyn Fn(&str, u16) -> Result<Vec<SocketAddr>, IngressError> + Send + Sync>;
+
+#[cfg(test)]
 pub(super) struct TestTlsOverride {
-    pub target: std::net::SocketAddr,
+    pub target: SocketAddr,
     pub roots: Arc<rustls::RootCertStore>,
 }
 
 #[cfg(test)]
 tokio::task_local! {
     pub(super) static TEST_TLS_OVERRIDE: TestTlsOverride;
+    pub(super) static TEST_RESOLVER: TestResolverFn;
+}
+
+pub(super) fn vet_resolved_provider_proxy_addrs(
+    addrs: &[SocketAddr],
+) -> Result<Vec<SocketAddr>, IngressError> {
+    if addrs.is_empty() {
+        return Err(IngressError::Unavailable);
+    }
+    if addrs
+        .iter()
+        .any(|addr| addr.port() != PROVIDER_PROXY_PORT || !public_ip(addr.ip()))
+    {
+        return Err(IngressError::Rejected);
+    }
+    Ok(addrs.to_vec())
+}
+
+async fn resolve_provider_proxy_addrs(host: &str) -> Result<Vec<SocketAddr>, IngressError> {
+    #[cfg(test)]
+    if let Ok(resolver) = TEST_RESOLVER.try_with(Arc::clone) {
+        return resolver(host, PROVIDER_PROXY_PORT);
+    }
+    let resolved = tokio::net::lookup_host((host, PROVIDER_PROXY_PORT))
+        .await
+        .map_err(|_| IngressError::Unavailable)?;
+    Ok(resolved.collect())
 }
 
 fn build_tls_config(
@@ -62,20 +95,38 @@ async fn open_provider_proxy(
         _ => return Err(IngressError::Rejected),
     };
     #[cfg(test)]
-    let (tcp_target, tls_config) =
+    let (test_target, tls_config) =
         match TEST_TLS_OVERRIDE.try_with(|ov| (ov.target, Arc::clone(&ov.roots))) {
             Ok((target, roots)) => (Some(target), build_tls_config(roots)?),
             Err(_) => (None, webpki_tls_config()?),
         };
     #[cfg(not(test))]
-    let (tcp_target, tls_config): (Option<std::net::SocketAddr>, Arc<rustls::ClientConfig>) =
+    let (test_target, tls_config): (Option<SocketAddr>, Arc<rustls::ClientConfig>) =
         (None, webpki_tls_config()?);
 
-    let tcp = match tcp_target {
-        Some(target) => TcpStream::connect(target).await,
-        None => TcpStream::connect((host, PROVIDER_PROXY_PORT)).await,
+    let connect_targets = match test_target {
+        Some(target) => {
+            #[cfg(test)]
+            if TEST_RESOLVER.try_with(|_| ()).is_ok() {
+                let resolved = resolve_provider_proxy_addrs(host).await?;
+                vet_resolved_provider_proxy_addrs(&resolved)?;
+            }
+            vec![target]
+        }
+        None => {
+            let resolved = resolve_provider_proxy_addrs(host).await?;
+            vet_resolved_provider_proxy_addrs(&resolved)?
+        }
+    };
+
+    let mut tcp = None;
+    for target in connect_targets {
+        if let Ok(stream) = TcpStream::connect(target).await {
+            tcp = Some(stream);
+            break;
+        }
     }
-    .map_err(|_| IngressError::Unavailable)?;
+    let tcp = tcp.ok_or(IngressError::Unavailable)?;
 
     let tls = TlsConnector::from(tls_config)
         .connect(server_name, tcp)

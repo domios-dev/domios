@@ -13,6 +13,8 @@ import {
   type BrowsedWorkspace, type GeneralAvailability, type PairedGeneral, type PeerLastActiveSelection, type PeerOrdinaryTabSummary,
 } from "./pairedWorkspaceProjection";
 
+export const PEER_INVENTORY_TIMEOUT_MS = 6_000;
+
 type CacheAccount = string | false | null;
 
 interface GeneralSnapshot {
@@ -145,11 +147,17 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
     const account = accountRef.current;
     const read: PeerRead = { account, controller: new AbortController(), again: false };
     const { signal } = read.controller;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      read.controller.abort(new DOMException("Peer inventory timed out", "TimeoutError"));
+    }, PEER_INVENTORY_TIMEOUT_MS);
+    (timeout as unknown as { unref?: () => void }).unref?.();
     reads.current.set(peerId, read);
     const publish = (next: (previous: GeneralSnapshot | undefined) => GeneralSnapshot | undefined) => {
       const currentRoster = peerRoster.current;
       const current = currentRoster?.paired.find(item => item.instance_id === peerId);
-      if (!signal.aborted && accountRef.current === account && current && current.public_key === peer.public_key
+      if ((!signal.aborted || timedOut) && accountRef.current === account && current && current.public_key === peer.public_key
         && pairedAvailability(current, currentRoster?.installations) === "reconnecting") {
         setGeneral(previous => {
           const known = previous.get(peerId);
@@ -213,6 +221,7 @@ export function usePairedWorkspaces(roster: PairedRoster | null, rosterSettled: 
         revision: ++snapshotRevisionRef.current,
       })))
       .finally(() => {
+        clearTimeout(timeout);
         if (reads.current.get(peerId) !== read) return;
         reads.current.delete(peerId);
         if (read.again) refreshPeerInventory(peerId);

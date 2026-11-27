@@ -17,6 +17,9 @@ vi.mock("../../lib/peerEventRail", () => ({
   },
 }));
 
+const openUrl = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { openUrl } }));
+
 const events = new Map<string, (event: { payload: unknown }) => void>();
 
 vi.mock("../../lib/bridge", () => ({
@@ -185,7 +188,8 @@ describe("ProviderNotInstalledNotice via TabLaunchFailure", () => {
     }
   });
 
-  it("shows exact failure, manual command, and retry when automatic install fails", async () => {
+  it("shows exact failure, official prerequisite install route, manual command, and retry when automatic install fails", async () => {
+    openUrl.mockReset();
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === "provider_cli_status") {
         return {
@@ -197,7 +201,7 @@ describe("ProviderNotInstalledNotice via TabLaunchFailure", () => {
           searched: [],
           installer: "npm install -g opaque-harness",
           updater: null,
-          installer_prerequisites: [{ binary: "npm", installed: false, hint: "Install Node.js first." }],
+          installer_prerequisites: [{ binary: "npm", installed: false, hint: "Install npm using https://nodejs.org/en/download, then rerun the manifest command." }],
           updater_prerequisites: [],
         } satisfies ProviderCliStatus;
       }
@@ -236,6 +240,10 @@ describe("ProviderNotInstalledNotice via TabLaunchFailure", () => {
       expect(host.querySelector('[data-testid="provider-install-error"]')?.textContent).toContain("exit code 127; npm not found");
       expect(host.textContent).toContain("npm install -g opaque-harness");
       expect(host.textContent).toContain("Needs npm first.");
+      const prereqBtn = host.querySelector<HTMLButtonElement>('[data-testid="prerequisite-install-link-npm"]')!;
+      expect(prereqBtn).not.toBeNull();
+      await act(async () => { prereqBtn.click(); });
+      expect(openUrl).toHaveBeenCalledExactlyOnceWith("https://nodejs.org/en/download");
       expect(host.querySelector<HTMLButtonElement>('[data-testid="provider-install-action"]')?.textContent).toBe("Retry install");
       expect(onRetry).not.toHaveBeenCalled();
 

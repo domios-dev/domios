@@ -11,6 +11,15 @@ pub struct CommandPrerequisite {
 }
 
 fn command_binaries(command: &str) -> Vec<String> {
+    if let Some(else_body) = powershell_else_branch(command) {
+        if else_has_actionable_builtin(else_body) && segment_binaries(else_body).is_empty() {
+            return Vec::new();
+        }
+    }
+    extract_binaries(command)
+}
+
+fn extract_binaries(command: &str) -> Vec<String> {
     let segments = command_segments(command);
     let tokens: Vec<&str> = segments
         .iter()
@@ -24,7 +33,7 @@ fn command_binaries(command: &str) -> Vec<String> {
             .split_whitespace()
             .map(|word| word.trim_matches(['\'', '"', '(', ')']))
             .collect();
-        let words = if matches!(words.first(), Some(&"if" | &"elif")) {
+        let words = if matches!(words.first(), Some(&"if" | &"elif" | &"elseif")) {
             &words[1..]
         } else {
             &words[..]
@@ -40,21 +49,152 @@ fn command_binaries(command: &str) -> Vec<String> {
         }
     }
     if !binaries.is_empty() || tokens.first().is_some_and(|binary| valid_binary(binary)) {
-        for segment in segments {
-            let mut words = segment.split_whitespace();
-            let mut binary = words.next().unwrap_or_default();
-            if matches!(binary, "then" | "else") {
-                binary = words.next().unwrap_or_default();
-            }
-            let binary = binary.trim_matches(['\'', '"']);
-            if valid_binary(binary) {
-                binaries.push(binary.to_owned());
-            }
-        }
+        binaries.extend(segment_binaries_from(&segments));
     }
     binaries.sort();
     binaries.dedup();
     binaries
+}
+
+fn segment_binaries(command: &str) -> Vec<String> {
+    let segments = command_segments(command);
+    let mut binaries = segment_binaries_from(&segments);
+    binaries.sort();
+    binaries.dedup();
+    binaries
+}
+
+fn segment_binaries_from(segments: &[&str]) -> Vec<String> {
+    let mut binaries = Vec::new();
+    for segment in segments {
+        let mut words = segment.split_whitespace();
+        let mut binary = words.next().unwrap_or_default();
+        if matches!(binary, "then" | "else" | "try" | "catch" | "finally") {
+            binary = words.next().unwrap_or_default();
+        }
+        let binary = binary.trim_matches(['\'', '"']);
+        if valid_binary(binary) {
+            binaries.push(binary.to_owned());
+        }
+    }
+    binaries
+}
+
+/// Extracts the top-level `else { ... }` body of a PowerShell `if (...) { ... } else { ... }` installer.
+fn powershell_else_branch(command: &str) -> Option<&str> {
+    let trimmed = command.trim();
+    if trimmed.len() < 2 || !trimmed[..2].eq_ignore_ascii_case("if") {
+        return None;
+    }
+    let mut index = 2;
+    if !trimmed[index..].starts_with(|c: char| c.is_ascii_whitespace() || c == '(') {
+        return None;
+    }
+    let skip_ws = |s: &str, pos: &mut usize| {
+        while let Some(ch) = s[*pos..].chars().next() {
+            if ch.is_ascii_whitespace() {
+                *pos += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+    };
+    let skip_balanced =
+        |s: &str, pos: &mut usize, open: char, close: char| -> Option<(usize, usize)> {
+            if !s[*pos..].starts_with(open) {
+                return None;
+            }
+            let body_start = *pos + open.len_utf8();
+            let mut depth = 0usize;
+            let mut quote: Option<char> = None;
+            for (offset, ch) in s[*pos..].char_indices() {
+                if let Some(delim) = quote {
+                    if ch == delim {
+                        quote = None;
+                    }
+                    continue;
+                }
+                if matches!(ch, '\'' | '"') {
+                    quote = Some(ch);
+                    continue;
+                }
+                if ch == open {
+                    depth += 1;
+                } else if ch == close {
+                    depth -= 1;
+                    if depth == 0 {
+                        let body_end = *pos + offset;
+                        *pos = body_end + close.len_utf8();
+                        return Some((body_start, body_end));
+                    }
+                }
+            }
+            None
+        };
+    loop {
+        skip_ws(trimmed, &mut index);
+        skip_balanced(trimmed, &mut index, '(', ')')?;
+        skip_ws(trimmed, &mut index);
+        skip_balanced(trimmed, &mut index, '{', '}')?;
+        skip_ws(trimmed, &mut index);
+        let rest = &trimmed[index..];
+        if rest.len() >= 6
+            && rest[..6].eq_ignore_ascii_case("elseif")
+            && rest[6..].starts_with(|c: char| c.is_ascii_whitespace() || c == '(')
+        {
+            index += 6;
+            continue;
+        }
+        if rest.len() >= 4
+            && rest[..4].eq_ignore_ascii_case("else")
+            && rest[4..].starts_with(|c: char| c.is_ascii_whitespace() || c == '{')
+        {
+            index += 4;
+            skip_ws(trimmed, &mut index);
+            let (body_start, body_end) = skip_balanced(trimmed, &mut index, '{', '}')?;
+            skip_ws(trimmed, &mut index);
+            return (index == trimmed.len()).then_some(&trimmed[body_start..body_end]);
+        }
+        return None;
+    }
+}
+
+fn else_has_actionable_builtin(body: &str) -> bool {
+    for segment in command_segments(body) {
+        let mut words = segment.split_whitespace();
+        let Some(first) = words.next() else {
+            continue;
+        };
+        let token = first.trim_matches(['\'', '"', '(', ')']);
+        if matches!(token.to_ascii_lowercase().as_str(), "irm" | "iex" | "iwr") {
+            return true;
+        }
+        if is_powershell_cmdlet(token)
+            && !matches!(
+                token.to_ascii_lowercase().as_str(),
+                "write-error" | "write-output" | "write-host" | "write-warning"
+            )
+        {
+            return true;
+        }
+        // Handle assignments like `$pkg = Invoke-RestMethod ...`
+        if token.starts_with('$')
+            && words.any(|word| {
+                let candidate = word.trim_matches(['\'', '"', '(', ')']);
+                matches!(
+                    candidate.to_ascii_lowercase().as_str(),
+                    "irm" | "iex" | "iwr"
+                ) || (is_powershell_cmdlet(candidate)
+                    && !matches!(
+                        candidate.to_ascii_lowercase().as_str(),
+                        "write-error" | "write-output" | "write-host" | "write-warning"
+                    ))
+            })
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn command_segments(command: &str) -> Vec<&str> {
@@ -104,12 +244,14 @@ fn valid_binary(binary: &str) -> bool {
                 | "else"
                 | "fi"
                 | "elif"
+                | "elseif"
                 | "do"
                 | "done"
                 | "for"
                 | "while"
                 | "try"
                 | "catch"
+                | "finally"
                 | "which"
                 | "Get-Command"
                 | "export"
@@ -153,8 +295,19 @@ fn is_powershell_cmdlet(token: &str) -> bool {
 
 fn setup_hint(binary: &str) -> String {
     let source = match binary {
+        "npm" | "npx" | "node" => "https://nodejs.org/en/download",
         "uv" => "https://docs.astral.sh/uv/getting-started/installation/",
         "pipx" => "https://pipx.pypa.io/stable/installation/",
+        "bun" => "https://bun.sh/docs/installation",
+        "pnpm" => "https://pnpm.io/installation",
+        "yarn" => "https://yarnpkg.com/getting-started/install",
+        "brew" => "https://brew.sh",
+        "curl" => "https://curl.se/download.html",
+        "winget" => "https://learn.microsoft.com/windows/package-manager/winget/",
+        "scoop" => "https://scoop.sh",
+        "choco" => "https://chocolatey.org/install",
+        "cargo" => "https://rustup.rs",
+        "git" => "https://git-scm.com/downloads",
         _ => "its official setup instructions or your OS package manager",
     };
     format!("Install {binary} using {source}, then rerun the manifest command.")

@@ -26,6 +26,9 @@ use tokio_tungstenite::{
 const MAX_SESSIONS: usize = 32;
 const MAX_NOISE_MESSAGE: usize = u16::MAX as usize;
 
+/// Failure bound for a guest bootstrap enrollment session (covers lifecycle wait + delegation + Apply).
+pub const BOOTSTRAP_SESSION_TIMEOUT: Duration = Duration::from_secs(240);
+
 pub struct CloudIngressHandle(JoinHandle<()>, Arc<OnceLock<super::enrolled::Runtime>>);
 
 impl CloudIngressHandle {
@@ -82,11 +85,49 @@ impl Drop for CloudIngressHandle {
     }
 }
 
+pub(crate) fn authoritative_proxy_host_from_env() -> Option<String> {
+    let platform = std::env::var("DOMIOS_CLOUD_PLATFORM").ok();
+    let fly_app = std::env::var("FLY_APP_NAME").ok();
+    authoritative_proxy_host_from_vars(platform.as_deref(), fly_app.as_deref())
+}
+
+pub(crate) fn authoritative_proxy_host_from_vars(
+    platform: Option<&str>,
+    fly_app_name: Option<&str>,
+) -> Option<String> {
+    if platform != Some("fly_machines") {
+        return None;
+    }
+    let app = fly_app_name?;
+    if app.is_empty() || app.contains('.') {
+        return None;
+    }
+    let host = format!("{app}.fly.dev");
+    super::provider_proxy_host_allowed(&host).then_some(host)
+}
+
 pub fn start(
     bind: SocketAddr,
     enrollment: Arc<dyn EnrollmentHandler>,
     authority: Arc<dyn CloudIngressAuthority>,
 ) -> (CloudIngressHandle, oneshot::Receiver<IngressReady>) {
+    start_with_proxy_host(
+        bind,
+        authoritative_proxy_host_from_env(),
+        enrollment,
+        authority,
+    )
+}
+
+pub fn start_with_proxy_host(
+    bind: SocketAddr,
+    authoritative_proxy_host: Option<String>,
+    enrollment: Arc<dyn EnrollmentHandler>,
+    authority: Arc<dyn CloudIngressAuthority>,
+) -> (CloudIngressHandle, oneshot::Receiver<IngressReady>) {
+    let authoritative_proxy_host = authoritative_proxy_host
+        .filter(|host| super::provider_proxy_host_allowed(host))
+        .map(Arc::<str>::from);
     let (ready, receiver) = oneshot::channel();
     let runtime = Arc::new(OnceLock::new());
     let serving = Arc::clone(&runtime);
@@ -112,8 +153,9 @@ pub fn start(
                     let enrollment = enrollment.clone();
                     let authority = authority.clone();
                     let runtime = serving.clone();
+                    let proxy_host = authoritative_proxy_host.clone();
                     sessions.spawn(async move {
-                        let _ = connection(socket,enrollment,authority,runtime).await;
+                        let _ = connection(socket, proxy_host, enrollment, authority, runtime).await;
                     });
                 }
             }
@@ -131,32 +173,41 @@ enum Route {
     Recovery,
 }
 
-fn parse_proxy_host(request: &Request) -> Option<String> {
-    let raw = request.headers().get("host")?.to_str().ok()?;
+fn request_host_matches(request: &Request, expected_host: &str) -> bool {
+    let Some(raw) = request.headers().get("host").and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
     let host = raw.strip_suffix(":443").unwrap_or(raw);
-    super::provider_proxy_host_allowed(host).then(|| host.to_owned())
+    host == expected_host
 }
 
 fn upgrade(
     request: &Request,
     response: Response,
     route: &mut Route,
-    proxy_host: &mut Option<String>,
+    authoritative_proxy_host: Option<&str>,
 ) -> Result<Response, ErrorResponse> {
     let path = request.uri().path_and_query().map(|p| p.as_str());
-    if let Some(selected) = match path {
+    let Some(selected) = (match path {
         Some(super::enrolled::PATH) => Some(Route::Enrolled),
         Some(super::renewal_recovery::PATH) => Some(Route::Recovery),
         Some("/cloud/enrollment/v1") => Some(Route::Bootstrap),
         _ => None,
-    } {
-        *route = selected;
-        *proxy_host = parse_proxy_host(request);
-        return Ok(response);
+    }) else {
+        let mut refused = ErrorResponse::new(None);
+        *refused.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::NOT_FOUND;
+        return Err(refused);
+    };
+    if let Some(expected_host) = authoritative_proxy_host {
+        if !request_host_matches(request, expected_host) {
+            let mut refused = ErrorResponse::new(None);
+            *refused.status_mut() =
+                tokio_tungstenite::tungstenite::http::StatusCode::MISDIRECTED_REQUEST;
+            return Err(refused);
+        }
     }
-    let mut refused = ErrorResponse::new(None);
-    *refused.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::NOT_FOUND;
-    Err(refused)
+    *route = selected;
+    Ok(response)
 }
 
 async fn read(socket: &mut Socket) -> Result<Vec<u8>, IngressError> {
@@ -190,6 +241,7 @@ async fn encrypted_reply(
 
 async fn connection(
     socket: TcpStream,
+    authoritative_proxy_host: Option<Arc<str>>,
     enrollment: Arc<dyn EnrollmentHandler>,
     authority: Arc<dyn CloudIngressAuthority>,
     runtime: Arc<OnceLock<super::enrolled::Runtime>>,
@@ -198,12 +250,13 @@ async fn connection(
         .max_message_size(Some(MAX_ENROLLMENT_FRAME_BYTES))
         .max_frame_size(Some(MAX_ENROLLMENT_FRAME_BYTES));
     let mut route = Route::Bootstrap;
-    let mut proxy_host = None;
     let socket = tokio::time::timeout(
         Duration::from_secs(10),
         accept_hdr_async_with_config(
             socket,
-            |req: &Request, res: Response| upgrade(req, res, &mut route, &mut proxy_host),
+            |req: &Request, res: Response| {
+                upgrade(req, res, &mut route, authoritative_proxy_host.as_deref())
+            },
             Some(config),
         ),
     )
@@ -227,13 +280,13 @@ async fn connection(
     if matches!(route, Route::Enrolled) {
         return super::enrolled::serve(
             socket,
-            proxy_host,
+            authoritative_proxy_host.map(|host| host.to_string()),
             runtime.get().ok_or(IngressError::Rejected)?,
         )
         .await;
     }
     tokio::time::timeout(
-        Duration::from_secs(120),
+        BOOTSTRAP_SESSION_TIMEOUT,
         bootstrap(socket, enrollment, authority),
     )
     .await

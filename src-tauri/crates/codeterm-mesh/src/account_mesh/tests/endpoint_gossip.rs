@@ -335,3 +335,121 @@ fn provider_proxy_endpoint_round_trips_through_gossip_signing_and_refuses_invali
             .is_err());
     }
 }
+
+#[test]
+fn provider_proxy_gossip_refuses_downgrade_to_direct_tailnet_withdrawal_and_host_change() {
+    let clock = clock();
+    let (a, b, c) = (machine(1, &clock), machine(2, &clock), machine(3, &clock));
+    admit(&[&a, &b, &c]);
+    let token = a
+        .mesh
+        .lock()
+        .account_state()
+        .membership
+        .as_ref()
+        .unwrap()
+        .token
+        .clone();
+    let host = "domios-a1b2c3d4.fly.dev".to_owned();
+    let original = a
+        .mesh
+        .lock()
+        .sign_endpoint_record(
+            Some(EndpointAddress::ProviderProxy { host: host.clone() }),
+            1,
+            &token,
+        )
+        .unwrap();
+    assert!(b
+        .mesh
+        .lock()
+        .receive_endpoint_record(original.clone())
+        .unwrap());
+
+    // Helper to sign arbitrary newer claims with machine `a`'s valid installation authority.
+    let sign_claim = |sequence: u64, endpoint: Option<EndpointAddress>| -> SignedEndpointRecord {
+        let claim = crate::endpoint_gossip::EndpointClaim {
+            version: crate::endpoint_gossip::ENDPOINT_RECORD_VERSION,
+            installation_id: a.installation_id.clone(),
+            sequence,
+            membership: token.clone(),
+            endpoint,
+        };
+        let signature = a
+            .authority
+            .sign_possession(&claim.digest().unwrap())
+            .unwrap();
+        SignedEndpointRecord { claim, signature }
+    };
+
+    // Downgrade to DirectIngress, Tailnet, withdrawal (None), or different host are all refused.
+    let downgrade_direct = sign_claim(
+        2,
+        Some(EndpointAddress::DirectIngress {
+            address: "8.8.8.8:7687".parse().unwrap(),
+        }),
+    );
+    let downgrade_tailnet = sign_claim(
+        3,
+        Some(EndpointAddress::Tailnet {
+            tailnet_ip: a.ip.clone(),
+            api_port: a.port,
+        }),
+    );
+    let withdrawal = sign_claim(4, None);
+    let host_change = sign_claim(
+        5,
+        Some(EndpointAddress::ProviderProxy {
+            host: "domios-hijacked.fly.dev".into(),
+        }),
+    );
+    for forbidden in [
+        &downgrade_direct,
+        &downgrade_tailnet,
+        &withdrawal,
+        &host_change,
+    ] {
+        assert!(
+            b.mesh
+                .lock()
+                .receive_endpoint_record(forbidden.clone())
+                .is_err(),
+            "gossip must refuse transition to {:?}",
+            forbidden.claim.endpoint
+        );
+    }
+
+    // Renewal with the exact same ProviderProxy host and higher sequence still succeeds.
+    let same_host_renewal = sign_claim(
+        6,
+        Some(EndpointAddress::ProviderProxy { host: host.clone() }),
+    );
+    assert!(b
+        .mesh
+        .lock()
+        .receive_endpoint_record(same_host_renewal)
+        .unwrap());
+    assert_eq!(
+        b.mesh.lock().cloud_ingress_endpoint(&a.installation_id),
+        Some(codeterm_util::cloud_endpoint::CloudEndpoint::ProviderProxy { host: host.clone() })
+    );
+
+    // Pinned managed endpoint on peer `c` refuses spoofed Direct or wrong-host gossip even before
+    // any gossip record has ever been accepted for that installation.
+    c.mesh.lock().pin_managed_cloud_endpoint(
+        a.installation_id.clone(),
+        codeterm_util::cloud_endpoint::CloudEndpoint::ProviderProxy { host: host.clone() },
+    );
+    assert!(c
+        .mesh
+        .lock()
+        .receive_endpoint_record(downgrade_direct)
+        .is_err());
+    assert!(c.mesh.lock().receive_endpoint_record(host_change).is_err());
+    assert!(c.mesh.lock().receive_endpoint_record(withdrawal).is_err());
+    assert!(c.mesh.lock().receive_endpoint_record(original).unwrap());
+    assert_eq!(
+        c.mesh.lock().cloud_ingress_endpoint(&a.installation_id),
+        Some(codeterm_util::cloud_endpoint::CloudEndpoint::ProviderProxy { host })
+    );
+}

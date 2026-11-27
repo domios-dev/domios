@@ -24,6 +24,8 @@
     "domios-dev/domios/.github/workflows/ci-step.yml@refs/heads/release/next",
     "domios-dev/domios/.github/workflows/precheck.yml@refs/heads/release/next",
     "domios-dev/domios/.github/workflows/bake-linux-images.yml@refs/heads/release/next",
-    "domios-dev/domios/.github/workflows/docker-smoke.yml@refs/heads/release/next"
+    "domios-dev/domios/.github/workflows/cloud-image.yml@refs/heads/release/next",
+    "domios-dev/domios/.github/workflows/docker-smoke.yml@refs/heads/release/next",
+    "domios-dev/domios/.github/workflows/release-cloud-image.yml@refs/heads/release/next"
   ]
 }

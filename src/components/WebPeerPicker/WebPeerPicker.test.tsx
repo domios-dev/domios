@@ -10,6 +10,7 @@ import {
 import { DEFAULT_THEME } from "../../lib/themeCss";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
+import { PairedWorkspaceInventoryContext } from "../../store/multiplexer/context";
 import { WebPeerPicker } from "./WebPeerPicker";
 
 const peersResponse = vi.fn<() => Promise<unknown>>();
@@ -214,7 +215,7 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
   document.body.append(meshButton);
   const route = vi.fn((event: Event) => {
     const detail = (event as CustomEvent).detail;
-    if (detail.meshTab === "inventory") meshButton.focus();
+    if (detail.meshTab === "inventory" && !detail.newMachine) meshButton.focus();
   });
   window.addEventListener("codeterm:open-panel", route);
   try {
@@ -239,7 +240,7 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
     expect(document.activeElement).toBe(add);
     await press("Enter");
     expect(route).toHaveBeenCalledTimes(1);
-    expect(route.mock.lastCall?.[0]).toMatchObject({ detail: { panel: "mesh", meshTab: "network" } });
+    expect(route.mock.lastCall?.[0]).toMatchObject({ detail: { panel: "mesh", meshTab: "inventory", newMachine: true } });
     expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
     expect(chip.label()).toBe("Machine: Desk");
@@ -257,5 +258,84 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
     window.removeEventListener("codeterm:open-panel", route);
     meshButton.remove();
     await chip.unmount();
+  }
+});
+
+it("renders kind=cloud rows with calm cloud states and never puts a usage meter inside the switcher", async () => {
+  peersResponse.mockResolvedValue({
+    local_instance_name: "Studio",
+    paired: [
+      {
+        instance_id: "cloud-awake",
+        instance_name: "Cloud box",
+        addresses: [],
+        api_port: 7687,
+        online: true,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        kind: "cloud",
+        cloud: { kind: "cloud", machine_id: "cm-1", name: "Cloud box", provider: "fly_machines", size: "small", state: "awake", sleep_mode: "stop_billed", uptime_secs: 600, billing_notice: "" },
+      },
+      {
+        instance_id: "cloud-waking",
+        instance_name: "Night runner",
+        addresses: [],
+        api_port: 7687,
+        online: false,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        kind: "cloud",
+        cloud: { kind: "cloud", machine_id: "cm-2", name: "Night runner", provider: "fly_machines", size: "large", state: "waking", sleep_mode: "stop_billed", uptime_secs: 0, billing_notice: "" },
+      },
+    ],
+    cloud_machines: [
+      { kind: "cloud", machine_id: "cm-3", name: "Render box", provider: "fly_machines", size: "small", state: "asleep", sleep_mode: "stop_billed", uptime_secs: 0, peer_instance_id: "cloud-asleep", billing_notice: "" },
+      { kind: "cloud", machine_id: "cm-4", name: "Scratch", provider: "fly_machines", size: "small", state: "out_of_credits", sleep_mode: "stop_billed", uptime_secs: 0, peer_instance_id: "cloud-ooc", billing_notice: "" },
+    ],
+  });
+  const chip = await mount();
+  try {
+    await act(async () => chip.host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!.click());
+    const menu = document.querySelector<HTMLElement>('[data-testid="peer-picker-menu"]')!;
+    expect(menu.querySelector('[data-testid="cloud-usage-meter"]')).toBeNull();
+    expect(menu.querySelector('[data-peer-id="cloud-awake"]')?.getAttribute("aria-label")).toBe("Cloud box, virtual machine, online");
+    expect(menu.querySelector('[data-peer-id="cloud-waking"]')?.getAttribute("aria-label")).toBe("Night runner, virtual machine, waking up");
+    expect(menu.querySelector('[data-peer-id="cloud-asleep"]')?.getAttribute("aria-label")).toBe("Render box, virtual machine, asleep");
+    expect(menu.querySelector('[data-peer-id="cloud-ooc"]')?.getAttribute("aria-label")).toBe("Scratch, virtual machine, asleep, out of cloud hours");
+  } finally {
+    await chip.unmount();
+  }
+});
+
+it("shows a visible reconnecting state when switching to a reconnecting peer", async () => {
+  peersResponse.mockResolvedValue({
+    local_instance_name: "BLACKSTAR",
+    paired: [{ instance_id: "peer-ubunta", instance_name: "ubunta", addresses: [], api_port: 7685, online: true, relay_protocol_version: RELAY_PROTOCOL_VERSION }],
+  });
+  setSidebarMachineFilter({ id: "peer-ubunta", name: "ubunta" });
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(
+      <PairedWorkspaceInventoryContext.Provider value={{
+        generals: [{ peerId: "peer-ubunta", name: "ubunta", availability: "reconnecting", sessions: [] }],
+        browse: { target: { id: "peer-ubunta", name: "ubunta" }, availability: "reconnecting", workspaces: [], synced: false },
+      }}>
+        <WebPeerPicker compact />
+      </PairedWorkspaceInventoryContext.Provider>,
+    ));
+    const trigger = host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!;
+    expect(trigger.getAttribute("aria-label")).toBe("Machine: ubunta (reconnecting)");
+    expect(trigger.getAttribute("data-reconnecting")).toBe("true");
+    const status = host.querySelector('[data-testid="peer-picker-reconnecting"]');
+    expect(status?.getAttribute("role")).toBe("status");
+    expect(status?.textContent).toContain("Reconnecting");
+
+    await act(async () => trigger.click());
+    const option = document.querySelector<HTMLButtonElement>('[data-peer-id="peer-ubunta"]')!;
+    expect(option.getAttribute("aria-label")).toContain("reconnecting");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

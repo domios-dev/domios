@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 use super::controller::CloudMachineController;
 use super::idle_drain::IdleDecision;
 use super::ports::{CloudPeerControlPort, CloudProvisioningPort};
+use super::state::DrainingReconcileIntent;
 use super::types::{CloudLifecycleState, DEFAULT_LEASE_RENEW_LEAD_MS};
 
 /// Maximum cadence between `read_idle` checks for an awake cloud machine (60 s).
@@ -73,11 +74,14 @@ impl MachineTask {
 struct ActiveMachineGuard {
     machine_id: String,
     active: Arc<Mutex<HashSet<String>>>,
+    task_exit_tx: watch::Sender<u64>,
 }
 
 impl Drop for ActiveMachineGuard {
     fn drop(&mut self) {
         self.active.lock().remove(&self.machine_id);
+        self.task_exit_tx
+            .send_modify(|rev| *rev = rev.wrapping_add(1));
     }
 }
 
@@ -117,37 +121,51 @@ pub fn spawn_cloud_idle_driver(
     config: CloudIdleDriverConfig,
 ) -> CloudIdleDriverHandle {
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
-    // Seed active machines synchronously from persisted awake records so callers observing
-    // `active_machine_ids()` immediately after startup never race ahead of the first supervisor pass.
-    let initial_awake: HashSet<String> = controller
+    // Seed active machines synchronously from persisted Awake and unowned Draining records so
+    // callers observing `active_machine_ids()` right after startup never race the first supervisor pass.
+    let initial_active: HashSet<String> = controller
         .list_records()
         .into_iter()
-        .filter(|rec| rec.state == CloudLifecycleState::Awake)
+        .filter(|rec| {
+            rec.state == CloudLifecycleState::Awake
+                || (rec.state == CloudLifecycleState::Draining
+                    && !controller.has_active_drain(&rec.machine_id))
+        })
         .map(|rec| rec.machine_id)
         .collect();
-    let active_machines = Arc::new(Mutex::new(initial_awake));
+    let active_machines = Arc::new(Mutex::new(initial_active));
     let active_for_supervisor = Arc::clone(&active_machines);
     let config = Arc::new(config);
 
     let supervisor = tokio::spawn(async move {
         let mut lifecycle_rx = controller.subscribe_lifecycle();
+        let (task_exit_tx, mut task_exit_rx) = watch::channel(0u64);
         let mut tasks: HashMap<String, MachineTask> = HashMap::new();
 
         loop {
             if *shutdown_rx.borrow() {
                 break;
             }
-            let awake_ids: HashSet<String> = controller
-                .list_records()
-                .into_iter()
+            let records = controller.list_records();
+            let awake_ids: HashSet<String> = records
+                .iter()
                 .filter(|rec| rec.state == CloudLifecycleState::Awake)
-                .map(|rec| rec.machine_id)
+                .map(|rec| rec.machine_id.clone())
+                .collect();
+            // A draining machine is mid-sleep inside its own loop; cancelling it would abandon the drain.
+            let draining_ids: HashSet<String> = records
+                .iter()
+                .filter(|rec| rec.state == CloudLifecycleState::Draining)
+                .map(|rec| rec.machine_id.clone())
                 .collect();
 
             // Event-cancel any machine that slept, ran out of credits, or was deleted.
             let stale_ids: Vec<String> = tasks
                 .iter()
-                .filter(|(id, entry)| !awake_ids.contains(*id) || entry.task.is_finished())
+                .filter(|(id, entry)| {
+                    (!awake_ids.contains(*id) && !draining_ids.contains(*id))
+                        || entry.task.is_finished()
+                })
                 .map(|(id, _)| id.clone())
                 .collect();
             for id in stale_ids {
@@ -156,12 +174,20 @@ pub fn spawn_cloud_idle_driver(
                 }
                 active_for_supervisor.lock().remove(&id);
             }
-            active_for_supervisor
-                .lock()
-                .retain(|id| awake_ids.contains(id) || tasks.contains_key(id));
 
-            // Spawn one per-machine loop for every awake cloud machine without an active driver.
-            for machine_id in awake_ids {
+            // Spawn one per-machine loop for every awake machine and every unowned draining machine
+            // so no Draining record is ever left wedged after a restart or lost loop.
+            let needed_ids: HashSet<String> = awake_ids
+                .iter()
+                .cloned()
+                .chain(
+                    draining_ids
+                        .iter()
+                        .filter(|id| !controller.has_active_drain(id))
+                        .cloned(),
+                )
+                .collect();
+            for machine_id in needed_ids {
                 if tasks.contains_key(&machine_id) {
                     continue;
                 }
@@ -175,10 +201,14 @@ pub fn spawn_cloud_idle_driver(
                     Arc::clone(&waiter),
                     Arc::clone(&config),
                     Arc::clone(&active_for_supervisor),
+                    task_exit_tx.clone(),
                     cancel_rx,
                 ));
                 tasks.insert(machine_id, MachineTask { cancel_tx, task });
             }
+            active_for_supervisor
+                .lock()
+                .retain(|id| awake_ids.contains(id) || tasks.contains_key(id));
 
             tokio::select! {
                 biased;
@@ -188,6 +218,11 @@ pub fn spawn_cloud_idle_driver(
                     }
                 }
                 changed = lifecycle_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                }
+                changed = task_exit_rx.changed() => {
                     if changed.is_err() {
                         break;
                     }
@@ -216,11 +251,13 @@ async fn run_machine_idle_loop(
     waiter: Arc<dyn IdleTickWaiter>,
     config: Arc<CloudIdleDriverConfig>,
     active_machines: Arc<Mutex<HashSet<String>>>,
+    task_exit_tx: watch::Sender<u64>,
     mut cancel_rx: watch::Receiver<bool>,
 ) {
     let _active_guard = ActiveMachineGuard {
         machine_id: machine_id.clone(),
         active: active_machines,
+        task_exit_tx,
     };
     let cadence_ms = config.cadence_ms.max(1);
 
@@ -231,6 +268,40 @@ async fn run_machine_idle_loop(
         let Some(record) = controller.find_by_peer(&machine_id) else {
             break;
         };
+        if record.state == CloudLifecycleState::Draining {
+            match controller
+                .reconcile_draining(
+                    &machine_id,
+                    DrainingReconcileIntent::FinishDrainOrRecover,
+                    config.delete_on_stop_billed,
+                    provisioning.as_ref(),
+                    peer_control.as_ref(),
+                )
+                .await
+            {
+                Ok(reconciled) => {
+                    if reconciled.state != CloudLifecycleState::Awake {
+                        break;
+                    }
+                    continue;
+                }
+                Err(error) => {
+                    log::warn!(
+                        "[cloud/idle-driver] draining reconciliation failed for {machine_id}: {error}"
+                    );
+                    tokio::select! {
+                        biased;
+                        changed = cancel_rx.changed() => {
+                            if changed.is_err() || *cancel_rx.borrow() {
+                                break;
+                            }
+                        }
+                        _ = waiter.wait_ms(cadence_ms) => {}
+                    }
+                    continue;
+                }
+            }
+        }
         if record.state != CloudLifecycleState::Awake {
             break;
         }
