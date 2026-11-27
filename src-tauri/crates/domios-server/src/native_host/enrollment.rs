@@ -503,12 +503,15 @@ fn valid_digest(digest: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-fn sha256_file(path: &Path) -> io::Result<String> {
+pub(super) const INTEGRITY_HASH_BUFFER_BYTES: usize = 1024 * 1024;
+
+pub(super) fn sha256_file(path: &Path) -> io::Result<String> {
     let started = std::time::Instant::now();
     let mut bytes = 0u64;
     let mut file = File::open(path)?;
     let mut hash = Sha256::new();
-    let mut buffer = [0u8; 16 * 1024];
+    // Heap-allocate the 1 MiB read buffer to avoid overflowing 1 MiB thread stacks on Windows.
+    let mut buffer = vec![0u8; INTEGRITY_HASH_BUFFER_BYTES];
     loop {
         let count = file.read(&mut buffer)?;
         if count == 0 {

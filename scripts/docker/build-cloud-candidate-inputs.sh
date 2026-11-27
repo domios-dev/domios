@@ -20,6 +20,11 @@ for secret_key in DOMIOS_QA_PROJECT_ID DOMIOS_QA_FIREBASE_API_KEY DOMIOS_QA_FIRE
   fi
 done
 
+command -v "${OBJCOPY:-objcopy}" >/dev/null 2>&1 || {
+  echo "Missing required objcopy tool (${OBJCOPY:-objcopy}) to strip QA cloud binaries" >&2
+  exit 2
+}
+
 rm -rf target/cloud-qa
 logs="target/cloud-qa/logs/$CARGO_BUILD_TARGET"
 mkdir -p "$logs"
@@ -29,7 +34,7 @@ pnpm build
 cargo build --locked --manifest-path cli/Cargo.toml \
   --target "$CARGO_BUILD_TARGET" --message-format=json-render-diagnostics > "$logs/cli.jsonl"
 
-CODETERM_SERVER_CLI_SHA256=$(node scripts/docker/package-cloud-qa.mjs cli-digest "$logs/cli.jsonl")
+CODETERM_SERVER_CLI_SHA256=$(node scripts/docker/package-cloud-qa.mjs cli-digest "$logs/cli.jsonl" "$CARGO_BUILD_TARGET")
 export CODETERM_SERVER_CLI_SHA256
 
 DOMIOS_ACCOUNT_TARGET=qa \
