@@ -63,6 +63,8 @@ export type ProductEvent =
   | { event_type: "update_checked"; event_properties: { offers: number } }
   | { event_type: "account_created"; event_properties: { auth_provider: AuthProvider } }
   | { event_type: "neighbor_invite_created"; event_properties: Record<string, never> }
+  | { event_type: "payment_received"; event_properties: Record<string, never> }
+  | { event_type: "payment_refunded"; event_properties: Record<string, never> }
 ;
 export const PRODUCT_EVENT_CATALOG = {
   "app_first_run": {
@@ -173,7 +175,9 @@ export const PRODUCT_EVENT_CATALOG = {
   "account_created": {
     "auth_provider": "AuthProvider"
   },
-  "neighbor_invite_created": {}
+  "neighbor_invite_created": {},
+  "payment_received": {},
+  "payment_refunded": {}
 } as const;
 export const PRODUCT_EVENT_ENUMS = {
   "Platform": [

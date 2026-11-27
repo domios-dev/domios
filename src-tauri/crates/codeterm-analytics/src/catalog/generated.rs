@@ -673,4 +673,6 @@ pub enum Event {
         auth_provider: AuthProvider,
     },
     NeighborInviteCreated {},
+    PaymentReceived {},
+    PaymentRefunded {},
 }

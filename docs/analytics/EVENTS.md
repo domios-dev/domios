@@ -118,6 +118,8 @@ Every row below has source **backend**. Production business emitters currently u
 | `checkout_returned` | Same contract/allowlist | Contract: common dimensions, outcome (completed/cancelled/unknown) | Reserved backend contract; desktop returned outcome differs |
 | `referral_link_shared` | Same contract/allowlist | Contract: plan, app_version, platform, referral_id | Reserved; no production emitter found |
 | `referral_reward_revoked` | Same contract/allowlist | Contract: plan, app_version, platform, referral_id | Reserved; no production emitter found |
+| `payment_received` | `billing/index.ts` · stripeWebhook / paddleWebhook; `billing/cloud-credits/stripe-packs.ts` · dispatchStripePackWebhook; `billing/adapters/firestore.ts` · createFirestoreTrialWebhookHandler | None; Amplitude revenue envelope (`price` > 0, `quantity`, `revenueType` in `subscription_new`/`subscription_renewal`/`cloud_hours_pack`/`cloud_hours_custom`, `currency`, `productId`) with `insert_id` = provider event id | Confirmed provider revenue (Stripe subscriptions/packs/custom amounts, Paddle subscriptions) |
+| `payment_refunded` | Same verified Stripe/Paddle webhook paths (full/partial refunds and finalized chargebacks) | None; Amplitude revenue envelope (`price` < 0, `quantity`, `revenueType: "refund"`, `currency`, `productId`) with `insert_id` = provider event id | Confirmed provider refunds and chargebacks |
 
 `account_created` and `neighbor_invite_created` are backend-only emitters. Creation receipts and existing bounded retry intents commit atomically after the server creation event; OFF and erasure fence delivery. Their triggers have no request IP/device context, so none is fabricated. They require separately reviewed backend rollout; a desktop sign-in never creates either event.
 
@@ -159,4 +161,4 @@ After reviewed deployments, the owner should use the Amplitude UI to confirm a c
 
 The owner must also check the Amplitude project's IP/location ingestion settings: a project-level setting can discard IP and location despite the envelope. Application code cannot inspect that setting. Confirm country and platform on consented desktop/web events after reviewed rollout.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

@@ -270,6 +270,8 @@
     "account_created": {
       "auth_provider": "AuthProvider"
     },
-    "neighbor_invite_created": {}
+    "neighbor_invite_created": {},
+    "payment_received": {},
+    "payment_refunded": {}
   }
 }
