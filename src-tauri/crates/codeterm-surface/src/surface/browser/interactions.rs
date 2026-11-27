@@ -95,10 +95,11 @@ impl BrowserRuntime {
         if current.backend_node_id != target.backend_node_id {
             return Err("stale: target changed".into());
         }
-        let (x, y) = super::input::quad_center(&quads).ok_or("hidden: target has no box")?;
-        self.require_pointer_target(page, target.backend_node_id, x, y)
-            .await?;
-        Ok((x, y))
+        if super::input::quad_center(&quads).is_none() {
+            return Err("hidden: target has no box".into());
+        }
+        self.choose_pointer_point(page, target.backend_node_id, &quads)
+            .await
     }
 
     pub(super) async fn interaction_verb(

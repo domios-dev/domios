@@ -344,14 +344,16 @@ impl BrowserRuntime {
             .send(page, "DOM.scrollIntoViewIfNeeded", node.clone())
             .await;
         let quads = self.send(page, "DOM.getContentQuads", node).await?;
-        let (x, y) =
-            input::quad_center(&quads).ok_or("element has no visible box (hidden or zero-size)")?;
+        if input::quad_center(&quads).is_none() {
+            return Err("element has no visible box (hidden or zero-size)".into());
+        }
         let authority = self.shared.begin_action(page)?;
+        let (x, y) = self
+            .choose_pointer_point(page, backend_node_id, &quads)
+            .await?;
         self.present(page, json!({"kind":"click","x":x,"y":y}))
             .await;
         self.shared.check_action(&authority)?;
-        self.require_pointer_target(page, backend_node_id, x, y)
-            .await?;
         self.complete_action(page, false, async {
             self.require_pointer_target(page, backend_node_id, x, y)
                 .await?;
