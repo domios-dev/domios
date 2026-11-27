@@ -181,13 +181,23 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> EnrolledCha
     }
 
     pub async fn receive_reverse(
-        mut self,
+        self,
         dedupe: &crate::cloud_outbox::ReceiverDedupe,
         dispatcher: &dyn super::ReverseDispatcher,
     ) -> Result<(), IngressError> {
+        self.receive_reverse_with_attach(dedupe, dispatcher, || {})
+            .await
+    }
+
+    pub async fn receive_reverse_with_attach(
+        mut self,
+        dedupe: &crate::cloud_outbox::ReceiverDedupe,
+        dispatcher: &dyn super::ReverseDispatcher,
+        attached: impl FnOnce() + Send,
+    ) -> Result<(), IngressError> {
         self.admit()?;
         self.stream.write(&Request::Attach).await?;
-        super::reverse::receive(self, dedupe, dispatcher).await
+        super::reverse::receive_with_attach(self, dedupe, dispatcher, attached).await
     }
 
     pub fn peer_membership(&self) -> Result<&VerifiedMembership, IngressError> {
@@ -265,7 +275,16 @@ pub async fn connect_enrolled(
     route: CloudRoute,
     installation_id: &str,
 ) -> Result<EnrolledChannel, IngressError> {
-    tokio::time::timeout(Duration::from_secs(30), async {
+    connect_enrolled_with_timeout(mesh, route, installation_id, Duration::from_secs(30)).await
+}
+
+pub async fn connect_enrolled_with_timeout(
+    mesh: MeshState,
+    route: CloudRoute,
+    installation_id: &str,
+    timeout: Duration,
+) -> Result<EnrolledChannel, IngressError> {
+    tokio::time::timeout(timeout, async {
         initiate(mesh, open(&route, PATH).await?, installation_id).await
     })
     .await

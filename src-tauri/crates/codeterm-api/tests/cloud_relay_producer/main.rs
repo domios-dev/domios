@@ -259,6 +259,7 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
         }
         self.wakes.fetch_add(1, Ordering::SeqCst);
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: machine_id.to_owned(),
             provider: "managed".into(),
             endpoint: CloudEndpoint::Direct(self.endpoint),

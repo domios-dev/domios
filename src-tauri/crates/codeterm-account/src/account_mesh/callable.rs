@@ -661,24 +661,24 @@ pub(super) fn callable_url(base: &url::Url, route: &str) -> Result<url::Url, Cal
     Ok(url)
 }
 
-#[async_trait]
-impl CallableTransport for HttpCallable {
-    async fn call(
+impl HttpCallable {
+    pub(super) async fn post(
         &self,
         route: &str,
-        id_token: &str,
+        id_token: Option<&str>,
         data: Value,
     ) -> Result<Value, CallableFailure> {
         let url = callable_url(&self.base, route)?;
-        let response = self
+        let request = self
             .client
             .post(url)
             .timeout(callable_timeout(route))
-            .bearer_auth(id_token)
-            .json(&serde_json::json!({ "data": data }))
-            .send()
-            .await
-            .map_err(|_| CallableFailure::Offline)?;
+            .json(&serde_json::json!({ "data": data }));
+        let request = match id_token {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+        let response = request.send().await.map_err(|_| CallableFailure::Offline)?;
         let status = response.status();
         let retry_after_seconds = response
             .headers()
@@ -699,5 +699,17 @@ impl CallableTransport for HttpCallable {
                 body,
             })
         }
+    }
+}
+
+#[async_trait]
+impl CallableTransport for HttpCallable {
+    async fn call(
+        &self,
+        route: &str,
+        id_token: &str,
+        data: Value,
+    ) -> Result<Value, CallableFailure> {
+        self.post(route, Some(id_token), data).await
     }
 }

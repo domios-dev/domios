@@ -517,6 +517,13 @@ impl CloudWakeQueue {
 pub struct InFlightWake {
     notify: Notify,
     result: Mutex<Option<Result<(), CloudError>>>,
+    route_confirmation: Mutex<Option<WakeRouteConfirmation>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WakeRouteConfirmation {
+    pub deadline_ms: u64,
+    pub ingress_ready_at: Option<u64>,
 }
 
 impl InFlightWake {
@@ -531,9 +538,9 @@ impl InFlightWake {
     }
 }
 
-#[derive(Default)]
 pub struct SingleFlightWakes {
     in_flight: Mutex<HashMap<String, Arc<InFlightWake>>>,
+    lifecycle: tokio::sync::watch::Sender<u64>,
 }
 
 pub enum WakeSlot {
@@ -552,10 +559,21 @@ pub struct WakeLeaderGuard {
 }
 
 impl WakeLeaderGuard {
+    pub(super) fn confirm_route(&self, deadline_ms: u64, ingress_ready_at: Option<u64>) {
+        if let Some(entry) = &self.entry {
+            *entry.wake.route_confirmation.lock() = Some(WakeRouteConfirmation {
+                deadline_ms,
+                ingress_ready_at,
+            });
+            self.owner.notify_lifecycle();
+        }
+    }
+
     pub fn finish(mut self, outcome: Result<(), CloudError>) {
         if let Some(entry) = self.entry.take() {
             *entry.wake.result.lock() = Some(outcome);
             self.owner.in_flight.lock().remove(&entry.machine_id);
+            self.owner.notify_lifecycle();
             entry.wake.notify.notify_waiters();
         }
     }
@@ -570,12 +588,31 @@ impl Drop for WakeLeaderGuard {
             }
             drop(result);
             self.owner.in_flight.lock().remove(&entry.machine_id);
+            self.owner.notify_lifecycle();
             entry.wake.notify.notify_waiters();
         }
     }
 }
 
 impl SingleFlightWakes {
+    pub(super) fn new(lifecycle: tokio::sync::watch::Sender<u64>) -> Self {
+        Self {
+            in_flight: Default::default(),
+            lifecycle,
+        }
+    }
+
+    fn notify_lifecycle(&self) {
+        self.lifecycle.send_modify(|rev| *rev = rev.wrapping_add(1));
+    }
+
+    pub(super) fn route_confirmation(&self, machine_id: &str) -> Option<WakeRouteConfirmation> {
+        self.in_flight
+            .lock()
+            .get(machine_id)
+            .and_then(|wake| *wake.route_confirmation.lock())
+    }
+
     pub fn acquire(self: &Arc<Self>, machine_id: &str) -> WakeSlot {
         let mut map = self.in_flight.lock();
         if let Some(existing) = map.get(machine_id) {
@@ -584,6 +621,7 @@ impl SingleFlightWakes {
         let wake = Arc::new(InFlightWake {
             notify: Notify::new(),
             result: Mutex::new(None),
+            route_confirmation: Mutex::new(None),
         });
         map.insert(machine_id.to_owned(), Arc::clone(&wake));
         WakeSlot::Leader(WakeLeaderGuard {

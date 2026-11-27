@@ -263,10 +263,20 @@ pub(crate) async fn serve<S: ChannelIo>(
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn receive<S: ChannelIo>(
+    channel: EnrolledChannel<S>,
+    dedupe: &ReceiverDedupe,
+    dispatcher: &dyn ReverseDispatcher,
+) -> Result<(), IngressError> {
+    receive_with_attach(channel, dedupe, dispatcher, || {}).await
+}
+
+pub(super) async fn receive_with_attach<S: ChannelIo>(
     mut channel: EnrolledChannel<S>,
     dedupe: &ReceiverDedupe,
     dispatcher: &dyn ReverseDispatcher,
+    attached: impl FnOnce() + Send,
 ) -> Result<(), IngressError> {
     channel.stream.read::<()>().await?;
     channel.admit()?;
@@ -274,6 +284,7 @@ pub(crate) async fn receive<S: ChannelIo>(
     let binding = channel.stream.binding;
     let _presence = StreamPresence(channel.mesh.clone(), id.clone(), binding);
     channel.mesh.lock().attach_reverse_stream(id, binding);
+    attached();
     loop {
         let Delivery {
             frame,

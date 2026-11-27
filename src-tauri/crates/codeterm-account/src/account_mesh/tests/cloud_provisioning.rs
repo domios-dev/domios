@@ -217,6 +217,19 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
         fixtures.replies.wake_provider_proxy.machine_id,
         fixtures.replies.create_provider_proxy.machine_id
     );
+    assert_eq!(fixtures.replies.wake_provider_proxy.ingress_ready_at, None);
+    let mut reply = serde_json::to_value(&fixtures.replies.wake_provider_proxy).unwrap();
+    reply["ingress_ready_at"] = serde_json::json!(0);
+    let old_reply: ProvisionedMachineReply = serde_json::from_value(reply.clone()).unwrap();
+    assert!(old_reply.validated_endpoint().is_some());
+    assert_eq!(old_reply.ingress_ready_at, None);
+    reply["ingress_ready_at"] = serde_json::json!(1_795_797_122);
+    let with_readiness: ProvisionedMachineReply = serde_json::from_value(reply).unwrap();
+    assert_eq!(with_readiness.ingress_ready_at, Some(1_795_797_122));
+    assert_eq!(
+        with_readiness.validated_endpoint(),
+        fixtures.replies.wake_provider_proxy.validated_endpoint()
+    );
     assert_eq!(
         fixtures.replies.wake_provider_proxy.validated_endpoint(),
         Some(CloudEndpoint::ProviderProxy {

@@ -95,7 +95,7 @@ impl CloudMachineController {
             flush_locks: Mutex::new(HashMap::new()),
             drain_locks: Mutex::new(HashMap::new()),
             active_drains: Mutex::new(HashSet::new()),
-            wakes: Arc::new(SingleFlightWakes::default()),
+            wakes: Arc::new(SingleFlightWakes::new(lifecycle_tx.clone())),
             lifecycle_tx,
             wake_queue_tx,
             link_flush_tracker: Mutex::new(LinkGenerationFlushTracker::default()),
@@ -132,6 +132,13 @@ impl CloudMachineController {
 
     pub fn subscribe_lifecycle(&self) -> tokio::sync::watch::Receiver<u64> {
         self.lifecycle_tx.subscribe()
+    }
+
+    pub fn wake_route_confirmation(
+        &self,
+        machine_id: &str,
+    ) -> Option<super::WakeRouteConfirmation> {
+        self.wakes.route_confirmation(machine_id)
     }
 
     pub(super) fn notify_lifecycle(&self) {
@@ -1013,9 +1020,9 @@ impl CloudMachineController {
                 };
 
                 let previous_endpoint = waking.endpoint.clone();
+                let provider_proxy = matches!(woken.endpoint, CloudEndpoint::ProviderProxy { .. });
                 let stable_proxy_endpoint =
-                    matches!(woken.endpoint, CloudEndpoint::ProviderProxy { .. })
-                        && previous_endpoint.as_ref() == Some(&woken.endpoint);
+                    provider_proxy && previous_endpoint.as_ref() == Some(&woken.endpoint);
 
                 // Persist updated endpoint (new IPv4 on delete_recreate) and lease before publication and held-send flush.
                 let waking = match self.update_record(&record.machine_id, |rec| {
@@ -1038,18 +1045,14 @@ impl CloudMachineController {
                     }
                 };
 
+                if provider_proxy {
+                    guard.confirm_route(wake_deadline_ms, woken.ingress_ready_at);
+                }
+
                 if !stable_proxy_endpoint {
                     if let Err(error) = peer_control.update_endpoint(&waking, &woken.endpoint).await
                     {
-                        let _ = self.update_record(&record.machine_id, |rec| {
-                            let mut next = transition(
-                                rec,
-                                LifecycleEvent::WakeFailed(error.to_string()),
-                                self.clock.now_ms(),
-                            )?;
-                            next.endpoint = previous_endpoint.clone();
-                            Ok(next)
-                        });
+                        self.settle_unverified_wake(&waking, &error, previous_endpoint);
                         guard.finish(Err(error.clone()));
                         return Err(error);
                     }
@@ -1059,15 +1062,7 @@ impl CloudMachineController {
                         .publish_direct_endpoint(&waking, &woken.endpoint)
                         .await
                     {
-                        let _ = self.update_record(&record.machine_id, |rec| {
-                            let mut next = transition(
-                                rec,
-                                LifecycleEvent::WakeFailed(error.to_string()),
-                                self.clock.now_ms(),
-                            )?;
-                            next.endpoint = previous_endpoint.clone();
-                            Ok(next)
-                        });
+                        self.settle_unverified_wake(&waking, &error, previous_endpoint);
                         guard.finish(Err(error.clone()));
                         return Err(error);
                     }
@@ -1077,13 +1072,7 @@ impl CloudMachineController {
                     .await_peer_ready(&waking, wake_deadline_ms)
                     .await
                 {
-                    let _ = self.update_record(&record.machine_id, |rec| {
-                        transition(
-                            rec,
-                            LifecycleEvent::WakeFailed(error.to_string()),
-                            self.clock.now_ms(),
-                        )
-                    });
+                    self.settle_unverified_wake(&waking, &error, waking.endpoint.clone());
                     self.expire_overdue_held_sends(&record.machine_id);
                     provisioning.observe_wake_failure(&error);
                     guard.finish(Err(error.clone()));

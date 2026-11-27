@@ -4,9 +4,60 @@ use crate::service::chat_send_transaction::ChatSendStatus;
 use super::controller::CloudMachineController;
 use super::held_sends::{FlushWriteOutcome, HeldCloudSend};
 use super::ports::CloudPeerControlPort;
-use super::types::CloudError;
+use super::state::{transition, LifecycleEvent};
+use super::types::{CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord};
+
+pub(super) const WAKE_UNVERIFIED: &str = "wake_peer_unverified: ";
 
 impl CloudMachineController {
+    pub(super) fn settle_unverified_wake(
+        &self,
+        record: &CloudMachineRecord,
+        error: &CloudError,
+        direct_endpoint: Option<CloudEndpoint>,
+    ) {
+        let _ = self.update_record(&record.machine_id, |current| {
+            let now = self.clock.now_ms();
+            if matches!(current.endpoint, Some(CloudEndpoint::ProviderProxy { .. })) {
+                let mut awake = transition(current, LifecycleEvent::WakeReady, now)?;
+                awake.last_error = Some(format!("{WAKE_UNVERIFIED}{error}"));
+                Ok(awake)
+            } else {
+                let mut failed =
+                    transition(current, LifecycleEvent::WakeFailed(error.to_string()), now)?;
+                failed.endpoint = direct_endpoint;
+                Ok(failed)
+            }
+        });
+    }
+
+    pub fn observe_verified_wake_routes(&self, attached: &std::collections::HashSet<String>) {
+        for record in self.list_records() {
+            if record.state != CloudLifecycleState::Awake
+                || !record
+                    .installation_id
+                    .as_ref()
+                    .is_some_and(|id| attached.contains(id))
+                || !record
+                    .last_error
+                    .as_ref()
+                    .is_some_and(|error| error.starts_with(WAKE_UNVERIFIED))
+            {
+                continue;
+            }
+            let _ = self.update_record(&record.machine_id, |current| {
+                let mut verified = current.clone();
+                if current.state == CloudLifecycleState::Awake
+                    && current.installation_id == record.installation_id
+                    && current.last_error == record.last_error
+                {
+                    verified.last_error = None;
+                }
+                Ok(verified)
+            });
+        }
+    }
+
     pub fn subscribe_wake_queue(&self) -> tokio::sync::watch::Receiver<u64> {
         self.wake_queue_tx.subscribe()
     }

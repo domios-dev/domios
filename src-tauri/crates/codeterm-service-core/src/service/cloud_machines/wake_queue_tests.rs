@@ -41,6 +41,7 @@ impl CloudProvisioningPort for StubProvisioning {
         request: &ProvisioningCreateRequest,
     ) -> Result<ProvisionedMachine, CloudError> {
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: "cm_stub_1".into(),
             provider: "timeweb".into(),
             endpoint: self.create_addr.clone(),
@@ -62,6 +63,7 @@ impl CloudProvisioningPort for StubProvisioning {
         _request_id: &str,
     ) -> Result<ProvisionedMachine, CloudError> {
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: machine_id.to_owned(),
             provider: "timeweb".into(),
             endpoint: self.wake_addr.clone(),
@@ -610,6 +612,7 @@ impl CloudProvisioningPort for ScriptedWakeProvisioning {
         request: &ProvisioningCreateRequest,
     ) -> Result<ProvisionedMachine, CloudError> {
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: "cm_retry_1".into(),
             provider: "fly".into(),
             endpoint: self.endpoint.clone(),
@@ -643,6 +646,7 @@ impl CloudProvisioningPort for ScriptedWakeProvisioning {
             return Err(error);
         }
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: machine_id.to_owned(),
             provider: "fly".into(),
             endpoint: self.endpoint.clone(),

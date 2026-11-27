@@ -170,6 +170,7 @@ fn map_provisioned_reply(reply: ProvisionedMachineReply) -> Result<ProvisionedMa
         CloudError::ProviderUnavailable("backend returned an invalid cloud machine endpoint".into())
     })?;
     Ok(ProvisionedMachine {
+        ingress_ready_at: reply.ingress_ready_at,
         machine_id: reply.machine_id,
         provider: reply.provider,
         endpoint,

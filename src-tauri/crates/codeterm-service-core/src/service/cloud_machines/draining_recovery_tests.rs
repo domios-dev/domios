@@ -71,6 +71,7 @@ impl CloudProvisioningPort for RecoveryProvisioning {
             outcome?;
         }
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: machine_id.to_owned(),
             provider: "fly_machines".into(),
             endpoint: CloudEndpoint::ProviderProxy {

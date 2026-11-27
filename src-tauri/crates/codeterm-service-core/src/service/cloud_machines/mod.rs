@@ -29,8 +29,9 @@ pub use controller_reconcile::{LocalReconcileReport, LocalRecordReconcileOutcome
 pub use held_sends::{
     evaluate_guest_link_readiness, should_retry_wake_once, CloudWakeQueue, FlushWriteOutcome,
     GuestLinkReadiness, GuestLinkReadinessInput, HeldCloudSend, HeldCloudSendState,
-    LinkGenerationFlushTracker, SingleFlightWakes, DEFAULT_WAKE_HOLD_DEADLINE_MS,
-    EXPIRED_NOT_DELIVERED_CODE, MIN_WAKE_RETRY_READINESS_BUDGET_MS, RELEASE_CONDITION_PEER_READY,
+    LinkGenerationFlushTracker, SingleFlightWakes, WakeRouteConfirmation,
+    DEFAULT_WAKE_HOLD_DEADLINE_MS, EXPIRED_NOT_DELIVERED_CODE, MIN_WAKE_RETRY_READINESS_BUDGET_MS,
+    RELEASE_CONDITION_PEER_READY,
 };
 pub use idle_drain::{
     evaluate_idle_and_renewal, DrainToken, IdleDecision, IdleEvalInput, IdlePolicy,

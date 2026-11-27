@@ -35,6 +35,7 @@ impl CloudProvisioningPort for ProxyProvisioning {
         request: &ProvisioningCreateRequest,
     ) -> Result<ProvisionedMachine, CloudError> {
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: "cm_fly_1".into(),
             provider: "fly_machines".into(),
             endpoint: self.create_endpoint.lock().clone(),
@@ -56,6 +57,7 @@ impl CloudProvisioningPort for ProxyProvisioning {
         _request_id: &str,
     ) -> Result<ProvisionedMachine, CloudError> {
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: machine_id.to_owned(),
             provider: "fly_machines".into(),
             endpoint: self.wake_endpoint.lock().clone(),
@@ -132,6 +134,7 @@ struct CountingPeerControl {
     updates: Mutex<Vec<CloudEndpoint>>,
     publishes: Mutex<Vec<CloudEndpoint>>,
     ready_calls: AtomicUsize,
+    readiness_error: Mutex<Option<CloudError>>,
 }
 
 impl CountingPeerControl {
@@ -140,6 +143,7 @@ impl CountingPeerControl {
             updates: Mutex::new(Vec::new()),
             publishes: Mutex::new(Vec::new()),
             ready_calls: AtomicUsize::new(0),
+            readiness_error: Mutex::new(None),
         }
     }
 }
@@ -176,7 +180,7 @@ impl CloudPeerControlPort for CountingPeerControl {
     }
     async fn await_peer_ready(&self, _: &CloudMachineRecord, _: u64) -> Result<(), CloudError> {
         self.ready_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(())
+        self.readiness_error.lock().clone().map_or(Ok(()), Err)
     }
     async fn flush_send(&self, _: &CloudMachineRecord, _: &HeldCloudSend) -> FlushWriteOutcome {
         FlushWriteOutcome::Delivered
@@ -300,4 +304,32 @@ async fn provider_proxy_wake_with_stable_host_is_noop_for_update_and_republicati
     assert_eq!(woken2.endpoint, Some(changed.clone()));
     assert_eq!(peer_ctrl.updates.lock().as_slice(), &[changed.clone()]);
     assert_eq!(peer_ctrl.publishes.lock().as_slice(), &[changed]);
+
+    ctrl.sleep(&created.machine_id, &prov, &peer_ctrl, true)
+        .await
+        .unwrap();
+    let error = CloudError::WakeDeadlineExceeded {
+        machine_id: created.machine_id.clone(),
+    };
+    *peer_ctrl.readiness_error.lock() = Some(error.clone());
+    assert_eq!(
+        ctrl.wake(&created.machine_id, &prov, &peer_ctrl, 60_000)
+            .await
+            .unwrap_err(),
+        error
+    );
+
+    let unverified = ctrl.find_by_peer(&created.machine_id).unwrap();
+    assert_eq!(unverified.state, CloudLifecycleState::Awake);
+    assert!(unverified.lease_id.is_some());
+    assert!(unverified.last_error.is_some());
+    assert!(unverified.receipt(10_000, None).warning.is_some());
+    assert_eq!(ctrl.wake_route_confirmation(&created.machine_id), None);
+
+    ctrl.observe_verified_wake_routes(&["inst-fly".to_owned()].into());
+    let verified = ctrl.find_by_peer(&created.machine_id).unwrap();
+    assert_eq!(verified.state, CloudLifecycleState::Awake);
+    assert_eq!(verified.lease_id, unverified.lease_id);
+    assert_eq!(verified.last_error, None);
+    assert_eq!(verified.receipt(10_000, None).warning, None);
 }

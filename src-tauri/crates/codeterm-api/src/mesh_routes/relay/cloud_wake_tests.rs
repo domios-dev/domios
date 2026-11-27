@@ -136,6 +136,7 @@ struct FakeWakeProvisioning {
     usage: Mutex<Result<CloudUsageSummary, CloudError>>,
     allow_wake: AtomicBool,
     wake_gate: Notify,
+    ingress_ready_at: Mutex<Option<u64>>,
 }
 
 impl FakeWakeProvisioning {
@@ -147,6 +148,7 @@ impl FakeWakeProvisioning {
             usage: Mutex::new(Ok(CloudUsageSummary::default())),
             allow_wake: AtomicBool::new(false),
             wake_gate: Notify::new(),
+            ingress_ready_at: Mutex::new(None),
         })
     }
 
@@ -181,6 +183,7 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
         }
         self.wakes.fetch_add(1, Ordering::SeqCst);
         Ok(ProvisionedMachine {
+            ingress_ready_at: *self.ingress_ready_at.lock(),
             machine_id: machine_id.to_owned(),
             provider: "managed".into(),
             endpoint: self.endpoint.clone(),
@@ -223,10 +226,11 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
     }
 }
 
-fn setup_sleeping_cloud_peer(
+fn setup_cloud_peer(
     fixture: &ServiceFixture,
     instance_id: &str,
     endpoint: CloudEndpoint,
+    initial_state: CloudLifecycleState,
 ) -> (
     AppState,
     String,
@@ -278,7 +282,7 @@ fn setup_sleeping_cloud_peer(
             name: "cloud-sleeper".into(),
             provider: "managed".into(),
             size: "small".into(),
-            state: CloudLifecycleState::Asleep,
+            state: initial_state,
             sleep_mode: CloudSleepMode::Stop,
             installation_id: Some("cloud-inst-wake".into()),
             peer_instance_id: Some("cloud-peer-wake".into()),
@@ -352,10 +356,11 @@ async fn cloud_wake_positive_usage_restores_exhausted_machine() {
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let address = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 33), 7687);
-    let (home, _, dir, controller, provisioning, _) = setup_sleeping_cloud_peer(
+    let (home, _, dir, controller, provisioning, _) = setup_cloud_peer(
         &fixture,
         "home-credit-refresh",
         CloudEndpoint::Direct(address),
+        CloudLifecycleState::Asleep,
     );
     let machine = "cloud-sleeper-1";
     controller.set_out_of_credits(machine).unwrap();
@@ -401,10 +406,11 @@ async fn cloud_wake_relay_preserves_backend_credit_refusal_without_admitting_sen
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let address = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 34), 7687);
-    let (home, _, _dir, controller, provisioning, channel) = setup_sleeping_cloud_peer(
+    let (home, _, _dir, controller, provisioning, channel) = setup_cloud_peer(
         &fixture,
         "home-credit-refusal",
         CloudEndpoint::Direct(address),
+        CloudLifecycleState::Asleep,
     );
     let machine = "cloud-sleeper-1";
     controller.set_out_of_credits(machine).unwrap();
@@ -443,10 +449,11 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
     let (mux, agent_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 30), 7687);
-    let (home, home_pub, _dir, controller, provisioning, channel) = setup_sleeping_cloud_peer(
+    let (home, home_pub, _dir, controller, provisioning, channel) = setup_cloud_peer(
         &fixture,
         "home-agent-wake",
         CloudEndpoint::Direct(cloud_addr),
+        CloudLifecycleState::Asleep,
     );
     controller.set_out_of_credits("cloud-sleeper-1").unwrap();
     *provisioning.usage.lock() = Ok(CloudUsageSummary {
@@ -537,10 +544,11 @@ async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failu
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 31), 7687);
-    let (home, _home_pub, _dir, controller, provisioning, channel) = setup_sleeping_cloud_peer(
+    let (home, _home_pub, _dir, controller, provisioning, channel) = setup_cloud_peer(
         &fixture,
         "home-transient-wake",
         CloudEndpoint::Direct(cloud_addr),
+        CloudLifecycleState::Asleep,
     );
 
     // Override endpoint publication to fail once, then succeed and record the published endpoint.
@@ -634,8 +642,12 @@ async fn persisted_endpoint_is_not_ready_and_watcher_flushes_once_when_guest_lin
     let endpoint = CloudEndpoint::ProviderProxy {
         host: "cloud-link-watch.fly.dev".into(),
     };
-    let (home, _home_pub, _dir, controller, provisioning, channel) =
-        setup_sleeping_cloud_peer(&fixture, "home-link-watch", endpoint.clone());
+    let (home, _home_pub, _dir, controller, provisioning, channel) = setup_cloud_peer(
+        &fixture,
+        "home-link-watch",
+        endpoint.clone(),
+        CloudLifecycleState::Asleep,
+    );
     let machine_id = "cloud-sleeper-1";
     let installation_id = "cloud-inst-wake";
     let first_binding = [10u8; 32];
@@ -727,5 +739,118 @@ async fn persisted_endpoint_is_not_ready_and_watcher_flushes_once_when_guest_lin
         calls[0].command.delivery_id.as_deref(),
         Some("deliv-watch-1")
     );
+    watcher.abort();
+}
+
+#[tokio::test]
+async fn confirmed_hot_wake_reattaches_finished_route_and_flushes_held_send_once() {
+    crate::register_api_extensions();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let endpoint = CloudEndpoint::ProviderProxy {
+        host: "cloud-rearm.fly.dev".into(),
+    };
+    let (home, _, _dir, controller, provisioning, channel) = setup_cloud_peer(
+        &fixture,
+        "home-route-wake",
+        endpoint.clone(),
+        CloudLifecycleState::Failed,
+    );
+    *provisioning.ingress_ready_at.lock() = Some(1_795_797_122);
+    let machine_id = "cloud-sleeper-1";
+    let installation_id = "cloud-inst-wake";
+    let held = controller
+        .hold_send_for_wake(
+            machine_id,
+            "cloud-tab-1",
+            "deliv-wake-route".into(),
+            "POST".into(),
+            "/api/tabs/cloud-tab-1/send".into(),
+            json!({ "text": "held through ingress startup" }),
+            AuthenticatedOrigin::Owner,
+            None,
+            60_000,
+        )
+        .unwrap();
+
+    let (guest_ready, readiness) = tokio::sync::watch::channel(false);
+    let (dialed, mut attempts) = tokio::sync::mpsc::unbounded_channel();
+    let dials = Arc::new(AtomicUsize::new(0));
+    let route_runtime = crate::cloud_mesh_runtime::start_routes(&home.svc, home.mesh.clone(), {
+        let mesh = home.mesh.clone();
+        let dials = Arc::clone(&dials);
+        move |id, route, deadline| {
+            let mut readiness = readiness.clone();
+            let mesh = mesh.clone();
+            let attempt = dials.fetch_add(1, Ordering::SeqCst);
+            let dialed = dialed.clone();
+            async move {
+                dialed.send((id.clone(), route, deadline)).unwrap();
+                if attempt < 3 {
+                    return false;
+                }
+                readiness.wait_for(|ready| *ready).await.unwrap();
+                mesh.lock().attach_reverse_stream_for_test(id, [12; 32]);
+                std::future::pending::<bool>().await
+            }
+        }
+    });
+    let watcher = crate::cloud_routes::spawn_wake_delivery_watcher(home.clone());
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let first = attempts.recv().await.unwrap();
+        assert_eq!(first.0, installation_id);
+        assert_eq!(first.1, endpoint);
+        assert_eq!(first.2, Duration::from_secs(30));
+        assert_eq!(attempts.recv().await.unwrap(), first);
+        assert!(!home
+            .mesh
+            .lock()
+            .attached_reverse_streams()
+            .contains(installation_id));
+
+        let wake = tokio::spawn({
+            let home = home.clone();
+            async move { wake_machine_for_use(&home, machine_id).await }
+        });
+        provisioning.release_wake();
+        let confirmed = attempts.recv().await.unwrap();
+        assert_eq!(confirmed.0, installation_id);
+        assert_eq!(confirmed.1, endpoint);
+        assert!(confirmed.2 > Duration::from_secs(30));
+        let redial = attempts.recv().await.unwrap();
+        assert_eq!(redial.0, installation_id);
+        assert_eq!(redial.1, endpoint);
+        assert!(redial.2 <= confirmed.2);
+        assert!(channel.recorded().is_empty());
+        assert_eq!(
+            controller.inspect_held_send(&held.send_id).unwrap().state,
+            ChatSendState::Pending
+        );
+
+        guest_ready.send(true).unwrap();
+        assert_eq!(
+            wake.await.unwrap().unwrap().state,
+            CloudLifecycleState::Awake
+        );
+        assert!(home
+            .mesh
+            .lock()
+            .attached_reverse_streams()
+            .contains(installation_id));
+        assert_eq!(
+            controller.inspect_held_send(&held.send_id).unwrap().state,
+            ChatSendState::Sent
+        );
+        let calls = channel.recorded();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].command.delivery_id.as_deref(),
+            Some("deliv-wake-route")
+        );
+        assert_eq!(dials.load(Ordering::SeqCst), 4);
+    })
+    .await
+    .expect("hot wake should attach and settle within the fixture deadline");
+    route_runtime.abort();
     watcher.abort();
 }
