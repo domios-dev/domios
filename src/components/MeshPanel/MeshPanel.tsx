@@ -16,6 +16,7 @@ import { CloudTopUpReturnDialog } from "../billing/CloudTopUpReturnDialog";
 import { useAccountPlan } from "../Settings/useAccountPlan";
 import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
 import { accountCanvasMachineCounts, accountCanvasPeers } from "./accountCanvas";
+import { countProjectedMeshMachines, deduplicateMeshInputs } from "./meshMachineListModel";
 import { useCanvasAccount } from "./useCanvasAccount";
 import { useMeshAccount } from "./useMeshAccount";
 import { useCanvasTailscale } from "./useCanvasTailscale";
@@ -96,7 +97,6 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
   const inventoryShown = activeTab === "inventory" && !meshOff && graphReady;
   const canvasAccount = useCanvasAccount(data.peers, triggerRefresh, registryRefreshKey, account, inventoryShown);
   const canvasPeers = useMemo(() => accountCanvasPeers(canvasAccount.canvas, data.peers), [canvasAccount.canvas, data.peers]);
-  const machineCounts = useMemo(() => accountCanvasMachineCounts(canvasAccount.canvas, canvasPeers), [canvasAccount.canvas, canvasPeers]);
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -184,6 +184,24 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
     account.presence === "signed_in" && (inventoryShown || drawerState?.kind === "cloud"),
     refreshAll,
   );
+  const machineCounts = useMemo(() => {
+    const base = accountCanvasMachineCounts(canvasAccount.canvas, canvasPeers);
+    if (cloud.machines.length === 0) return base;
+    const { activeCloud, nonCloudPeers, accountNodes } = deduplicateMeshInputs(
+      canvasPeers,
+      canvasAccount.canvas,
+      cloud.machines,
+    );
+    const connectedCloud = activeCloud.filter((machine) => machine.state === "awake" || machine.state === "draining").length;
+    const connectedPeers = nonCloudPeers.filter(
+      (peer) => !peer.pending && peer.online && canvasAccount.canvas.peerFooters.get(peer.instance_id)?.row.status !== "signed_out",
+    ).length;
+    const connectedNodes = accountNodes.filter((node) => node.online === true).length;
+    return {
+      total: countProjectedMeshMachines(canvasPeers, canvasAccount.canvas, cloud.machines),
+      connected: 1 + connectedPeers + connectedCloud + connectedNodes,
+    };
+  }, [canvasAccount.canvas, canvasPeers, cloud.machines]);
   const isFreePlan = accountPlan.plan !== null && !accountPlan.plan.fullAccess && accountPlan.plan.plan === "free";
 
   useEffect(() => {
@@ -260,6 +278,7 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
       slotOpen,
       pendingCreate: cloud.pendingCreate,
       selectedMachineId: drawerState?.kind === "cloud" ? drawerState.machineId : null,
+      busyMachineId: cloud.busyMachineId,
       onOpenSlot: () => {
         cloud.clearPendingCreate();
         setSlotOpen(true);
@@ -272,6 +291,8 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
       },
       onSelectMachine: (machineId) => setDrawerState({ kind: "cloud", machineId }),
       onTopUpMachine: (machine) => setTopUpDialog({ mode: "wake", machine }),
+      onSleepMachine: cloud.sleep,
+      onWakeMachine: cloud.wake,
       onFailureAction: handleCloudFailureAction,
     };
   }, [account.presence, cloud, isFreePlan, slotOpen, drawerState, handleCreateCloud, handleCloudFailureAction]);
@@ -450,6 +471,7 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
               onOpenPeerWebUi={openPeerWebUi}
               webUiBaseUrl={displayedWebUrl(webUiTarget.link)}
               webUiToken={config.api.token}
+              selectedPeerId={drawerState?.kind === "peer" ? drawerState.id : null}
             />
           </div>
         )}

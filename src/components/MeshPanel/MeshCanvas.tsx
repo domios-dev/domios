@@ -5,7 +5,7 @@ import { REMOVED_COPY } from "./accountMachines";
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Globe, List, Network, Plus } from "lucide-react";
+import { Globe, Network, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { CloudMachineCard } from "./CloudMachineCard";
 import { CloudMachineSlot } from "./CloudMachineSlot";
@@ -32,7 +32,11 @@ import { MeshOverview } from "./MeshOverview";
 import { meshOverviewState } from "./meshOverviewModel";
 import { MachineLimitPaywall } from "./MachineLimitPaywall";
 import type { MyMachines } from "./useMyMachines";
-import { inventoryView, listCardScale, offersInventoryList, type InventoryView } from "./meshViewportModel";
+import { offersInventoryList } from "./meshViewportModel";
+import { MeshMachineList } from "./MeshMachineList";
+import { MeshListSuggestionBanner } from "./MeshListSuggestionBanner";
+import { MeshViewToggle } from "./MeshViewToggle";
+import { useMeshViewMode } from "./useMeshViewMode";
 
 export interface RecentPush {
   source_id: string;
@@ -73,12 +77,15 @@ export interface CanvasCloud {
   slotOpen: boolean;
   pendingCreate: PendingCloudCreate | null;
   selectedMachineId?: string | null;
+  busyMachineId?: string | null;
   onOpenSlot: () => void;
   onCloseSlot: () => void;
   onCreateCloud: (size: string) => void;
   onPairComputer: () => void;
   onSelectMachine: (machineId: string) => void;
   onTopUpMachine: (machine: CloudReceipt) => void;
+  onSleepMachine?: (machineId: string) => Promise<unknown>;
+  onWakeMachine?: (machineId: string) => Promise<unknown>;
   onFailureAction: (action: CloudFailurePresentation["action"]) => void;
 }
 
@@ -129,12 +136,11 @@ interface Props {
   webUiBaseUrl?: string | null;
   webUiToken?: string | null;
   touch?: boolean;
+  selectedPeerId?: string | null;
 }
 
 const MIN_SCALE = 0.001;
 const MAX_SCALE = 2.5;
-/** The QR in the list's Mesh UI card, at the size the graph card shows it unscaled. */
-const LIST_QR_SIZE = 160;
 const FIT_PADDING = 24;
 const CARD_HALF_WIDTH = MACHINE_CARD_WIDTH / 2;
 
@@ -161,24 +167,16 @@ export const MeshCanvas = memo(function MeshCanvas({
   webUiBaseUrl = null,
   webUiToken = null,
   touch = false,
+  selectedPeerId = null,
 }: Props) {
   const [showInventory, setShowInventory] = useState(false);
-  const [chosenView, setChosenView] = useState<InventoryView | null>(null);
-  const listOffered = offersInventoryList(width, touch);
-  const shown = inventoryView(width, touch, chosenView);
+  const narrow = offersInventoryList(width, touch);
+  const iconOnlyToggle = width > 0 && width < 480;
   const zoomStep = CANVAS_ZOOM_STEP;
   const webCardRef = useRef<HTMLDivElement>(null);
   const [webHeight, setWebHeight] = useState(800);
   const [machineHeights, setMachineHeights] = useState<number[]>([]);
   const machineLayerRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const element = webCardRef.current;
-    if (!element) return;
-    if (element.offsetHeight > 0) setWebHeight(element.offsetHeight);
-    const observer = new ResizeObserver(() => { if (element.offsetHeight > 0) setWebHeight(element.offsetHeight); });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [shown]);
   const cloudMachines = useMemo(
     () => (cloud?.machines ?? []).filter((machine) => machine.state !== "deleted"),
     [cloud?.machines],
@@ -200,6 +198,19 @@ export const MeshCanvas = memo(function MeshCanvas({
     () => (account?.canvas.nodes ?? []).filter((node) => !cloudPeerIds.has(node.key) && (!node.row.pairInstanceId || !cloudPeerIds.has(node.row.pairInstanceId))),
     [account?.canvas.nodes, cloudPeerIds],
   );
+  const machineCount = account?.canvas.card?.kind === "loading"
+    ? null
+    : 1 + nonCloudPeers.length + cloudMachines.length + accountNodes.length;
+  const viewState = useMeshViewMode(machineCount, narrow);
+  const shown = viewState.viewMode === "list" ? "list" : "graph";
+  useLayoutEffect(() => {
+    const element = webCardRef.current;
+    if (!element) return;
+    if (element.offsetHeight > 0) setWebHeight(element.offsetHeight);
+    const observer = new ResizeObserver(() => { if (element.offsetHeight > 0) setWebHeight(element.offsetHeight); });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [shown]);
   const showCloudSlot = Boolean(cloud && (cloud.pendingCreate || cloud.slotOpen));
   const accountCard = cloudMachines.length > 0 || showCloudSlot ? null : (account?.canvas.card ?? null);
   const extraCount = accountNodes.length + (accountCard ? 1 : 0) + cloudMachines.length + (showCloudSlot ? 1 : 0);
@@ -446,13 +457,14 @@ export const MeshCanvas = memo(function MeshCanvas({
     );
   };
 
-  const viewToggle = listOffered
-    ? <button type="button" data-testid="mesh-inventory-view-toggle" className="ct-bar-pill gap-1.5"
-      aria-label={shown === "list" ? "Show as graph" : "Show as list"}
-      onClick={() => setChosenView(shown === "list" ? "graph" : "list")}>
-      {shown === "list" ? <><Network size={13} aria-hidden="true" />Graph</> : <><List size={13} aria-hidden="true" />List</>}
-    </button>
-    : undefined;
+  const viewToggle = (
+    <MeshViewToggle
+      value={viewState.viewMode}
+      onChange={viewState.selectViewMode}
+      iconOnly={iconOnlyToggle}
+      touch={touch}
+    />
+  );
 
   const accountActions = <>
     {account?.onRetryEnrollment && <button type="button" onMouseDown={(event) => event.stopPropagation()}
@@ -464,7 +476,7 @@ export const MeshCanvas = memo(function MeshCanvas({
 
   const addMachinePill = cloud && !showCloudSlot
     ? <button type="button" data-testid="mesh-add-machine" className="ct-bar-pill gap-1.5" onClick={cloud.onOpenSlot}>
-      <Plus size={13} aria-hidden="true" />Add machine
+      <Plus size={13} aria-hidden="true" />{iconOnlyToggle ? "Add" : "Add machine"}
     </button>
     : undefined;
 
@@ -491,30 +503,33 @@ export const MeshCanvas = memo(function MeshCanvas({
   );
 
   if (shown === "list") {
-    const scale = listCardScale(width);
+    const selectedId = cloud?.selectedMachineId ? `cloud:${cloud.selectedMachineId}` : selectedPeerId;
     return (
-      <div className="ct-canvas-background relative flex h-full w-full flex-col overflow-hidden" style={{ minHeight: height }}>
-        <div className="shrink-0 px-3 pb-2 pt-3">
-          <CanvasToolbar floating={false} label="Mesh inventory controls" view={inventoryToggle} onRefresh={onRefresh} />
-        </div>
-        <div role="list" aria-label="Machines" data-testid="mesh-inventory-list"
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-16" style={{ touchAction: "pan-y" }}>
-          <div className="mx-auto flex flex-col items-center gap-3">
-            {layout.map((p, i) => (
-              <div key={`${p.id}-${i}`} role="listitem" data-peer-card style={{ zoom: scale }}>{machineCard(p)}</div>
-            ))}
-            {/* On a phone the user is usually already in the web UI, so its QR card follows the machines. */}
-            <div role="listitem" ref={webCardRef} data-peer-card style={{ zoom: scale, width: MACHINE_CARD_WIDTH }}>
-              {webCard ? webCard(LIST_QR_SIZE) : <button type="button" aria-label="Web" aria-pressed={webSelected} onClick={onWebClick}
-                className="w-full rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] p-4">
-                <Globe size={24} aria-hidden="true" /><strong>Web</strong><span>{webStatus}</span>
-              </button>}
-            </div>
-          </div>
-        </div>
-        {account && <AccountNotes notes={account.canvas.notes} />}
-        {accountActions}
-      </div>
+      <MeshMachineList
+        toolbarView={inventoryToggle}
+        webCard={webCard}
+        webSelected={webSelected}
+        webStatus={webStatus}
+        onWebClick={onWebClick}
+        thisMachine={thisMachine}
+        peers={peers}
+        account={account}
+        cloud={cloud}
+        tailscale={tailscale}
+        meshEnabled={meshEnabled}
+        width={width}
+        height={height}
+        touch={touch}
+        selectedId={selectedId}
+        collapsedOverrides={viewState.collapsedOverrides}
+        onToggleGroup={viewState.toggleGroup}
+        onPeerClick={onPeerClick}
+        onRefresh={onRefresh}
+        onGoOnline={onGoOnline}
+        onOpenPeerWebUi={onOpenPeerWebUi}
+        webUiBaseUrl={webUiBaseUrl}
+        webUiToken={webUiToken}
+      />
     );
   }
 
@@ -621,6 +636,13 @@ export const MeshCanvas = memo(function MeshCanvas({
           </div>
         ))}
       </div>
+      {viewState.suggestionVisible && machineCount !== null && (
+        <MeshListSuggestionBanner
+          count={machineCount}
+          onSwitchToList={viewState.acceptSuggestion}
+          onKeepCanvas={viewState.keepCanvas}
+        />
+      )}
     </div>
   );
 });
