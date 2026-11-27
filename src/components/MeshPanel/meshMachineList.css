@@ -1,0 +1,611 @@
+.ct-mesh-view-rail {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 5%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent);
+}
+
+.ct-mesh-view-rail--touch {
+  height: 36px;
+}
+
+.ct-mesh-view-rail__opt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--ct-duration-fast) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
+}
+
+.ct-mesh-view-rail--icon .ct-mesh-view-rail__opt {
+  padding: 0 9px;
+}
+
+.ct-mesh-view-rail--touch .ct-mesh-view-rail__opt {
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.ct-mesh-view-rail__opt--active {
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ct-fg) 10%, transparent),
+    0 1px 2px rgb(0 0 0 / calc(0.18 * var(--ct-shadow-strength, 1)));
+}
+
+.ct-mesh-view-rail__opt:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.ct-mesh-dock {
+  padding: 12px 12px 4px;
+}
+
+.ct-mesh-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  width: min(220px, 100%);
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 10%, transparent);
+}
+
+.ct-mesh-list-scroll {
+  padding: 0 24px 36px;
+  touch-action: pan-y;
+}
+
+.ct-mesh-list-scroll--compact {
+  padding: 0 12px 28px;
+}
+
+.ct-mesh-list-col {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.ct-mesh-notes {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ct-border);
+  background: color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg));
+  font-size: 12px;
+  color: var(--ct-muted-fg);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ct-mesh-group__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 16px 6px 7px;
+  border: 0;
+  background: var(--ct-bg);
+  text-align: left;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+}
+
+.ct-mesh-group__head:hover {
+  color: var(--ct-fg);
+}
+
+.ct-mesh-group__head--attn,
+.ct-mesh-group__head--attn:hover {
+  color: var(--ct-yellow);
+}
+
+.ct-mesh-group__head:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.ct-mesh-group__count {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ct-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-mesh-group__aside {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ct-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-mesh-group__card {
+  --ct-mesh-card-bg: color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg));
+  border-radius: 14px;
+  border: 1px solid var(--ct-border);
+  background: var(--ct-mesh-card-bg);
+  overflow: hidden;
+}
+
+.ct-mesh-group__card--attn {
+  border-color: color-mix(in srgb, var(--ct-yellow) 30%, transparent);
+}
+
+.ct-mesh-list-item {
+  position: relative;
+}
+
+.ct-mesh-list-item + .ct-mesh-list-item::before {
+  content: "";
+  position: absolute;
+  left: 54px;
+  right: 0;
+  top: 0;
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 80%, transparent);
+  pointer-events: none;
+}
+
+.ct-mesh-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 12px 0 14px;
+  outline: none;
+  transition: background-color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
+}
+
+.ct-mesh-row--touch {
+  min-height: 62px;
+  gap: 11px;
+}
+
+.ct-mesh-row:hover {
+  background: color-mix(in srgb, var(--ct-accent) 4%, transparent);
+}
+
+.ct-mesh-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ct-accent);
+  border-radius: 13px;
+}
+
+.ct-mesh-row--selected {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 5%, transparent);
+  border-radius: 13px;
+}
+
+.ct-mesh-row__tx {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.ct-mesh-row__name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ct-fg);
+}
+
+.ct-mesh-row__name .group\/name {
+  flex: 0 1 auto;
+}
+
+.ct-mesh-row__name .group\/name > button[aria-label^="Rename "] {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.ct-mesh-row:hover .ct-mesh-row__name .group\/name > button[aria-label^="Rename "],
+.ct-mesh-row__name .group\/name:hover > button[aria-label^="Rename "],
+.ct-mesh-row__name .group\/name:focus-within > button[aria-label^="Rename "] {
+  width: 24px;
+  min-width: 24px;
+  opacity: 1;
+}
+
+.ct-mesh-row--touch .ct-mesh-row__name {
+  font-size: 15px;
+}
+
+.ct-mesh-you {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 1.3;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--ct-muted-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 12%, transparent);
+}
+
+.ct-mesh-row__sub {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ct-mesh-row--touch .ct-mesh-row__sub {
+  font-size: 12.5px;
+}
+
+.ct-mesh-tone--ok { --ct-mesh-tone: var(--ct-green); }
+.ct-mesh-tone--progress { --ct-mesh-tone: var(--ct-accent); }
+.ct-mesh-tone--muted { --ct-mesh-tone: var(--ct-muted-fg); }
+.ct-mesh-tone--warning { --ct-mesh-tone: var(--ct-yellow); }
+.ct-mesh-tone--danger { --ct-mesh-tone: var(--ct-red); }
+
+.ct-mesh-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
+  background: var(--ct-mesh-tone, var(--ct-muted-fg));
+}
+
+.ct-mesh-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  flex: none;
+  color: color-mix(in srgb, var(--ct-mesh-tone) 88%, var(--ct-fg));
+  background: color-mix(in srgb, var(--ct-mesh-tone) 11%, transparent);
+}
+
+.ct-mesh-tag.ct-mesh-tone--muted {
+  color: var(--ct-muted-fg);
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
+
+.ct-mesh-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.ct-mesh-act-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  transition:
+    opacity var(--ct-duration-fast) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
+}
+
+.ct-mesh-act-btn--touch {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.ct-mesh-act-btn--ghost {
+  color: var(--ct-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 14%, transparent);
+}
+
+.ct-mesh-act-btn--ghost:hover {
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
+
+.ct-mesh-act-btn--accent {
+  color: var(--ct-accent);
+  background: color-mix(in srgb, var(--ct-accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 40%, transparent);
+}
+
+.ct-mesh-act-btn--accent:hover {
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
+}
+
+.ct-mesh-act-btn--hover {
+  opacity: 0;
+}
+
+.ct-mesh-row:hover .ct-mesh-act-btn--hover,
+.ct-mesh-row:focus-within .ct-mesh-act-btn--hover {
+  opacity: 1;
+}
+
+.ct-mesh-act-btn:focus-visible,
+.ct-mesh-more:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.ct-mesh-more {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color var(--ct-duration-fast) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
+}
+
+.ct-mesh-more--touch {
+  width: 36px;
+  height: 36px;
+}
+
+.ct-mesh-row:hover .ct-mesh-more,
+.ct-mesh-more:hover,
+.ct-mesh-more:focus-visible {
+  background: color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  color: var(--ct-fg);
+}
+
+.ct-mesh-row__extra {
+  padding: 0 14px 10px 54px;
+}
+
+.ct-mesh-row__confirm {
+  padding: 10px 14px 12px 54px;
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 60%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ct-mesh-fold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  color: var(--ct-muted-fg);
+}
+
+.ct-mesh-fold__faces {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 5px;
+}
+
+.ct-mesh-fold__face {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  margin-right: -5px;
+  color: var(--ct-muted-fg);
+  background: color-mix(in srgb, var(--ct-muted-fg) 12%, var(--ct-bg));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ct-muted-fg) 18%, transparent),
+    0 0 0 2px var(--ct-mesh-card-bg);
+}
+
+.ct-mesh-fold__show {
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.ct-mesh-fold__show:hover {
+  color: var(--ct-fg);
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
+
+.ct-mesh-fold__show:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.ct-mesh-list-web {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.ct-mesh-capsule {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--ct-fg) 5%, var(--ct-bg));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ct-fg) 10%, transparent),
+    0 10px 30px -8px rgb(0 0 0 / calc(0.53 * var(--ct-shadow-strength, 1))),
+    0 2px 6px rgb(0 0 0 / calc(0.2 * var(--ct-shadow-strength, 1)));
+  animation: ct-mesh-capsule-in var(--ct-duration-smooth) var(--ct-ease-out-expo) both;
+}
+
+.ct-mesh-capsule__copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ct-mesh-capsule__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.ct-mesh-capsule__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ct-mesh-capsule__btn--ghost {
+  background: transparent;
+  color: var(--ct-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 14%, transparent);
+}
+
+.ct-mesh-capsule__btn--ghost:hover {
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
+
+.ct-mesh-capsule__btn--primary {
+  background: var(--ct-accent);
+  color: var(--ct-on-accent, #ffffff);
+}
+
+.ct-mesh-capsule__btn--primary:hover {
+  filter: brightness(1.06);
+}
+
+.ct-mesh-capsule__btn:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+@keyframes ct-mesh-capsule-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (max-width: 520px) {
+  .ct-mesh-list-item + .ct-mesh-list-item::before {
+    left: 57px;
+  }
+
+  .ct-mesh-row__extra,
+  .ct-mesh-row__confirm {
+    padding-left: 14px;
+  }
+
+  .ct-mesh-capsule {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    max-width: none;
+    flex-wrap: wrap;
+    white-space: normal;
+    border-radius: 20px;
+    padding: 10px 12px;
+    animation: ct-mesh-capsule-fade var(--ct-duration-smooth) var(--ct-ease-out-expo) both;
+  }
+
+  .ct-mesh-capsule__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .ct-mesh-capsule__btn {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 13px;
+  }
+}
+
+@keyframes ct-mesh-capsule-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-mesh-capsule {
+    animation: ct-mesh-capsule-fade var(--ct-duration-normal) linear both;
+  }
+
+  .ct-mesh-row,
+  .ct-mesh-act-btn,
+  .ct-mesh-more,
+  .ct-mesh-view-rail__opt {
+    transition: none;
+  }
+}

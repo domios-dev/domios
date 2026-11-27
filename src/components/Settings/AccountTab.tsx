@@ -29,6 +29,11 @@ import { billingFailureToast } from "./accountFailureToast";
 import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./accountModel";
 import { MachineJoinPreview, MachineIdentitySaveError } from "../MeshPanel/MachineIdentityControls";
 import { useMachineJoin } from "../MeshPanel/MachineIdentityEditor";
+import { CloudUsageMeter } from "../MeshPanel/CloudUsageMeter";
+import { useCloudUsage } from "../MeshPanel/useCloudMachines";
+import { redeemCloudPromo } from "../../lib/cloudMachines/client";
+import { CloudTopUpDialog, type PendingCloudTopUpCheckout } from "../billing/CloudTopUpDialog";
+import { CloudTopUpReturnDialog } from "../billing/CloudTopUpReturnDialog";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
@@ -72,6 +77,22 @@ function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCar
   const enrollmentFailure = useAccountEnrollmentFailure(identity);
   useEffect(() => setRefusedAsSubscribed(false), [identity]);
   const usage = useAccountUsage(identity);
+  const cloudUsage = useCloudUsage(signedIn);
+  const [cloudTopUpOpen, setCloudTopUpOpen] = useState(false);
+  const [pendingCloudCheckout, setPendingCloudCheckout] = useState<PendingCloudTopUpCheckout | null>(null);
+  const [cloudReturn, setCloudReturn] = useState<{ addedHours: number; newBalance: number; rolloverSentence: string | null } | null>(null);
+  useEffect(() => {
+    if (!pendingCloudCheckout || !cloudUsage.usage) return;
+    const delta = Math.round((cloudUsage.usage.remaining - pendingCloudCheckout.priorRemaining) * 10) / 10;
+    if (delta <= 0) return;
+    const checkout = pendingCloudCheckout;
+    setPendingCloudCheckout(null);
+    setCloudReturn({
+      addedHours: delta || checkout.expectedHours || 0,
+      newBalance: cloudUsage.usage.remaining,
+      rolloverSentence: checkout.rolloverSentence,
+    });
+  }, [pendingCloudCheckout, cloudUsage.usage]);
   const offersReady = desktopBilling.catalog !== null && desktopBilling.subscription !== null;
   const paidSubscription = desktopBilling.subscription?.paid_subscription;
   const subscriptionPlan = paidSubscription === undefined ? undefined : paidSubscription?.tier ?? null;
@@ -161,6 +182,21 @@ function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCar
           {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
         <AccountLimits limits={billing.plan?.limits ?? null} usage={usage} />
+        {signedIn && cloudUsage.usage && (
+          <div className="mt-2 w-full border-t border-[var(--ct-border-subtle)] pt-3">
+            <CloudUsageMeter
+              usage={cloudUsage.usage}
+              planId={billing.plan?.plan ?? null}
+              onTopUp={() => setCloudTopUpOpen(true)}
+              onRedeem={async (code) => {
+                const reply = await redeemCloudPromo(code);
+                cloudUsage.applyRedemption(reply);
+                void cloudUsage.refresh();
+                return reply;
+              }}
+            />
+          </div>
+        )}
         {!purchases && <div className="mt-1 w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
             <CommunityKeysNotice />
@@ -193,6 +229,28 @@ function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCar
           periodEnd={paidSubscription.period_end} planChangeMode={desktopBilling.subscription?.plan_change_mode ?? null} pending={desktopBilling.changing} error={desktopBilling.error}
           submitted={desktopBilling.submitted} onClose={() => setPlanChange(null)}
           onSubmit={() => { void desktopBilling.change(planChange.priceId).then(changed => { if (changed) setPlanChange(null); }); }} />}
+        {cloudTopUpOpen && (
+          <CloudTopUpDialog
+            mode={billing.plan?.plan === "free" && !staff ? "free" : "topup"}
+            usage={cloudUsage.usage}
+            currentPlan={billing.plan?.plan ?? null}
+            purchases={purchases}
+            onClose={() => setCloudTopUpOpen(false)}
+            onOpenPlans={() => {
+              setCloudTopUpOpen(false);
+              revealPlans();
+            }}
+            onCheckoutStarted={(pending) => setPendingCloudCheckout(pending)}
+          />
+        )}
+        {cloudReturn && (
+          <CloudTopUpReturnDialog
+            addedHours={cloudReturn.addedHours}
+            newBalance={cloudReturn.newBalance}
+            rolloverSentence={cloudReturn.rolloverSentence}
+            onClose={() => setCloudReturn(null)}
+          />
+        )}
       </div>
     </SettingsCard>
   </SettingsPage>;

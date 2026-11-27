@@ -117,7 +117,10 @@ interface TermLike {
  * Only falls back to `navigator.clipboard` / `clipboardData` for
  * platforms without a native reader (Linux) or when both native sources
  * are empty. */
-export async function routeClipboardToTerm(term: TermLike): Promise<boolean> {
+export async function routeClipboardToTerm(
+  term: TermLike,
+  fallbackPlainText?: string,
+): Promise<boolean> {
   // 1. Native pasteboard files (Finder copy / Explorer copy)
   const filePaths = await readNativeClipboardFiles();
   if (filePaths.length > 0) {
@@ -146,6 +149,11 @@ export async function routeClipboardToTerm(term: TermLike): Promise<boolean> {
   }
   if (web.text) {
     term.paste(web.text);
+    return true;
+  }
+
+  if (fallbackPlainText) {
+    term.paste(fallbackPlainText);
     return true;
   }
 

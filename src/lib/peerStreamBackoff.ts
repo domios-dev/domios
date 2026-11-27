@@ -18,11 +18,19 @@ export interface PeerStreamBackoffDecision {
 }
 
 export interface PeerStreamBackoff {
-  recordRefusal(): PeerStreamBackoffDecision;
+  recordRefusal(retryAfterMs?: number): PeerStreamBackoffDecision;
   remainingMs(): number;
   isBlocked(): boolean;
   attempts(): number;
   reset(): void;
+}
+
+export function parseRetryAfterMs(header: string | null | undefined): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const seconds = Number(trimmed);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds * 1_000 : undefined;
 }
 
 export function computePeerStreamBackoffMs(
@@ -49,10 +57,14 @@ export function createPeerStreamBackoff(options: PeerStreamBackoffOptions = {}):
   let lastRefreshAt: number | null = null;
 
   return {
-    recordRefusal() {
+    recordRefusal(retryAfterMs) {
       const at = now();
       attemptCount += 1;
-      const delayMs = computePeerStreamBackoffMs(attemptCount, random(), firstMs, capMs);
+      const computedMs = computePeerStreamBackoffMs(attemptCount, random(), firstMs, capMs);
+      const floorMs = typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs > 0
+        ? Math.min(capMs, Math.round(retryAfterMs))
+        : 0;
+      const delayMs = Math.max(computedMs, floorMs);
       nextRetryAt = at + delayMs;
       const shouldRefresh = lastRefreshAt === null || at - lastRefreshAt >= refreshCooldownMs;
       if (shouldRefresh) lastRefreshAt = at;

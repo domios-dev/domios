@@ -1,3 +1,4 @@
+use axum::http::StatusCode;
 use codeterm_service_core::MeshStateHandle;
 use parking_lot::Mutex;
 use std::{
@@ -10,6 +11,15 @@ pub(crate) const BASE_DELAY_MS: u64 = 1_000;
 pub(crate) const MAX_DELAY_MS: u64 = 30_000;
 pub(crate) const REFRESH_COOLDOWN_MS: u64 = 10_000;
 const MAX_ENTRIES: usize = 256;
+
+pub(super) fn is_backoff_status(status: StatusCode) -> bool {
+    status == StatusCode::UNAUTHORIZED || status == StatusCode::SERVICE_UNAVAILABLE
+}
+
+pub(crate) fn parse_retry_after_ms(header: Option<&str>) -> Option<u64> {
+    let seconds = header?.trim().parse::<u64>().ok()?;
+    (seconds > 0).then(|| seconds.saturating_mul(1_000))
+}
 
 pub(crate) type BackoffKey = (usize, String);
 
@@ -94,6 +104,7 @@ impl PeerStreamBackoff {
         link_nonce: Option<&str>,
         now_ms: u64,
         jitter_unit: f64,
+        retry_after_ms: Option<u64>,
     ) -> RefusalOutcome {
         if !self.entries.contains_key(&key) && self.entries.len() >= self.max_entries {
             self.entries.retain(|_, entry| now_ms < entry.retry_at_ms);
@@ -115,7 +126,10 @@ impl PeerStreamBackoff {
             .map(|entry| entry.attempts)
             .unwrap_or(0)
             .saturating_add(1);
-        let delay_ms = self.delay_ms(next_attempts, jitter_unit);
+        let computed_ms = self.delay_ms(next_attempts, jitter_unit);
+        let delay_ms = retry_after_ms
+            .map(|floor| computed_ms.max(floor.min(self.max_delay_ms)))
+            .unwrap_or(computed_ms);
         let retry_at_ms = now_ms.saturating_add(delay_ms);
         let entry = self.entries.entry(key).or_insert_with(|| Entry {
             attempts: 0,
@@ -193,11 +207,12 @@ pub(super) fn record_refusal(
     mesh: &MeshStateHandle,
     peer_id: &str,
     link_nonce: Option<&str>,
+    retry_after_ms: Option<u64>,
 ) -> RefusalOutcome {
     let key = key_for(mesh, peer_id);
     STREAM_BACKOFF
         .lock()
-        .record_refusal(key, link_nonce, now_ms(), jitter_unit())
+        .record_refusal(key, link_nonce, now_ms(), jitter_unit(), retry_after_ms)
 }
 
 pub(super) fn record_success(mesh: &MeshStateHandle, peer_id: &str) {

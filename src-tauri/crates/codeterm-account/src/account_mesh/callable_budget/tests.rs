@@ -3,39 +3,50 @@ use super::*;
 mod outages;
 
 #[test]
-fn account_wide_budget_uses_the_longer_deadline_and_serializes_the_probe() {
-    let neighbors = account("budget-fixture");
-    let mesh = account("budget-fixture");
-    assert!(Arc::ptr_eq(&neighbors, &mesh));
-    assert!(!Arc::ptr_eq(&neighbors, &account("another-budget-fixture")));
+fn route_scoped_budget_uses_the_longer_deadline_and_isolates_unrelated_routes() {
+    use super::super::{cloud_provisioning::ROUTE_CLOUD_DELETE, wire::*};
+    let admission = budget_for("budget-fixture", ROUTE_ADMISSION);
+    let challenge = budget_for("budget-fixture", ROUTE_CHALLENGE);
+    let cloud_delete = budget_for("budget-fixture", ROUTE_CLOUD_DELETE);
+    assert!(Arc::ptr_eq(&admission, &challenge));
+    assert!(!Arc::ptr_eq(&admission, &cloud_delete));
+    assert!(!Arc::ptr_eq(
+        &admission,
+        &budget_for("another-budget-fixture", ROUTE_ADMISSION)
+    ));
     let start = Instant::now();
-    let mut gate = neighbors.try_lock().unwrap();
-    gate.limited("admission", start, 45);
+    let mut gate = admission.try_lock().unwrap();
+    gate.limited(ROUTE_ADMISSION, start, 45);
     assert_eq!(gate.remaining(start), Duration::from_secs(45));
-    assert!(mesh.try_lock().is_err());
+    assert!(challenge.try_lock().is_err());
+    assert_eq!(
+        cloud_delete.try_lock().unwrap().remaining(start),
+        Duration::ZERO
+    );
     drop(gate);
-    let mut gate = mesh.try_lock().unwrap();
+    let mut gate = challenge.try_lock().unwrap();
     assert_eq!(
         gate.remaining(start + Duration::from_secs(44)),
         Duration::from_secs(1)
     );
-    gate.limited("admission", start + Duration::from_secs(45), 0);
+    gate.limited(ROUTE_ADMISSION, start + Duration::from_secs(45), 0);
     assert_eq!(
         gate.remaining(start + Duration::from_secs(45)),
         Duration::from_secs(2)
     );
     for _ in 0..400 {
-        gate.limited("admission", start + Duration::from_secs(45), 0);
+        gate.limited(ROUTE_ADMISSION, start + Duration::from_secs(45), 0);
     }
     assert_eq!(
         gate.remaining(start + Duration::from_secs(45)),
         Duration::from_secs(300)
     );
-    gate.success("admission");
+    gate.success(ROUTE_ADMISSION, start + Duration::from_secs(345));
     assert_eq!(
         gate.remaining(start + Duration::from_secs(345)),
         Duration::ZERO
     );
+    assert!(!gate.is_throttled());
 }
 
 #[test]
@@ -186,7 +197,7 @@ async fn successful_challenges_and_other_routes_do_not_erase_admission_throttle_
         [3, 3, 4, 8, 16, 32, 64, 128, 256].map(Duration::from_secs)
     );
     assert_eq!(transport.0.lock().len(), 30);
-    let budget = account(uid);
+    let budget = budget_for(uid, "admission");
     assert_eq!(
         budget.lock().await.remaining(clock.now()),
         Duration::from_secs(300)
@@ -224,7 +235,10 @@ async fn parked_mutations_retire_on_signout_or_generation_change_without_transpo
                 release: tokio::sync::Semaphore::new(0),
             };
             let waiting_guard = guard();
-            account(&uid).lock().await.limited(route, clock.now(), 45);
+            budget_for(&uid, route)
+                .lock()
+                .await
+                .limited(route, clock.now(), 45);
             let request = run(
                 &transport,
                 &uid,
@@ -306,6 +320,7 @@ fn captured_cleanup_challenges_allow_only_closing_the_captured_installation() {
 
 struct DeadlineClock {
     uid: String,
+    route: String,
     time: ClockPort,
 }
 #[async_trait::async_trait]
@@ -315,7 +330,7 @@ impl Clock for DeadlineClock {
     }
     async fn wait(&self, delay: Duration) {
         assert!(
-            account(&self.uid).try_lock().is_ok(),
+            budget_for(&self.uid, &self.route).try_lock().is_ok(),
             "budget is unlocked during wait"
         );
         self.time.wait(delay).await;
@@ -339,7 +354,9 @@ impl super::super::callable::CallableTransport for DeadlineTransport {
         _: serde_json::Value,
     ) -> Result<serde_json::Value, super::super::callable::CallableFailure> {
         assert!(
-            account(&self.clock.uid).try_lock().is_ok(),
+            budget_for(&self.clock.uid, &self.clock.route)
+                .try_lock()
+                .is_ok(),
             "budget is unlocked during transport"
         );
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -360,9 +377,13 @@ async fn mesh_budget_wait_is_outside_call_deadline_and_locks_cover_neither_wait_
         let uid = format!("mesh-budget-deadline-{hang}");
         let clock = DeadlineClock {
             uid: uid.clone(),
+            route: ROUTE_CHALLENGE.into(),
             time: ClockPort::new(),
         };
-        account(&uid).lock().await.limited("other", clock.now(), 45);
+        budget_for(&uid, ROUTE_ADMISSION)
+            .lock()
+            .await
+            .limited(ROUTE_ADMISSION, clock.now(), 45);
         let registry = Arc::new(CallableRegistry::new(DeadlineTransport {
             clock,
             hang,
@@ -434,7 +455,7 @@ impl super::super::callable::CallableTransport for BurstTransport {
         self.calls.lock().push(route.into());
         self.entered.send(route.into()).unwrap();
         self.release.acquire().await.unwrap().forget();
-        if route == "mesh" {
+        if route == super::super::wire::ROUTE_ADMISSION {
             Err(super::super::callable::CallableFailure::Status {
                 status: 429,
                 retry_after_seconds: Some(90),
@@ -447,9 +468,9 @@ impl super::super::callable::CallableTransport for BurstTransport {
 }
 
 #[tokio::test]
-async fn parked_multi_route_burst_serializes_probes_and_rechecks_new_429_before_dispatch() {
-    use super::super::callable::CallableFailure;
-    let uid = "serialized-multi-route-burst";
+async fn parked_same_family_burst_serializes_probes_and_rechecks_new_429_before_dispatch() {
+    use super::super::{callable::CallableFailure, wire::*};
+    let uid = "serialized-same-family-burst";
     let (waiting, mut waits) = tokio::sync::mpsc::unbounded_channel();
     let clock = ParkedClock {
         time: ClockPort::new(),
@@ -462,56 +483,62 @@ async fn parked_multi_route_burst_serializes_probes_and_rechecks_new_429_before_
         release: tokio::sync::Semaphore::new(0),
         calls: Default::default(),
     };
-    account(uid).lock().await.limited("prior", clock.now(), 45);
-    let mesh_guard = guard();
-    let neighbor_guard = guard();
-    let gift_guard = guard();
+    budget_for(uid, ROUTE_ADMISSION)
+        .lock()
+        .await
+        .limited(ROUTE_ADMISSION, clock.now(), 45);
+    let admission_guard = guard();
+    let challenge_guard = guard();
+    let enroll_guard = guard();
     let control = async {
         waits.recv().await.unwrap();
-        assert!(account(uid).try_lock().is_ok());
+        assert!(budget_for(uid, ROUTE_ADMISSION).try_lock().is_ok());
         assert!(calls.try_recv().is_err());
         clock.release.add_permits(1);
-        assert_eq!(calls.recv().await.unwrap(), "mesh");
+        assert_eq!(calls.recv().await.unwrap(), ROUTE_ADMISSION);
         assert!(calls.try_recv().is_err());
-        gift_guard.authority.send_replace(None);
+        enroll_guard.authority.send_replace(None);
         transport.release.add_permits(1);
         waits.recv().await.unwrap();
         assert_eq!(
-            account(uid).lock().await.remaining(clock.now()),
+            budget_for(uid, ROUTE_ADMISSION)
+                .lock()
+                .await
+                .remaining(clock.now()),
             Duration::from_secs(90)
         );
         assert!(
             calls.try_recv().is_err(),
-            "queued routes cannot dispatch before the new shared deadline"
+            "queued routes in the same family cannot dispatch before the new deadline"
         );
         clock.release.add_permits(1);
-        assert_eq!(calls.recv().await.unwrap(), "neighbors");
+        assert_eq!(calls.recv().await.unwrap(), ROUTE_CHALLENGE);
         transport.release.add_permits(1);
     };
-    let (mesh, neighbor, gift, ()) = tokio::join!(biased;
-        run(&transport, uid, "mesh", "", serde_json::Value::Null, &mesh_guard, &clock),
-        run(&transport, uid, "neighbors", "", serde_json::Value::Null, &neighbor_guard, &clock),
-        run(&transport, uid, "gift", "", serde_json::Value::Null, &gift_guard, &clock),
+    let (admission, challenge, enroll, ()) = tokio::join!(biased;
+        run(&transport, uid, ROUTE_ADMISSION, "", serde_json::Value::Null, &admission_guard, &clock),
+        run(&transport, uid, ROUTE_CHALLENGE, "", serde_json::Value::Null, &challenge_guard, &clock),
+        run(&transport, uid, ROUTE_ENROLL_KEY, "", serde_json::Value::Null, &enroll_guard, &clock),
         control,
     );
     assert!(matches!(
-        mesh,
+        admission,
         Err(CallableFailure::Status { status: 429, .. })
     ));
-    assert!(neighbor.is_ok());
-    assert_eq!(gift, Err(CallableFailure::Retired));
-    assert_eq!(*transport.calls.lock(), ["mesh", "neighbors"]);
+    assert!(challenge.is_ok());
+    assert_eq!(enroll, Err(CallableFailure::Retired));
+    assert_eq!(*transport.calls.lock(), [ROUTE_ADMISSION, ROUTE_CHALLENGE]);
     assert_eq!(*clock.time.waits.lock(), [45, 90].map(Duration::from_secs));
     let live = guard();
     let release = async {
-        assert_eq!(calls.recv().await.unwrap(), "gift");
+        assert_eq!(calls.recv().await.unwrap(), ROUTE_ENROLL_KEY);
         transport.release.add_permits(1);
     };
     let (result, ()) = tokio::join!(
         run(
             &transport,
             uid,
-            "gift",
+            ROUTE_ENROLL_KEY,
             "",
             serde_json::Value::Null,
             &live,
@@ -523,7 +550,136 @@ async fn parked_multi_route_burst_serializes_probes_and_rechecks_new_429_before_
         result.is_ok(),
         "retired waiters leave the next admission available"
     );
-    assert_eq!(*transport.calls.lock(), ["mesh", "neighbors", "gift"]);
+    assert_eq!(
+        *transport.calls.lock(),
+        [ROUTE_ADMISSION, ROUTE_CHALLENGE, ROUTE_ENROLL_KEY]
+    );
+}
+
+#[tokio::test]
+async fn rate_limit_on_one_route_does_not_delay_or_serialize_unrelated_routes() {
+    use super::super::{
+        callable::CallableFailure,
+        cloud_provisioning::{ROUTE_CLOUD_CREATE, ROUTE_CLOUD_DELETE, ROUTE_CLOUD_USAGE},
+        wire::*,
+    };
+    let uid = "budget-isolation-fixture";
+    let (waiting, mut waits) = tokio::sync::mpsc::unbounded_channel();
+    let clock = ParkedClock {
+        time: ClockPort::new(),
+        waiting,
+        release: tokio::sync::Semaphore::new(0),
+    };
+    let (entered, mut calls) = tokio::sync::mpsc::unbounded_channel();
+    let transport = BurstTransport {
+        entered,
+        release: tokio::sync::Semaphore::new(0),
+        calls: Default::default(),
+    };
+    // Simulate a 296s 429 on accountMeshAdmission.
+    budget_for(uid, ROUTE_ADMISSION)
+        .lock()
+        .await
+        .limited(ROUTE_ADMISSION, clock.now(), 296);
+    let parked_guard = guard();
+    let unrelated_guard = guard();
+
+    let test_unrelated = async {
+        // Wait until the accountMeshAdmission caller is parked inside its 296s backoff.
+        waits.recv().await.unwrap();
+
+        // Unrelated cloud routes and concurrent healthy calls must dispatch immediately with zero wait.
+        let delete_fut = run(
+            &transport,
+            uid,
+            ROUTE_CLOUD_DELETE,
+            "",
+            serde_json::Value::Null,
+            &unrelated_guard,
+            &clock,
+        );
+        let usage_fut = run(
+            &transport,
+            uid,
+            ROUTE_CLOUD_USAGE,
+            "",
+            serde_json::Value::Null,
+            &unrelated_guard,
+            &clock,
+        );
+        let friends_fut = run(
+            &transport,
+            uid,
+            "friendsList",
+            "",
+            serde_json::Value::Null,
+            &unrelated_guard,
+            &clock,
+        );
+        let release_concurrent = async {
+            // All 3 unrelated routes enter transport concurrently without waiting on each other or on admission.
+            let mut seen = Vec::new();
+            for _ in 0..3 {
+                seen.push(calls.recv().await.unwrap());
+            }
+            seen.sort();
+            assert_eq!(
+                seen,
+                vec![
+                    ROUTE_CLOUD_DELETE.to_owned(),
+                    "friendsList".to_owned(),
+                    ROUTE_CLOUD_USAGE.to_owned(),
+                ]
+            );
+            assert!(clock.time.waits.lock().is_empty());
+            transport.release.add_permits(3);
+        };
+        let (delete_res, usage_res, friends_res, ()) =
+            tokio::join!(delete_fut, usage_fut, friends_fut, release_concurrent);
+        assert!(delete_res.is_ok());
+        assert!(usage_res.is_ok());
+        assert!(friends_res.is_ok());
+
+        // A 429 on createManagedCloudMachine also does not delay deleteManagedCloudMachine.
+        budget_for(uid, ROUTE_CLOUD_CREATE).lock().await.limited(
+            ROUTE_CLOUD_CREATE,
+            clock.now(),
+            120,
+        );
+        let delete_after_create_429 = run(
+            &transport,
+            uid,
+            ROUTE_CLOUD_DELETE,
+            "",
+            serde_json::Value::Null,
+            &unrelated_guard,
+            &clock,
+        );
+        let release_delete = async {
+            assert_eq!(calls.recv().await.unwrap(), ROUTE_CLOUD_DELETE);
+            assert!(clock.time.waits.lock().is_empty());
+            transport.release.add_permits(1);
+        };
+        let (delete_again, ()) = tokio::join!(delete_after_create_429, release_delete);
+        assert!(delete_again.is_ok());
+
+        // Admission's own 296s backoff remains untouched while unrelated routes succeeded.
+        assert_eq!(
+            budget_for(uid, ROUTE_ADMISSION)
+                .lock()
+                .await
+                .remaining(clock.now()),
+            Duration::from_secs(296)
+        );
+        parked_guard.authority.send_replace(None);
+    };
+
+    let (parked_res, ()) = tokio::join!(biased;
+        run(&transport, uid, ROUTE_ADMISSION, "", serde_json::Value::Null, &parked_guard, &clock),
+        test_unrelated,
+    );
+    assert_eq!(parked_res, Err(CallableFailure::Retired));
+    assert!(clock.time.waits.lock().is_empty());
 }
 
 struct CleanupTransport {
@@ -558,10 +714,10 @@ async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_park
         waiting,
         release: tokio::sync::Semaphore::new(0),
     };
-    account(uid)
+    budget_for(uid, ROUTE_ADMISSION)
         .lock()
         .await
-        .limited("admission", clock.now(), 300);
+        .limited(ROUTE_ADMISSION, clock.now(), 300);
     let registry = CallableRegistry::new(CleanupTransport {
         calls: Default::default(),
     });
@@ -610,13 +766,16 @@ async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_park
         ));
         assert_eq!(start.elapsed(), Duration::ZERO);
         assert_eq!(
-            account(uid).lock().await.remaining(clock.now()),
+            budget_for(uid, ROUTE_ADMISSION)
+                .lock()
+                .await
+                .remaining(clock.now()),
             Duration::from_secs(300)
         );
         parked_guard.authority.send_replace(None);
     };
     let (parked, ()) = tokio::join!(biased;
-        run(registry.transport(), uid, "ordinary", "", serde_json::Value::Null, &parked_guard, &clock),
+        run(registry.transport(), uid, ROUTE_CHALLENGE, "", serde_json::Value::Null, &parked_guard, &clock),
         cleanup,
     );
     assert_eq!(

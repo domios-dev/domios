@@ -130,8 +130,11 @@ it("backs off exponentially with jitter on 401 refusal, refreshes credentials be
 
   // Successful replay resets backoff back to 1000ms.
   calls[2][1]("message", { event_type: "peer-replay-complete", boot: "boot-a", seq: 1, data: null });
-  calls[2][2]?.onEnd?.({ reason: "http", status: 401 });
-  await advance(1_000);
+  calls[2][2]?.onEnd?.({ reason: "http", status: 503, retryAfterMs: 4_000 });
+  await advance(3_999);
+  expect(calls.length).toBe(3);
+  await advance(1);
+  expect(refreshes).toBe(2);
   expect(calls.length).toBe(4);
   stop();
 });

@@ -37,6 +37,7 @@ permissions:
   actions: read
   contents: write
   issues: write
+  packages: write
   pull-requests: write
 
 # Release-push cancellation is owned by CI; publication serializes without cancelling.
@@ -60,11 +61,11 @@ jobs:
       branch: ${{ steps.source.outputs.branch }}
       test_waiver: ${{ steps.source.outputs.test_waiver }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - id: source
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           DRY_RUN: ${{ inputs.dry_run }}
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -131,7 +132,7 @@ jobs:
 
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const path = require('node:path');
@@ -149,7 +150,7 @@ jobs:
           python-version: "3.12"
         if: runner.environment == 'github-hosted'
       - name: Checkout release source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.qualified-source.outputs.source_sha }}
           fetch-depth: 1
@@ -177,7 +178,7 @@ jobs:
         env:
           PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id }}
           RELEASE_TEST_WAIVER: ${{ needs.qualified-source.outputs.test_waiver }}
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const {pathToFileURL} = require('node:url');
@@ -290,7 +291,7 @@ jobs:
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const path = require('node:path');
@@ -301,7 +302,7 @@ jobs:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 1
@@ -454,7 +455,7 @@ jobs:
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |-
             const path = require('node:path');
@@ -465,7 +466,7 @@ jobs:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 1
@@ -504,6 +505,18 @@ jobs:
       promote_run_id: ${{ needs.prepare.outputs.promote_run_id }}
       test_waiver: ${{ needs.prepare.outputs.test_waiver }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+    secrets: inherit
+
+  cloud-image:
+    name: release cloud image
+    needs: [prepare, release-manifest]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && needs.release-manifest.result == 'success' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    uses: ./.github/workflows/release-cloud-image.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
     secrets: inherit
 
   frontend:

@@ -26,6 +26,9 @@ use tokio_tungstenite::{
 const MAX_SESSIONS: usize = 32;
 const MAX_NOISE_MESSAGE: usize = u16::MAX as usize;
 
+/// Failure bound for a guest bootstrap enrollment session (covers lifecycle wait + delegation + Apply).
+pub const BOOTSTRAP_SESSION_TIMEOUT: Duration = Duration::from_secs(240);
+
 pub struct CloudIngressHandle(JoinHandle<()>, Arc<OnceLock<super::enrolled::Runtime>>);
 
 impl CloudIngressHandle {
@@ -283,7 +286,7 @@ async fn connection(
         .await;
     }
     tokio::time::timeout(
-        Duration::from_secs(120),
+        BOOTSTRAP_SESSION_TIMEOUT,
         bootstrap(socket, enrollment, authority),
     )
     .await

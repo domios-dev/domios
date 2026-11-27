@@ -571,6 +571,12 @@ pub enum RegistryRefusal {
     PromoExhausted,
     #[serde(rename = "spend_cap_exceeded")]
     PromoSpendCapExceeded,
+    #[serde(rename = "below_min")]
+    CheckoutBelowMin,
+    #[serde(rename = "above_max")]
+    CheckoutAboveMax,
+    #[serde(rename = "territory")]
+    CheckoutTerritory,
     #[serde(rename = "not_found")]
     NotFound,
     #[serde(rename = "endpoint_kind_unsupported")]
@@ -596,6 +602,16 @@ impl RegistryRefusal {
     pub fn from_details(details: &serde_json::Value) -> Self {
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("provider_refused") {
             return Self::ProviderRefused;
+        }
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("spend_cap_exceeded") {
+            return match serde_json::from_value::<super::cloud_provisioning::CloudCheckoutRefusal>(
+                details.clone(),
+            ) {
+                Ok(super::cloud_provisioning::CloudCheckoutRefusal::SpendCapExceeded {
+                    ..
+                }) => Self::PromoSpendCapExceeded,
+                _ => Self::Unavailable,
+            };
         }
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("rate_limited") {
             let seconds = details

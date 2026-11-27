@@ -629,6 +629,25 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
     (manifest.permissions?.network?.allow || []).includes("api.deepseek.com"),
     "manifest allows the deepseek balance host",
   );
+  const winInstaller = String(manifest.installer?.windows || "");
+  assert(
+    winInstaller.startsWith("if (Get-Command npm ") &&
+      winInstaller.includes("npm install -g opencode-ai") &&
+      winInstaller.includes("https://github.com/anomalyco/opencode/releases"),
+    "Windows installer uses npm when present and falls back to the official release binary",
+  );
+  assert(
+    (manifest.cliBinaryAliases || []).includes("opencode-cli") &&
+      (manifest.permissions?.subprocess?.allow || []).includes("opencode-cli"),
+    "manifest declares and authorizes the OpenCode Desktop sidecar CLI alias",
+  );
+  assert(
+    (manifest.cliInstallDirs?.windows || []).includes("%LOCALAPPDATA%/Programs/ai.opencode.desktop/resources") &&
+      (manifest.cliInstallDirs?.windows || []).includes("%APPDATA%/ai.opencode.desktop/cli/*") &&
+      (manifest.cliInstallDirs?.macos || []).includes("/Applications/OpenCode.app/Contents/Resources") &&
+      (manifest.cliInstallDirs?.linux || []).includes("/opt/OpenCode/resources"),
+    "cliInstallDirs covers verified OpenCode Desktop locations across platforms",
+  );
 }
 
 // opencode plugin so the session-start report can prove tab ownership.

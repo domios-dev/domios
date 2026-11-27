@@ -25,7 +25,7 @@ export interface UseTerminalActivationResizeOptions {
   ) => void;
   loseResizeOwnership: () => void;
   hasResizeOwnership: () => boolean;
-  refitAndCommitResize: () => void;
+  refitAndCommitResize: (force?: boolean) => void;
 }
 
 export type ActivateTerminal = (trigger?: AuthorityTrigger) => void;
@@ -124,8 +124,10 @@ export function useTerminalActivationResize({
       }
       waitingForMeasureRef.current = false;
       if (viewerLocalGeometry) {
-        refitAndCommitResize();
-        if (isFocused) term.focus();
+        // Avoid forced full-screen refresh on pointerdown/keydown so xterm's
+        // Linkifier does not clear hovered links between mousedown and mouseup.
+        refitAndCommitResize(claimMode !== "forced");
+        if (claimMode !== "forced" && isFocused) term.focus();
         return;
       }
       if (claimMode === "forced" && hasResizeOwnership()) {

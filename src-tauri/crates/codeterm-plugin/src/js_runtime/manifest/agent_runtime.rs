@@ -79,7 +79,11 @@ impl PluginManifest {
             .agent_runtime
             .as_ref()
             .ok_or(RuntimeManifestError::CapabilityRequired)?
-            .resolve_profile_executable_in(profile, &install_dirs)
+            .resolve_profile_executable_with_aliases_in(
+                profile,
+                &self.cli_binary_aliases,
+                &install_dirs,
+            )
     }
 }
 
@@ -115,8 +119,21 @@ impl AgentRuntimeCapability {
         profile: Option<&str>,
         extra_dirs: &[PathBuf],
     ) -> Result<PathBuf, RuntimeManifestError> {
+        self.resolve_profile_executable_with_aliases_in(profile, &[], extra_dirs)
+    }
+
+    pub fn resolve_profile_executable_with_aliases_in(
+        &self,
+        profile: Option<&str>,
+        aliases: &[String],
+        extra_dirs: &[PathBuf],
+    ) -> Result<PathBuf, RuntimeManifestError> {
         let command = self.profile_command(profile)?;
-        resolve_binary_in(&command.binary, extra_dirs)
+        if profile.is_some() || aliases.is_empty() {
+            return resolve_binary_in(&command.binary, extra_dirs);
+        }
+        let candidates = super::super::cli_binary_candidates(&command.binary, aliases);
+        resolve_binary_candidates_in(&candidates, extra_dirs)
     }
 
     pub fn resolve_executable(&self) -> Result<PathBuf, RuntimeManifestError> {
@@ -454,7 +471,14 @@ fn resolve_binary_in(
     binary: &str,
     extra_dirs: &[PathBuf],
 ) -> Result<PathBuf, RuntimeManifestError> {
-    match super::super::probe_bin_with_extra_dirs(binary, extra_dirs).resolution {
+    resolve_binary_candidates_in(&[binary], extra_dirs)
+}
+
+fn resolve_binary_candidates_in(
+    binaries: &[&str],
+    extra_dirs: &[PathBuf],
+) -> Result<PathBuf, RuntimeManifestError> {
+    match super::super::probe_bin_candidates_with_extra_dirs(binaries, extra_dirs).resolution {
         super::super::BinResolution::Found(path) => Ok(path),
         super::super::BinResolution::Missing => Err(RuntimeManifestError::BinaryUnavailable),
         super::super::BinResolution::Unknown => Err(RuntimeManifestError::BinaryUnknown),

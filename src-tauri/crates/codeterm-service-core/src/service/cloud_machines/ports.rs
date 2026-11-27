@@ -6,9 +6,13 @@ use zeroize::Zeroizing;
 
 use super::held_sends::{FlushWriteOutcome, HeldCloudSend};
 use super::idle_drain::{DrainToken, PeerBusySnapshot};
+use super::storage::{
+    CloudColdWakeParams, CloudDeleteMode, CloudDeleteReceipt, CloudStorageTier,
+    CloudVolumeResizeReply,
+};
 use super::types::{
-    CloudEndpoint, CloudError, CloudMachineRecord, CloudPromoRedemption, CloudRate, CloudSleepMode,
-    CloudUsageSummary,
+    CloudCheckoutSession, CloudEndpoint, CloudError, CloudMachineRecord, CloudPromoRedemption,
+    CloudRate, CloudSleepMode, CloudUsageSummary,
 };
 
 pub trait Clock: Send + Sync {
@@ -69,6 +73,49 @@ pub trait CloudProvisioningPort: Send + Sync {
     async fn sleep(&self, machine_id: &str, request_id: &str)
         -> Result<CloudSleepMode, CloudError>;
     async fn delete(&self, machine_id: &str, request_id: &str) -> Result<(), CloudError>;
+    async fn delete_with_mode(
+        &self,
+        machine_id: &str,
+        request_id: &str,
+        mode: CloudDeleteMode,
+        _archive_id: Option<&str>,
+    ) -> Result<CloudDeleteReceipt, CloudError> {
+        match mode {
+            CloudDeleteMode::Permanent => {
+                self.delete(machine_id, request_id).await?;
+                Ok(CloudDeleteReceipt {
+                    machine_id: machine_id.to_owned(),
+                    storage_tier: CloudStorageTier::Purged,
+                    archive_id: None,
+                    purge_at: None,
+                    snapshot_residual: None,
+                })
+            }
+            CloudDeleteMode::Recoverable => Err(CloudError::ProviderUnavailable(
+                "recoverable cloud delete is unavailable".into(),
+            )),
+        }
+    }
+    async fn wake_cold(
+        &self,
+        _machine_id: &str,
+        _request_id: &str,
+        _params: &CloudColdWakeParams,
+    ) -> Result<ProvisionedMachine, CloudError> {
+        Err(CloudError::ProviderUnavailable(
+            "cold cloud machine restore wake is unavailable".into(),
+        ))
+    }
+    async fn resize_volume(
+        &self,
+        _machine_id: &str,
+        _new_size_gb: u32,
+        _request_id: &str,
+    ) -> Result<CloudVolumeResizeReply, CloudError> {
+        Err(CloudError::ProviderUnavailable(
+            "cloud volume resize is unavailable".into(),
+        ))
+    }
     async fn renew_lease(
         &self,
         machine_id: &str,
@@ -76,10 +123,36 @@ pub trait CloudProvisioningPort: Send + Sync {
         request_id: &str,
     ) -> Result<ProvisionedLease, CloudError>;
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError>;
+    /// List backend-known cloud machines for reconciling local-only and uncertain-create records.
+    async fn list_backend_machines(
+        &self,
+    ) -> Result<Vec<super::reconcile::BackendMachineEntry>, CloudError> {
+        let summary = self.usage().await?;
+        Ok(super::reconcile::backend_machines_from_usage(&summary))
+    }
     async fn redeem_promo(&self, _code: &str) -> Result<CloudPromoRedemption, CloudError> {
         Err(CloudError::ProviderUnavailable(
             "promo code redemption unavailable".into(),
         ))
+    }
+    async fn create_checkout(
+        &self,
+        _pack_id: &str,
+        _amount_cents: Option<u64>,
+    ) -> Result<CloudCheckoutSession, CloudError> {
+        Err(CloudError::CheckoutUnavailable(
+            "cloud credit checkout unavailable".into(),
+        ))
+    }
+    /// Authoritative backend timestamp-only write for `seed_started` / `warm_console_ready`
+    /// alongside `last_create_phases`. Returns `Ok(Some(phases))` when backed by Firebase.
+    async fn record_warm_bootstrap_phases(
+        &self,
+        _machine_id: &str,
+        _phase: super::warm_bootstrap::WarmBootstrapPhaseEvent,
+        _request_id: &str,
+    ) -> Result<Option<super::warm_bootstrap::BackendCreatePhases>, CloudError> {
+        Ok(None)
     }
 }
 
@@ -137,4 +210,23 @@ pub trait CloudPeerControlPort: Send + Sync {
         record: &CloudMachineRecord,
         send: &HeldCloudSend,
     ) -> FlushWriteOutcome;
+
+    /// Post-enrollment warm first-console bootstrap over the authenticated same-account peer channel.
+    /// Returns `Ok(None)` when the adapter does not perform warm seeding (e.g. unit-test stubs).
+    async fn apply_warm_bootstrap(
+        &self,
+        _record: &CloudMachineRecord,
+        _creation_generation: &str,
+    ) -> Result<Option<super::warm_bootstrap::WarmBootstrapApplyResult>, CloudError> {
+        Ok(None)
+    }
+
+    /// Queries or prepares per-provider owner sign-in card bindings on the target machine.
+    async fn prepare_provider_signin(
+        &self,
+        _record: &CloudMachineRecord,
+        _request: &super::warm_bootstrap::PrepareProviderSignInRequest,
+    ) -> Result<super::warm_bootstrap::PrepareProviderSignInResponse, CloudError> {
+        Ok(super::warm_bootstrap::PrepareProviderSignInResponse::default())
+    }
 }

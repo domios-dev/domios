@@ -2,9 +2,11 @@ use codeterm_service_core::ports::host::Shell;
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
-    io::{self, Seek},
+    io::{self, Read, Seek},
     path::{Path, PathBuf},
 };
+
+const WORKER_HASH_BUFFER_BYTES: usize = 1024 * 1024;
 
 pub struct WorkerCli {
     _file: File,
@@ -89,7 +91,16 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
 fn verify_digest(file: &mut File, expected: &str) -> io::Result<()> {
     let started = std::time::Instant::now();
     let mut hash = Sha256::new();
-    let bytes = std::io::copy(file, &mut hash)?;
+    let mut bytes = 0u64;
+    let mut buffer = vec![0u8; WORKER_HASH_BUFFER_BYTES];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        bytes += count as u64;
+        hash.update(&buffer[..count]);
+    }
     let digest = format!("{:x}", hash.finalize());
     log::debug!(
         "[boot-operation] worker CLI integrity hash bytes={} elapsed_ms={}",

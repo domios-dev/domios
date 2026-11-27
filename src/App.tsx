@@ -283,7 +283,7 @@ function AppInner() {
       return open ? "memory" : "workspace";
     });
   }, []);
-  const [meshTabRequest, setMeshTabRequest] = useState<{ tab: MeshTab }>();
+  const [meshTabRequest, setMeshTabRequest] = useState<{ tab: MeshTab; newMachine?: boolean; seq?: number }>();
   const setMeshOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "mesh";
@@ -460,12 +460,7 @@ function AppInner() {
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
-      const detail = (e as CustomEvent<{
-        panel?: string;
-        cwd?: string | null;
-        memoryState?: MemoryInitialState;
-        meshTab?: MeshTab;
-      }>).detail;
+      const detail = (e as CustomEvent<{ panel?: string; cwd?: string | null; memoryState?: MemoryInitialState; meshTab?: MeshTab; newMachine?: boolean }>).detail;
       const panel = detail?.panel;
       if (lockedRef.current) {
         if (panel === "settings:general") setFirstRunSettings(true);
@@ -483,7 +478,7 @@ function AppInner() {
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
         openSettings(panel.slice("settings:".length) as SettingsLinkId);
       } else if (panel === "mesh") {
-        setMeshTabRequest({ tab: detail?.meshTab === "network" ? "network" : "inventory" });
+        setMeshTabRequest((prev) => ({ tab: detail?.meshTab === "network" ? "network" : "inventory", newMachine: detail?.newMachine === true, seq: (prev?.seq ?? 0) + 1 }));
         setMeshOpen(true);
         closeSidebarOnMobile();
       } else if (panel === "neighbors") {
@@ -765,7 +760,8 @@ function AppInner() {
     const size = zoomedFontSize(config.font.size, action);
     if (size !== config.font.size) void updateConfig({ ...config, font: { ...config.font, size } }).catch(() => {});
   };
-  const focusedTabId = () => stateRef.current.focused_tab_id;
+  const focusedTabId = () => stateRef.current.focused_tab_id
+    ?? (stateRef.current.active_workspace_id ? stateRef.current.activeTabIds[stateRef.current.active_workspace_id] ?? null : null);
   useAppShortcuts(config.keybindings, {
     new_tab: handleNewTab,
     close_tab: handleCloseCurrentTab,

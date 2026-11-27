@@ -7,7 +7,9 @@ import { firstRunGeneralTarget } from "./firstRunNavigation";
 import { firstRunTransition, type FirstRunPhase } from "../../lib/firstRunFlow";
 
 const localJson = vi.hoisted(() => vi.fn());
+const openUrl = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("../../lib/webApi", async original => ({ ...await original<typeof import("../../lib/webApi")>(), localJson }));
+vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { openUrl } }));
 
 const navigation = vi.hoisted(() => ({ show: vi.fn(), activeTabId: () => "installer" }));
 
@@ -609,6 +611,57 @@ it("exposes pressed state exclusively on the selected provider card as selection
 
     await act(async () => card("gamma").click());
     expect(pressed()).toEqual([["alpha", "false"], ["beta", "false"], ["gamma", "true"]]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("shows actionable official install route and retry when first-run install fails on a missing prerequisite", async () => {
+  openUrl.mockReset();
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "install_provider_in_tab") return { tab_id: "prereq-install", launch_state: "command_dispatched" };
+    if (command === "mux_get_state") return snapshot();
+  });
+  const missing = { ...provider("fixture", "pty", "Fixture"), availability: "unavailable" as const, general_agent_offer_when_absent: true, install_command: "npm install -g fixture-pkg" };
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<FirstRunGeneralPicker providers={[missing]} />));
+    const confirm = () => host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!;
+    await act(async () => confirm().click());
+    await act(async () => events.get("provider-cli-completed")!({
+      payload: {
+        provider: "fixture",
+        operation: "install",
+        tab_id: "prereq-install",
+        success: false,
+        summary: "fixture CLI install: command failed with exit code 1; CLI still missing",
+        status: {
+          required: true,
+          installed: false,
+          binary: "fixture",
+          resolved_path: null,
+          availability: "unavailable",
+          searched: [],
+          installer: "npm install -g fixture-pkg",
+          updater: null,
+          installer_prerequisites: [{
+            binary: "npm",
+            installed: false,
+            hint: "Install npm using https://nodejs.org/en/download, then rerun the manifest command.",
+          }],
+          updater_prerequisites: [],
+        } satisfies ProviderCliStatus,
+      },
+    }));
+    const link = host.querySelector<HTMLButtonElement>('[data-testid="prerequisite-install-link-npm"]')!;
+    expect(link).not.toBeNull();
+    await act(async () => link.click());
+    expect(openUrl).toHaveBeenCalledExactlyOnceWith("https://nodejs.org/en/download");
+    expect(confirm().textContent).toBe("Retry");
+    expect(confirm().disabled).toBe(false);
   } finally {
     await act(async () => root.unmount());
     host.remove();

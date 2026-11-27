@@ -26,11 +26,36 @@ pub enum MeshCloudAction {
         /// Cloud machine ID, name, or peer ID
         machine: String,
     },
-    /// Permanently delete a cloud machine (warns about unpushed work without --confirm)
+    /// Delete a cloud machine (permanent by default; pass --recoverable to retain verified archive)
     Delete {
         /// Cloud machine ID, name, or peer ID
         machine: String,
-        /// Confirm permanent deletion of the machine and any unpushed work
+        /// Confirm deletion of the machine
+        #[arg(long)]
+        confirm: bool,
+        /// Retain the verified encrypted essentials archive for recreate within the purge window
+        #[arg(long)]
+        recoverable: bool,
+        /// Verified archive ID for recoverable deletion
+        #[arg(long)]
+        archive_id: Option<String>,
+    },
+    /// Recreate a cold or recoverably deleted cloud machine onto a fresh volume from its archive
+    Recreate {
+        /// Cloud machine ID, name, or peer ID
+        machine: String,
+        /// Optional archive ID override
+        #[arg(long)]
+        archive_id: Option<String>,
+    },
+    /// Increase a cloud machine's hot volume capacity (grow-only, requires owner --confirm)
+    ResizeVolume {
+        /// Cloud machine ID, name, or peer ID
+        machine: String,
+        /// Target volume size in GB (must exceed current allocation, max 500)
+        #[arg(long)]
+        size_gb: u32,
+        /// Confirm volume expansion and increased hot storage billing
         #[arg(long)]
         confirm: bool,
     },
@@ -40,6 +65,21 @@ pub enum MeshCloudAction {
     Redeem {
         /// Promo code to redeem
         code: String,
+    },
+    /// Create a checkout link to top up managed cloud credits
+    #[command(group(
+        clap::ArgGroup::new("topup_target")
+            .required(true)
+            .multiple(false)
+            .args(["pack", "amount"])
+    ))]
+    Topup {
+        /// Credit pack ID from `domios mesh cloud usage`
+        #[arg(long)]
+        pack: Option<String>,
+        /// Custom top-up amount in USD
+        #[arg(long)]
+        amount: Option<String>,
     },
 }
 
@@ -94,6 +134,26 @@ pub(crate) fn format_receipt_human(val: &Value) -> String {
         format!("{name} ({id}) — {badge}"),
         format!("note: {notice}"),
     ];
+    if let Some(warm) = val.get("warm_bootstrap").filter(|v| v.is_object()) {
+        let status = warm["status"].as_str().unwrap_or("unknown");
+        let readable = warm["readable_owner_context"].as_bool().unwrap_or(false);
+        let delta = val
+            .pointer("/create_phases/warm_bootstrap_delta_secs")
+            .and_then(Value::as_f64)
+            .map(|secs| format!(" delta={secs:.2}s"))
+            .unwrap_or_default();
+        let signin_needed = warm["providers"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter(|p| p["state"].as_str() == Some("sign_in_required"))
+                    .count()
+            })
+            .unwrap_or(0);
+        lines.push(format!(
+            "warm_bootstrap={status} readable_context={readable}{delta} providers_needing_signin={signin_needed}"
+        ));
+    }
     if let Some(warning) = val["warning"].as_str().filter(|w| !w.is_empty()) {
         lines.push(format!("WARNING: {warning}"));
     }
@@ -121,6 +181,38 @@ pub(crate) fn format_usage_human(val: &Value) -> String {
             lines.push(format!("Burn per size: {}", entries.join(", ")));
         }
     }
+    if let Some(storage) = val["storage"].as_object() {
+        let alloc = storage["total_allocated_gb"].as_u64().unwrap_or(0);
+        let monthly_cents = storage["total_hot_monthly_cost_cents"]
+            .as_u64()
+            .unwrap_or(0);
+        let rate_cents = storage["hot_gb_month_rate_cents"].as_u64().unwrap_or(15);
+        lines.push(format!(
+            "Cloud storage: allocated={alloc} GB hot_monthly=${:.2} (rate=${:.2}/GB-mo, cold archival included)",
+            (monthly_cents as f64) / 100.0,
+            (rate_cents as f64) / 100.0
+        ));
+        if let Some(machines) = storage["machines"].as_array() {
+            for m in machines {
+                let mid = m["machine_id"].as_str().unwrap_or("?");
+                let tier = m["tier"].as_str().unwrap_or("hot");
+                let mgb = m["allocated_gb"].as_u64().unwrap_or(0);
+                let used = m["used_gb"]
+                    .as_f64()
+                    .map(|g| format!("{g:.2} GB"))
+                    .unwrap_or_else(|| "n/a".into());
+                let cost = (m["hot_monthly_cost_cents"].as_u64().unwrap_or(0) as f64) / 100.0;
+                let full_flag = if m["disk_full"].as_bool().unwrap_or(false) {
+                    " [DISK FULL]"
+                } else {
+                    ""
+                };
+                lines.push(format!(
+                    "  - {mid}: tier={tier} used={used} allocated={mgb} GB hot_monthly=${cost:.2}{full_flag}"
+                ));
+            }
+        }
+    }
     lines.join("\n")
 }
 
@@ -139,6 +231,52 @@ pub(crate) fn format_redeem_human(val: &Value) -> String {
         None => " expires=never".into(),
     };
     format!("{lead}{expiry} (remaining={remaining:.2}h purchased={purchased:.2}h)")
+}
+
+pub(crate) fn parse_usd_to_cents(raw: &str) -> Result<u64, String> {
+    let trimmed = raw.trim();
+    let trimmed = trimmed.strip_prefix('$').unwrap_or(trimmed);
+    if trimmed.is_empty() || trimmed.starts_with('-') || trimmed.starts_with('+') {
+        return Err(format!("invalid USD amount: {raw:?}"));
+    }
+    let mut parts = trimmed.split('.');
+    let whole_str = parts.next().unwrap_or("");
+    let frac_str = parts.next();
+    if parts.next().is_some()
+        || whole_str.is_empty()
+        || !whole_str.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(format!("invalid USD amount: {raw:?}"));
+    }
+    let whole: u64 = whole_str
+        .parse()
+        .map_err(|_| format!("invalid USD amount: {raw:?}"))?;
+    let frac: u64 = match frac_str {
+        None => 0,
+        Some(f) if f.is_empty() || f.len() > 2 || !f.bytes().all(|b| b.is_ascii_digit()) => {
+            return Err(format!("invalid USD amount: {raw:?}"));
+        }
+        Some(f) if f.len() == 1 => {
+            f.parse::<u64>()
+                .map_err(|_| format!("invalid USD amount: {raw:?}"))?
+                * 10
+        }
+        Some(f) => f
+            .parse::<u64>()
+            .map_err(|_| format!("invalid USD amount: {raw:?}"))?,
+    };
+    let cents = whole
+        .checked_mul(100)
+        .and_then(|v| v.checked_add(frac))
+        .ok_or_else(|| format!("USD amount overflow: {raw:?}"))?;
+    if cents == 0 {
+        return Err("USD amount must be greater than zero".into());
+    }
+    Ok(cents)
+}
+
+pub(crate) fn format_topup_human(val: &Value) -> String {
+    val["url"].as_str().unwrap_or_default().to_owned()
 }
 
 pub(crate) fn resolve_cloud_target(target: &str) -> Result<(String, Value), String> {
@@ -174,6 +312,7 @@ pub fn handle_cloud(
 ) {
     let is_usage = matches!(action, MeshCloudAction::Usage);
     let is_redeem = matches!(action, MeshCloudAction::Redeem { .. });
+    let is_topup = matches!(action, MeshCloudAction::Topup { .. });
     let response = match action {
         MeshCloudAction::Create { size, name } => {
             let mut body = serde_json::json!({});
@@ -208,13 +347,54 @@ pub fn handle_cloud(
             .header("Authorization", auth_header(token))
             .json(&serde_json::json!({}))
             .send(),
-        MeshCloudAction::Delete { machine, confirm } => http
-            .post(format!(
+        MeshCloudAction::Delete {
+            machine,
+            confirm,
+            recoverable,
+            archive_id,
+        } => {
+            let mut body = serde_json::json!({
+                "confirm": confirm,
+                "mode": if recoverable { "recoverable" } else { "permanent" },
+            });
+            if let Some(arc) = archive_id {
+                body["archive_id"] = serde_json::json!(arc);
+            }
+            http.post(format!(
                 "{base}/api/mesh/cloud/{}/delete",
                 urlencoding::encode(&machine)
             ))
             .header("Authorization", auth_header(token))
-            .json(&serde_json::json!({ "confirm": confirm }))
+            .json(&body)
+            .send()
+        }
+        MeshCloudAction::Recreate {
+            machine,
+            archive_id,
+        } => {
+            let mut body = serde_json::json!({});
+            if let Some(arc) = archive_id {
+                body["archive_id"] = serde_json::json!(arc);
+            }
+            http.post(format!(
+                "{base}/api/mesh/cloud/{}/recreate",
+                urlencoding::encode(&machine)
+            ))
+            .header("Authorization", auth_header(token))
+            .json(&body)
+            .send()
+        }
+        MeshCloudAction::ResizeVolume {
+            machine,
+            size_gb,
+            confirm,
+        } => http
+            .post(format!(
+                "{base}/api/mesh/cloud/{}/resize-volume",
+                urlencoding::encode(&machine)
+            ))
+            .header("Authorization", auth_header(token))
+            .json(&serde_json::json!({ "new_size_gb": size_gb, "confirm": confirm }))
             .send(),
         MeshCloudAction::Usage => http
             .get(format!("{base}/api/mesh/cloud/usage"))
@@ -225,6 +405,22 @@ pub fn handle_cloud(
             .header("Authorization", auth_header(token))
             .json(&serde_json::json!({ "code": code }))
             .send(),
+        MeshCloudAction::Topup { pack, amount } => {
+            let body = if let Some(pack_id) = pack {
+                serde_json::json!({ "pack_id": pack_id })
+            } else {
+                let raw = amount.as_deref().unwrap_or_default();
+                let amount_cents = match parse_usd_to_cents(raw) {
+                    Ok(cents) => cents,
+                    Err(error) => crate::cmd::print::fail(1, error),
+                };
+                serde_json::json!({ "pack_id": "custom", "amount_cents": amount_cents })
+            };
+            http.post(format!("{base}/api/mesh/cloud/checkout"))
+                .header("Authorization", auth_header(token))
+                .json(&body)
+                .send()
+        }
     };
 
     match response {
@@ -239,6 +435,8 @@ pub fn handle_cloud(
                 println!("{}", format_usage_human(&val));
             } else if is_redeem {
                 println!("{}", format_redeem_human(&val));
+            } else if is_topup {
+                println!("{}", format_topup_human(&val));
             } else if let Some(machines) = val["machines"].as_array() {
                 if machines.is_empty() {
                     println!("No cloud machines.");

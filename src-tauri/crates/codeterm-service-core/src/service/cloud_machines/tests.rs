@@ -86,6 +86,7 @@ impl FakeProvisioningPort {
                 burn_per_size: burn,
                 currency: Some("USD".into()),
                 period_end_at: Some(1_800_000_000),
+                ..Default::default()
             }),
             created_by_req_id: Mutex::new(BTreeMap::new()),
             next_id: AtomicUsize::new(1),

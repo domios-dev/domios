@@ -73,10 +73,8 @@ impl Lease {
                         }
                     }
                 }
-                #[cfg(target_os = "linux")]
-                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
-                    return Err(io::Error::last_os_error());
-                }
+                // No PR_SET_PDEATHSIG: Linux fires it when the spawning thread exits, and spawns run on
+                // short-lived blocking-pool threads. The guardian above retires the group on owner death.
                 if libc::getppid() != owner {
                     return Err(io::Error::from_raw_os_error(libc::ECHILD));
                 }

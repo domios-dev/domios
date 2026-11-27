@@ -125,3 +125,76 @@ fn npmrc_prefix_refreshes_when_mtime_changes_without_length_change() {
         );
     }
 }
+
+#[test]
+fn expands_versioned_desktop_cli_wildcards_newest_first_and_rejects_unsafe_globs() {
+    let home = PathBuf::from(if cfg!(windows) {
+        r"C:\Users\fixture"
+    } else {
+        "/home/fixture"
+    });
+    let appdata = home.join("AppData").join("Roaming");
+    let env = |key: &str| match key {
+        "APPDATA" => Some(appdata.clone().into_os_string()),
+        _ => None,
+    };
+
+    let alpha_win_parent = appdata.join("AlphaDesktop").join("agent-cli");
+    let alpha_mac_parent = home
+        .join("Library")
+        .join("Application Support")
+        .join("AlphaDesktop")
+        .join("agent-cli");
+    let beta_win_parent = appdata.join("ai.beta.desktop").join("cli");
+
+    let reader = |dir: &Path| {
+        if dir == alpha_win_parent {
+            vec![
+                "2.1.9".into(),
+                "2.1.87".into(),
+                "2.1.10".into(),
+                "..".into(),
+                "bad/child".into(),
+            ]
+        } else if dir == alpha_mac_parent {
+            vec!["2.1.50".into(), "2.1.87".into()]
+        } else if dir == beta_win_parent {
+            vec!["1.19.6".into(), "2.4.2-x64".into(), "custom".into()]
+        } else {
+            Vec::new()
+        }
+    };
+
+    let templates = vec![
+        "%APPDATA%/AlphaDesktop/agent-cli/*".into(),
+        "~/Library/Application Support/AlphaDesktop/agent-cli/*/alpha.app/Contents/MacOS".into(),
+        "%APPDATA%/ai.beta.desktop/cli/*".into(),
+        "%APPDATA%/AlphaDesktop/agent-cli/*/*".into(),
+        "%APPDATA%/AlphaDesktop/agent-cli/2.*".into(),
+        "%APPDATA%/AlphaDesktop/agent-cli/*/../escape".into(),
+        "/*".into(),
+    ];
+
+    let expanded = expand_install_dirs_with_reader(&templates, &env, Some(&home), &reader);
+    assert_eq!(
+        expanded,
+        vec![
+            alpha_win_parent.join("2.1.87"),
+            alpha_win_parent.join("2.1.10"),
+            alpha_win_parent.join("2.1.9"),
+            alpha_mac_parent
+                .join("2.1.87")
+                .join("alpha.app")
+                .join("Contents")
+                .join("MacOS"),
+            alpha_mac_parent
+                .join("2.1.50")
+                .join("alpha.app")
+                .join("Contents")
+                .join("MacOS"),
+            beta_win_parent.join("2.4.2-x64"),
+            beta_win_parent.join("1.19.6"),
+            beta_win_parent.join("custom"),
+        ]
+    );
+}

@@ -1,4 +1,4 @@
-use crate::js_runtime::{probe_bin_with_extra_dirs, BinProbe, BinResolution};
+use crate::js_runtime::{probe_bin_candidates_with_extra_dirs, BinProbe, BinResolution};
 use crate::provider::ProviderAvailability;
 use std::path::PathBuf;
 
@@ -105,8 +105,27 @@ pub fn observe_cli_with_compatibility_in(
     updater: Option<String>,
     compatibility: Option<&crate::provider_compat::CompatibilityManifest>,
 ) -> ProviderCliStatus {
-    let observation = crate::provider_version::observe_in(&binary, extra_dirs);
-    let probe = probe_bin_with_extra_dirs(&binary, extra_dirs);
+    observe_cli_with_compatibility_candidates_in(
+        binary,
+        &[],
+        extra_dirs,
+        installer,
+        updater,
+        compatibility,
+    )
+}
+
+pub fn observe_cli_with_compatibility_candidates_in(
+    binary: String,
+    aliases: &[String],
+    extra_dirs: &[PathBuf],
+    installer: Option<String>,
+    updater: Option<String>,
+    compatibility: Option<&crate::provider_compat::CompatibilityManifest>,
+) -> ProviderCliStatus {
+    let candidates = crate::js_runtime::cli_binary_candidates(&binary, aliases);
+    let observation = crate::provider_version::observe_candidates_in(&candidates, extra_dirs);
+    let probe = probe_bin_candidates_with_extra_dirs(&candidates, extra_dirs);
     let mut status = status_from_probe(binary, probe, installer, updater);
     status.compatibility =
         crate::provider_compat::evaluate(compatibility, observation.version.as_deref());
@@ -203,13 +222,14 @@ pub fn manifest_cli_status(
         ));
     }
     let install_dirs = manifest.cli_install_dirs(platform);
-    Some(observe_cli_with_compatibility_in(
+    Some(observe_cli_with_compatibility_candidates_in(
         manifest
             .cli_binary
             .as_deref()
             .or(manifest.binary_name.as_deref())
             .unwrap_or(&manifest.id)
             .to_owned(),
+        &manifest.cli_binary_aliases,
         &install_dirs,
         manifest.installer.get(platform).cloned(),
         manifest.updater.get(platform).cloned(),
