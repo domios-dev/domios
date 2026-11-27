@@ -42,6 +42,23 @@ impl CloudMachineController {
         }
     }
 
+    fn update_record_and_note_sleep(
+        &self,
+        machine_id: &str,
+        peer_control: &dyn CloudPeerControlPort,
+        mutate: impl FnOnce(&CloudMachineRecord) -> Result<CloudMachineRecord, CloudError>,
+    ) -> Result<CloudMachineRecord, CloudError> {
+        let updated = self.update_record(machine_id, mutate)?;
+        if matches!(
+            updated.state,
+            CloudLifecycleState::Asleep | CloudLifecycleState::OutOfCredits
+        ) {
+            self.clear_link_flush_generation(&updated.machine_id);
+            peer_control.note_machine_asleep(&updated);
+        }
+        Ok(updated)
+    }
+
     pub(super) async fn complete_drain_sleep_locked(
         &self,
         draining: &CloudMachineRecord,
@@ -63,13 +80,13 @@ impl CloudMachineController {
         match provisioning.sleep(&provider_id, &request_id).await {
             Ok(sleep_mode) => {
                 let now_ms = self.clock.now_ms();
-                let asleep = self.update_record(&draining.machine_id, |rec| {
-                    let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
-                    next.sleep_mode = sleep_mode;
-                    next.pending_request = None;
-                    Ok(next)
-                })?;
-                peer_control.note_machine_asleep(&asleep);
+                let asleep =
+                    self.update_record_and_note_sleep(&draining.machine_id, peer_control, |rec| {
+                        let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
+                        next.sleep_mode = sleep_mode;
+                        next.pending_request = None;
+                        Ok(next)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept { reason });
                 let warning = (sleep_mode == CloudSleepMode::DeleteRecreate
                     || action == IdleSleepAction::DeleteForRecreate)
@@ -81,20 +98,20 @@ impl CloudMachineController {
             Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
                 let _ = peer_control.reopen_drain(draining).await;
                 let now_ms = self.clock.now_ms();
-                let asleep = self.update_record(&draining.machine_id, |rec| {
-                    apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
-                })?;
-                peer_control.note_machine_asleep(&asleep);
+                let asleep =
+                    self.update_record_and_note_sleep(&draining.machine_id, peer_control, |rec| {
+                        apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept { reason });
                 Ok(asleep.receipt(now_ms, None))
             }
             Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
                 let _ = peer_control.reopen_drain(draining).await;
                 let now_ms = self.clock.now_ms();
-                let exhausted = self.update_record(&draining.machine_id, |rec| {
-                    apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
-                })?;
-                peer_control.note_machine_asleep(&exhausted);
+                let exhausted =
+                    self.update_record_and_note_sleep(&draining.machine_id, peer_control, |rec| {
+                        apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Exhausted,
                 });
@@ -138,12 +155,13 @@ impl CloudMachineController {
         match provisioning.sleep(&provider_id, &request_id).await {
             Ok(sleep_mode) => {
                 let now_ms = self.clock.now_ms();
-                let exhausted = self.update_record(&record.machine_id, |rec| {
-                    let mut next = transition(rec, LifecycleEvent::CreditsExhausted, now_ms)?;
-                    next.sleep_mode = sleep_mode;
-                    next.pending_request = None;
-                    Ok(next)
-                })?;
+                let exhausted =
+                    self.update_record_and_note_sleep(&record.machine_id, peer_control, |rec| {
+                        let mut next = transition(rec, LifecycleEvent::CreditsExhausted, now_ms)?;
+                        next.sleep_mode = sleep_mode;
+                        next.pending_request = None;
+                        Ok(next)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Exhausted,
                 });
@@ -151,11 +169,12 @@ impl CloudMachineController {
             }
             Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
                 let now_ms = self.clock.now_ms();
-                let exhausted = self.update_record(&record.machine_id, |rec| {
-                    let mut next = transition(rec, LifecycleEvent::CreditsExhausted, now_ms)?;
-                    next.pending_request = None;
-                    Ok(next)
-                })?;
+                let exhausted =
+                    self.update_record_and_note_sleep(&record.machine_id, peer_control, |rec| {
+                        let mut next = transition(rec, LifecycleEvent::CreditsExhausted, now_ms)?;
+                        next.pending_request = None;
+                        Ok(next)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Exhausted,
                 });
@@ -195,13 +214,13 @@ impl CloudMachineController {
         match provisioning.sleep(&provider_id, &request_id).await {
             Ok(sleep_mode) => {
                 let now_ms = self.clock.now_ms();
-                let asleep = self.update_record(&record.machine_id, |rec| {
-                    let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
-                    next.sleep_mode = sleep_mode;
-                    next.pending_request = None;
-                    Ok(next)
-                })?;
-                peer_control.note_machine_asleep(&asleep);
+                let asleep =
+                    self.update_record_and_note_sleep(&record.machine_id, peer_control, |rec| {
+                        let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
+                        next.sleep_mode = sleep_mode;
+                        next.pending_request = None;
+                        Ok(next)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Idle,
                 });
@@ -215,11 +234,12 @@ impl CloudMachineController {
             }
             Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
                 let now_ms = self.clock.now_ms();
-                let asleep = self.update_record(&record.machine_id, |rec| {
-                    let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
-                    next.pending_request = None;
-                    Ok(next)
-                })?;
+                let asleep =
+                    self.update_record_and_note_sleep(&record.machine_id, peer_control, |rec| {
+                        let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
+                        next.pending_request = None;
+                        Ok(next)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Idle,
                 });
@@ -386,13 +406,15 @@ impl CloudMachineController {
             DrainingRecoveryPlan::FinishAsleep => {
                 let _ = peer_control.reopen_drain(&record).await;
                 let now_ms = self.clock.now_ms();
-                let asleep = self.update_record(machine_id, |rec| {
-                    let mut next = apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)?;
-                    if let Some(sleep_mode) = probed.sleep_mode {
-                        next.sleep_mode = sleep_mode;
-                    }
-                    Ok(next)
-                })?;
+                let asleep =
+                    self.update_record_and_note_sleep(machine_id, peer_control, |rec| {
+                        let mut next =
+                            apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)?;
+                        if let Some(sleep_mode) = probed.sleep_mode {
+                            next.sleep_mode = sleep_mode;
+                        }
+                        Ok(next)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Idle,
                 });
@@ -423,14 +445,15 @@ impl CloudMachineController {
                 }
                 let _ = peer_control.reopen_drain(&record).await;
                 let now_ms = self.clock.now_ms();
-                let exhausted = self.update_record(machine_id, |rec| {
-                    let mut next =
-                        apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)?;
-                    if let Some(mode) = sleep_mode {
-                        next.sleep_mode = mode;
-                    }
-                    Ok(next)
-                })?;
+                let exhausted =
+                    self.update_record_and_note_sleep(machine_id, peer_control, |rec| {
+                        let mut next =
+                            apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)?;
+                        if let Some(mode) = sleep_mode {
+                            next.sleep_mode = mode;
+                        }
+                        Ok(next)
+                    })?;
                 self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                     reason: codeterm_analytics::CloudSleepReason::Exhausted,
                 });
@@ -476,12 +499,16 @@ impl CloudMachineController {
                 match provisioning.sleep(&provider_id, &request_id).await {
                     Ok(sleep_mode) => {
                         let now_ms = self.clock.now_ms();
-                        let asleep = self.update_record(machine_id, |rec| {
-                            let mut next =
-                                apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)?;
-                            next.sleep_mode = sleep_mode;
-                            Ok(next)
-                        })?;
+                        let asleep =
+                            self.update_record_and_note_sleep(machine_id, peer_control, |rec| {
+                                let mut next = apply_draining_truth(
+                                    rec,
+                                    BackendDrainingTruth::Asleep,
+                                    now_ms,
+                                )?;
+                                next.sleep_mode = sleep_mode;
+                                Ok(next)
+                            })?;
                         self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                             reason: codeterm_analytics::CloudSleepReason::Idle,
                         });
@@ -490,9 +517,10 @@ impl CloudMachineController {
                     Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
                         let _ = peer_control.reopen_drain(&refreshed).await;
                         let now_ms = self.clock.now_ms();
-                        let asleep = self.update_record(machine_id, |rec| {
-                            apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
-                        })?;
+                        let asleep =
+                            self.update_record_and_note_sleep(machine_id, peer_control, |rec| {
+                                apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
+                            })?;
                         self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                             reason: codeterm_analytics::CloudSleepReason::Idle,
                         });
@@ -501,9 +529,14 @@ impl CloudMachineController {
                     Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
                         let _ = peer_control.reopen_drain(&refreshed).await;
                         let now_ms = self.clock.now_ms();
-                        let exhausted = self.update_record(machine_id, |rec| {
-                            apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
-                        })?;
+                        let exhausted =
+                            self.update_record_and_note_sleep(machine_id, peer_control, |rec| {
+                                apply_draining_truth(
+                                    rec,
+                                    BackendDrainingTruth::OutOfCredits,
+                                    now_ms,
+                                )
+                            })?;
                         self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
                             reason: codeterm_analytics::CloudSleepReason::Exhausted,
                         });
@@ -715,7 +748,7 @@ impl CloudMachineController {
                     {
                         // Backend reconciliation already slept this machine after lease expiry while home was offline.
                         if self
-                            .update_record(machine_id, |rec| {
+                            .update_record_and_note_sleep(machine_id, peer_control, |rec| {
                                 let mut next =
                                     transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
                                 next.lease_id = None;
@@ -907,7 +940,7 @@ impl CloudMachineController {
             }
             Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
                 // Unreachable peer + backend conflict/not-found means the machine is already stopped/deleted.
-                let _ = self.update_record(machine_id, |rec| {
+                let _ = self.update_record_and_note_sleep(machine_id, peer_control, |rec| {
                     let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
                     next.lease_id = None;
                     next.lease_expires_at_ms = None;

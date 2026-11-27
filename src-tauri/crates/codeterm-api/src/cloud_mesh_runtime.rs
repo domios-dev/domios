@@ -276,6 +276,7 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
         let dispatcher = Arc::new(Dispatcher(service.clone()));
         let mut tasks = HashMap::<String, RouteTask>::new();
         let mut prev_attached = HashSet::<String>::new();
+        let mut prev_linked = HashMap::<String, Option<String>>::new();
         let mut gate = mesh.lock().gate_watch();
         let mut cloud_lifecycle = service
             .upgrade()
@@ -309,7 +310,7 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                 .filter_map(|record| record.installation_id.clone())
                 .collect();
             let mut managed_endpoints = HashMap::new();
-            let (routes, bindings, attached) = {
+            let (routes, bindings, attached, current_linked) = {
                 let mut manager = mesh.lock();
                 for record in managed_records {
                     let Some(inst_id) = record.installation_id else {
@@ -341,8 +342,26 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                     .collect::<HashMap<_, _>>();
                 let bindings = manager.installation_instance_bindings();
                 let attached = manager.attached_reverse_streams();
-                (routes, bindings, attached)
+                let current_linked = bindings
+                    .iter()
+                    .filter_map(|(inst_id, peer_id)| {
+                        let peer = manager.paired_peers.get(peer_id)?;
+                        (peer.online && manager.traffic_open(peer_id)).then(|| {
+                            let nonce = manager
+                                .link_record(peer_id)
+                                .and_then(|link| link.link_nonce.clone());
+                            (inst_id.clone(), nonce)
+                        })
+                    })
+                    .collect::<HashMap<_, _>>();
+                (routes, bindings, attached, current_linked)
             };
+            let newly_linked: HashSet<String> = current_linked
+                .iter()
+                .filter(|(inst_id, nonce)| prev_linked.get(*inst_id) != Some(*nonce))
+                .map(|(inst_id, _)| inst_id.clone())
+                .collect();
+            prev_linked = current_linked;
             let backfilled = owner.cloud_machines().observe_peer_instance_ids(
                 bindings
                     .iter()
@@ -355,9 +374,9 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
             drop(owner);
             tasks.retain(|id, task| {
                 routes.get(id).is_some_and(|(epoch, sequence, route)| {
-                    let retry_after_wake = lifecycle_changed
-                        && task.task.is_finished()
-                        && active_managed_installations.contains(id);
+                    let retry_after_wake = task.task.is_finished()
+                        && ((lifecycle_changed && active_managed_installations.contains(id))
+                            || newly_linked.contains(id));
                     !retry_after_wake
                         && task.epoch == *epoch
                         && task.route == *route

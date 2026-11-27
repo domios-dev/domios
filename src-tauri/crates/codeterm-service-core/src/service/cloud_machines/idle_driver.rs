@@ -89,6 +89,7 @@ pub struct CloudIdleDriverHandle {
     shutdown_tx: watch::Sender<bool>,
     active_machines: Arc<Mutex<HashSet<String>>>,
     supervisor: JoinHandle<()>,
+    auxiliary_tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl CloudIdleDriverHandle {
@@ -96,6 +97,14 @@ impl CloudIdleDriverHandle {
         let mut ids: Vec<String> = self.active_machines.lock().iter().cloned().collect();
         ids.sort();
         ids
+    }
+
+    pub fn subscribe_shutdown(&self) -> watch::Receiver<bool> {
+        self.shutdown_tx.subscribe()
+    }
+
+    pub fn attach_auxiliary_task(&self, task: JoinHandle<()>) {
+        self.auxiliary_tasks.lock().push(task);
     }
 
     pub fn shutdown(&self) {
@@ -107,6 +116,9 @@ impl Drop for CloudIdleDriverHandle {
     fn drop(&mut self) {
         let _ = self.shutdown_tx.send(true);
         self.supervisor.abort();
+        for task in self.auxiliary_tasks.get_mut().drain(..) {
+            task.abort();
+        }
     }
 }
 
@@ -239,6 +251,7 @@ pub fn spawn_cloud_idle_driver(
         shutdown_tx,
         active_machines,
         supervisor,
+        auxiliary_tasks: Mutex::new(Vec::new()),
     }
 }
 

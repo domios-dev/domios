@@ -16,6 +16,10 @@ impl CloudMachineController {
             .send_modify(|rev| *rev = rev.wrapping_add(1));
     }
 
+    pub(super) fn clear_link_flush_generation(&self, machine_id: &str) {
+        self.link_flush_tracker.lock().clear(machine_id);
+    }
+
     fn emit_held_send_status(&self, send: &HeldCloudSend) {
         let observer = self.send_status_observer.lock().clone();
         let Some(observer) = observer else {
@@ -65,6 +69,7 @@ impl CloudMachineController {
             self.persist_wake_queue_locked(&queue)?;
             held
         };
+        self.clear_link_flush_generation(machine_id);
         self.notify_wake_queue();
         Ok(held)
     }
@@ -76,7 +81,12 @@ impl CloudMachineController {
     ) -> Vec<HeldCloudSend> {
         let flush_lock = self.machine_flush_lock(machine_id);
         let _flush_guard = flush_lock.lock().await;
-        self.flush_held_sends_locked(machine_id, peer_control).await
+        let mut settled = self.expire_overdue_held_sends(machine_id);
+        settled.extend(
+            self.flush_held_sends_after_expiry_locked(machine_id, peer_control)
+                .await,
+        );
+        settled
     }
 
     /// Re-attempts flushing held sends for `machine_id` on a guest link/online event,
@@ -103,21 +113,23 @@ impl CloudMachineController {
             return expired;
         }
         let mut settled = expired;
-        settled.extend(self.flush_held_sends_locked(machine_id, peer_control).await);
+        settled.extend(
+            self.flush_held_sends_after_expiry_locked(machine_id, peer_control)
+                .await,
+        );
         settled
     }
 
-    async fn flush_held_sends_locked(
+    async fn flush_held_sends_after_expiry_locked(
         &self,
         machine_id: &str,
         peer_control: &dyn CloudPeerControlPort,
     ) -> Vec<HeldCloudSend> {
-        let mut settled = self.expire_overdue_held_sends(machine_id);
         let Ok(record) = self.find_record(machine_id) else {
-            return settled;
+            return Vec::new();
         };
+        let mut settled = Vec::new();
         loop {
-            settled.extend(self.expire_overdue_held_sends(machine_id));
             let next = {
                 let now_ms = self.clock.now_ms();
                 let mut queue = self.wake_queue.lock();
@@ -160,6 +172,7 @@ impl CloudMachineController {
             if keep_held {
                 break;
             }
+            settled.extend(self.expire_overdue_held_sends(machine_id));
         }
         settled
     }

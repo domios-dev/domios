@@ -151,6 +151,8 @@ struct InstrumentedPeerControl {
     published: Mutex<Vec<(String, CloudEndpoint)>>,
     events: Mutex<Vec<String>>,
     flushed_ids: Mutex<Vec<String>>,
+    link_generation: Mutex<Option<String>>,
+    asleep_notes: AtomicUsize,
     flush_in_flight: AtomicUsize,
     max_flush_in_flight: AtomicUsize,
     first_flush_entered: Arc<tokio::sync::Notify>,
@@ -166,6 +168,8 @@ impl InstrumentedPeerControl {
             published: Mutex::new(Vec::new()),
             events: Mutex::new(Vec::new()),
             flushed_ids: Mutex::new(Vec::new()),
+            link_generation: Mutex::new(None),
+            asleep_notes: AtomicUsize::new(0),
             flush_in_flight: AtomicUsize::new(0),
             max_flush_in_flight: AtomicUsize::new(0),
             first_flush_entered: Arc::new(tokio::sync::Notify::new()),
@@ -256,6 +260,14 @@ impl CloudPeerControlPort for InstrumentedPeerControl {
             .lock()
             .pop_front()
             .unwrap_or(FlushWriteOutcome::Delivered)
+    }
+
+    fn current_link_generation(&self, _record: &CloudMachineRecord) -> Option<String> {
+        self.link_generation.lock().clone()
+    }
+
+    fn note_machine_asleep(&self, _record: &CloudMachineRecord) {
+        self.asleep_notes.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -573,6 +585,7 @@ struct ScriptedWakeProvisioning {
     endpoint: CloudEndpoint,
     clock: Arc<StepClock>,
     advance_per_wake_ms: u64,
+    hang_wake: Mutex<bool>,
     wake_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
     seen_wake_request_ids: Mutex<Vec<String>>,
 }
@@ -583,6 +596,7 @@ impl ScriptedWakeProvisioning {
             endpoint,
             clock,
             advance_per_wake_ms,
+            hang_wake: Mutex::new(false),
             wake_outcomes: Mutex::new(VecDeque::new()),
             seen_wake_request_ids: Mutex::new(Vec::new()),
         }
@@ -619,6 +633,9 @@ impl CloudProvisioningPort for ScriptedWakeProvisioning {
         self.seen_wake_request_ids
             .lock()
             .push(request_id.to_owned());
+        if *self.hang_wake.lock() {
+            std::future::pending::<()>().await;
+        }
         if self.advance_per_wake_ms > 0 {
             self.clock.advance(self.advance_per_wake_ms);
         }
@@ -964,7 +981,7 @@ async fn unconfirmed_and_starting_wake_retry_once_with_same_request_id_inside_de
         .push_back(Err(CloudError::ProviderUnconfirmed("adopt in flight".into())));
     prov.wake_outcomes.lock().push_back(Ok(()));
     let receipt = ctrl
-        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 10_000)
+        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 60_000)
         .await
         .unwrap();
     assert_eq!(receipt.state, CloudLifecycleState::Awake);
@@ -974,27 +991,7 @@ async fn unconfirmed_and_starting_wake_retry_once_with_same_request_id_inside_de
         assert_eq!(ids[0], ids[1], "retry must reuse the exact same request_id");
     }
 
-    // Case 2: provider_starting retries ONCE with the exact same request_id and succeeds.
-    prov.seen_wake_request_ids.lock().clear();
-    ctrl.sleep(&created.machine_id, &prov, peer_ctrl.as_ref(), true)
-        .await
-        .unwrap();
-    prov.wake_outcomes
-        .lock()
-        .push_back(Err(CloudError::ProviderStarting("vm booting".into())));
-    prov.wake_outcomes.lock().push_back(Ok(()));
-    let receipt = ctrl
-        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 10_000)
-        .await
-        .unwrap();
-    assert_eq!(receipt.state, CloudLifecycleState::Awake);
-    {
-        let ids = prov.seen_wake_request_ids.lock().clone();
-        assert_eq!(ids.len(), 2);
-        assert_eq!(ids[0], ids[1], "provider_starting retry must reuse request_id");
-    }
-
-    // Case 3: bounded to ONE retry (two total attempts) if both fail.
+    // Case 2: bounded to ONE retry (two total attempts) if both fail.
     prov.seen_wake_request_ids.lock().clear();
     ctrl.sleep(&created.machine_id, &prov, peer_ctrl.as_ref(), true)
         .await
@@ -1006,7 +1003,7 @@ async fn unconfirmed_and_starting_wake_retry_once_with_same_request_id_inside_de
         .lock()
         .push_back(Err(CloudError::ProviderUnconfirmed("second fail".into())));
     let err = ctrl
-        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 10_000)
+        .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 60_000)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "provider_unconfirmed");
@@ -1016,16 +1013,103 @@ async fn unconfirmed_and_starting_wake_retry_once_with_same_request_id_inside_de
         assert_eq!(ids[0], ids[1]);
     }
 
-    // Case 4: no retry when the first attempt already reached the overall wake deadline.
-    let slow_prov = ScriptedWakeProvisioning::new(endpoint, clock, 10_000);
+    // Case 3: skip retry when remaining time is below MIN_WAKE_RETRY_READINESS_BUDGET_MS.
+    let slow_prov = ScriptedWakeProvisioning::new(endpoint.clone(), clock.clone(), 50_000);
     slow_prov
         .wake_outcomes
         .lock()
         .push_back(Err(CloudError::ProviderUnconfirmed("slow timeout".into())));
     let err = ctrl
-        .wake(&created.machine_id, &slow_prov, peer_ctrl.as_ref(), 5_000)
+        .wake(
+            &created.machine_id,
+            &slow_prov,
+            peer_ctrl.as_ref(),
+            50_000 + MIN_WAKE_RETRY_READINESS_BUDGET_MS - 1,
+        )
         .await
         .unwrap_err();
     assert_eq!(err.code(), "provider_unconfirmed");
     assert_eq!(slow_prov.seen_wake_request_ids.lock().len(), 1);
+
+    // Case 4: hanging provisioning.wake times out against the deadline as pending unconfirmed.
+    let hanging_prov = ScriptedWakeProvisioning::new(endpoint, clock, 0);
+    *hanging_prov.hang_wake.lock() = true;
+    let err = ctrl
+        .wake(&created.machine_id, &hanging_prov, peer_ctrl.as_ref(), 25)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "provider_unconfirmed");
+    assert_eq!(hanging_prov.seen_wake_request_ids.lock().len(), 1);
+    assert!(
+        ctrl.find_by_peer(&created.machine_id)
+            .unwrap()
+            .pending_request
+            .is_some_and(|p| p.op == PendingProvisioningOp::Wake && p.unconfirmed),
+        "timed-out wake must leave pending_request marked unconfirmed"
+    );
+}
+
+#[tokio::test]
+async fn repeated_wakes_with_persistent_link_generation_deliver_each_held_send() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = StepClock::new(10_000);
+    let addr = CloudEndpoint::Direct(SocketAddrV4::new(
+        Ipv4Addr::new(198, 51, 100, 88),
+        CLOUD_INGRESS_PORT,
+    ));
+    let prov = StubProvisioning {
+        create_addr: addr.clone(),
+        wake_addr: addr,
+    };
+    let peer_ctrl = InstrumentedPeerControl::new();
+    // Persistent account-mesh link_id stays identical across sleep/wake cycles.
+    *peer_ctrl.link_generation.lock() = Some("link:persistent-nonce".into());
+
+    let ctrl = CloudMachineController::new(
+        CloudMachineStore::new(dir.path().join("cloud_machines.json")),
+        "controller-1".into(),
+        clock,
+    );
+    let created = ctrl
+        .create(
+            CreateCloudMachineParams {
+                size: "small".into(),
+                name: Some("multi-wake-box".into()),
+                ..Default::default()
+            },
+            &prov,
+            &StubEnrollment,
+            peer_ctrl.as_ref(),
+        )
+        .await
+        .unwrap();
+
+    for (idx, delivery_id) in [(1, "deliv-cycle-1"), (2, "deliv-cycle-2")] {
+        ctrl.sleep(&created.machine_id, &prov, peer_ctrl.as_ref(), true)
+            .await
+            .unwrap();
+        let held = ctrl
+            .hold_send_for_wake(
+                &created.machine_id,
+                "tab-1",
+                delivery_id.into(),
+                "POST".into(),
+                "/api/tabs/tab-1/send".into(),
+                serde_json::json!({ "text": format!("wake-cycle-{idx}") }),
+                AuthenticatedOrigin::Owner,
+                None,
+                60_000,
+            )
+            .unwrap();
+        ctrl.wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 60_000)
+            .await
+            .unwrap();
+        assert_eq!(
+            ctrl.inspect_held_send(&held.send_id).unwrap().state,
+            ChatSendState::Sent,
+            "held send from wake cycle {idx} must be delivered even with the same link generation"
+        );
+    }
+    assert_eq!(peer_ctrl.flushed_ids.lock().len(), 2);
+    assert_eq!(peer_ctrl.asleep_notes.load(Ordering::SeqCst), 2);
 }

@@ -80,21 +80,43 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
             .cloud_max_awake_without_owner_minutes;
         (minutes > 0).then(|| u64::from(minutes).saturating_mul(60_000))
     });
-    let _ = spawn_wake_delivery_watcher(state.clone());
-    Some(spawn_cloud_idle_driver(
+    let handle = spawn_cloud_idle_driver(
         controller,
         provisioning,
         peer_control,
         Arc::new(TokioIdleTickWaiter),
         CloudIdleDriverConfig::with_idle_window_reader(idle_window_ms)
             .with_max_awake_without_owner_reader(max_awake_without_owner_ms),
-    ))
+    );
+    let watcher = spawn_wake_delivery_watcher_with_shutdown(state, Some(handle.subscribe_shutdown()));
+    handle.attach_auxiliary_task(watcher);
+    Some(handle)
 }
 
 /// Event-driven watcher that re-attempts flushing held cloud-wake sends when the guest
 /// actually links (at most once per link generation) and settles overdue held sends into
 /// `expired_not_delivered` at their exact deadline without polling.
 pub fn spawn_wake_delivery_watcher(state: AppState) -> tokio::task::JoinHandle<()> {
+    spawn_wake_delivery_watcher_with_shutdown(state, None)
+}
+
+async fn wait_for_shutdown(shutdown_rx: &mut Option<tokio::sync::watch::Receiver<bool>>) {
+    match shutdown_rx.as_mut() {
+        Some(rx) => {
+            while !*rx.borrow() {
+                if rx.changed().await.is_err() {
+                    return;
+                }
+            }
+        }
+        None => std::future::pending().await,
+    }
+}
+
+fn spawn_wake_delivery_watcher_with_shutdown(
+    state: AppState,
+    mut shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         use codeterm_service_core::service::cloud_machines::CloudPeerControlPort;
         let controller = state.svc.cloud_machines();
@@ -103,6 +125,9 @@ pub fn spawn_wake_delivery_watcher(state: AppState) -> tokio::task::JoinHandle<(
         let mut wake_queue_rx = controller.subscribe_wake_queue();
         let mut lifecycle_rx = controller.subscribe_lifecycle();
         loop {
+            if shutdown_rx.as_ref().is_some_and(|rx| *rx.borrow()) {
+                break;
+            }
             gate.borrow_and_update();
             wake_queue_rx.borrow_and_update();
             lifecycle_rx.borrow_and_update();
@@ -130,6 +155,8 @@ pub fn spawn_wake_delivery_watcher(state: AppState) -> tokio::task::JoinHandle<(
                     let remaining =
                         std::time::Duration::from_millis(deadline_ms.saturating_sub(now_ms));
                     tokio::select! {
+                        biased;
+                        _ = wait_for_shutdown(&mut shutdown_rx) => break,
                         changed = gate.changed() => {
                             if changed.is_err() {
                                 break;
@@ -150,6 +177,8 @@ pub fn spawn_wake_delivery_watcher(state: AppState) -> tokio::task::JoinHandle<(
                 }
                 None => {
                     tokio::select! {
+                        biased;
+                        _ = wait_for_shutdown(&mut shutdown_rx) => break,
                         changed = gate.changed() => {
                             if changed.is_err() {
                                 break;
@@ -195,7 +224,6 @@ pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json:
         CloudError::MachineSleeping { .. }
         | CloudError::ProviderUnavailable(_)
         | CloudError::ProviderUnconfirmed(_)
-        | CloudError::ProviderStarting(_)
         | CloudError::WakeDeadlineExceeded { .. }
         | CloudError::ApplyUnconfirmed { .. }
         | CloudError::CheckoutUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,

@@ -29,7 +29,7 @@ pub use held_sends::{
     evaluate_guest_link_readiness, should_retry_wake_once, CloudWakeQueue, FlushWriteOutcome,
     GuestLinkReadiness, GuestLinkReadinessInput, HeldCloudSend, HeldCloudSendState,
     LinkGenerationFlushTracker, SingleFlightWakes, DEFAULT_WAKE_HOLD_DEADLINE_MS,
-    EXPIRED_NOT_DELIVERED_CODE, RELEASE_CONDITION_PEER_READY,
+    EXPIRED_NOT_DELIVERED_CODE, MIN_WAKE_RETRY_READINESS_BUDGET_MS, RELEASE_CONDITION_PEER_READY,
 };
 pub use idle_drain::{
     evaluate_idle_and_renewal, DrainToken, IdleDecision, IdleEvalInput, IdlePolicy,
@@ -107,10 +107,11 @@ impl ServiceContext {
                 let Some(svc) = status_service.upgrade() else {
                     return;
                 };
+                let Some(peer_id) = record.and_then(|rec| rec.peer_instance_id.as_deref()) else {
+                    return;
+                };
                 let mut status = send.to_chat_send_status();
-                if let Some(peer_id) = record.and_then(|rec| rec.peer_instance_id.as_deref()) {
-                    status.tab_id = format!("mesh:{peer_id}/{}", send.tab_id);
-                }
+                status.tab_id = format!("mesh:{peer_id}/{}", send.tab_id);
                 svc.ui.emit(
                     "chat-send-status",
                     serde_json::to_value(&status).unwrap_or_default(),

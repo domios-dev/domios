@@ -11,6 +11,7 @@ use crate::service::chat_send_transaction::{ChatSendState, ChatSendStatus};
 use super::types::{CloudError, CLOUD_WAKE_SEND_PREFIX};
 
 pub const DEFAULT_WAKE_HOLD_DEADLINE_MS: u64 = 180_000;
+pub const MIN_WAKE_RETRY_READINESS_BUDGET_MS: u64 = 15_000;
 pub const MAX_HELD_SENDS_PER_MACHINE: usize = 32;
 pub const RELEASE_CONDITION_PEER_READY: &str = "peer_ready";
 pub const EXPIRED_NOT_DELIVERED_CODE: &str = "expired_not_delivered";
@@ -178,17 +179,23 @@ impl LinkGenerationFlushTracker {
             .insert(machine_id.to_owned(), generation.to_owned());
         true
     }
+
+    pub fn clear(&mut self, machine_id: &str) {
+        self.last_flushed_generation.remove(machine_id);
+    }
 }
 
 /// Returns true when a wake provisioning error should be retried once with the same `request_id`
-/// inside the overall wake deadline.
+/// while enough time remains inside the overall wake deadline for retry and guest readiness.
 pub fn should_retry_wake_once(
     error: &CloudError,
     attempt: u8,
     now_ms: u64,
     wake_deadline_ms: u64,
 ) -> bool {
-    attempt == 0 && error.is_retryable_wake_error() && now_ms < wake_deadline_ms
+    attempt == 0
+        && error.is_retryable_wake_error()
+        && wake_deadline_ms.saturating_sub(now_ms) >= MIN_WAKE_RETRY_READINESS_BUDGET_MS
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

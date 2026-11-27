@@ -754,7 +754,8 @@ impl CloudMachineController {
             });
         }
         if record.state == CloudLifecycleState::Awake {
-            self.flush_after_peer_ready(&record, peer_control).await;
+            self.flush_held_sends(&record.machine_id, peer_control)
+                .await;
             return Ok(record.receipt(self.clock.now_ms(), None));
         }
 
@@ -804,7 +805,8 @@ impl CloudMachineController {
                 }
                 if current.state == CloudLifecycleState::Awake {
                     guard.finish(Ok(()));
-                    self.flush_after_peer_ready(&current, peer_control).await;
+                    self.flush_held_sends(&current.machine_id, peer_control)
+                        .await;
                     return Ok(current.receipt(self.clock.now_ms(), None));
                 }
 
@@ -814,7 +816,10 @@ impl CloudMachineController {
                     match self.update_record(&current.machine_id, |rec| {
                         transition(rec, LifecycleEvent::WakeRequested, self.clock.now_ms())
                     }) {
-                        Ok(updated) => updated,
+                        Ok(updated) => {
+                            self.clear_link_flush_generation(&updated.machine_id);
+                            updated
+                        }
                         Err(error) => {
                             guard.finish(Err(error.to_string()));
                             return Err(error);
@@ -841,11 +846,41 @@ impl CloudMachineController {
                 };
                 let mut wake_attempt = 0u8;
                 let woken = loop {
-                    match provisioning.wake(&provider_machine_id, &request_id).await {
+                    let remaining_ms = wake_deadline_ms.saturating_sub(self.clock.now_ms());
+                    let (outcome, timed_out) = if remaining_ms == 0 {
+                        (
+                            Err(CloudError::ProviderUnconfirmed(
+                                "wake provisioning timed out before deadline".into(),
+                            )),
+                            true,
+                        )
+                    } else {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(remaining_ms),
+                            provisioning.wake(&provider_machine_id, &request_id),
+                        )
+                        .await
+                        {
+                            Ok(result) => (result, false),
+                            Err(_) => (
+                                Err(CloudError::ProviderUnconfirmed(
+                                    "wake provisioning timed out before deadline".into(),
+                                )),
+                                true,
+                            ),
+                        }
+                    };
+                    match outcome {
                         Ok(machine) => break machine,
                         Err(error) => {
                             let now_ms = self.clock.now_ms();
-                            if should_retry_wake_once(&error, wake_attempt, now_ms, wake_deadline_ms)
+                            if !timed_out
+                                && should_retry_wake_once(
+                                    &error,
+                                    wake_attempt,
+                                    now_ms,
+                                    wake_deadline_ms,
+                                )
                             {
                                 self.mark_pending_unconfirmed(
                                     &record.machine_id,
@@ -984,27 +1019,9 @@ impl CloudMachineController {
                 };
                 guard.finish(Ok(()));
                 self.record_product_event(codeterm_analytics::Event::CloudMachineWoken {});
-                self.flush_after_peer_ready(&awake, peer_control).await;
+                self.flush_held_sends(&awake.machine_id, peer_control).await;
                 Ok(awake.receipt(now_ms, None))
             }
-        }
-    }
-
-    async fn flush_after_peer_ready(
-        &self,
-        record: &CloudMachineRecord,
-        peer_control: &dyn CloudPeerControlPort,
-    ) {
-        if let Some(link_generation) = peer_control.current_link_generation(record) {
-            self.flush_held_sends_for_link_generation(
-                &record.machine_id,
-                &link_generation,
-                peer_control,
-            )
-            .await;
-        } else {
-            self.flush_held_sends(&record.machine_id, peer_control)
-                .await;
         }
     }
 
