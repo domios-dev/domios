@@ -6,6 +6,7 @@ import { resolveProviderCliTarget } from "../../lib/providerCliTarget";
 import { installAndWait } from "../../lib/firstRunInstall";
 import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
 import { Button } from "../shared/Button";
+import { ProviderPrerequisitesNotice } from "../shared/ProviderPrerequisitesNotice";
 import { BrandState } from "../brand/BrandState";
 import { brandStateModel } from "../brand/brandStateModel";
 
@@ -120,11 +121,7 @@ export function ProviderNotInstalledNotice({
           <CodeBlock text={installCommand} language={installerShellLanguage(installCommand)} wrapLines />
         </div>
       )}
-      {prerequisites.map((item) => (
-        <p key={item.binary} role="status" className="m-0 text-xs text-[var(--ct-muted-fg)]">
-          Needs {item.binary} first. {item.hint}
-        </p>
-      ))}
+      <ProviderPrerequisitesNotice prerequisites={prerequisites} />
       <div className="flex flex-wrap items-center justify-center gap-2">
         {installCommand && manualCheck !== "installed" && manualCheck !== "dispatched" && (
           <Button
@@ -137,7 +134,7 @@ export function ProviderNotInstalledNotice({
             {installError || manualCheck ? "Retry install" : `Install ${info.displayName}`}
           </Button>
         )}
-        {(onRetry || (manualCheck && manualCheck !== "installed")) && (
+        {(onRetry || prerequisites.length > 0 || (manualCheck && manualCheck !== "installed")) && (
           <Button
             variant={installCommand ? "ghost" : "primary"}
             loading={retrying}

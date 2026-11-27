@@ -375,7 +375,7 @@ fn claude_import_file(existing: &str) -> String {
 /// Render the L0+L1 wake-up payload as a markdown section, or empty when
 /// mem is unavailable / failed. On error we log and substitute empty so GA
 /// bootstrap never fails because of memory.
-pub(super) fn render_wake_up_section(
+pub(crate) fn render_wake_up_section(
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) -> String {
     let Some(m) = mem else { return String::new() };

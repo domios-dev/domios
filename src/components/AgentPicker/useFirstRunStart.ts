@@ -3,7 +3,8 @@ import { recordProductEvent } from "../../lib/productAnalytics";
 import { invoke, listen } from "../../lib/bridge";
 import type { MultiplexerState, TabBootStageEvent } from "../../lib/types";
 import { firstRunGeneralTarget } from "./firstRunNavigation";
-import { installAndWait } from "../../lib/firstRunInstall";
+import { installAndWait, ProviderInstallError } from "../../lib/firstRunInstall";
+import { missingInstallerPrerequisites } from "../../lib/providerCli";
 import { firstRunTransition } from "../../lib/firstRunFlow";
 import type { TabRef } from "./pickerNavigation";
 
@@ -19,6 +20,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failedInstallProviderId, setFailedInstallProviderId] = useState<string | null>(null);
+  const [failedInstallPrerequisites, setFailedInstallPrerequisites] = useState<Array<{ binary: string; hint: string }>>([]);
   const attempt = useRef<PendingStart | null>(null);
   useEffect(() => () => { attempt.current?.controller.abort(); attempt.current?.stop?.(); clearTimeout(attempt.current?.deadline); attempt.current = null; }, []);
 
@@ -30,13 +32,15 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
     transition(install ? "install" : "start");
     setError(null);
     setFailedInstallProviderId(null);
+    setFailedInstallPrerequisites([]);
     setProgress(install ? "Installing harness…" : "Starting General agent…");
     let target: TabRef | null = null;
     const stages = new Map<string, TabBootStageEvent>();
-    const fail = (reason: string) => {
+    const fail = (reason: string, prerequisites: Array<{ binary: string; hint: string }> = []) => {
       if (attempt.current !== current) return;
       setError(reason);
       setFailedInstallProviderId(installingNow ? providerId : null);
+      setFailedInstallPrerequisites(installingNow ? prerequisites : []);
       transition("failure");
       setProgress(null);
       current.stop?.();
@@ -80,8 +84,14 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
       if (tab.boot_stage) settle({ tab_id: tab.id, stage: tab.boot_stage, reason: tab.boot_failure_reason });
       await show(target);
     } catch (failure) {
-      fail(failure instanceof Error ? failure.message : typeof failure === "string" ? failure : "Failed to start General agent");
+      const prerequisites = failure instanceof ProviderInstallError
+        ? missingInstallerPrerequisites(failure.status).map(({ binary, hint }) => ({ binary, hint }))
+        : [];
+      fail(
+        failure instanceof Error ? failure.message : typeof failure === "string" ? failure : "Failed to start General agent",
+        prerequisites,
+      );
     }
   };
-  return { busy, phase, error, failedInstallProviderId, progress, onConfirm, onInstall: (providerId: string) => { void onConfirm(providerId, true); } };
+  return { busy, phase, error, failedInstallProviderId, failedInstallPrerequisites, progress, onConfirm, onInstall: (providerId: string) => { void onConfirm(providerId, true); } };
 }

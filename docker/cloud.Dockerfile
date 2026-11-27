@@ -10,8 +10,27 @@ COPY packaging/docker/release.pub /release.pub
 RUN --mount=from=release,target=/release,ro python /verify.py /release /verified "$VERSION" "$TARGETARCH" "$ARCHIVE_SOURCE" "$ALLOW_CI_SMOKE"
 RUN python - <<'PY'
 from pathlib import Path
-from urllib.request import urlretrieve
+from urllib.request import Request, urlopen
 import hashlib
+
+def fetch(url, path, attempts=5):
+    # Bounded resume via HTTP Range: large downloads from the hub get cut mid-stream.
+    for attempt in range(attempts):
+        have = path.stat().st_size if path.exists() else 0
+        request = Request(url, headers={"Range": f"bytes={have}-"} if have else {})
+        try:
+            with urlopen(request, timeout=120) as reply, path.open("ab" if reply.status == 206 else "wb") as out:
+                while chunk := reply.read(1 << 20):
+                    out.write(chunk)
+                total = reply.headers.get("Content-Range", "").rpartition("/")[2] or reply.headers.get("Content-Length")
+            if total is None or path.stat().st_size == int(total):
+                return
+        except OSError as error:
+            if attempt == attempts - 1:
+                raise
+            print(f"retrying {path.name} after {error}")
+    raise OSError(f"incomplete download for {path.name}")
+
 model = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 revision = "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
 root = Path("/models") / ("models--" + model.replace("/", "--"))
@@ -25,7 +44,7 @@ for name, digest in {
     "model.safetensors": "eaa086f0ffee582aeb45b36e34cdd1fe2d6de2bef61f8a559a1bbc9bd955917b",
 }.items():
     path = snapshot / name
-    urlretrieve(f"https://huggingface.co/{model}/resolve/{revision}/{name}", path)
+    fetch(f"https://huggingface.co/{model}/resolve/{revision}/{name}", path)
     with path.open("rb") as stream:
         if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
             raise ValueError(f"Embedding cache digest mismatch for {name}")

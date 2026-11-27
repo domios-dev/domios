@@ -5,21 +5,113 @@ use parking_lot::Mutex;
 use std::time::SystemTime;
 
 const MAX_NPMRC_BYTES: u64 = 64 * 1024;
+const MAX_WILDCARD_SCAN: usize = 256;
+const MAX_WILDCARD_DIRS: usize = 64;
 
 pub fn expand_install_dirs(
     templates: &[String],
     env: &dyn Fn(&str) -> Option<OsString>,
     home: Option<&Path>,
 ) -> Vec<PathBuf> {
+    expand_install_dirs_with_reader(templates, env, home, &read_subdirs)
+}
+
+pub fn expand_install_dirs_with_reader(
+    templates: &[String],
+    env: &dyn Fn(&str) -> Option<OsString>,
+    home: Option<&Path>,
+    read_subdirs: &dyn Fn(&Path) -> Vec<String>,
+) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     for template in templates {
-        if let Some(dir) = expand_install_dir(template, env, home) {
+        for dir in expand_install_dir_entries(template, env, home, read_subdirs) {
             if !dirs.contains(&dir) {
                 dirs.push(dir);
             }
         }
     }
     dirs
+}
+
+fn expand_install_dir_entries(
+    template: &str,
+    env: &dyn Fn(&str) -> Option<OsString>,
+    home: Option<&Path>,
+    read_subdirs: &dyn Fn(&Path) -> Vec<String>,
+) -> Vec<PathBuf> {
+    let trimmed = template.trim();
+    if trimmed.is_empty() || trimmed.contains(['\0', '\r', '\n']) {
+        return Vec::new();
+    }
+    if !trimmed.contains('*') {
+        return expand_install_dir(trimmed, env, home).into_iter().collect();
+    }
+    let Some((prefix, suffix)) = split_wildcard_template(trimmed) else {
+        return Vec::new();
+    };
+    let Some(base) = expand_install_dir(prefix, env, home) else {
+        return Vec::new();
+    };
+    let mut children = read_subdirs(&base);
+    children.sort_by(|left, right| {
+        let left_ver = semver::Version::parse(left.trim_start_matches('v')).ok();
+        let right_ver = semver::Version::parse(right.trim_start_matches('v')).ok();
+        right_ver.cmp(&left_ver).then_with(|| right.cmp(left))
+    });
+    children.truncate(MAX_WILDCARD_DIRS);
+    let mut expanded = Vec::new();
+    for child in children {
+        if child.is_empty()
+            || matches!(child.as_str(), "." | "..")
+            || child.contains(['/', '\\', ':', '\0', '\r', '\n'])
+        {
+            continue;
+        }
+        if let Some(path) = join_safe_subpath(base.join(child), suffix) {
+            if !expanded.contains(&path) {
+                expanded.push(path);
+            }
+        }
+    }
+    expanded
+}
+
+fn split_wildcard_template(trimmed: &str) -> Option<(&str, &str)> {
+    if trimmed.matches('*').count() != 1 {
+        return None;
+    }
+    let index = trimmed.find('*')?;
+    let bytes = trimmed.as_bytes();
+    if index == 0 || !matches!(bytes[index - 1], b'/' | b'\\') {
+        return None;
+    }
+    if index + 1 < bytes.len() && !matches!(bytes[index + 1], b'/' | b'\\') {
+        return None;
+    }
+    let prefix = &trimmed[..index - 1];
+    if prefix.is_empty() {
+        return None;
+    }
+    let suffix = trimmed[index + 1..].trim_start_matches(['/', '\\']);
+    Some((prefix, suffix))
+}
+
+fn read_subdirs(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .take(MAX_WILDCARD_SCAN)
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            let is_dir = file_type.is_dir()
+                || (file_type.is_symlink() && std::fs::metadata(entry.path()).ok()?.is_dir());
+            is_dir
+                .then(|| entry.file_name().to_str().map(str::to_owned))
+                .flatten()
+        })
+        .collect()
 }
 
 pub fn expand_install_dir(

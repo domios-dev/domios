@@ -188,7 +188,8 @@ fn export_and_apply_seeds_l0_l1_rule_skill_and_portable_prefs_while_excluding_se
     let mut target_cfg = AppConfig::default();
     target_cfg.mesh.instance_name = "CloudTargetOwned".into();
     target_cfg.api.token = Some("target-owned-token".into());
-    target_cfg.neighbors.key_store = Some(crate::config::schema::NeighborKeyStore::File);
+    target_cfg.neighbors.key_store =
+        Some(codeterm_types::config::neighbors::NeighborKeyStore::File);
 
     let env = WarmBootstrapApplyEnv {
         mem: &target_mem,
@@ -242,7 +243,7 @@ fn export_and_apply_seeds_l0_l1_rule_skill_and_portable_prefs_while_excluding_se
     assert_eq!(target_cfg.api.token.as_deref(), Some("target-owned-token"));
     assert_eq!(
         target_cfg.neighbors.key_store,
-        Some(crate::config::schema::NeighborKeyStore::File)
+        Some(codeterm_types::config::neighbors::NeighborKeyStore::File)
     );
 }
 
@@ -716,7 +717,7 @@ impl CloudPeerControlPort for WarmPeerControl {
 
     async fn enter_drain(&self, record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
         Ok(DrainToken {
-            machine_id: record.machine_id.clone(),
+            token: format!("drain-{}", record.machine_id),
             entered_at_ms: self.clock.now_ms(),
         })
     }

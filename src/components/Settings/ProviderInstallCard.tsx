@@ -4,6 +4,7 @@ import { CodeBlock } from "@codeterm/chat-ui/CodeBlock";
 import type { ProviderDescriptor } from "../../lib/types";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
+import { ProviderPrerequisitesNotice } from "../shared/ProviderPrerequisitesNotice";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import { providerCliView, type ProviderCliState } from "../../lib/providerCli";
 import { useWorkspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
@@ -75,11 +76,14 @@ export function ProviderCliControls({ providerId, compact = false, peerId }: {
           <CodeBlock text={view.installCommand} language={view.installLanguage} wrapLines />
         </div>
       )}
-      {!compact && view.prerequisites.map(item => (
-        <p role="status" key={item.binary} title={item.hint} className="m-0 truncate text-[11px] text-[var(--ct-muted-fg)]">
-          Needs {item.binary} first. {item.hint}
-        </p>
-      ))}
+      {!compact && view.prerequisites.length > 0 && (
+        <ProviderPrerequisitesNotice
+          prerequisites={view.prerequisites}
+          onRetry={() => { void refresh(); }}
+          retryLabel="Re-check"
+          compact
+        />
+      )}
       {error && <InlineErrorNotice error={error} operation="detecting the provider program" />}
       {launchError && <InlineErrorNotice error={launchError} operation="installing this provider" blocking />}
       {summary && <p role="status" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{summary}</p>}

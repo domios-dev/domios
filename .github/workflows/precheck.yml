@@ -31,7 +31,7 @@ jobs:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - name: Select runner environment
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           CI_HOSTED: ${{ runner.environment == 'github-hosted' }}
           SCCACHE_GHA_ENABLED: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
@@ -47,7 +47,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: '[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]'
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: v${{ inputs.version }}
           fetch-depth: 1

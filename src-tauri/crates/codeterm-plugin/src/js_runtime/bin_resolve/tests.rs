@@ -688,3 +688,49 @@ fn merged_search_path_with_extra_dirs_includes_declared_install_locations() {
         "declared install dir must appear in merged search PATH: {entries:?}"
     );
 }
+
+#[test]
+fn probe_bin_candidates_prefers_primary_and_falls_back_to_alias_in_extra_dirs() {
+    let _guard = TEST_LOCK.lock();
+    RESOLVED_BINS.lock().clear();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let primary = format!("bwprimary_{suffix}");
+    let alias = format!("bwalias_{suffix}");
+    let dir = std::env::temp_dir().join(format!("bin_resolve_alias_{suffix}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(windows)]
+    let alias_path = dir.join(format!("{alias}.exe"));
+    #[cfg(not(windows))]
+    let alias_path = dir.join(&alias);
+    std::fs::write(&alias_path, b"#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = std::fs::metadata(&alias_path).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&alias_path, perm).unwrap();
+    }
+
+    let via_alias =
+        probe_bin_candidates_with_extra_dirs(&[&primary, &alias], std::slice::from_ref(&dir));
+    assert_eq!(via_alias.resolution, BinResolution::Found(alias_path));
+
+    #[cfg(windows)]
+    let primary_path = dir.join(format!("{primary}.exe"));
+    #[cfg(not(windows))]
+    let primary_path = dir.join(&primary);
+    std::fs::write(&primary_path, b"#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = std::fs::metadata(&primary_path).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&primary_path, perm).unwrap();
+    }
+
+    let via_primary =
+        probe_bin_candidates_with_extra_dirs(&[&primary, &alias], std::slice::from_ref(&dir));
+    let _ = std::fs::remove_dir_all(&dir);
+    RESOLVED_BINS.lock().clear();
+    assert_eq!(via_primary.resolution, BinResolution::Found(primary_path));
+}
