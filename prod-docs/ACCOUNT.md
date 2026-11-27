@@ -53,14 +53,14 @@ Managed app updates report only their kind after the requested app version is ru
 Versions contain numeric major, minor and patch only, without prerelease labels or build metadata. Counts are unsigned 32-bit integers. Provider IDs come from the bundled registry; runtime free-form provider names become `other`. Events with no properties carry an empty object. Feature adoption includes completed dreaming runs, saved crons and Blueprints, saved theme changes, confirmed Telegram sends or accepted inbound messages, accepted voice input, installed plugins, formed Teams, saved memory and opening the web interface.
 
 <!-- analytics-catalog:start -->
-Share feature usage, IP-derived country, region and city, platform, OS version, app version, language and device manufacturer/model with Amplitude. Prompts, paths, names and terminal output are never collected.
+Share feature usage, your account ID when signed in, IP-derived country, region and city, platform, OS version, app version, language and device manufacturer/model with Amplitude. Prompts, paths, names, emails and terminal output are never collected.
 
 Standard envelope fields (separate from event properties):
 
 | Field | Value |
 |---|---|
 | `ip` | $remote: Amplitude derives country, region and city from the upload IP |
-| `platform` | Desktop |
+| `platform` | app |
 | `os_name` | Windows, macOS, Linux or Other |
 | `os_version` | OS-reported version, when available |
 | `app_version` | Installed numeric product version, when available |
@@ -110,6 +110,12 @@ Standard envelope fields (separate from event properties):
 | `update_checked` | `offers`: u32 |
 | `account_created` | `auth_provider`: AuthProvider |
 | `neighbor_invite_created` | None |
+| `cloud_paywall_shown` | `mode`: CloudPaywallMode |
+| `cloud_hours_purchased` | `pack_id`: CloudPackId, `amount_bucket`: CloudAmountBucket |
+| `cloud_machine_created` | None |
+| `cloud_machine_woken` | None |
+| `cloud_machine_slept` | `reason`: CloudSleepReason |
+| `promo_redeemed` | None |
 
 - **Platform:** `macos`, `windows`, `linux`
 - **AuthProvider:** `local`, `fake`, `firebase`
@@ -132,6 +138,10 @@ Standard envelope fields (separate from event properties):
 - **DsBlockKind:** `html`, `page`, `image`, `document`, `canvas`, `guide`, `plugin`, `connect`, `setting`, `agent`, `job`, `checklist`, `choice`, `tasks`
 - **DsBlockAction:** `open`, `submit`
 - **BlueprintOutcome:** `success`, `failure`, `cancelled`
+- **CloudPaywallMode:** `free`, `wake`, `topup`
+- **CloudPackId:** `pack_5`, `pack_10`, `pack_25`, `custom`, `other`
+- **CloudAmountBucket:** `usd_under_10`, `usd_10_to_24`, `usd_25_to_49`, `usd_50_plus`
+- **CloudSleepReason:** `idle`, `exhausted`, `manual`
 - **ProviderId:** `acp`, `claude`, `codex`, `cursor`, `opencode`, `other`
 <!-- analytics-catalog:end -->
 
@@ -173,4 +183,4 @@ Browser sign-in progress and completion arrive through the `account-sign-in` eve
 
 An owner installation enrolls a new cloud machine through its authenticated creation channel. The cloud machine generates its own keys. A server-signed membership lets its local command socket report the account without a browser sign-in or a Firebase refresh credential. On that machine, `domios account status --json` includes `signed_in` and `installation_id`. Expired membership makes `signed_in` false. The original creation binding stays consumed across restarts.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

@@ -31,7 +31,9 @@ import { MachineJoinPreview, MachineIdentitySaveError } from "../MeshPanel/Machi
 import { useMachineJoin } from "../MeshPanel/MachineIdentityEditor";
 import { CloudUsageMeter } from "../MeshPanel/CloudUsageMeter";
 import { useCloudUsage } from "../MeshPanel/useCloudMachines";
+import { cloudHoursPurchasedEvent } from "../../lib/cloudMachines/analytics";
 import { redeemCloudPromo } from "../../lib/cloudMachines/client";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { CloudTopUpDialog, type PendingCloudTopUpCheckout } from "../billing/CloudTopUpDialog";
 import { CloudTopUpReturnDialog } from "../billing/CloudTopUpReturnDialog";
 
@@ -87,6 +89,7 @@ function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCar
     if (delta <= 0) return;
     const checkout = pendingCloudCheckout;
     setPendingCloudCheckout(null);
+    void recordProductEvent(cloudHoursPurchasedEvent(checkout.packId, checkout.amountCents));
     setCloudReturn({
       addedHours: delta || checkout.expectedHours || 0,
       newBalance: cloudUsage.usage.remaining,

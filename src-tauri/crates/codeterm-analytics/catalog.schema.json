@@ -1,8 +1,8 @@
 {
-  "privacySummary": "Share feature usage, IP-derived country, region and city, platform, OS version, app version, language and device manufacturer/model with Amplitude. Prompts, paths, names and terminal output are never collected.",
+  "privacySummary": "Share feature usage, your account ID when signed in, IP-derived country, region and city, platform, OS version, app version, language and device manufacturer/model with Amplitude. Prompts, paths, names, emails and terminal output are never collected.",
   "envelope": {
     "ip": "$remote: Amplitude derives country, region and city from the upload IP",
-    "platform": "Desktop",
+    "platform": "app",
     "os_name": "Windows, macOS, Linux or Other",
     "os_version": "OS-reported version, when available",
     "app_version": "Installed numeric product version, when available",
@@ -159,6 +159,29 @@
       "success",
       "failure",
       "cancelled"
+    ],
+    "CloudPaywallMode": [
+      "free",
+      "wake",
+      "topup"
+    ],
+    "CloudPackId": [
+      "pack_5",
+      "pack_10",
+      "pack_25",
+      "custom",
+      "other"
+    ],
+    "CloudAmountBucket": [
+      "usd_under_10",
+      "usd_10_to_24",
+      "usd_25_to_49",
+      "usd_50_plus"
+    ],
+    "CloudSleepReason": [
+      "idle",
+      "exhausted",
+      "manual"
     ]
   },
   "events": {
@@ -270,6 +293,19 @@
     "account_created": {
       "auth_provider": "AuthProvider"
     },
-    "neighbor_invite_created": {}
+    "neighbor_invite_created": {},
+    "cloud_paywall_shown": {
+      "mode": "CloudPaywallMode"
+    },
+    "cloud_hours_purchased": {
+      "pack_id": "CloudPackId",
+      "amount_bucket": "CloudAmountBucket"
+    },
+    "cloud_machine_created": {},
+    "cloud_machine_woken": {},
+    "cloud_machine_slept": {
+      "reason": "CloudSleepReason"
+    },
+    "promo_redeemed": {}
   }
 }

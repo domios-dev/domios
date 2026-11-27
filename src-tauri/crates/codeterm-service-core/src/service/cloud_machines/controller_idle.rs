@@ -46,6 +46,7 @@ impl CloudMachineController {
         &self,
         draining: &CloudMachineRecord,
         action: IdleSleepAction,
+        reason: codeterm_analytics::CloudSleepReason,
         provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
     ) -> Result<CloudReceipt, CloudError> {
@@ -68,6 +69,7 @@ impl CloudMachineController {
                     next.pending_request = None;
                     Ok(next)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept { reason });
                 let warning = (sleep_mode == CloudSleepMode::DeleteRecreate
                     || action == IdleSleepAction::DeleteForRecreate)
                     .then(|| {
@@ -81,6 +83,7 @@ impl CloudMachineController {
                 let asleep = self.update_record(&draining.machine_id, |rec| {
                     apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept { reason });
                 Ok(asleep.receipt(now_ms, None))
             }
             Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
@@ -89,6 +92,9 @@ impl CloudMachineController {
                 let exhausted = self.update_record(&draining.machine_id, |rec| {
                     apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                    reason: codeterm_analytics::CloudSleepReason::Exhausted,
+                });
                 Ok(exhausted.receipt(now_ms, Some("Out of credits: top up to wake".into())))
             }
             Err(error) => {
@@ -135,6 +141,9 @@ impl CloudMachineController {
                     next.pending_request = None;
                     Ok(next)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                    reason: codeterm_analytics::CloudSleepReason::Exhausted,
+                });
                 Ok(exhausted.receipt(now_ms, Some("Out of credits: top up to wake".into())))
             }
             Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
@@ -144,6 +153,9 @@ impl CloudMachineController {
                     next.pending_request = None;
                     Ok(next)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                    reason: codeterm_analytics::CloudSleepReason::Exhausted,
+                });
                 Ok(exhausted.receipt(now_ms, Some("Out of credits: top up to wake".into())))
             }
             Err(error) => {
@@ -186,6 +198,9 @@ impl CloudMachineController {
                     next.pending_request = None;
                     Ok(next)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                    reason: codeterm_analytics::CloudSleepReason::Idle,
+                });
                 Ok(asleep.receipt(
                     now_ms,
                     Some(
@@ -201,6 +216,9 @@ impl CloudMachineController {
                     next.pending_request = None;
                     Ok(next)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                    reason: codeterm_analytics::CloudSleepReason::Idle,
+                });
                 Ok(asleep.receipt(now_ms, None))
             }
             Err(error) => {
@@ -364,13 +382,17 @@ impl CloudMachineController {
             DrainingRecoveryPlan::FinishAsleep => {
                 let _ = peer_control.reopen_drain(&record).await;
                 let now_ms = self.clock.now_ms();
-                self.update_record(machine_id, |rec| {
+                let asleep = self.update_record(machine_id, |rec| {
                     let mut next = apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)?;
                     if let Some(sleep_mode) = probed.sleep_mode {
                         next.sleep_mode = sleep_mode;
                     }
                     Ok(next)
-                })
+                })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                    reason: codeterm_analytics::CloudSleepReason::Idle,
+                });
+                Ok(asleep)
             }
             DrainingRecoveryPlan::FinishOutOfCredits => {
                 let mut sleep_mode = probed.sleep_mode;
@@ -397,14 +419,18 @@ impl CloudMachineController {
                 }
                 let _ = peer_control.reopen_drain(&record).await;
                 let now_ms = self.clock.now_ms();
-                self.update_record(machine_id, |rec| {
+                let exhausted = self.update_record(machine_id, |rec| {
                     let mut next =
                         apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)?;
                     if let Some(mode) = sleep_mode {
                         next.sleep_mode = mode;
                     }
                     Ok(next)
-                })
+                })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                    reason: codeterm_analytics::CloudSleepReason::Exhausted,
+                });
+                Ok(exhausted)
             }
             DrainingRecoveryPlan::ReopenAwake => {
                 let _ = peer_control.reopen_drain(&record).await;
@@ -446,26 +472,38 @@ impl CloudMachineController {
                 match provisioning.sleep(&provider_id, &request_id).await {
                     Ok(sleep_mode) => {
                         let now_ms = self.clock.now_ms();
-                        self.update_record(machine_id, |rec| {
+                        let asleep = self.update_record(machine_id, |rec| {
                             let mut next =
                                 apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)?;
                             next.sleep_mode = sleep_mode;
                             Ok(next)
-                        })
+                        })?;
+                        self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                            reason: codeterm_analytics::CloudSleepReason::Idle,
+                        });
+                        Ok(asleep)
                     }
                     Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
                         let _ = peer_control.reopen_drain(&refreshed).await;
                         let now_ms = self.clock.now_ms();
-                        self.update_record(machine_id, |rec| {
+                        let asleep = self.update_record(machine_id, |rec| {
                             apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
-                        })
+                        })?;
+                        self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                            reason: codeterm_analytics::CloudSleepReason::Idle,
+                        });
+                        Ok(asleep)
                     }
                     Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
                         let _ = peer_control.reopen_drain(&refreshed).await;
                         let now_ms = self.clock.now_ms();
-                        self.update_record(machine_id, |rec| {
+                        let exhausted = self.update_record(machine_id, |rec| {
                             apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
-                        })
+                        })?;
+                        self.record_product_event(codeterm_analytics::Event::CloudMachineSlept {
+                            reason: codeterm_analytics::CloudSleepReason::Exhausted,
+                        });
+                        Ok(exhausted)
                     }
                     Err(error) => {
                         log::warn!(
@@ -672,14 +710,23 @@ impl CloudMachineController {
                         if now_ms >= lease_expires_at_ms =>
                     {
                         // Backend reconciliation already slept this machine after lease expiry while home was offline.
-                        let _ = self.update_record(machine_id, |rec| {
-                            let mut next =
-                                transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
-                            next.lease_id = None;
-                            next.lease_expires_at_ms = None;
-                            next.pending_request = None;
-                            Ok(next)
-                        });
+                        if self
+                            .update_record(machine_id, |rec| {
+                                let mut next =
+                                    transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
+                                next.lease_id = None;
+                                next.lease_expires_at_ms = None;
+                                next.pending_request = None;
+                                Ok(next)
+                            })
+                            .is_ok()
+                        {
+                            self.record_product_event(
+                                codeterm_analytics::Event::CloudMachineSlept {
+                                    reason: codeterm_analytics::CloudSleepReason::Idle,
+                                },
+                            );
+                        }
                         Ok(IdleDecision::BeginTwoPhaseDrain {
                             action: IdleSleepAction::StopProvider,
                             out_of_credits: false,
@@ -714,11 +761,12 @@ impl CloudMachineController {
                 ..
             } => {
                 let _ = self
-                    .sleep(
+                    .sleep_with_reason(
                         machine_id,
                         provisioning,
                         peer_control,
                         delete_on_stop_billed,
+                        codeterm_analytics::CloudSleepReason::Idle,
                     )
                     .await?;
                 Ok(decision)

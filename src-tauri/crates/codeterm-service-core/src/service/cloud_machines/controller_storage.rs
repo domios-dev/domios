@@ -128,6 +128,7 @@ impl CloudMachineController {
                     );
                     Ok(next)
                 })?;
+                self.record_product_event(codeterm_analytics::Event::CloudMachineWoken {});
                 Ok(awake.receipt(awake_now, None))
             }
             Ok(EnrollmentOutcome::ApplyUnconfirmed { installation_id }) => {

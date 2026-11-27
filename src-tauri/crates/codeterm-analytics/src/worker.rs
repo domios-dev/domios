@@ -171,7 +171,7 @@ fn run(
 ) {
     let mut suspended = false;
     let mut account_uid = None;
-    let mut startup = None;
+    let mut startup: Option<(Event, u64)> = None;
     loop {
         let deadline = if suspended { None } else { engine.deadline() };
         let command = match receiver.try_recv() {
@@ -202,9 +202,11 @@ fn run(
                     if consent == Consent::On {
                         engine.identity(account_uid.clone())?;
                         if previous == Consent::Off {
-                            engine.enqueue(Event::AnalyticsOptedIn {}, now_ms())?;
-                            if let Some(event) = startup.take() {
-                                engine.enqueue(event, now_ms())?;
+                            let now = now_ms();
+                            engine.enqueue(Event::AnalyticsOptedIn {}, now)?;
+                            if let Some((event, observed_at)) = startup.take() {
+                                engine.remember_first_run_time(observed_at);
+                                engine.enqueue(event, now)?;
                             }
                         }
                     }
@@ -215,11 +217,12 @@ fn run(
             }
             Some(Command::Event(event, reply)) => {
                 suspended = false;
+                let now = now_ms();
                 let is_startup = matches!(event, Event::AppStarted { .. });
                 if is_startup {
-                    startup = Some(event.clone());
+                    startup = Some((event.clone(), now));
                 }
-                let result = engine.enqueue(event, now_ms());
+                let result = engine.enqueue(event, now);
                 if is_startup && matches!(result, Ok(true)) {
                     startup.take();
                 }

@@ -332,6 +332,7 @@ pub(super) fn dispatch(
             "peer response omitted worker_tab_id; the origin attempt is retained",
         ));
     };
+    svc.record_product_agent_spawned_with(Some(&model.provider_id), Some("worker"));
     let branch = response
         .get("branch")
         .and_then(Value::as_str)

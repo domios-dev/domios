@@ -8,9 +8,11 @@ import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
 import { MeshCanvas, type CanvasCloud, type RecentPush } from "./MeshCanvas";
 import { useCloudMachines } from "./useCloudMachines";
+import { cloudHoursPurchasedEvent } from "../../lib/cloudMachines/analytics";
 import { cloudCreateDecision, type CloudFailurePresentation } from "../../lib/cloudMachines/stateModel";
 import type { TopUpMode } from "../../lib/cloudMachines/topUpModel";
 import type { CloudReceipt } from "../../lib/cloudMachines/types";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { CloudTopUpDialog, type PendingCloudTopUpCheckout } from "../billing/CloudTopUpDialog";
 import { CloudTopUpReturnDialog } from "../billing/CloudTopUpReturnDialog";
 import { useAccountPlan } from "../Settings/useAccountPlan";
@@ -210,6 +212,7 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
     if (delta <= 0) return;
     const checkout = pendingCheckout;
     setPendingCheckout(null);
+    void recordProductEvent(cloudHoursPurchasedEvent(checkout.packId, checkout.amountCents));
     if (checkout.mode === "wake" && checkout.machineId) {
       const targetMachine = cloud.machines.find((item) => item.machine_id === checkout.machineId);
       const peerId = targetMachine?.peer_instance_id ?? targetMachine?.installation_id ?? checkout.machineId;

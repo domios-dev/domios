@@ -482,6 +482,11 @@ async fn redeem_promo(
         .redeem_promo(code)
         .await
         .map_err(error_response)?;
+    if !redeemed.already_redeemed {
+        state
+            .svc
+            .record_product_event(codeterm_analytics::Event::PromoRedeemed {});
+    }
     Ok(Json(serde_json::to_value(redeemed).unwrap_or_default()))
 }
 

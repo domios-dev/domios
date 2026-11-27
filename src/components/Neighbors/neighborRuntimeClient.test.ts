@@ -1,8 +1,10 @@
 import { expect, it, vi } from "vitest";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { clearRelayTarget, localFetch, setRelayTarget, webFetch } from "../../lib/webApi";
 import { neighborRuntimeClient, runtimeCall } from "./neighborRuntimeClient";
 
 vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), localFetch: vi.fn(), webFetch: vi.fn() }));
+vi.mock("../../lib/productAnalytics", async actual => ({ ...await actual<object>(), recordProductEvent: vi.fn(async () => {}) }));
 vi.mock("../../lib/bridge", () => ({ listen: vi.fn() }));
 vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { window: undefined, openFolder: vi.fn() } }));
 
@@ -116,13 +118,32 @@ it.each(["keep", "adopt"] as const)("submits the reviewed %s decision in the rec
 it("carries the pending bubble id to the runtime without replay on transport failure", async () => {
   const message_id = "a".repeat(32);
   vi.mocked(localFetch).mockClear();
+  vi.mocked(recordProductEvent).mockClear();
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ message_id, status: "pending" })));
   await expect(neighborRuntimeClient.send("pair", "Opaque message", message_id)).resolves.toMatchObject({ message_id });
   expect(localFetch).toHaveBeenCalledExactlyOnceWith("/api/account/neighbors/runtime", expect.objectContaining({
     body: JSON.stringify({ operation: "send", friendship_id: "pair", kind: "question", body: "Opaque message", in_reply_to: null, message_id }),
   }));
+  expect(recordProductEvent).toHaveBeenCalledExactlyOnceWith({
+    event_type: "neighbor_message_sent",
+    event_properties: { count: 1 },
+  });
   vi.mocked(localFetch).mockClear();
+  vi.mocked(recordProductEvent).mockClear();
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ message_id, status: "not_delivered", reason: "recipient_paused" })));
+  await expect(neighborRuntimeClient.send("pair", "Opaque message", message_id)).resolves.toMatchObject({ status: "not_delivered" });
+  expect(recordProductEvent).not.toHaveBeenCalled();
+
+  vi.mocked(localFetch).mockClear();
+  vi.mocked(recordProductEvent).mockClear();
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ message_id, status: "pending", submission: "unconfirmed" })));
+  await expect(neighborRuntimeClient.send("pair", "Opaque message", message_id)).resolves.toMatchObject({ submission: "unconfirmed" });
+  expect(recordProductEvent).not.toHaveBeenCalled();
+
+  vi.mocked(localFetch).mockClear();
+  vi.mocked(recordProductEvent).mockClear();
   vi.mocked(localFetch).mockRejectedValueOnce(new Error("Connection lost"));
   await expect(neighborRuntimeClient.send("pair", "Opaque message", message_id)).rejects.toThrow("Connection lost");
   expect(localFetch).toHaveBeenCalledTimes(1);
+  expect(recordProductEvent).not.toHaveBeenCalled();
 });

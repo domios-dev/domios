@@ -27,12 +27,21 @@ pub(crate) fn app_started(
         workspaces: count(workspaces),
     })
 }
+fn catalog_role(role: Option<&str>) -> Role {
+    let Some(value) = role else {
+        return Role::None;
+    };
+    let lower = value.to_ascii_lowercase();
+    match lower.as_str() {
+        "general" | "general_agent" => Role::General,
+        other => Role::from_catalog(other).unwrap_or(Role::Other),
+    }
+}
+
 pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Option<Event> {
     Some(Event::AgentSpawned {
         provider_id: ProviderId::from_catalog(provider?).unwrap_or(ProviderId::Other),
-        role: role
-            .map(|value| Role::from_catalog(&value.to_ascii_lowercase()).unwrap_or(Role::Other))
-            .unwrap_or(Role::None),
+        role: catalog_role(role),
     })
 }
 impl ServiceContext {
@@ -81,21 +90,32 @@ impl ServiceContext {
     pub fn record_product_feature(&self, feature: codeterm_analytics::Feature) {
         self.record_product_event(Event::FeatureUsed { feature });
     }
-    pub(crate) fn record_product_agent_spawned(&self, tab_id: &str) {
-        let event = {
-            let mux = self.mux.read();
-            mux.get_tab(tab_id).and_then(|tab| {
-                agent_spawned(
-                    tab.agent_type.as_deref(),
-                    tab.role_profile
-                        .as_deref()
-                        .or_else(|| tab.role.map(|role| role.label())),
-                )
-            })
-        };
-        if let Some(event) = event {
+    pub fn record_product_agent_spawned_with(&self, provider: Option<&str>, role: Option<&str>) {
+        if let Some(event) = agent_spawned(provider, role) {
             self.record_product_event(event);
             self.record_product_activity();
+        }
+    }
+    pub(crate) fn record_product_agent_spawned(&self, tab_id: &str) {
+        let resolved = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).map(|tab| {
+                let provider =
+                    tab.agent_type.clone().or_else(|| match &tab.backing {
+                        crate::multiplexer::types::TabBacking::ChatBackend {
+                            plugin_id, ..
+                        } if !plugin_id.is_empty() => Some(plugin_id.clone()),
+                        _ => None,
+                    });
+                let role = tab
+                    .role_profile
+                    .clone()
+                    .or_else(|| tab.role.map(|role| role.label().to_string()));
+                (provider, role)
+            })
+        };
+        if let Some((provider, role)) = resolved {
+            self.record_product_agent_spawned_with(provider.as_deref(), role.as_deref());
         }
     }
     pub async fn analytics_worker(&self) -> Result<&Worker, String> {
@@ -107,6 +127,10 @@ impl ServiceContext {
                     .try_ext::<crate::mesh::MeshState>()
                     .map_or(1, |mesh| mesh.lock().machine_count());
                 let workspaces = self.mux.read().workspace_count();
+                let startup_uid = self
+                    .try_ext::<super::neighbor_account::StartupAccount>()
+                    .filter(|account| account.is_valid() && account.mismatch.is_none())
+                    .map(|account| account.identity.uid.clone());
                 let startup = app_started(
                     codeterm_build_info::version(),
                     std::env::consts::OS,
@@ -131,23 +155,32 @@ impl ServiceContext {
                         context::current(),
                     )?;
                     worker.set_mesh_machines(mesh_machines);
-                    if let Some(event) = startup {
-                        let _ = worker.record_nowait(event);
+                    Ok::<_, String>(worker)
+                })
+                .await
+                .map_err(|_| "analytics initialization failed".to_string())??;
+                if let Some(uid) = startup_uid {
+                    if worker.set_user_id(Some(uid)).await.is_err() {
+                        log::debug!("[analytics] startup identity unavailable");
                     }
-                    let _ = worker.record_activity_nowait(|| workspaces);
+                }
+                if let Some(event) = startup {
+                    let _ = worker.record_nowait(event);
+                }
+                let _ = worker.record_activity_nowait(|| workspaces);
+                let confirm_worker = worker.clone();
+                let _ = tokio::task::spawn_blocking(move || {
                     if crate::service::analytics::update_confirm::confirm(
                         &codeterm_update::receipt::path(),
                         codeterm_build_info::version(),
-                        &worker,
+                        &confirm_worker,
                     )
                     .is_err()
                     {
                         log::debug!("[analytics] update confirmation unavailable");
                     }
-                    Ok::<_, String>(worker)
                 })
-                .await
-                .map_err(|_| "analytics initialization failed".to_string())??;
+                .await;
                 let observer = worker.clone();
                 self.plan_store.bind_product_observer(Arc::new(move || {
                     let _ = observer.record_nowait(Event::PlanCreated {});

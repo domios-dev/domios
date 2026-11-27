@@ -89,9 +89,14 @@ impl ServiceContext {
                 .try_ext::<crate::MeshStateHandle>()
                 .map(|mesh| mesh.lock().status().instance_id)
                 .unwrap_or_else(|| "local-controller".into());
-            CloudMachinesHandle(Arc::new(CloudMachineController::open_default(
-                controller_id,
-            )))
+            let controller = CloudMachineController::open_default(controller_id);
+            let service = self.weak_self();
+            controller.bind_product_observer(Arc::new(move |event| {
+                if let Some(svc) = service.upgrade() {
+                    svc.record_product_event(event);
+                }
+            }));
+            CloudMachinesHandle(Arc::new(controller))
         });
         Arc::clone(&handle.0)
     }
@@ -172,6 +177,8 @@ impl ServiceContext {
     }
 }
 
+#[cfg(test)]
+mod analytics_tests;
 #[cfg(test)]
 mod draining_recovery_tests;
 #[cfg(test)]
