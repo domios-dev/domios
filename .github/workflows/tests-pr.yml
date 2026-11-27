@@ -24,7 +24,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -75,7 +75,7 @@ jobs:
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -149,7 +149,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -183,7 +183,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -229,7 +229,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -262,7 +262,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -314,7 +314,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -348,7 +348,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -382,7 +382,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: ci-1
         with:
           ref: ${{ github.sha }}
@@ -418,7 +418,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
