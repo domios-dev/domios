@@ -44,6 +44,8 @@ pub(crate) struct State {
     pub user_id: Option<String>,
     pub last_active_day: Option<chrono::NaiveDate>,
     pub first_run_recorded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_run_time: Option<u64>,
     // Discard retired daily suppression without losing consent or the stable device identity.
     #[serde(default, skip_serializing, rename = "feature_days")]
     pub _retired_feature_days: serde::de::IgnoredAny,

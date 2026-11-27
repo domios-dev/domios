@@ -11,14 +11,14 @@ use super::*;
 use crate::mesh::crown::AuthenticatedOrigin;
 use crate::service::chat_send_transaction::ChatSendState;
 
-struct FakeClock(AtomicU64);
+pub(super) struct FakeClock(AtomicU64);
 
 impl FakeClock {
-    fn new(start_ms: u64) -> Arc<Self> {
+    pub(super) fn new(start_ms: u64) -> Arc<Self> {
         Arc::new(Self(AtomicU64::new(start_ms)))
     }
 
-    fn advance_ms(&self, delta: u64) {
+    pub(super) fn advance_ms(&self, delta: u64) {
         self.0.fetch_add(delta, Ordering::SeqCst);
     }
 }
@@ -29,7 +29,7 @@ impl Clock for FakeClock {
     }
 }
 
-struct FakeProvisioningPort {
+pub(super) struct FakeProvisioningPort {
     sleep_mode: Mutex<CloudSleepMode>,
     rate: Mutex<CloudRate>,
     create_ip: Mutex<Ipv4Addr>,
@@ -42,9 +42,9 @@ struct FakeProvisioningPort {
     delete_calls: AtomicUsize,
     renew_calls: AtomicUsize,
     seen_create_request_ids: Mutex<Vec<String>>,
-    create_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
+    pub(super) create_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
     wake_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
-    renew_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
+    pub(super) renew_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
     wake_gate: Mutex<Option<Arc<tokio::sync::Notify>>>,
     usage: Mutex<CloudUsageSummary>,
     created_by_req_id: Mutex<BTreeMap<String, ProvisionedMachine>>,
@@ -52,7 +52,7 @@ struct FakeProvisioningPort {
 }
 
 impl FakeProvisioningPort {
-    fn new(sleep_mode: CloudSleepMode, clock: Arc<FakeClock>) -> Arc<Self> {
+    pub(super) fn new(sleep_mode: CloudSleepMode, clock: Arc<FakeClock>) -> Arc<Self> {
         let mut burn = BTreeMap::new();
         burn.insert("small".into(), 1.0);
         burn.insert("medium".into(), 2.0);
@@ -210,7 +210,7 @@ impl Drop for SecretDropProbe {
     }
 }
 
-struct FakeEnrollment {
+pub(super) struct FakeEnrollment {
     outcome: Mutex<EnrollmentOutcome>,
     apply_calls: AtomicUsize,
     last_secret_dropped: Mutex<Option<Arc<AtomicBool>>>,
@@ -218,7 +218,7 @@ struct FakeEnrollment {
 }
 
 impl FakeEnrollment {
-    fn ok(installation_id: &str, peer_id: &str) -> Arc<Self> {
+    pub(super) fn ok(installation_id: &str, peer_id: &str) -> Arc<Self> {
         Arc::new(Self {
             outcome: Mutex::new(EnrollmentOutcome::Enrolled {
                 installation_id: installation_id.into(),
@@ -279,8 +279,8 @@ impl CloudEnrollmentPort for FakeEnrollment {
     }
 }
 
-struct FakePeerControl {
-    busy: Mutex<PeerBusySnapshot>,
+pub(super) struct FakePeerControl {
+    pub(super) busy: Mutex<PeerBusySnapshot>,
     drain_gate: Arc<LocalPeerDrainGate>,
     flush_outcomes: Mutex<VecDeque<FlushWriteOutcome>>,
     flushed_payloads: Mutex<Vec<(String, String, Option<CloudEndpoint>)>>,
@@ -290,7 +290,7 @@ struct FakePeerControl {
 }
 
 impl FakePeerControl {
-    fn new() -> Arc<Self> {
+    pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
             busy: Mutex::new(PeerBusySnapshot::default()),
             drain_gate: Arc::new(LocalPeerDrainGate::default()),
@@ -376,7 +376,9 @@ impl CloudPeerControlPort for FakePeerControl {
     }
 }
 
-fn temp_controller(clock: Arc<dyn Clock>) -> (tempfile::TempDir, Arc<CloudMachineController>) {
+pub(super) fn temp_controller(
+    clock: Arc<dyn Clock>,
+) -> (tempfile::TempDir, Arc<CloudMachineController>) {
     let dir = tempfile::tempdir().unwrap();
     let store = CloudMachineStore::new(dir.path().join("cloud_machines.json"));
     let ctrl = Arc::new(CloudMachineController::new(

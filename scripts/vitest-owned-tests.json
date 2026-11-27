@@ -487,6 +487,7 @@
   "src/components/Sidebar/useRemoteSidebarActions.test.tsx",
   "src/components/Sidebar/workspaceMachineGroupsModel.test.ts",
   "src/components/Automation/blueprintOwner.test.ts",
+  "src/lib/cloudMachines/analytics.test.ts",
   "src/lib/cloudMachines/cloudModels.test.ts",
   "src/components/MeshPanel/CloudMachines.wiring.test.tsx",
   "src/components/MeshPanel/meshViewModeModel.test.ts",

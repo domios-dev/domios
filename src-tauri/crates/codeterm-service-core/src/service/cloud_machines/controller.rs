@@ -45,6 +45,8 @@ pub fn mint_request_id() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+pub type CloudProductObserver = Arc<dyn Fn(codeterm_analytics::Event) + Send + Sync>;
+
 pub struct CloudMachineController {
     store: CloudMachineStore,
     wake_queue_store: CloudWakeQueueStore,
@@ -59,6 +61,7 @@ pub struct CloudMachineController {
     wakes: Arc<SingleFlightWakes>,
     lifecycle_tx: tokio::sync::watch::Sender<u64>,
     local_drain_gate: Arc<LocalPeerDrainGate>,
+    product_observer: Mutex<Option<CloudProductObserver>>,
     pub(super) clock: Arc<dyn Clock>,
     controller_id: String,
 }
@@ -92,8 +95,20 @@ impl CloudMachineController {
             wakes: Arc::new(SingleFlightWakes::default()),
             lifecycle_tx,
             local_drain_gate: Arc::new(LocalPeerDrainGate::default()),
+            product_observer: Mutex::new(None),
             clock,
             controller_id,
+        }
+    }
+
+    pub fn bind_product_observer(&self, observer: CloudProductObserver) {
+        *self.product_observer.lock() = Some(observer);
+    }
+
+    pub(super) fn record_product_event(&self, event: codeterm_analytics::Event) {
+        let observer = self.product_observer.lock().clone();
+        if let Some(observer) = observer {
+            observer(event);
         }
     }
 
@@ -599,6 +614,7 @@ impl CloudMachineController {
                         .get_or_insert_with(super::warm_bootstrap::CloudCreatePhases::default);
                     phases.peer_ready_at_ms = Some(awake_now);
                 });
+                self.record_product_event(codeterm_analytics::Event::CloudMachineCreated {});
                 self.run_post_enrollment_warm_bootstrap(
                     &awake,
                     &creation_generation,
@@ -642,6 +658,24 @@ impl CloudMachineController {
         provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
         delete_on_stop_billed: bool,
+    ) -> Result<CloudReceipt, CloudError> {
+        self.sleep_with_reason(
+            selector,
+            provisioning,
+            peer_control,
+            delete_on_stop_billed,
+            codeterm_analytics::CloudSleepReason::Manual,
+        )
+        .await
+    }
+
+    pub(super) async fn sleep_with_reason(
+        &self,
+        selector: &str,
+        provisioning: &dyn CloudProvisioningPort,
+        peer_control: &dyn CloudPeerControlPort,
+        delete_on_stop_billed: bool,
+        reason: codeterm_analytics::CloudSleepReason,
     ) -> Result<CloudReceipt, CloudError> {
         let initial = self.find_record(selector)?;
         let drain_lock = self.machine_drain_lock(&initial.machine_id);
@@ -692,7 +726,7 @@ impl CloudMachineController {
         let draining = self.update_record(&record.machine_id, |rec| {
             transition(rec, LifecycleEvent::DrainStarted, self.clock.now_ms())
         })?;
-        self.complete_drain_sleep_locked(&draining, action, provisioning, peer_control)
+        self.complete_drain_sleep_locked(&draining, action, reason, provisioning, peer_control)
             .await
     }
 
@@ -916,6 +950,7 @@ impl CloudMachineController {
                     }
                 };
                 guard.finish(Ok(()));
+                self.record_product_event(codeterm_analytics::Event::CloudMachineWoken {});
                 self.flush_held_sends(&awake.machine_id, peer_control).await;
                 Ok(awake.receipt(now_ms, None))
             }

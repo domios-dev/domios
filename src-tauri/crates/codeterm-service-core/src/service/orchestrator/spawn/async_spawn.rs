@@ -148,10 +148,12 @@ impl ServiceContext {
                     reservation.commit_to_tab(&handle.tab_id);
                 }
                 let title = self.mux.read().display_label_for_tab(&handle.tab_id);
-                self.record_kpi_spawn(
+                let record_product_analytics = !is_remote_incoming_spawn(&bind_params);
+                self.record_kpi_spawn_with_analytics(
                     &handle.tab_id,
                     requested_model.as_deref(),
                     bind_params.task.as_deref().unwrap_or_default().len(),
+                    record_product_analytics,
                 );
                 return Ok(SpawnResult {
                     team_id: self
@@ -681,10 +683,12 @@ impl ServiceContext {
             self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
             let budget_notice = self.workspace_tab_budget_notice(&ws_id);
             let reasoning_effort = params.reasoning_effort.clone();
-            self.record_kpi_spawn(
+            let record_product_analytics = !is_remote_incoming_spawn(&params);
+            self.record_kpi_spawn_with_analytics(
                 &tab_id,
                 model_resolution.model.as_deref(),
                 params.task.as_deref().unwrap_or_default().len(),
+                record_product_analytics,
             );
             Ok(SpawnResult {
                 team_id: self

@@ -3,9 +3,15 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { CloudApiError } from "../../lib/cloudMachines/client";
 import type { CloudReceipt, CloudUsagePayload } from "../../lib/cloudMachines/types";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { CloudTopUpDialog } from "../billing/CloudTopUpDialog";
 import { CloudMachineDrawer } from "./CloudMachineDrawer";
 import { CloudMachineSlot } from "./CloudMachineSlot";
+
+vi.mock("../../lib/productAnalytics", async actual => ({
+  ...(await actual<object>()),
+  recordProductEvent: vi.fn(async () => {}),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,6 +56,7 @@ const MACHINE: CloudReceipt = {
 const hosts: HTMLDivElement[] = [];
 afterEach(() => {
   while (hosts.length) hosts.pop()!.remove();
+  vi.mocked(recordProductEvent).mockClear();
 });
 
 function createHost() {
@@ -157,6 +164,14 @@ it("CloudTopUpDialog supports presets, custom amount validation, wake CTA, and F
     expect(startCheckout).toHaveBeenCalledWith({ pack_id: "custom", amount_cents: 1500 });
     expect(openUrl).toHaveBeenCalledWith("https://checkout.stripe.test/c/pay_123");
     expect(onCheckoutStarted).toHaveBeenCalledTimes(1);
+    expect(onCheckoutStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "topup", packId: "custom", amountCents: 1500 }),
+      expect.objectContaining({ pack_id: "custom", amount_cents: 1500 }),
+    );
+    expect(recordProductEvent).toHaveBeenCalledExactlyOnceWith({
+      event_type: "cloud_paywall_shown",
+      event_properties: { mode: "topup" },
+    });
     expect(onClose).toHaveBeenCalledTimes(1);
   } finally {
     await act(async () => root.unmount());
@@ -202,6 +217,14 @@ it("CloudTopUpDialog renders Free paywall with Pro comparison and wake mode with
     const wakeDialog = document.querySelector<HTMLFormElement>('[role="dialog"]')!;
     expect(wakeDialog.textContent).toContain("Top up to wake Scratch");
     expect(wakeDialog.querySelector<HTMLButtonElement>('button[type="submit"]')?.textContent?.trim()).toBe("Pay $10 and wake Scratch");
+    expect(recordProductEvent).toHaveBeenCalledWith({
+      event_type: "cloud_paywall_shown",
+      event_properties: { mode: "free" },
+    });
+    expect(recordProductEvent).toHaveBeenCalledWith({
+      event_type: "cloud_paywall_shown",
+      event_properties: { mode: "wake" },
+    });
   } finally {
     await act(async () => root.unmount());
   }

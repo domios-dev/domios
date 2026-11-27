@@ -100,7 +100,19 @@ impl ServiceContext {
     /// At spawn time the tab has no runtime model evidence yet, so the launch model is
     /// the only identity available.
     pub(crate) fn record_kpi_spawn(&self, tab_id: &str, model: Option<&str>, brief_bytes: usize) {
-        self.record_product_agent_spawned(tab_id);
+        self.record_kpi_spawn_with_analytics(tab_id, model, brief_bytes, true);
+    }
+
+    pub(crate) fn record_kpi_spawn_with_analytics(
+        &self,
+        tab_id: &str,
+        model: Option<&str>,
+        brief_bytes: usize,
+        record_product_analytics: bool,
+    ) {
+        if record_product_analytics {
+            self.record_product_agent_spawned(tab_id);
+        }
         if !self.kpi.is_enabled() {
             return;
         }

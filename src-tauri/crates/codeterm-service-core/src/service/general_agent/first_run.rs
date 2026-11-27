@@ -237,6 +237,7 @@ pub fn complete_first_run_core(
         crate::service::session_persist::persist_session_after_close(svc.as_ref());
     }
     svc.emit_state_changed(MuxEmitCause::GeneralAgent);
+    svc.record_product_agent_spawned_with(Some(provider_id), Some(super::GENERAL_AGENT_KIND));
 
     let provider_owned = provider_id.to_string();
     let config = config.clone();

@@ -129,3 +129,34 @@ test("activation actions have empty closed payloads and preserve repeated action
     assert.equal(calls.length, 2);
   }
 });
+
+test("1.24 cloud events have closed enums and reject identifiers, codes and exact amounts", () => {
+  const valid: ProductEvent[] = [
+    { event_type: "cloud_paywall_shown", event_properties: { mode: "free" } },
+    { event_type: "cloud_paywall_shown", event_properties: { mode: "wake" } },
+    { event_type: "cloud_paywall_shown", event_properties: { mode: "topup" } },
+    { event_type: "cloud_hours_purchased", event_properties: { pack_id: "pack_10", amount_bucket: "usd_10_to_24" } },
+    { event_type: "cloud_hours_purchased", event_properties: { pack_id: "custom", amount_bucket: "usd_50_plus" } },
+    { event_type: "cloud_machine_created", event_properties: {} },
+    { event_type: "cloud_machine_woken", event_properties: {} },
+    { event_type: "cloud_machine_slept", event_properties: { reason: "idle" } },
+    { event_type: "cloud_machine_slept", event_properties: { reason: "exhausted" } },
+    { event_type: "cloud_machine_slept", event_properties: { reason: "manual" } },
+    { event_type: "promo_redeemed", event_properties: {} },
+  ];
+  for (const event of valid) {
+    assert.equal(isProductEvent(event), true);
+    for (const field of ["machine_id", "promo_code", "amount_cents", "email", "name"]) {
+      assert.equal(isProductEvent({ ...event, event_properties: { ...event.event_properties, [field]: "private" } }), false);
+    }
+  }
+  for (const invalid of [
+    { event_type: "cloud_paywall_shown", event_properties: { mode: "unknown" } },
+    { event_type: "cloud_hours_purchased", event_properties: { pack_id: "pack_99", amount_bucket: "usd_10_to_24" } },
+    { event_type: "cloud_hours_purchased", event_properties: { pack_id: "custom", amount_bucket: "1500" } },
+    { event_type: "cloud_machine_slept", event_properties: { reason: "timeout" } },
+    { event_type: "promo_redeemed", event_properties: { code: "LAUNCH25" } },
+  ]) {
+    assert.equal(isProductEvent(invalid), false);
+  }
+});

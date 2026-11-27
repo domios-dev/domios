@@ -237,6 +237,40 @@ fn first_run_stays_pending_across_restart_until_delivered() {
 }
 
 #[test]
+fn opt_in_after_first_run_preserves_original_first_run_timestamp() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = recording_engine(path.clone(), recording.clone());
+    assert!(!engine.enqueue(startup(), 1_700_000_000_000).unwrap());
+    assert_eq!(engine.state.first_run_time, Some(1_700_000_000_000));
+    drop(engine);
+
+    // Restart still opted out, then opt in later and emit startup.
+    let mut engine = recording_engine(path.clone(), recording.clone());
+    assert_eq!(engine.state.consent, Consent::Off);
+    assert_eq!(engine.state.first_run_time, Some(1_700_000_000_000));
+    engine.consent(Consent::On).unwrap();
+    assert!(engine.enqueue(startup(), 1_700_086_400_000).unwrap());
+    engine.deliver(1_700_086_400_000).unwrap();
+
+    let recorded = recording.lock().unwrap();
+    let events: Vec<_> = recorded.batches.iter().flatten().collect();
+    let first_run = events
+        .iter()
+        .find(|e| matches!(e.event, Event::AppFirstRun { .. }))
+        .expect("app_first_run must emit after opt-in");
+    let app_started = events
+        .iter()
+        .find(|e| matches!(e.event, Event::AppStarted { .. }))
+        .expect("app_started must emit after opt-in");
+    assert_eq!(first_run.time, 1_700_000_000_000);
+    assert_eq!(app_started.time, 1_700_086_400_000);
+    assert!(engine.state.first_run_recorded);
+    assert!(engine.state.first_run_time.is_none());
+}
+
+#[test]
 fn dropped_first_run_is_reemitted_on_next_start() {
     for outcome in [
         DeliveryResult::InvalidPayload,

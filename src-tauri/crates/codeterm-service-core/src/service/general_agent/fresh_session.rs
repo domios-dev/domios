@@ -155,6 +155,15 @@ impl ServiceContext {
         config: &crate::config::ConfigState,
         request: FreshGeneralSessionRequest,
     ) -> Result<AtomicSpawn<serde_json::Value>, String> {
+        self.spawn_fresh_general_session_for_origin(config, request, true)
+    }
+
+    pub fn spawn_fresh_general_session_for_origin(
+        &self,
+        config: &crate::config::ConfigState,
+        request: FreshGeneralSessionRequest,
+        record_product_analytics: bool,
+    ) -> Result<AtomicSpawn<serde_json::Value>, String> {
         let general = config.lock().general_agent.clone();
         let mux = self.mux.read();
         let request = request.resolve(&mux, &general)?;
@@ -241,6 +250,8 @@ impl ServiceContext {
             self.emit_state_changed(MuxEmitCause::GeneralAgent);
             return Err(error);
         }
+        let analytics_provider = request.provider_id.clone();
+        let analytics_role = request.role.clone();
         let service = std::sync::Arc::new(self.clone());
         let config = config.clone();
         let launch_tab_id = tab_id.clone();
@@ -257,6 +268,12 @@ impl ServiceContext {
                 );
             });
         });
+        if record_product_analytics {
+            self.record_product_agent_spawned_with(
+                Some(&analytics_provider),
+                Some(&analytics_role),
+            );
+        }
         Ok(published_spawn_result(self, tab_id, request.workspace_id))
     }
 }

@@ -151,10 +151,12 @@ impl ServiceContext {
                 reservation.commit_to_tab(&handle.tab_id);
             }
             let title = self.mux.read().display_label_for_tab(&handle.tab_id);
-            self.record_kpi_spawn(
+            let record_product_analytics = !is_remote_incoming_spawn(&bind_params);
+            self.record_kpi_spawn_with_analytics(
                 &handle.tab_id,
                 model_identity.2.as_deref(),
                 bind_params.task.as_deref().unwrap_or_default().len(),
+                record_product_analytics,
             );
             Ok(SpawnResult {
                 team_id: self
@@ -401,6 +403,12 @@ impl ServiceContext {
         move_chatbackend_task_to_system_prompt(self.chatbackend_registry.as_ref(), agent, params);
         Ok(())
     }
+}
+
+pub(super) fn is_remote_incoming_spawn(params: &SpawnAgentParams) -> bool {
+    params.ownership.is_some()
+        || params.remote_task_binding.is_some()
+        || params.report_target_mesh_peer.is_some()
 }
 
 /// Every params-owned field on a fresh ordinary-PTY agent tab is applied here;

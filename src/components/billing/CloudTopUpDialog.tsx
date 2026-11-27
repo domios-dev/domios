@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Check, X } from "lucide-react";
+import { cloudPaywallShownEvent } from "../../lib/cloudMachines/analytics";
 import { CloudApiError, createCloudPackCheckout } from "../../lib/cloudMachines/client";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import {
   evaluateTopUpSelection,
   nextTierUpgradeLink,
@@ -29,6 +31,8 @@ export interface PendingCloudTopUpCheckout {
   machineId?: string;
   machineName?: string;
   size?: string;
+  packId: string;
+  amountCents: number;
   expectedHours: number | null;
   priorRemaining: number;
   rolloverSentence: string | null;
@@ -81,7 +85,14 @@ export function CloudTopUpDialog({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const customInputRef = useRef<HTMLDivElement>(null);
   const dotsRef = useRef<DotMatrixCanvasHandle>(null);
+  const reportedPaywallModeRef = useRef<TopUpMode | null>(null);
   const reducedMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    if (reportedPaywallModeRef.current === mode) return;
+    reportedPaywallModeRef.current = mode;
+    void recordProductEvent(cloudPaywallShownEvent(mode));
+  }, [mode]);
 
   useEffect(() => {
     if (selection !== "custom" && !catalog.packs.some((pack) => pack.id === selection)) {
@@ -130,6 +141,8 @@ export function CloudTopUpDialog({
           machineId,
           machineName,
           size,
+          packId: reply.pack_id,
+          amountCents: reply.amount_cents,
           expectedHours: evaluation.hours ?? reply.credits,
           priorRemaining: usage?.remaining ?? 0,
           rolloverSentence: catalog.rolloverSentence,

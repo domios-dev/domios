@@ -105,6 +105,13 @@ impl Engine {
         self.commit(next)
     }
 
+    pub fn remember_first_run_time(&mut self, time: u64) {
+        if !self.state.first_run_recorded && self.state.first_run_time.is_none() {
+            self.state.first_run_time = Some(time);
+            let _ = self.state.save(&self.path);
+        }
+    }
+
     pub fn enqueue(&mut self, event: Event, now: u64) -> Result<bool, String> {
         self.enqueue_on_day(event, now, chrono::Local::now().date_naive())
     }
@@ -114,6 +121,9 @@ impl Engine {
         now: u64,
         day: chrono::NaiveDate,
     ) -> Result<bool, String> {
+        if matches!(event, Event::AppStarted { .. }) {
+            self.remember_first_run_time(now);
+        }
         if self.state.consent != Consent::On || !self.sink.enabled() {
             return Ok(false);
         }
@@ -124,7 +134,7 @@ impl Engine {
         if matches!(event, Event::ActiveDay { .. }) {
             next.last_active_day = Some(day);
         }
-        let mut events = Vec::with_capacity(3);
+        let mut events: Vec<(Event, u64)> = Vec::with_capacity(3);
         if let Event::AppStarted {
             version, platform, ..
         } = &event
@@ -135,18 +145,23 @@ impl Engine {
                     .iter()
                     .any(|queued| matches!(queued.event, Event::AppFirstRun { .. }))
             {
-                events.push(Event::AppFirstRun {
-                    version: *version,
-                    platform: *platform,
-                });
+                let first_run_time = next.first_run_time.unwrap_or(now);
+                next.first_run_time = Some(first_run_time);
+                events.push((
+                    Event::AppFirstRun {
+                        version: *version,
+                        platform: *platform,
+                    },
+                    first_run_time,
+                ));
             }
-            events.push(Event::AppOpened {});
+            events.push((Event::AppOpened {}, now));
         }
-        events.push(event);
-        for event in events {
+        events.push((event, now));
+        for (event, event_time) in events {
             next.queue.push_back(Queued {
                 insert_id: Uuid::new_v4(),
-                time: now,
+                time: event_time,
                 event,
                 user_id: next.user_id.clone(),
                 failures: 0,
@@ -213,6 +228,7 @@ impl Engine {
                     .any(|queued| matches!(queued.event, Event::AppFirstRun { .. }))
                 {
                     next.first_run_recorded = true;
+                    next.first_run_time = None;
                 }
             } else {
                 next.counters.dropped_payload += batch.len() as u64;

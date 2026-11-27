@@ -98,6 +98,12 @@ fn admit_client_event(event: &Event) -> Result<(), Error> {
             | Event::FileShared { .. }
             | Event::ReadReceiptShown { .. }
             | Event::SettingsViewed { .. }
+            | Event::CanvasOpened {}
+            | Event::OnboardingCompleted {}
+            | Event::AgentTabSelected {}
+            | Event::DsBlockInteracted { .. }
+            | Event::CloudPaywallShown { .. }
+            | Event::CloudHoursPurchased { .. }
     ) {
         Ok(())
     } else {

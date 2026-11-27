@@ -6,6 +6,7 @@ use axum::{
 };
 use std::sync::LazyLock;
 
+mod analytics;
 mod caller;
 mod capability;
 mod cloud_producer;
@@ -376,6 +377,7 @@ pub async fn mesh_relay_to_peer(
         agent,
     } = transport
     {
+        let analytics_body = req.body.clone();
         let resp = cloud_producer::relay_via_cloud_outbox(
             &state,
             target,
@@ -386,6 +388,17 @@ pub async fn mesh_relay_to_peer(
             req.body,
         )
         .await?;
+        if let Some((provider, role)) = analytics::remote_spawn_analytics_from_relay(
+            &req.method,
+            &req.path,
+            &analytics_body,
+            &resp,
+            &state.svc.configuration().general_agent.agent_provider,
+        ) {
+            state
+                .svc
+                .record_product_agent_spawned_with(Some(&provider), role.as_deref());
+        }
         return Ok(answered_by(resp));
     }
     let transport =
@@ -538,6 +551,18 @@ pub async fn mesh_relay_to_peer(
             .await;
             state.svc.emit_remote_workers_changed(&orchestrator);
         }
+    }
+
+    if let Some((provider, role)) = analytics::remote_spawn_analytics_from_relay(
+        &cmd.method,
+        &cmd.path,
+        &cmd.body,
+        &resp,
+        &state.svc.configuration().general_agent.agent_provider,
+    ) {
+        state
+            .svc
+            .record_product_agent_spawned_with(Some(&provider), role.as_deref());
     }
 
     Ok(answered_by(resp))

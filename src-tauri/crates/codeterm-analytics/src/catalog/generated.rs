@@ -529,6 +529,91 @@ impl BlueprintOutcome {
     }
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CloudPaywallMode {
+    #[serde(rename = "free")]
+    Free,
+    #[serde(rename = "wake")]
+    Wake,
+    #[serde(rename = "topup")]
+    Topup,
+}
+impl CloudPaywallMode {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "free" => Some(Self::Free),
+            "wake" => Some(Self::Wake),
+            "topup" => Some(Self::Topup),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CloudPackId {
+    #[serde(rename = "pack_5")]
+    Pack5,
+    #[serde(rename = "pack_10")]
+    Pack10,
+    #[serde(rename = "pack_25")]
+    Pack25,
+    #[serde(rename = "custom")]
+    Custom,
+    #[serde(rename = "other")]
+    Other,
+}
+impl CloudPackId {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "pack_5" => Some(Self::Pack5),
+            "pack_10" => Some(Self::Pack10),
+            "pack_25" => Some(Self::Pack25),
+            "custom" => Some(Self::Custom),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CloudAmountBucket {
+    #[serde(rename = "usd_under_10")]
+    UsdUnder10,
+    #[serde(rename = "usd_10_to_24")]
+    Usd10To24,
+    #[serde(rename = "usd_25_to_49")]
+    Usd25To49,
+    #[serde(rename = "usd_50_plus")]
+    Usd50Plus,
+}
+impl CloudAmountBucket {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "usd_under_10" => Some(Self::UsdUnder10),
+            "usd_10_to_24" => Some(Self::Usd10To24),
+            "usd_25_to_49" => Some(Self::Usd25To49),
+            "usd_50_plus" => Some(Self::Usd50Plus),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CloudSleepReason {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "exhausted")]
+    Exhausted,
+    #[serde(rename = "manual")]
+    Manual,
+}
+impl CloudSleepReason {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "idle" => Some(Self::Idle),
+            "exhausted" => Some(Self::Exhausted),
+            "manual" => Some(Self::Manual),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProviderId {
     #[serde(rename = "acp")]
     Acp,
@@ -673,4 +758,17 @@ pub enum Event {
         auth_provider: AuthProvider,
     },
     NeighborInviteCreated {},
+    CloudPaywallShown {
+        mode: CloudPaywallMode,
+    },
+    CloudHoursPurchased {
+        pack_id: CloudPackId,
+        amount_bucket: CloudAmountBucket,
+    },
+    CloudMachineCreated {},
+    CloudMachineWoken {},
+    CloudMachineSlept {
+        reason: CloudSleepReason,
+    },
+    PromoRedeemed {},
 }

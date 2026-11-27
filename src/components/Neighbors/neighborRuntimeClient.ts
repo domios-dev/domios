@@ -1,4 +1,5 @@
 import { listen } from "../../lib/bridge";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { neighborFetch } from "./neighborFetch";
 import type { ReceiverGrantDecision, ReceiverGrantPreview } from "./neighborReceiverGrants";
 
@@ -136,7 +137,13 @@ export const neighborRuntimeClient: NeighborRuntimeClient = {
     if (!record(value) || typeof value.allowed !== "boolean" || typeof value.scope !== "string" || typeof value.allow_tab_requests !== "boolean") throw new Error("Invalid Neighbor permission");
     return value as unknown as NeighborPermission;
   },
-  send: async (friendship, body, messageId) => receipt(await runtimeCall({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null, message_id: messageId })),
+  send: async (friendship, body, messageId) => {
+    const result = receipt(await runtimeCall({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null, message_id: messageId }));
+    if (result.status !== "not_delivered" && result.submission !== "unconfirmed") {
+      void recordProductEvent({ event_type: "neighbor_message_sent", event_properties: { count: 1 } });
+    }
+    return result;
+  },
   deliveryStatus: async id => {
     const result = await runtimeCall({ operation: "delivery_status", message_id: id });
     if (!record(result)) throw new Error("Invalid Neighbor delivery status");

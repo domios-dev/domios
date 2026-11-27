@@ -74,8 +74,11 @@ fn analytics_routes_unauthenticated_post_refused() {
 }
 
 #[test]
-fn client_events_allow_only_plan_views_and_features() {
-    use codeterm_analytics::{Feature, Platform, Version};
+fn client_events_allow_only_client_owned_events() {
+    use codeterm_analytics::{
+        CloudAmountBucket, CloudPackId, CloudPaywallMode, CloudSleepReason, DsBlockAction,
+        DsBlockKind, Feature, Platform, ProviderId, Role, Version,
+    };
     for event in [
         Event::AppStarted {
             version: Version::new(1, 15, 2),
@@ -90,13 +93,42 @@ fn client_events_allow_only_plan_views_and_features() {
         Event::AppOpened {},
         Event::AnalyticsOptedIn {},
         Event::PlanCreated {},
+        Event::AgentSpawned {
+            provider_id: ProviderId::Codex,
+            role: Role::General,
+        },
+        Event::CloudMachineCreated {},
+        Event::CloudMachineWoken {},
+        Event::CloudMachineSlept {
+            reason: CloudSleepReason::Idle,
+        },
+        Event::PromoRedeemed {},
     ] {
         assert_eq!(
             admit_client_event(&event).unwrap_err().0,
             StatusCode::FORBIDDEN
         );
     }
-    assert!(admit_client_event(&Event::PlanViewed {}).is_ok());
-    let feature = Feature::MemorySaved;
-    assert!(admit_client_event(&Event::FeatureUsed { feature }).is_ok());
+    for event in [
+        Event::PlanViewed {},
+        Event::FeatureUsed {
+            feature: Feature::MemorySaved,
+        },
+        Event::CanvasOpened {},
+        Event::OnboardingCompleted {},
+        Event::AgentTabSelected {},
+        Event::DsBlockInteracted {
+            kind: DsBlockKind::Choice,
+            action: DsBlockAction::Submit,
+        },
+        Event::CloudPaywallShown {
+            mode: CloudPaywallMode::Free,
+        },
+        Event::CloudHoursPurchased {
+            pack_id: CloudPackId::Pack5,
+            amount_bucket: CloudAmountBucket::UsdUnder10,
+        },
+    ] {
+        assert!(admit_client_event(&event).is_ok());
+    }
 }

@@ -557,6 +557,7 @@ impl ServiceContext {
         )?;
         drop(pad);
 
+        self.record_product_agent_spawned_with(Some(provider), None);
         let snapshot = self.mux.read().snapshot();
         self.emit_state_changed(MuxEmitCause::TabLifecycle);
 
