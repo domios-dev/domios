@@ -303,7 +303,9 @@ async fn verified_screenshot_fails_honestly_when_capture_stays_blank_black() {
         .await
         .unwrap_err();
     assert!(
-        err.starts_with("surface not rendering:") && err.contains("all-black 32x18"),
+        err.starts_with("surface not rendering:")
+            && err.contains("all-black 32x18")
+            && err.contains("close and reopen the browser surface"),
         "{err}"
     );
 

@@ -111,7 +111,7 @@ pub(super) fn classify_capture(
                 let focus_note = if state.has_focus { "" } else { ", unfocused" };
                 if is_black_or_transparent && has_content {
                     return Err(format!(
-                        "surface not rendering: captured an all-black {width}x{height} frame while page has visible content (visibilityState={}{focus_note})",
+                        "surface not rendering: captured an all-black {width}x{height} frame while page has visible content (visibilityState={}{focus_note}); target compositor surface may be stuck — close and reopen the browser surface",
                         if state.visibility_state.is_empty() {
                             "unknown"
                         } else {
@@ -121,7 +121,7 @@ pub(super) fn classify_capture(
                 }
                 if !is_region_crop && state.visible_elements > 0 && state.has_text {
                     return Err(format!(
-                        "surface not rendering: captured a uniform blank {width}x{height} frame (rgb({},{},{})) while page has visible content (visibilityState={}{focus_note})",
+                        "surface not rendering: captured a uniform blank {width}x{height} frame (rgb({},{},{})) while page has visible content (visibilityState={}{focus_note}); target compositor surface may be stuck — close and reopen the browser surface",
                         rgba[0],
                         rgba[1],
                         rgba[2],
