@@ -113,6 +113,7 @@ impl CloudProvisioningPort for FakeProvisioningPort {
         }
         let seq = self.next_id.fetch_add(1, Ordering::SeqCst);
         let machine = ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: format!("cm_prov_{seq}"),
             provider: "timeweb".into(),
             endpoint: CloudEndpoint::Direct(SocketAddrV4::new(
@@ -146,6 +147,7 @@ impl CloudProvisioningPort for FakeProvisioningPort {
             err?;
         }
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: machine_id.to_owned(),
             provider: "timeweb".into(),
             endpoint: CloudEndpoint::Direct(SocketAddrV4::new(

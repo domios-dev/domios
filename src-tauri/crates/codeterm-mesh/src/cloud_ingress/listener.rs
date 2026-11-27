@@ -19,6 +19,7 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
+// Startup handshakes waiting for the enrolled runtime share this pre-auth session limit.
 const MAX_SESSIONS: usize = 32;
 const MAX_NOISE_MESSAGE: usize = u16::MAX as usize;
 

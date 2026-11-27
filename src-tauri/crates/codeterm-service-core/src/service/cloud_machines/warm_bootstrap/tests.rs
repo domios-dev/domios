@@ -586,6 +586,7 @@ impl CloudProvisioningPort for WarmPhaseProvisioning {
     ) -> Result<ProvisionedMachine, CloudError> {
         self.clock.advance(5_000);
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: "cm-warm-1".into(),
             provider: "fly_machines".into(),
             endpoint: CloudEndpoint::Direct(SocketAddrV4::new(
@@ -606,6 +607,7 @@ impl CloudProvisioningPort for WarmPhaseProvisioning {
 
     async fn wake(&self, machine_id: &str, _: &str) -> Result<ProvisionedMachine, CloudError> {
         Ok(ProvisionedMachine {
+            ingress_ready_at: None,
             machine_id: machine_id.into(),
             provider: "fly_machines".into(),
             endpoint: CloudEndpoint::Direct(SocketAddrV4::new(

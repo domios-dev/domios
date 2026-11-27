@@ -50,6 +50,7 @@ pub struct ProvisionedMachine {
     pub sleep_mode: CloudSleepMode,
     pub lease_id: String,
     pub lease_expires_at_ms: u64,
+    pub ingress_ready_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

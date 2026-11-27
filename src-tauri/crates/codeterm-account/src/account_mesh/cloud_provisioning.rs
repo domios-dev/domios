@@ -297,7 +297,11 @@ pub struct ProvisionedMachineReply {
     pub state: String,
     pub lease_id: String,
     pub lease_expires_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "nonzero_timestamp",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ingress_ready_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_restore: Option<bool>,
@@ -316,13 +320,18 @@ impl ProvisionedMachineReply {
             || self.provider.trim().is_empty()
             || self.size.trim().is_empty()
             || self.lease_id.trim().is_empty()
-            || self.ingress_ready_at == Some(0)
             || !self.rate.is_valid()
         {
             return None;
         }
         self.endpoint.validate()
     }
+}
+
+fn nonzero_timestamp<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    Ok(Option::<u64>::deserialize(deserializer)?.filter(|time| *time != 0))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

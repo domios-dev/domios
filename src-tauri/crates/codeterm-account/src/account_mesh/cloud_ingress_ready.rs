@@ -2,7 +2,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    callable::{refusal, result, HttpCallable},
+    callable::{refusal, result, CallableFailure, HttpCallable},
     cloud_provisioning::provisioning_message,
     wire::RegistryRefusal,
     InstallationKey, RegistryResult,
@@ -56,9 +56,10 @@ pub async fn record(
     });
     let client =
         HttpCallable::new(endpoints.functions).map_err(|_| RegistryRefusal::Unavailable)?;
-    let reply = client
-        .post(ROUTE, None, data)
-        .await
-        .map_err(|error| refusal(&error))?;
+    let reply = match client.post(ROUTE, None, data).await {
+        Ok(reply) => reply,
+        Err(CallableFailure::Status { status: 404, .. }) => return Ok(None),
+        Err(error) => return Err(refusal(&error)),
+    };
     Ok(result::<ReadyReply>(reply)?.ingress_ready_at)
 }

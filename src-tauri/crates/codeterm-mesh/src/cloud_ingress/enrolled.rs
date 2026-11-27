@@ -181,13 +181,23 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> EnrolledCha
     }
 
     pub async fn receive_reverse(
-        mut self,
+        self,
         dedupe: &crate::cloud_outbox::ReceiverDedupe,
         dispatcher: &dyn super::ReverseDispatcher,
     ) -> Result<(), IngressError> {
+        self.receive_reverse_with_attach(dedupe, dispatcher, || {})
+            .await
+    }
+
+    pub async fn receive_reverse_with_attach(
+        mut self,
+        dedupe: &crate::cloud_outbox::ReceiverDedupe,
+        dispatcher: &dyn super::ReverseDispatcher,
+        attached: impl FnOnce() + Send,
+    ) -> Result<(), IngressError> {
         self.admit()?;
         self.stream.write(&Request::Attach).await?;
-        super::reverse::receive(self, dedupe, dispatcher).await
+        super::reverse::receive_with_attach(self, dedupe, dispatcher, attached).await
     }
 
     pub fn peer_membership(&self) -> Result<&VerifiedMembership, IngressError> {

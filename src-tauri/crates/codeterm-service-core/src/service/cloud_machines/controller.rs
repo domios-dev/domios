@@ -95,7 +95,7 @@ impl CloudMachineController {
             flush_locks: Mutex::new(HashMap::new()),
             drain_locks: Mutex::new(HashMap::new()),
             active_drains: Mutex::new(HashSet::new()),
-            wakes: Arc::new(SingleFlightWakes::default()),
+            wakes: Arc::new(SingleFlightWakes::new(lifecycle_tx.clone())),
             lifecycle_tx,
             wake_queue_tx,
             link_flush_tracker: Mutex::new(LinkGenerationFlushTracker::default()),
@@ -134,8 +134,11 @@ impl CloudMachineController {
         self.lifecycle_tx.subscribe()
     }
 
-    pub fn confirmed_wake_route_deadline(&self, machine_id: &str) -> Option<u64> {
-        self.wakes.confirmed_route_deadline(machine_id)
+    pub fn wake_route_confirmation(
+        &self,
+        machine_id: &str,
+    ) -> Option<super::WakeRouteConfirmation> {
+        self.wakes.route_confirmation(machine_id)
     }
 
     pub(super) fn notify_lifecycle(&self) {
@@ -995,15 +998,6 @@ impl CloudMachineController {
                                     self.clear_pending_request(&record.machine_id);
                                 }
                                 let _ = self.update_record(&record.machine_id, |rec| {
-                                    if matches!(
-                                        rec.endpoint,
-                                        Some(CloudEndpoint::ProviderProxy { .. })
-                                    ) && error.is_retryable_wake_error()
-                                    {
-                                        let mut next = rec.clone();
-                                        next.last_error = Some(error.to_string());
-                                        return Ok(next);
-                                    }
                                     transition(
                                         rec,
                                         LifecycleEvent::WakeFailed(error.to_string()),
@@ -1045,22 +1039,13 @@ impl CloudMachineController {
                 };
 
                 if provider_proxy {
-                    guard.confirm_route(wake_deadline_ms);
-                    self.notify_lifecycle();
+                    guard.confirm_route(wake_deadline_ms, woken.ingress_ready_at);
                 }
 
                 if !stable_proxy_endpoint {
                     if let Err(error) = peer_control.update_endpoint(&waking, &woken.endpoint).await
                     {
-                        let _ = self.update_record(&record.machine_id, |rec| {
-                            let mut next = transition(
-                                rec,
-                                LifecycleEvent::WakeFailed(error.to_string()),
-                                self.clock.now_ms(),
-                            )?;
-                            next.endpoint = previous_endpoint.clone();
-                            Ok(next)
-                        });
+                        self.settle_unverified_wake(&waking, &error, previous_endpoint);
                         guard.finish(Err(error.clone()));
                         return Err(error);
                     }
@@ -1070,15 +1055,7 @@ impl CloudMachineController {
                         .publish_direct_endpoint(&waking, &woken.endpoint)
                         .await
                     {
-                        let _ = self.update_record(&record.machine_id, |rec| {
-                            let mut next = transition(
-                                rec,
-                                LifecycleEvent::WakeFailed(error.to_string()),
-                                self.clock.now_ms(),
-                            )?;
-                            next.endpoint = previous_endpoint.clone();
-                            Ok(next)
-                        });
+                        self.settle_unverified_wake(&waking, &error, previous_endpoint);
                         guard.finish(Err(error.clone()));
                         return Err(error);
                     }
@@ -1088,18 +1065,7 @@ impl CloudMachineController {
                     .await_peer_ready(&waking, wake_deadline_ms)
                     .await
                 {
-                    let _ = self.update_record(&record.machine_id, |rec| {
-                        if provider_proxy {
-                            let mut next = rec.clone();
-                            next.last_error = Some(error.to_string());
-                            return Ok(next);
-                        }
-                        transition(
-                            rec,
-                            LifecycleEvent::WakeFailed(error.to_string()),
-                            self.clock.now_ms(),
-                        )
-                    });
+                    self.settle_unverified_wake(&waking, &error, waking.endpoint.clone());
                     self.expire_overdue_held_sends(&record.machine_id);
                     guard.finish(Err(error.clone()));
                     return Err(error);

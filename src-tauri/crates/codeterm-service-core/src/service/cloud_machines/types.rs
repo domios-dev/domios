@@ -372,7 +372,12 @@ impl CloudMachineRecord {
                     .unwrap_or(self.created_at_ms),
             ),
             billing_notice: COST_WARNING_TEXT.into(),
-            warning,
+            warning: warning.or_else(|| {
+                self.last_error
+                    .as_deref()
+                    .and_then(|error| error.strip_prefix(super::controller_wake::WAKE_UNVERIFIED))
+                    .map(str::to_owned)
+            }),
             create_phases,
             warm_bootstrap,
         }
