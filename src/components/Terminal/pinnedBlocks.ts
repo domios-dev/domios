@@ -81,7 +81,7 @@ export function openRecordedFileChange(tabId: string, path: string, view: "diff"
     planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "changes" });
     return;
   }
-  if (localArtifactOpeningAvailable()) {
+  if (localArtifactOpeningAvailable(tabId)) {
     void openLocalArtifact(path).catch(() => {});
   }
 }

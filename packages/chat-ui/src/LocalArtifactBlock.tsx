@@ -84,7 +84,7 @@ function LoadedLocalArtifact({
 }: LocalArtifactProps) {
   const outerFullscreen = useFullscreenViewer();
   const tabId = useLocalArtifactTabId();
-  const canReveal = localArtifactOpeningAvailable();
+  const canReveal = localArtifactOpeningAvailable(tabId);
   // A remount (the row re-entering the mounted window, a re-keyed message) shows the remembered file at once,
   // so the transcript never sees the preview collapse to a placeholder and grow back.
   const [state, setState] = useState<LoadState>(() =>

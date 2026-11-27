@@ -21,6 +21,9 @@ const REQUESTS_PER_WINDOW: usize = 120;
 const MAX_BATCH: usize = 128;
 // A burst of previews in one reply queues for a permit; the deadline only bounds a stuck read.
 const PERMIT_DEADLINE: Duration = Duration::from_secs(10);
+// Bounded wait for transcript reference indexing on `prepare` so remote/web/cloud viewers without
+// a tab event stream receive `"ready"` directly, staying well under the 30s mesh relay deadline.
+const PREPARE_WAIT_DEADLINE: Duration = Duration::from_secs(15);
 
 pub(super) struct Admission {
     window: Mutex<(Instant, usize)>,
@@ -132,22 +135,45 @@ fn refusal() -> Response {
         .into_response()
 }
 
+fn remote_viewer_refusal(
+    caller: Option<&CallerIdentity>,
+    origin: Option<&AuthenticatedOrigin>,
+) -> Option<Response> {
+    (matches!(caller, Some(CallerIdentity::Peer { .. }))
+        && !origin.is_some_and(|origin| origin.owner_trusted()))
+    .then(|| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Preview reads require an owner client"})),
+        )
+            .into_response()
+    })
+}
+
 pub(super) async fn prepare(
     State(state): State<AppState>,
     Path(tab): Path<String>,
     Extension(admission): Extension<Arc<Admission>>,
+    caller: Option<Extension<CallerIdentity>>,
+    origin: Option<Extension<AuthenticatedOrigin>>,
 ) -> Response {
+    if let Some(refusal) = remote_viewer_refusal(caller.as_deref(), origin.as_deref()) {
+        return refusal;
+    }
     if let Err(status) = admission.count((admission.clock)()) {
         return status.into_response();
     }
-    match tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::local_preview::reference_inventory::prepare(
+    let prepared = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::local_preview::reference_inventory::prepare_waitable(
             &state.svc, &tab,
         )
     })
-    .await
-    {
-        Ok(Ok(state)) => Json(state).into_response(),
+    .await;
+    match prepared {
+        Ok(Ok(prepared)) => match prepared.wait_bounded(PREPARE_WAIT_DEADLINE).await {
+            Ok(state) => Json(state).into_response(),
+            Err(_) => refusal(),
+        },
         _ => refusal(),
     }
 }
@@ -160,6 +186,9 @@ pub(super) async fn read(
     origin: Option<Extension<AuthenticatedOrigin>>,
     Json(body): Json<ReadBody>,
 ) -> Response {
+    if let Some(refusal) = remote_viewer_refusal(caller.as_deref(), origin.as_deref()) {
+        return refusal;
+    }
     let permit = match admission.admit((admission.clock)()).await {
         Ok(permit) => permit,
         Err(status) => return status.into_response(),
@@ -221,8 +250,13 @@ pub(super) async fn check(
     State(state): State<AppState>,
     Path(tab): Path<String>,
     Extension(admission): Extension<Arc<Admission>>,
+    caller: Option<Extension<CallerIdentity>>,
+    origin: Option<Extension<AuthenticatedOrigin>>,
     Json(body): Json<CheckBody>,
 ) -> Response {
+    if let Some(refusal) = remote_viewer_refusal(caller.as_deref(), origin.as_deref()) {
+        return refusal;
+    }
     if body.paths.len() > MAX_BATCH {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }

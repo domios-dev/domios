@@ -63,10 +63,22 @@ fn tab_policy(
         generated.into()
     } else {
         match reference_inventory::lookup(svc, tab_id) {
-            Ok(Some(references)) if generated.is_empty() => references,
-            Ok(Some(references)) => {
-                generated.extend(references.iter().cloned());
-                generated.into()
+            Ok(Some(mut references)) => {
+                let missing = paths.iter().any(|path| {
+                    let key = references::path_key(std::path::Path::new(path));
+                    !generated.contains(&key) && !references.contains(&key)
+                });
+                if missing {
+                    if let Ok(Some(updated)) = reference_inventory::catch_up_if_grown(svc, tab_id) {
+                        references = updated;
+                    }
+                }
+                if generated.is_empty() {
+                    references
+                } else {
+                    generated.extend(references.iter().cloned());
+                    generated.into()
+                }
             }
             Ok(None) => {
                 let (messages, _) = super::tab_chat::tab_chat_snapshot(svc, tab_id, 0)?;

@@ -37,7 +37,10 @@ function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded, onOpen }
   } : undefined, [writable, readOnly, session, state.failure]);
   useEffect(() => { onLoaded?.(state.text === null ? null : { data: state.text, media_type: "application/json" }); }, [onLoaded, state.text]);
   if (state.text === null) {
-    if (file.read.status === "error") return <CanvasNotice text="This canvas file is not available." reason={file.read.reason} />;
+    if (file.read.status === "error") {
+      const machineState = file.read.reason.startsWith("The machine that has this file ");
+      return <CanvasNotice text={machineState ? file.read.reason : "This canvas file is not available."} reason={machineState ? undefined : file.read.reason} />;
+    }
     return <div role="status" aria-label="Loading canvas" data-testid="chat-ds-canvas" className="my-2" style={{ height: 320 }} />;
   }
   // Over the last good board the sentence says what is shown; with no good version it says nothing can be.

@@ -35,6 +35,8 @@ struct Source {
 pub struct Preparation {
     pub state: &'static str,
     pub index_id: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub waited: bool,
 }
 
 #[derive(Default)]
@@ -55,6 +57,64 @@ struct Entry {
     file: JsonlSource,
     cancelled: AtomicBool,
     state: Mutex<State>,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+pub struct Prepared {
+    pub preparation: Preparation,
+    waiter: Option<(Arc<Entry>, String)>,
+}
+
+impl Prepared {
+    /// Waits without holding any lock until this preparation's indexing run settles
+    /// (or `deadline` elapses), so clients without a tab event stream receive `"ready"`
+    /// directly in the `POST /preview/prepare` reply.
+    pub async fn wait_bounded(self, deadline: std::time::Duration) -> Result<Preparation, String> {
+        let Some((entry, index_id)) = self.waiter else {
+            return Ok(self.preparation);
+        };
+        let timeout = tokio::time::sleep(deadline);
+        tokio::pin!(timeout);
+        loop {
+            let notified = entry.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            {
+                let state = entry.state.lock();
+                if entry.cancelled.load(Ordering::Acquire) {
+                    return Err("Preview session changed".into());
+                }
+                if !state.running {
+                    if let Some(error) = &state.error {
+                        return Err(error.clone());
+                    }
+                    return Ok(Preparation {
+                        state: if state.complete { "ready" } else { "failed" },
+                        index_id: state.index_id.clone(),
+                        waited: true,
+                    });
+                }
+                if state.index_id != index_id {
+                    return Ok(Preparation {
+                        state: "indexing",
+                        index_id: state.index_id.clone(),
+                        waited: true,
+                    });
+                }
+            }
+            tokio::select! {
+                _ = &mut notified => {}
+                _ = &mut timeout => {
+                    let current_id = entry.state.lock().index_id.clone();
+                    return Ok(Preparation {
+                        state: "indexing",
+                        index_id: if current_id.is_empty() { index_id } else { current_id },
+                        waited: true,
+                    });
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -66,6 +126,7 @@ impl ReferenceInventory {
     pub fn drop_tab(&self, tab: &str) {
         if let Some(entry) = self.entries.lock().remove(tab) {
             entry.cancelled.store(true, Ordering::Release);
+            entry.notify.notify_waiters();
         }
     }
 
@@ -76,6 +137,7 @@ impl ReferenceInventory {
                 return Ok(entry.clone());
             }
             entry.cancelled.store(true, Ordering::Release);
+            entry.notify.notify_waiters();
         }
         if !entries.contains_key(tab) && entries.len() >= MAX_ENTRIES {
             let idle = entries.iter().find_map(|(tab, entry)| {
@@ -93,6 +155,7 @@ impl ReferenceInventory {
             file: JsonlSource::default(),
             cancelled: AtomicBool::new(false),
             state: Mutex::new(State::default()),
+            notify: Arc::new(tokio::sync::Notify::new()),
         });
         entries.insert(tab.to_owned(), entry.clone());
         Ok(entry)
@@ -172,37 +235,66 @@ fn current(entry: &Entry, state: &State) -> Result<bool, String> {
 }
 
 pub fn prepare(svc: &ServiceContext, tab: &str) -> Result<Preparation, String> {
+    prepare_waitable(svc, tab).map(|prepared| prepared.preparation)
+}
+
+pub fn prepare_waitable(svc: &ServiceContext, tab: &str) -> Result<Prepared, String> {
     let Some(source) = source(svc, tab)? else {
-        return Ok(Preparation {
-            state: "ready",
-            index_id: String::new(),
+        return Ok(Prepared {
+            preparation: Preparation {
+                state: "ready",
+                index_id: String::new(),
+                waited: false,
+            },
+            waiter: None,
         });
     };
     let entry = svc.chat_registry.preview_references.entry(tab, source)?;
     let mut state = entry.state.lock();
     if state.running {
-        return Ok(Preparation {
-            state: "indexing",
-            index_id: state.index_id.clone(),
+        let index_id = state.index_id.clone();
+        drop(state);
+        return Ok(Prepared {
+            preparation: Preparation {
+                state: "indexing",
+                index_id: index_id.clone(),
+                waited: false,
+            },
+            waiter: Some((entry, index_id)),
         });
     }
     if std::fs::metadata(&entry.source.path)
         .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
     {
         *state = State::default();
-        return Ok(Preparation {
-            state: "ready",
-            index_id: String::new(),
+        return Ok(Prepared {
+            preparation: Preparation {
+                state: "ready",
+                index_id: String::new(),
+                waited: false,
+            },
+            waiter: None,
         });
     }
     if current(&entry, &state)? {
-        return Ok(Preparation {
-            state: "ready",
-            index_id: state.index_id.clone(),
+        return Ok(Prepared {
+            preparation: Preparation {
+                state: "ready",
+                index_id: state.index_id.clone(),
+                waited: false,
+            },
+            waiter: None,
         });
     }
-    if let Some(error) = &state.error {
-        return Err(error.clone());
+    if state.error.is_some() {
+        let grew = std::fs::metadata(&entry.source.path)
+            .map(|meta| meta.len() > state.total)
+            .unwrap_or(false);
+        if grew {
+            state.error = None;
+        } else if let Some(error) = state.error.clone() {
+            return Err(error);
+        }
     }
     state.running = true;
     state.index_id = uuid::Uuid::new_v4().to_string();
@@ -228,6 +320,7 @@ pub fn prepare(svc: &ServiceContext, tab: &str) -> Result<Preparation, String> {
             result.is_ok()
         );
         drop(state);
+        worker.notify.notify_waiters();
         svc.ui.emit(
             &format!("preview-index-state-{tab}"),
             serde_json::json!({
@@ -235,10 +328,55 @@ pub fn prepare(svc: &ServiceContext, tab: &str) -> Result<Preparation, String> {
             }),
         );
     });
-    Ok(Preparation {
-        state: "indexing",
-        index_id,
+    Ok(Prepared {
+        preparation: Preparation {
+            state: "indexing",
+            index_id: index_id.clone(),
+            waited: false,
+        },
+        waiter: Some((entry, index_id)),
     })
+}
+
+/// Incrementally indexes newly appended JSONL bytes when a read misses the warm reference set.
+/// Returns `Ok(None)` without parsing when the file has not grown.
+pub fn catch_up_if_grown(
+    svc: &ServiceContext,
+    tab: &str,
+) -> Result<Option<Arc<HashSet<String>>>, String> {
+    let Some(source) = source(svc, tab)? else {
+        return Ok(None);
+    };
+    let entry = svc.chat_registry.preview_references.entry(tab, source)?;
+    {
+        let mut state = entry.state.lock();
+        if state.running || !state.complete || state.error.is_some() {
+            return Ok(None);
+        }
+        let meta = std::fs::metadata(&entry.source.path).map_err(|error| error.to_string())?;
+        if meta.len() <= state.total {
+            return Ok(None);
+        }
+        state.running = true;
+        state.index_id = uuid::Uuid::new_v4().to_string();
+    }
+    let result = build(svc, tab, &entry);
+    let (references, index_id) = {
+        let mut state = entry.state.lock();
+        state.running = false;
+        state.error = result.as_ref().err().cloned();
+        state.complete = result.is_ok();
+        (state.references.clone(), state.index_id.clone())
+    };
+    entry.notify.notify_waiters();
+    svc.ui.emit(
+        &format!("preview-index-state-{tab}"),
+        serde_json::json!({
+            "index_id": index_id,
+            "state": if result.is_ok() { "ready" } else { "failed" }
+        }),
+    );
+    result.map(|()| Some(references))
 }
 
 pub fn lookup(svc: &ServiceContext, tab: &str) -> Result<Option<Arc<HashSet<String>>>, String> {

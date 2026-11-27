@@ -77,7 +77,7 @@ export function ImageFullscreen({ image, images, anchorRef, onClose, onImageErro
           </nav>}
           view={controls}
           actions={<>
-            {path && !selected.error && localArtifactOpeningAvailable() && <button type="button" className={CANVAS_GHOST_BUTTON} onClick={() => revealLocalFile(path)} aria-label={`Reveal ${selected.name}`} title="Reveal in file manager"><FolderOpen size={13} aria-hidden /><span className="@max-[560px]:hidden">Reveal</span></button>}
+            {path && !selected.error && localArtifactOpeningAvailable(tabId) && <button type="button" className={CANVAS_GHOST_BUTTON} onClick={() => revealLocalFile(path)} aria-label={`Reveal ${selected.name}`} title="Reveal in file manager"><FolderOpen size={13} aria-hidden /><span className="@max-[560px]:hidden">Reveal</span></button>}
             {selected.src && <SaveImage key={path ?? active} {...selected} saving={saveStatus === "saving"} onSave={save} />}
           </>}
           close={<button type="button" className={CANVAS_GHOST_BUTTON} onClick={onClose} aria-label="Close image"><X size={13} aria-hidden /></button>}

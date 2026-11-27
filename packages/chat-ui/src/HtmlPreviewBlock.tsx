@@ -315,7 +315,7 @@ export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, r
   );
 
   const body = (fill: boolean) => {
-    if (filePath && fileSource.status === "loading") {
+    if (filePath && (fileSource.status === "idle" || fileSource.status === "loading")) {
       return <div className="p-4 text-xs text-[var(--ct-muted-fg)]">Loading local HTML…</div>;
     }
     if (filePath && fileSource.status === "error") {

@@ -3,6 +3,7 @@ import { Image as ImageIcon, ImageOff, RefreshCw, FolderOpen } from "lucide-reac
 import { attachmentPathName, type LocalArtifactDirective } from "@codeterm/chat-core";
 import { ImageFullscreen, revealLocalFile, REVEAL_UNAVAILABLE } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable, type LocalPreviewFile } from "./localArtifactLoader";
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import { useLocalImageGallery } from "./useLocalImageGallery";
 import { DeferredLoader } from "./DeferredLoader";
 import { ViewerButton } from "./ViewerButton";
@@ -28,8 +29,9 @@ export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = fal
   renderError?: (error: string) => ReactNode;
 }) {
   const { images, open, setOpen, retry, anchor, omitted } = useLocalImageGallery(directive, fullscreenRequest, onLoaded);
+  const tabId = useLocalArtifactTabId();
   const single = !directive.paths || directive.paths.length === 1;
-  const reveal = localArtifactOpeningAvailable();
+  const reveal = localArtifactOpeningAvailable(tabId);
   const imageStyle: CSSProperties = single
     ? { display: "block", maxHeight: SINGLE_MAX_HEIGHT, minHeight: 120,maxWidth: "100%", objectFit: "contain" }
     : { display: "block", height: ROW_HEIGHT, width: "auto", maxWidth: "100%", objectFit: "contain" };

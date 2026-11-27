@@ -273,3 +273,159 @@ fn empty_check_never_reads_transcript_or_allocates_an_index() {
         .lock()
         .is_empty());
 }
+
+#[tokio::test]
+async fn prepare_waitable_settles_to_ready_directly_and_read_catches_up_on_appended_page() {
+    let (fixture, tab, reads) = fixture();
+    let artifacts = tempfile::tempdir().unwrap();
+    let root = codeterm_local_preview::html_preview::preview_test_root(artifacts.path());
+    let first_page = root.join("first.html");
+    let second_page = root.join("second.html");
+    std::fs::write(&first_page, "<main>first</main>").unwrap();
+    std::fs::write(&second_page, "<main>second</main>").unwrap();
+    let transcript = fixture.temp.path().join("own.jsonl");
+    append(
+        &transcript,
+        &codeterm_local_preview::artifact_directive::serialize_artifact(
+            "page",
+            &[first_page.to_string_lossy().into_owned()],
+        )
+        .unwrap(),
+    );
+
+    let prepared = prepare_waitable(&fixture.service, &tab).unwrap();
+    let settled = prepared
+        .wait_bounded(std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert_eq!(settled.state, "ready");
+    assert_eq!(
+        super::super::read(
+            &fixture.service,
+            &tab,
+            &[],
+            first_page.to_str().unwrap(),
+            "page",
+        )
+        .unwrap()
+        .data,
+        "<main>first</main>"
+    );
+
+    let parsed_after_first = reads.lock().len();
+    assert_eq!(
+        super::super::read(
+            &fixture.service,
+            &tab,
+            &[],
+            first_page.to_str().unwrap(),
+            "page",
+        )
+        .unwrap()
+        .data,
+        "<main>first</main>"
+    );
+    assert_eq!(
+        reads.lock().len(),
+        parsed_after_first,
+        "warm read of indexed page must not re-parse transcript"
+    );
+
+    fixture.ui.0.lock().clear();
+    append(
+        &transcript,
+        &codeterm_local_preview::artifact_directive::serialize_artifact(
+            "page",
+            &[second_page.to_string_lossy().into_owned()],
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        super::super::read(
+            &fixture.service,
+            &tab,
+            &[],
+            second_page.to_str().unwrap(),
+            "page",
+        )
+        .unwrap()
+        .data,
+        "<main>second</main>"
+    );
+    let emitted = fixture.ui.0.lock().clone();
+    assert!(
+        emitted.iter().any(|(name, payload)| {
+            name == &format!("preview-index-state-{tab}") && payload["state"] == "ready"
+        }),
+        "catch_up_if_grown must emit preview-index-state ready: {emitted:?}"
+    );
+}
+
+#[tokio::test]
+async fn wait_bounded_follows_newer_run_on_uncancelled_entry_and_prepare_recovers_error_after_growth()
+{
+    let (fixture, tab, _) = fixture();
+    let transcript = fixture.temp.path().join("own.jsonl");
+    append(&transcript, "initial");
+    let entry = index(&fixture.service, &tab);
+
+    // Simulate a waiter holding an older index_id while a newer run is active on the same entry.
+    {
+        let mut state = entry.state.lock();
+        state.running = true;
+        state.index_id = "newer-run".into();
+    }
+    let waiting = Prepared {
+        preparation: Preparation {
+            state: "indexing",
+            index_id: "older-run".into(),
+            waited: false,
+        },
+        waiter: Some((entry.clone(), "older-run".into())),
+    };
+    let active = waiting
+        .wait_bounded(std::time::Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(active.state, "indexing");
+    assert_eq!(active.index_id, "newer-run");
+    assert!(active.waited);
+
+    // Once that newer run finishes, another waiter holding the older id receives "ready" with the newer id.
+    {
+        let mut state = entry.state.lock();
+        state.running = false;
+        state.complete = true;
+    }
+    let finished = Prepared {
+        preparation: Preparation {
+            state: "indexing",
+            index_id: "older-run".into(),
+            waited: false,
+        },
+        waiter: Some((entry.clone(), "older-run".into())),
+    };
+    let done = finished
+        .wait_bounded(std::time::Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(done.state, "ready");
+    assert_eq!(done.index_id, "newer-run");
+    assert!(done.waited);
+
+    // A sticky error clears on the next prepare once the transcript file grows.
+    {
+        let mut state = entry.state.lock();
+        state.complete = false;
+        state.error = Some("Preview transcript changed".into());
+    }
+    assert!(prepare_waitable(&fixture.service, &tab).is_err());
+    append(&transcript, "recovered after growth");
+    let recovered = prepare_waitable(&fixture.service, &tab)
+        .unwrap()
+        .wait_bounded(std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert_eq!(recovered.state, "ready");
+    assert!(entry.state.lock().error.is_none());
+}
