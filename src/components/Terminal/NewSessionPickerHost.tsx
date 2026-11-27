@@ -75,6 +75,9 @@ export function NewSessionPickerHost({ firstRunActive, agentsConfig, openedTeamF
       agentsConfig={agentsConfig}
       initialProviderId={detail.initialProviderId}
       section={detail.section ?? (isProtected ? "general" : "workspace")}
+      remotePeerId={detail.remotePeerId}
+      remoteWorkspaceId={detail.remoteWorkspaceId}
+      remoteMachineName={detail.remoteMachineName}
       onClose={() => setRequest(null)}
     />
   );

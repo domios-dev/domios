@@ -174,6 +174,9 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "disabled": return "That code is no longer active.";
     case "exhausted": return "That code has already been used up.";
     case "spend_cap_exceeded": return "This would go over your monthly spending limit.";
+    case "below_min": return "That amount is below the minimum top-up.";
+    case "above_max": return "That amount is above the maximum top-up.";
+    case "territory": return "Cloud hours can't be purchased from your region yet.";
     case "not_found": return "That cloud machine no longer exists.";
     case "provider_refused": return "The cloud provider refused the request.";
     case "provider_unavailable": return "The cloud provider is unavailable. Try again later.";

@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 pub use codeterm_util::cloud_endpoint::{CloudEndpoint, CLOUD_INGRESS_PORT, PROVIDER_PROXY_PORT};
 use serde::{Deserialize, Serialize};
 
+use super::storage::CloudStorageUsageSummary;
+
 pub const DEFAULT_IDLE_SLEEP_MINUTES: u32 = 15;
 pub const DEFAULT_LEASE_RENEW_LEAD_MS: u64 = 120_000;
 pub const CLOUD_WAKE_SEND_PREFIX: &str = "cloud-wake:";
@@ -87,6 +89,30 @@ pub struct PendingProvisioningRequest {
     pub unconfirmed: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CloudUsageSize {
+    pub id: String,
+    pub cpu: u32,
+    pub ram_gb: f64,
+    pub hourly_rate_cents: u64,
+    pub credits_per_hour: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CloudUsagePack {
+    pub pack_id: String,
+    pub price_cents: u64,
+    pub hours: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CloudPlanAllowances {
+    pub free: f64,
+    pub pro: f64,
+    pub max: f64,
+    pub sponsor: f64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloudUsageSummary {
     pub used: f64,
@@ -100,6 +126,32 @@ pub struct CloudUsageSummary {
     pub currency: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub period_end_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_min_cents: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_max_cents: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<Vec<CloudUsageSize>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packs: Option<Vec<CloudUsagePack>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purchased_expiry_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowance_hours: Option<CloudPlanAllowances>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<CloudStorageUsageSummary>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CloudCheckoutSession {
+    pub url: String,
+    pub session_id: String,
+    pub pack_id: String,
+    pub credits: f64,
+    pub amount_cents: u64,
+    pub currency: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -215,6 +267,10 @@ pub struct CloudReceipt {
     pub billing_notice: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_phases: Option<super::warm_bootstrap::CloudCreatePhases>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warm_bootstrap: Option<super::warm_bootstrap::CloudWarmBootstrapSummary>,
 }
 
 impl CloudMachineRecord {
@@ -228,12 +284,27 @@ impl CloudMachineRecord {
         self.accumulated_awake_secs.saturating_add(live_secs)
     }
 
-    pub fn backend_machine_id(&self) -> &str {
-        if self.ownership.provider_machine_id.is_empty() {
-            &self.machine_id
-        } else {
-            &self.ownership.provider_machine_id
-        }
+    /// Confirmed backend machine id, or `None` for local-only records that have not yet received
+    /// or adopted a backend id. Never falls back to the local `machine_id`.
+    pub fn provider_machine_id(&self) -> Option<&str> {
+        let id = self.ownership.provider_machine_id.trim();
+        (!id.is_empty()).then_some(id)
+    }
+
+    /// Creation request id associated with this record, if any.
+    pub fn create_request_id(&self) -> Option<&str> {
+        self.pending_request
+            .as_ref()
+            .filter(|p| p.op == PendingProvisioningOp::Create)
+            .map(|p| p.request_id.trim())
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                self.ownership
+                    .labels
+                    .get(super::state::LABEL_CREATE_REQUEST_ID)
+                    .map(|id| id.trim())
+                    .filter(|id| !id.is_empty())
+            })
     }
 
     pub fn cost_summary(&self, now_ms: u64) -> CloudCostSummary {
@@ -252,6 +323,16 @@ impl CloudMachineRecord {
     }
 
     pub fn receipt(&self, now_ms: u64, warning: Option<String>) -> CloudReceipt {
+        self.receipt_with_warm(now_ms, warning, None, None)
+    }
+
+    pub fn receipt_with_warm(
+        &self,
+        now_ms: u64,
+        warning: Option<String>,
+        create_phases: Option<super::warm_bootstrap::CloudCreatePhases>,
+        warm_bootstrap: Option<super::warm_bootstrap::CloudWarmBootstrapSummary>,
+    ) -> CloudReceipt {
         CloudReceipt {
             kind: "cloud".into(),
             machine_id: self.machine_id.clone(),
@@ -268,6 +349,8 @@ impl CloudMachineRecord {
             lease_expires_at_ms: self.lease_expires_at_ms,
             billing_notice: COST_WARNING_TEXT.into(),
             warning,
+            create_phases,
+            warm_bootstrap,
         }
     }
 
@@ -304,6 +387,11 @@ pub enum CloudError {
     PromoDisabled,
     PromoExhausted,
     PromoSpendCapExceeded,
+    CheckoutInvalid,
+    CheckoutBelowMin,
+    CheckoutAboveMax,
+    CheckoutTerritory,
+    CheckoutUnavailable(String),
     ImplicitCreateRefused,
     MachineNotFound(String),
     MachineAmbiguous(String),
@@ -324,6 +412,15 @@ pub enum CloudError {
     DeleteConfirmationRequired {
         machine_id: String,
         warning: String,
+    },
+    VolumeUpgradeConfirmationRequired {
+        machine_id: String,
+        new_size_gb: u32,
+        warning: String,
+    },
+    DiskFullLocal {
+        machine_id: String,
+        detail: String,
     },
     ProviderRefused(String),
     ProviderUnconfirmed(String),
@@ -355,6 +452,11 @@ impl CloudError {
             Self::PromoDisabled => "disabled",
             Self::PromoExhausted => "exhausted",
             Self::PromoSpendCapExceeded => "spend_cap_exceeded",
+            Self::CheckoutInvalid => "invalid",
+            Self::CheckoutBelowMin => "below_min",
+            Self::CheckoutAboveMax => "above_max",
+            Self::CheckoutTerritory => "territory",
+            Self::CheckoutUnavailable(_) => "unavailable",
             Self::ImplicitCreateRefused => "implicit_create_refused",
             Self::MachineNotFound(_) => "machine_not_found",
             Self::MachineAmbiguous(_) => "machine_ambiguous",
@@ -362,6 +464,10 @@ impl CloudError {
             Self::MachineBusy { .. } => "machine_busy",
             Self::InvalidTransition { .. } => "invalid_transition",
             Self::DeleteConfirmationRequired { .. } => "delete_confirmation_required",
+            Self::VolumeUpgradeConfirmationRequired { .. } => {
+                "volume_upgrade_confirmation_required"
+            }
+            Self::DiskFullLocal { .. } => "disk_full_local",
             Self::ProviderRefused(_) => "provider_refused",
             Self::ProviderUnconfirmed(_) => "provider_unconfirmed",
             Self::ProviderUnavailable(_) => "provider_unavailable",
@@ -422,6 +528,15 @@ impl std::fmt::Display for CloudError {
             Self::PromoSpendCapExceeded => {
                 write!(f, "Monthly cloud credit spend cap exceeded")
             }
+            Self::CheckoutInvalid => write!(f, "Cloud credit checkout request is not valid"),
+            Self::CheckoutBelowMin => write!(f, "Cloud credit top-up amount is below the minimum"),
+            Self::CheckoutAboveMax => write!(f, "Cloud credit top-up amount exceeds the maximum"),
+            Self::CheckoutTerritory => {
+                write!(f, "Cloud credit purchases are not available in this territory")
+            }
+            Self::CheckoutUnavailable(detail) => {
+                write!(f, "Cloud credit checkout unavailable: {detail}")
+            }
             Self::ImplicitCreateRefused => {
                 write!(
                     f,
@@ -461,6 +576,10 @@ impl std::fmt::Display for CloudError {
                 )
             }
             Self::DeleteConfirmationRequired { warning, .. } => f.write_str(warning),
+            Self::VolumeUpgradeConfirmationRequired { warning, .. } => f.write_str(warning),
+            Self::DiskFullLocal { machine_id, detail } => {
+                write!(f, "cloud machine {machine_id} disk is full: {detail}")
+            }
             Self::ProviderRefused(detail) => write!(f, "cloud provisioning refused: {detail}"),
             Self::ProviderUnconfirmed(detail) => {
                 write!(f, "cloud provisioning outcome unconfirmed: {detail}")

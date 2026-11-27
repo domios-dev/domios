@@ -219,6 +219,15 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
     {
         return RegistryRefusal::from_details(details);
     }
+    if status == 400
+        && body
+            .as_ref()
+            .and_then(|body| body.pointer("/error/status"))
+            .and_then(Value::as_str)
+            == Some("FAILED_PRECONDITION")
+    {
+        return RegistryRefusal::Unavailable;
+    }
     match status {
         400 => RegistryRefusal::Invalid,
         401 => RegistryRefusal::Unauthenticated,
@@ -401,6 +410,18 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         )
         .await
     }
+    async fn record_warm_bootstrap_phases(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::RecordWarmBootstrapPhasesRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RecordWarmBootstrapPhasesReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_WARM_PHASES,
+            session,
+            request,
+        )
+        .await
+    }
     async fn renew_cloud_lease(
         &self,
         session: &Session,
@@ -431,6 +452,30 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
     ) -> RegistryResult<super::cloud_provisioning::RedeemCloudCreditPromoReply> {
         self.call(
             super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn create_cloud_checkout(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::CreateCloudCreditPackCheckoutRequest,
+    ) -> RegistryResult<super::cloud_provisioning::CreateCloudCreditPackCheckoutReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_CHECKOUT,
+            session,
+            request,
+        )
+        .await
+    }
+    async fn resize_cloud_volume(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::ResizeCloudVolumeRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ResizeCloudVolumeReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_VOLUME_RESIZE,
             session,
             request,
         )
@@ -561,6 +606,19 @@ impl HttpCallable {
     }
 }
 
+/// Provider-backed cloud calls wait on machine boot and volume work; outlast the 120 s backend bound.
+pub(super) fn callable_timeout(route: &str) -> Duration {
+    match route {
+        super::cloud_provisioning::ROUTE_CLOUD_CREATE
+        | super::cloud_provisioning::ROUTE_CLOUD_WAKE
+        | super::cloud_provisioning::ROUTE_CLOUD_SLEEP
+        | super::cloud_provisioning::ROUTE_CLOUD_DELETE
+        | super::cloud_provisioning::ROUTE_CLOUD_VOLUME_RESIZE
+        | "enrollDelegatedCloudInstallation" => Duration::from_secs(130),
+        _ => Duration::from_secs(15),
+    }
+}
+
 pub(super) fn callable_url(base: &url::Url, route: &str) -> Result<url::Url, CallableFailure> {
     let invalid = || CallableFailure::Status {
         status: 400,
@@ -590,28 +648,11 @@ impl CallableTransport for HttpCallable {
         id_token: &str,
         data: Value,
     ) -> Result<Value, CallableFailure> {
-        let endpoints = crate::firebase_endpoints::current();
-        let url = if matches!(
-            route,
-            "enrollDelegatedCloudInstallation"
-                | "renewDelegatedCloudInstallation"
-                | super::cloud_provisioning::ROUTE_CLOUD_CREATE
-                | super::cloud_provisioning::ROUTE_CLOUD_WAKE
-                | super::cloud_provisioning::ROUTE_CLOUD_SLEEP
-                | super::cloud_provisioning::ROUTE_CLOUD_DELETE
-                | super::cloud_provisioning::ROUTE_CLOUD_LEASE_RENEW
-                | super::cloud_provisioning::ROUTE_CLOUD_USAGE
-                | super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO
-        ) && !endpoints.emulator
-        {
-            let redeem = url::Url::parse(endpoints.redeem).map_err(|_| CallableFailure::Offline)?;
-            redeem.join(route).map_err(|_| CallableFailure::Offline)?
-        } else {
-            callable_url(&self.base, route)?
-        };
+        let url = callable_url(&self.base, route)?;
         let response = self
             .client
             .post(url)
+            .timeout(callable_timeout(route))
             .bearer_auth(id_token)
             .json(&serde_json::json!({ "data": data }))
             .send()

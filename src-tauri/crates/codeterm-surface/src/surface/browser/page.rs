@@ -238,6 +238,7 @@ impl PageShared {
     pub(super) fn invalidate_action(&self) {
         self.session.lock().action = None;
     }
+    #[cfg(test)]
     pub(super) fn new(owner: &str) -> Arc<Self> {
         Self::new_with_profile(owner, None)
     }

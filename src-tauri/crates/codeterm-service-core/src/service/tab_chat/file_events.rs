@@ -74,12 +74,25 @@ struct NativeStream {
     stopped: bool,
 }
 
+fn is_already_released(error: &notify::Error) -> bool {
+    match &error.kind {
+        notify::ErrorKind::WatchNotFound | notify::ErrorKind::PathNotFound => true,
+        notify::ErrorKind::Io(io) => matches!(
+            io.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+        ),
+        _ => false,
+    }
+}
+
 impl DirectoryStream for NativeStream {
     fn stop(&mut self) -> Result<(), String> {
         if !self.stopped {
-            self.watcher
-                .unwatch(&self.root)
-                .map_err(|error| error.to_string())?;
+            match self.watcher.unwatch(&self.root) {
+                Ok(()) => {}
+                Err(error) if is_already_released(&error) => {}
+                Err(error) => return Err(error.to_string()),
+            }
             // Windows unwatch only enqueues removal; watch acknowledges the preceding removals.
             #[cfg(windows)]
             {
@@ -204,12 +217,8 @@ impl Registry {
         let result = roots
             .into_iter()
             .try_for_each(|root| {
-                self.roots
-                    .get_mut(&root)
-                    .expect("existing root")
-                    ._watcher
-                    .stop()?;
-                self.roots.remove(&root);
+                let mut watch = self.roots.remove(&root).expect("existing root");
+                watch._watcher.stop()?;
                 Ok(())
             })
             .and_then(|()| self.relocate(&path, commands));

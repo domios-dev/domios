@@ -144,7 +144,8 @@ export function projectBrowsedWorkspaces(
       const route = remoteViewerIdentity(tab);
       const viewerId = route ? tab.id : `mesh:${peerId}/${tab.id}`;
       if ((!route && (tab.id.startsWith("mesh:") || tab.remote_peer_id || tab.remote_tab_id)) || !parseCompositeTabId(viewerId)) return [];
-      return [{ viewerId, tab, peerId: route?.peerId, status: snapshot.tab_statuses?.[tab.id] }];
+      const ownedTab = !route && !tab.workspace_id ? { ...tab, workspace_id: workspace.id } : tab;
+      return [{ viewerId, tab: ownedTab, peerId: route?.peerId, status: snapshot.tab_statuses?.[tab.id] }];
     });
     return {
       peerId,

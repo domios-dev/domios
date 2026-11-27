@@ -15,12 +15,49 @@ export interface ProviderCliView {
   prerequisites: { binary: string; hint: string }[];
 }
 
+export interface PrerequisiteGuidance {
+  binary: string;
+  hint: string;
+  installUrl: string | null;
+  installHostPath: string | null;
+  remediationCommand: string | null;
+  remediationLanguage: string;
+}
+
 export function missingInstallerPrerequisites(status: ProviderCliStatus | null) {
   return status?.installer_prerequisites?.filter(item => item.installed === false) ?? [];
 }
 
+export function prerequisiteGuidance(item: { binary: string; hint: string }): PrerequisiteGuidance {
+  let installUrl: string | null = null;
+  let installHostPath: string | null = null;
+  const rawUrl = item.hint.match(/https:\/\/[^\s,;)\]"']+/)?.[0]?.replace(/[.,;:!?)]+$/, "");
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol === "https:") {
+        installUrl = parsed.toString();
+        const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+        installHostPath = `${parsed.host}${trimmedPath}`;
+      }
+    } catch {
+      installUrl = null;
+    }
+  }
+  const remediationCommand =
+    item.hint.match(/Set-ExecutionPolicy\s+-Scope\s+\S+\s+\S+/i)?.[0] ?? null;
+  return {
+    binary: item.binary,
+    hint: item.hint,
+    installUrl,
+    installHostPath,
+    remediationCommand,
+    remediationLanguage: remediationCommand ? "powershell" : "bash",
+  };
+}
+
 export function installerShellLanguage(command: string): string {
-  return /\b(iex|irm|Invoke-RestMethod|Invoke-Expression|powershell|pwsh)\b/i.test(command) ? "powershell" : "bash";
+  return /\b(iex|irm|iwr|Get-Command|Invoke-WebRequest|Invoke-RestMethod|Invoke-Expression|powershell|pwsh)\b/i.test(command) ? "powershell" : "bash";
 }
 
 export function providerCliPresentation(status: ProviderCliStatus | null): { state: ProviderCliState; label: string; canInstall: boolean } {

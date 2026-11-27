@@ -255,6 +255,107 @@ fn provider_cli_install_dirs_resolve_binary_outside_path_without_restart() {
 }
 
 #[test]
+fn desktop_cli_aliases_and_versioned_install_dirs_resolve_outside_path() {
+    use std::sync::Arc;
+
+    let root = std::env::temp_dir().join(format!(
+        "domios_desktop_dir_parity_{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let version_dir = root.join("2.1.87");
+    std::fs::create_dir_all(&version_dir).unwrap();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let primary = format!("domios_primary_{suffix}");
+    let alias = format!("domios_desktop_sidecar_{suffix}");
+    #[cfg(windows)]
+    let alias_path = version_dir.join(format!("{alias}.cmd"));
+    #[cfg(not(windows))]
+    let alias_path = version_dir.join(&alias);
+
+    let platform = crate::provider::current_platform_tag();
+    let wildcard_template = format!("{}/{}", root.to_string_lossy().replace('\\', "/"), "*");
+    let dir_json = serde_json::to_string(&wildcard_template).unwrap();
+    let manifest_json = format!(
+        r#"{{
+            "id": "desktop-alias-fixture",
+            "version": "0.1.0",
+            "hostIoJobs": true,
+            "displayName": "Desktop Alias Fixture",
+            "binaryName": "{primary}",
+            "cliBinary": "{primary}",
+            "cliBinaryAliases": ["{alias}"],
+            "cliInstallDirs": {{ "{platform}": [{dir_json}] }},
+            "capabilities": {{
+                "agentProvider": true,
+                "chatBackend": {{ "spawnable": true, "sessionConfig": true, "agentTasks": false }},
+                "agentRuntime": {{
+                    "runtime": "stdio-jsonrpc",
+                    "command": {{ "binary": "{primary}", "args": [] }},
+                    "requestMethods": {{ "initialize": ["initialize"] }},
+                    "notificationMethods": []
+                }}
+            }},
+            "permissions": {{ "subprocess": {{ "allow": ["{primary}", "{alias}"] }} }}
+        }}"#
+    );
+    let manifest: super::super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+    let vm = super::super::PluginVm::from_source_with(
+        "desktop-alias-fixture",
+        "module.exports.default = {};".to_string(),
+        Some(manifest_json),
+    )
+    .expect("desktop alias fixture vm");
+    let js = JsProvider::new(manifest.clone(), Arc::new(vm));
+
+    assert_eq!(
+        js.observe_launch_binary().availability,
+        ProviderAvailability::Unavailable
+    );
+
+    let script = if cfg!(windows) {
+        "@echo 2.1.87\r\n"
+    } else {
+        "#!/bin/sh\necho 2.1.87\n"
+    };
+    std::fs::write(&alias_path, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = std::fs::metadata(&alias_path).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&alias_path, perm).unwrap();
+    }
+
+    assert_eq!(
+        js.observe_launch_binary().availability,
+        ProviderAvailability::Available
+    );
+    let status = crate::provider_cli::manifest_cli_status(&manifest, platform).unwrap();
+    assert_eq!(status.installed, Some(true));
+    assert_eq!(status.resolved_path.as_deref(), Some(alias_path.as_path()));
+    assert_eq!(
+        js.resolved_cli_path().as_deref(),
+        Some(alias_path.as_path())
+    );
+    assert_eq!(
+        manifest
+            .capabilities
+            .agent_runtime
+            .as_ref()
+            .unwrap()
+            .resolve_profile_executable_with_aliases_in(
+                None,
+                &manifest.cli_binary_aliases,
+                &manifest.cli_install_dirs(platform),
+            )
+            .unwrap(),
+        alias_path
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn bundled_providers_with_installers_declare_install_locations() {
     let plugins_dir = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut checked = 0usize;

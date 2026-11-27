@@ -1,8 +1,6 @@
-import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -14,6 +12,7 @@ import { scheduleXtermInit } from "./xtermInitScheduler";
 import { terminalXtermOptions } from "./terminalXtermOptions";
 import { knownWindowsBuildNumber, readWindowsBuildNumber } from "./windowsBuildNumber";
 import { findAddedWebglCanvas, observeXtermWebglViewport } from "./xtermWebglViewport";
+import { createTerminalLinkProvider, openTerminalLink, resolveSafeTerminalLinkUrl } from "./terminalLinks";
 import { DEV_BUILD } from "../../lib/devBuild";
 
 // Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
@@ -43,6 +42,7 @@ export interface UseXtermReturn {
   termRef: React.MutableRefObject<Terminal | null>;
   fitAddonRef: React.MutableRefObject<FitAddon | null>;
   searchAddonRef: React.MutableRefObject<SearchAddon | null>;
+  hoveredLinkRef: React.MutableRefObject<string | null>;
   bellFlash: boolean;
   termReady: boolean;
 }
@@ -59,6 +59,7 @@ export function useXterm({
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
+  const hoveredLinkRef = useRef<string | null>(null);
   const webglRef = useRef<WebglAddon | null>(null);
   const webglViewportCleanupRef = useRef<(() => void) | null>(null);
   const initialized = useRef(false);
@@ -86,6 +87,17 @@ export function useXterm({
         return;
       }
 
+      const handleActivateLink = (_event: MouseEvent, uri: string) => {
+        void openTerminalLink(uri, { isRemoteTab: viewerLocalGeometryRef.current });
+      };
+      const handleHoverLink = (_event: MouseEvent, uri: string) => {
+        hoveredLinkRef.current = resolveSafeTerminalLinkUrl(uri);
+      };
+      const handleLeaveLink = (_event: MouseEvent, uri: string) => {
+        const safe = resolveSafeTerminalLinkUrl(uri);
+        if (!safe || hoveredLinkRef.current === safe) hoveredLinkRef.current = null;
+      };
+
       const term = new Terminal({
         cursorBlink: terminalConfig?.cursor_blink ?? true,
         cursorStyle: mapCursorStyle(terminalConfig?.cursor_style),
@@ -96,6 +108,13 @@ export function useXterm({
         theme: buildXtermTheme(theme),
         overviewRuler: { width: 4 },
         allowProposedApi: true,
+        macOptionClickForcesSelection: true,
+        linkHandler: {
+          allowNonHttpProtocols: false,
+          activate: handleActivateLink,
+          hover: handleHoverLink,
+          leave: handleLeaveLink,
+        },
         // DOM accessibility mirror for Playwright/e2e (`/?a11y=1`).
         // It disables truecolor, so normal/dev sessions keep WebGL.
         screenReaderMode: E2E_TEST_MODE,
@@ -107,10 +126,10 @@ export function useXterm({
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
-      term.loadAddon(new WebLinksAddon((_event, uri) => {
-        nativeBridge.openUrl(uri).catch(() => {
-          window.open(uri, "_blank");
-        });
+      term.registerLinkProvider(createTerminalLinkProvider(term, {
+        onActivate: handleActivateLink,
+        onHover: handleHoverLink,
+        onLeave: handleLeaveLink,
       }));
 
       const searchAddon = new SearchAddon();
@@ -160,6 +179,7 @@ export function useXterm({
       termRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;
+      hoveredLinkRef.current = null;
       initialized.current = false;
       setTermReady(false);
     };
@@ -222,5 +242,5 @@ export function useXterm({
     });
   }, [theme, fontConfig, terminalConfig, viewerLocalGeometry, winBuildNumber]);
 
-  return { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady };
+  return { termRef, fitAddonRef, searchAddonRef, hoveredLinkRef, bellFlash, termReady };
 }

@@ -8796,9 +8796,19 @@
             },
             {
               "name": "delete",
-              "about": "Permanently delete a cloud machine (warns about unpushed work without --confirm)",
+              "about": "Delete a cloud machine (permanent by default; pass --recoverable to retain verified archive)",
               "aliases": [],
               "args": [
+                {
+                  "name": "archive-id",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ARCHIVE_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Verified archive ID for recoverable deletion",
+                  "aliases": []
+                },
                 {
                   "name": "confirm",
                   "positional": false,
@@ -8806,7 +8816,52 @@
                   "value_name": "CONFIRM",
                   "possible_values": [],
                   "default": null,
-                  "help": "Confirm permanent deletion of the machine and any unpushed work",
+                  "help": "Confirm deletion of the machine",
+                  "aliases": []
+                },
+                {
+                  "name": "machine",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MACHINE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Cloud machine ID, name, or peer ID",
+                  "aliases": []
+                },
+                {
+                  "name": "recoverable",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "RECOVERABLE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Retain the verified encrypted essentials archive for recreate within the purge window",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List cloud machines with state, hourly rate, and uptime",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "recreate",
+              "about": "Recreate a cold or recoverably deleted cloud machine onto a fresh volume from its archive",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "archive-id",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ARCHIVE_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Optional archive ID override",
                   "aliases": []
                 },
                 {
@@ -8820,13 +8875,6 @@
                   "aliases": []
                 }
               ],
-              "subcommands": []
-            },
-            {
-              "name": "list",
-              "about": "List cloud machines with state, hourly rate, and uptime",
-              "aliases": [],
-              "args": [],
               "subcommands": []
             },
             {
@@ -8848,6 +8896,44 @@
               "subcommands": []
             },
             {
+              "name": "resize-volume",
+              "about": "Increase a cloud machine's hot volume capacity (grow-only, requires owner --confirm)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "confirm",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CONFIRM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Confirm volume expansion and increased hot storage billing",
+                  "aliases": []
+                },
+                {
+                  "name": "machine",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MACHINE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Cloud machine ID, name, or peer ID",
+                  "aliases": []
+                },
+                {
+                  "name": "size-gb",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "SIZE_GB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Target volume size in GB (must exceed current allocation, max 500)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "sleep",
               "about": "Drain an idle cloud machine and put it to sleep (refuses while work runs)",
               "aliases": [],
@@ -8860,6 +8946,34 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Cloud machine ID, name, or peer ID",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "topup",
+              "about": "Create a checkout link to top up managed cloud credits",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "amount",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "AMOUNT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Custom top-up amount in USD",
+                  "aliases": []
+                },
+                {
+                  "name": "pack",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PACK",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Credit pack ID from `domios mesh cloud usage`",
                   "aliases": []
                 }
               ],

@@ -17,6 +17,7 @@ pub(crate) mod origin;
 mod peer_asset;
 mod peer_rail;
 mod peer_stream;
+mod peer_stream_backoff;
 pub(crate) use cloud_producer::{
     cloud_outbox_announce, resolve_cloud_ingress_endpoint, send_owner_secure_delivery,
     send_via_cloud_ingress,
@@ -28,10 +29,8 @@ pub use cloud_producer::{
 #[cfg(any(test, feature = "test-support"))]
 pub use cloud_producer::{CloudIngressConnectorOverride, CloudOutboxOverride};
 
-pub(crate) fn register_extensions(
-    #[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables))]
-    builder: &mut codeterm_service_core::service::ExtensionsBuilder,
-) {
+pub(crate) fn register_extensions(builder: &mut codeterm_service_core::service::ExtensionsBuilder) {
+    builder.insert_late::<codeterm_mesh::cloud_ingress::CloudIngressHandle>();
     #[cfg(any(test, feature = "test-support"))]
     {
         builder.insert_late::<CloudIngressConnectorOverride>();

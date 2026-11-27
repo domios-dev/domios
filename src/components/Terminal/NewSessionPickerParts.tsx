@@ -91,14 +91,16 @@ export function ModeCards({
 
 export function TerminalModePanel({
   shellProfile,
+  peerId,
   disabled,
   onShellChange,
 }: {
   shellProfile?: string;
+  peerId?: string;
   disabled?: boolean;
   onShellChange: (shellProfile?: string) => void;
 }) {
-  const { profiles: rawProfiles, loading, error, refresh } = useShellProfiles();
+  const { profiles: rawProfiles, loading, error, refresh } = useShellProfiles(peerId);
   const profiles = Array.isArray(rawProfiles) ? rawProfiles : [];
   const options: DropdownSelectOption[] = [
     { value: "", label: "Default shell" },

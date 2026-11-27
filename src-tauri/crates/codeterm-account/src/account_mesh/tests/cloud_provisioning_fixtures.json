@@ -17,14 +17,18 @@
     "wake": "wakeManagedCloudMachine",
     "sleep": "sleepManagedCloudMachine",
     "delete": "deleteManagedCloudMachine",
+    "record_warm_bootstrap_phases": "recordWarmBootstrapPhases",
     "enroll": "enrollDelegatedCloudInstallation",
-    "renew": "renewDelegatedCloudInstallation"
+    "renew": "renewDelegatedCloudInstallation",
+    "usage": "getManagedCloudUsage",
+    "create_pack_checkout": "createCloudCreditPackCheckout"
   },
   "domains": {
     "create": "domios.cloud-create.v1",
     "wake": "domios.cloud-wake.v1",
     "sleep": "domios.cloud-sleep.v1",
     "delete": "domios.cloud-delete.v1",
+    "record_warm_bootstrap_phases": "domios.cloud-warm-bootstrap-phases.v1",
     "enroll": "domios.cloud-enroll.v1",
     "renew": "domios.cloud-renew.v1"
   },
@@ -99,6 +103,13 @@
         "timestamp": 1795700300
       },
       "controller_signature": "JmlGEjp8B_owUluvvl1oaYYYn1LjB7H_jRQKeAR4uvsmYqtbKjuw2TE_xDOzgQ1RsG4gZXof3B8bthq4-8hlDg"
+    },
+    "create_pack_checkout": {
+      "pack_id": "pack_5"
+    },
+    "create_pack_checkout_custom": {
+      "pack_id": "custom",
+      "amount_cents": 700
     }
   },
   "replies": {
@@ -226,6 +237,76 @@
         "alg": "Ed25519",
         "signature": "RBpANczNKNZuz-Fia2JAbssG7YeZwukglWko4k5p3yIXrgdLE77yQkXpMA3tmD9O9IFdExxFrEJ1WgZXwsngDA"
       }
+    },
+    "create_pack_checkout": {
+      "url": "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5",
+      "session_id": "cs_test_fixture_pack_5",
+      "pack_id": "pack_5",
+      "credits": 25,
+      "amount_cents": 500,
+      "currency": "USD"
+    },
+    "usage": {
+      "used": 1.5,
+      "allowance": 10,
+      "purchased": 25,
+      "remaining": 33.5,
+      "cap": 50,
+      "burn_per_size": {
+        "small": 1
+      },
+      "currency": "USD",
+      "period_end_at": 1798761600,
+      "custom_min_cents": 500,
+      "custom_max_cents": 4500,
+      "plan": "pro",
+      "sizes": [
+        {
+          "id": "small",
+          "cpu": 2,
+          "ram_gb": 4,
+          "hourly_rate_cents": 20,
+          "credits_per_hour": 1
+        }
+      ],
+      "packs": [
+        {
+          "pack_id": "pack_5",
+          "price_cents": 500,
+          "hours": 25
+        },
+        {
+          "pack_id": "pack_10",
+          "price_cents": 1000,
+          "hours": 50
+        },
+        {
+          "pack_id": "pack_25",
+          "price_cents": 2500,
+          "hours": 125
+        }
+      ],
+      "purchased_expiry_days": 365,
+      "allowance_hours": {
+        "free": 0,
+        "pro": 10,
+        "max": 40,
+        "sponsor": 120
+      }
+    },
+    "record_warm_bootstrap_phases": {
+      "machine_id": "cm_fixture0000000000000001",
+      "last_create_phases": {
+        "requested": 1795700000,
+        "allocated": 1795700005,
+        "ipv4_bound": 1795700008,
+        "running": 1795700020,
+        "enrolled": 1795700028,
+        "peer_ready": 1795700032,
+        "seed_started": 1795700033,
+        "warm_console_ready": 1795700039
+      },
+      "warm_bootstrap_delta_secs": 6
     }
   },
   "refusals": {

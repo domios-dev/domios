@@ -11,12 +11,14 @@ use crate::account_mesh::{
         enrollment_message, fixed_bytes, nonce_commitment, EnrollmentReply, EnrollmentRequest,
     },
     cloud_provisioning::{
-        provisioning_message, CloudEndpoint, CloudProvisioningRefusal, CreateCloudMachineRequest,
-        DeleteMachineReply, ManagedCloudMachineActionRequest, ProvisionedMachineReply,
-        SleepMachineReply, WireCloudEndpoint, WireCloudSleepMode, CLOUD_INGRESS_PORT,
+        provisioning_message, CloudCheckoutRefusal, CloudEndpoint, CloudProvisioningRefusal,
+        CloudUsageReply, CreateCloudCreditPackCheckoutReply, CreateCloudCreditPackCheckoutRequest,
+        CreateCloudMachineRequest, DeleteMachineReply, ManagedCloudMachineActionRequest,
+        ProvisionedMachineReply, SleepMachineReply, WireCloudEndpoint, WireCloudPlanAllowances,
+        WireCloudSleepMode, WireCloudUsagePack, WireCloudUsageSize, CLOUD_INGRESS_PORT,
         DOMAIN_CLOUD_CREATE, DOMAIN_CLOUD_DELETE, DOMAIN_CLOUD_SLEEP, DOMAIN_CLOUD_WAKE,
-        PROVIDER_PROXY_PORT, ROUTE_CLOUD_CREATE, ROUTE_CLOUD_DELETE, ROUTE_CLOUD_SLEEP,
-        ROUTE_CLOUD_WAKE,
+        PROVIDER_PROXY_PORT, ROUTE_CLOUD_CHECKOUT, ROUTE_CLOUD_CREATE, ROUTE_CLOUD_DELETE,
+        ROUTE_CLOUD_SLEEP, ROUTE_CLOUD_USAGE, ROUTE_CLOUD_WAKE,
     },
     delegated_renewal::{RenewalReply, RenewalRequest},
     wire::RegistryRefusal,
@@ -51,6 +53,8 @@ struct FixtureRequests {
     delete: ManagedCloudMachineActionRequest,
     enroll: EnrollmentRequest,
     renew: RenewalRequest,
+    create_pack_checkout: CreateCloudCreditPackCheckoutRequest,
+    create_pack_checkout_custom: CreateCloudCreditPackCheckoutRequest,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +67,8 @@ struct FixtureReplies {
     delete: DeleteMachineReply,
     enroll: EnrollmentReply,
     renew: RenewalReply,
+    create_pack_checkout: CreateCloudCreditPackCheckoutReply,
+    usage: CloudUsageReply,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +95,11 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
     assert_eq!(fixtures.routes["wake"], ROUTE_CLOUD_WAKE);
     assert_eq!(fixtures.routes["sleep"], ROUTE_CLOUD_SLEEP);
     assert_eq!(fixtures.routes["delete"], ROUTE_CLOUD_DELETE);
+    assert_eq!(fixtures.routes["usage"], ROUTE_CLOUD_USAGE);
+    assert_eq!(
+        fixtures.routes["create_pack_checkout"],
+        ROUTE_CLOUD_CHECKOUT
+    );
 
     assert_eq!(fixtures.domains["create"], DOMAIN_CLOUD_CREATE);
     assert_eq!(fixtures.domains["wake"], DOMAIN_CLOUD_WAKE);
@@ -579,6 +590,306 @@ fn decodes_and_validates_redeem_cloud_credit_promo_wire_types_and_refusals() {
 }
 
 #[test]
+fn decodes_and_validates_cloud_commerce_checkout_and_usage_fixtures_and_refusals() {
+    use crate::account_mesh::state::AccountMeshRefusal;
+
+    let fixtures: FixtureFile =
+        serde_json::from_str(FIXTURES_JSON).expect("decode shared/cloud-provisioning fixtures");
+
+    assert_eq!(ROUTE_CLOUD_CHECKOUT, "createCloudCreditPackCheckout");
+    assert_eq!(ROUTE_CLOUD_USAGE, "getManagedCloudUsage");
+
+    assert_eq!(
+        fixtures.requests.create_pack_checkout,
+        CreateCloudCreditPackCheckoutRequest {
+            pack_id: "pack_5".into(),
+            amount_cents: None,
+        }
+    );
+    assert_eq!(
+        serde_json::to_value(&fixtures.requests.create_pack_checkout).unwrap(),
+        json!({ "pack_id": "pack_5" })
+    );
+
+    assert_eq!(
+        fixtures.requests.create_pack_checkout_custom,
+        CreateCloudCreditPackCheckoutRequest {
+            pack_id: "custom".into(),
+            amount_cents: Some(700),
+        }
+    );
+    assert_eq!(
+        serde_json::to_value(&fixtures.requests.create_pack_checkout_custom).unwrap(),
+        json!({ "pack_id": "custom", "amount_cents": 700 })
+    );
+
+    assert!(
+        serde_json::from_value::<CreateCloudCreditPackCheckoutRequest>(json!({
+            "pack_id": "pack_5",
+            "extra": true
+        }))
+        .is_err()
+    );
+
+    let checkout_reply = &fixtures.replies.create_pack_checkout;
+    assert!(checkout_reply.is_valid());
+    assert_eq!(
+        checkout_reply.url,
+        "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5"
+    );
+    assert_eq!(checkout_reply.session_id, "cs_test_fixture_pack_5");
+    assert_eq!(checkout_reply.pack_id, "pack_5");
+    assert_eq!(checkout_reply.credits, 25.0);
+    assert_eq!(checkout_reply.amount_cents, 500);
+    assert_eq!(checkout_reply.currency, "USD");
+
+    assert!(
+        serde_json::from_value::<CreateCloudCreditPackCheckoutReply>(json!({
+            "url": "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5",
+            "session_id": "cs_test_fixture_pack_5",
+            "pack_id": "pack_5",
+            "credits": 25,
+            "amount_cents": 500,
+            "currency": "USD",
+            "unexpected": true
+        }))
+        .is_err()
+    );
+
+    let mut bad_url = checkout_reply.clone();
+    bad_url.url = "http://checkout.stripe.com/c/pay/cs_test".into();
+    assert!(!bad_url.is_valid());
+    let mut bad_amount = checkout_reply.clone();
+    bad_amount.amount_cents = 0;
+    assert!(!bad_amount.is_valid());
+    let mut bad_credits = checkout_reply.clone();
+    bad_credits.credits = -1.0;
+    assert!(!bad_credits.is_valid());
+
+    let usage = &fixtures.replies.usage;
+    assert_eq!(usage.used, 1.5);
+    assert_eq!(usage.allowance, 10.0);
+    assert_eq!(usage.purchased, 25.0);
+    assert_eq!(usage.remaining, 33.5);
+    assert_eq!(usage.cap, 50.0);
+    assert_eq!(usage.burn_per_size.get("small"), Some(&1.0));
+    assert_eq!(usage.currency.as_deref(), Some("USD"));
+    assert_eq!(usage.period_end_at, Some(1_798_761_600));
+    assert_eq!(usage.custom_min_cents, Some(500));
+    assert_eq!(usage.custom_max_cents, Some(4500));
+    assert_eq!(usage.plan.as_deref(), Some("pro"));
+    assert_eq!(
+        usage.sizes.as_deref(),
+        Some(
+            &[WireCloudUsageSize {
+                id: "small".into(),
+                cpu: 2,
+                ram_gb: 4.0,
+                hourly_rate_cents: 20,
+                credits_per_hour: 1.0,
+            }][..]
+        )
+    );
+    assert_eq!(
+        usage.packs.as_deref(),
+        Some(
+            &[
+                WireCloudUsagePack {
+                    pack_id: "pack_5".into(),
+                    price_cents: 500,
+                    hours: 25.0,
+                },
+                WireCloudUsagePack {
+                    pack_id: "pack_10".into(),
+                    price_cents: 1000,
+                    hours: 50.0,
+                },
+                WireCloudUsagePack {
+                    pack_id: "pack_25".into(),
+                    price_cents: 2500,
+                    hours: 125.0,
+                },
+            ][..]
+        )
+    );
+    assert_eq!(usage.purchased_expiry_days, Some(365));
+    assert_eq!(
+        usage.allowance_hours,
+        Some(WireCloudPlanAllowances {
+            free: 0.0,
+            pro: 10.0,
+            max: 40.0,
+            sponsor: 120.0,
+        })
+    );
+
+    // Optional catalog fields may be omitted on older backend replies.
+    let minimal_usage: CloudUsageReply = serde_json::from_value(json!({
+        "used": 0.0,
+        "allowance": 10.0,
+        "purchased": 0.0,
+        "remaining": 10.0,
+        "cap": 50.0,
+        "burn_per_size": {}
+    }))
+    .unwrap();
+    assert_eq!(minimal_usage.custom_min_cents, None);
+    assert_eq!(minimal_usage.plan, None);
+    assert_eq!(minimal_usage.sizes, None);
+    assert_eq!(minimal_usage.packs, None);
+    assert_eq!(minimal_usage.purchased_expiry_days, None);
+    assert_eq!(minimal_usage.allowance_hours, None);
+
+    // Unknown fields on usage or nested catalog structs fail deserialization.
+    assert!(serde_json::from_value::<CloudUsageReply>(json!({
+        "used": 0.0,
+        "allowance": 10.0,
+        "purchased": 0.0,
+        "remaining": 10.0,
+        "cap": 50.0,
+        "burn_per_size": {},
+        "extra": true
+    }))
+    .is_err());
+    assert!(serde_json::from_value::<WireCloudUsageSize>(json!({
+        "id": "small",
+        "cpu": 2,
+        "ram_gb": 4,
+        "hourly_rate_cents": 20,
+        "credits_per_hour": 1,
+        "extra": 1
+    }))
+    .is_err());
+
+    // Spend cap exceeded with Tally's 4 extra cent fields decodes strictly and maps cleanly.
+    let cap_details = json!({
+        "reason": "spend_cap_exceeded",
+        "cap_cents": 5000,
+        "spent_cents": 4500,
+        "pending_cents": 0,
+        "pack_cents": 1000
+    });
+    assert_eq!(
+        serde_json::from_value::<CloudCheckoutRefusal>(cap_details.clone()).unwrap(),
+        CloudCheckoutRefusal::SpendCapExceeded {
+            cap_cents: Some(5000),
+            spent_cents: Some(4500),
+            pending_cents: Some(0),
+            pack_cents: Some(1000),
+        }
+    );
+    let cap_mapped = refusal(&CallableFailure::Status {
+        status: 400,
+        retry_after_seconds: None,
+        body: Some(json!({
+            "error": { "status": "FAILED_PRECONDITION", "details": cap_details }
+        })),
+    });
+    assert_eq!(cap_mapped, RegistryRefusal::PromoSpendCapExceeded);
+    assert_eq!(
+        AccountMeshRefusal::from(cap_mapped),
+        AccountMeshRefusal::PromoSpendCapExceeded
+    );
+
+    // Unknown fields on spend_cap_exceeded details are rejected as unavailable.
+    assert_eq!(
+        RegistryRefusal::from_details(&json!({
+            "reason": "spend_cap_exceeded",
+            "unexpected_cents": 1
+        })),
+        RegistryRefusal::Unavailable
+    );
+
+    // All typed checkout refusal reasons decode strictly and map through callable::refusal.
+    for (status, grpc_status, reason, expected_wire, expected_registry, expected_mesh) in [
+        (
+            400,
+            "INVALID_ARGUMENT",
+            "invalid",
+            CloudCheckoutRefusal::Invalid,
+            RegistryRefusal::Invalid,
+            AccountMeshRefusal::Invalid,
+        ),
+        (
+            400,
+            "FAILED_PRECONDITION",
+            "below_min",
+            CloudCheckoutRefusal::BelowMin,
+            RegistryRefusal::CheckoutBelowMin,
+            AccountMeshRefusal::CheckoutBelowMin,
+        ),
+        (
+            400,
+            "FAILED_PRECONDITION",
+            "above_max",
+            CloudCheckoutRefusal::AboveMax,
+            RegistryRefusal::CheckoutAboveMax,
+            AccountMeshRefusal::CheckoutAboveMax,
+        ),
+        (
+            403,
+            "PERMISSION_DENIED",
+            "territory",
+            CloudCheckoutRefusal::Territory,
+            RegistryRefusal::CheckoutTerritory,
+            AccountMeshRefusal::CheckoutTerritory,
+        ),
+        (
+            503,
+            "UNAVAILABLE",
+            "unavailable",
+            CloudCheckoutRefusal::Unavailable,
+            RegistryRefusal::Unavailable,
+            AccountMeshRefusal::Unavailable,
+        ),
+    ] {
+        let details = json!({ "reason": reason });
+        assert_eq!(
+            serde_json::from_value::<CloudCheckoutRefusal>(details.clone()).unwrap(),
+            expected_wire
+        );
+        let mapped = refusal(&CallableFailure::Status {
+            status,
+            retry_after_seconds: None,
+            body: Some(json!({ "error": { "status": grpc_status, "details": details } })),
+        });
+        assert_eq!(mapped, expected_registry, "{reason}");
+        assert_eq!(AccountMeshRefusal::from(mapped), expected_mesh, "{reason}");
+    }
+
+    // Unconfigured Stripe checkout returns HTTP 400 FAILED_PRECONDITION with no details.
+    assert_eq!(
+        refusal(&CallableFailure::Status {
+            status: 400,
+            retry_after_seconds: None,
+            body: Some(json!({
+                "error": {
+                    "status": "FAILED_PRECONDITION",
+                    "message": "Stripe credit pack checkout unavailable"
+                }
+            })),
+        }),
+        RegistryRefusal::Unavailable
+    );
+    assert_eq!(
+        refusal(&CallableFailure::Status {
+            status: 401,
+            retry_after_seconds: None,
+            body: Some(json!({ "error": { "status": "UNAUTHENTICATED" } })),
+        }),
+        RegistryRefusal::Unauthenticated
+    );
+    assert_eq!(
+        refusal(&CallableFailure::Status {
+            status: 403,
+            retry_after_seconds: None,
+            body: Some(json!({ "error": { "status": "PERMISSION_DENIED" } })),
+        }),
+        RegistryRefusal::Unavailable
+    );
+}
+
+#[test]
 fn endpoint_union_refuses_unknown_kind_ip_host_wrong_ports_and_non_wss_scheme() {
     let base_reply = |endpoint: Value| {
         json!({
@@ -673,4 +984,60 @@ fn endpoint_union_refuses_unknown_kind_ip_host_wrong_ports_and_non_wss_scheme() 
             "expected endpoint refusal for {bad_endpoint}"
         );
     }
+}
+
+#[test]
+fn decodes_and_validates_record_warm_bootstrap_phases_wire_contract() {
+    use crate::account_mesh::cloud_provisioning::{
+        RecordWarmBootstrapPhasesBody, RecordWarmBootstrapPhasesReply, WireWarmBootstrapPhase,
+        DOMAIN_CLOUD_WARM_PHASES, ROUTE_CLOUD_WARM_PHASES,
+    };
+
+    let raw: Value = serde_json::from_str(FIXTURES_JSON).unwrap();
+    assert_eq!(
+        raw["routes"]["record_warm_bootstrap_phases"].as_str(),
+        Some(ROUTE_CLOUD_WARM_PHASES)
+    );
+    assert_eq!(
+        raw["domains"]["record_warm_bootstrap_phases"].as_str(),
+        Some(DOMAIN_CLOUD_WARM_PHASES)
+    );
+
+    let reply: RecordWarmBootstrapPhasesReply =
+        serde_json::from_value(raw["replies"]["record_warm_bootstrap_phases"].clone()).unwrap();
+    assert_eq!(reply.machine_id, "cm_fixture0000000000000001");
+    assert_eq!(reply.last_create_phases.peer_ready, Some(1_795_700_032));
+    assert_eq!(reply.last_create_phases.seed_started, Some(1_795_700_033));
+    assert_eq!(
+        reply.last_create_phases.warm_console_ready,
+        Some(1_795_700_039)
+    );
+    assert_eq!(reply.warm_bootstrap_delta_secs, Some(6.0));
+
+    // Request body rejects client-supplied phase timestamps (unknown fields).
+    assert!(
+        serde_json::from_value::<RecordWarmBootstrapPhasesBody>(json!({
+            "schema_version": 1,
+            "controller_installation_id": "desk-ctrl-1",
+            "machine_id": "cm_fixture0000000000000001",
+            "phase": "seed_started",
+            "request_id": "oaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaE",
+            "timestamp": 1_795_700_033u64,
+            "seed_started": 1_795_700_033u64
+        }))
+        .is_err()
+    );
+
+    let body = RecordWarmBootstrapPhasesBody {
+        schema_version: 1,
+        controller_installation_id: "desk-ctrl-1".into(),
+        machine_id: "cm_fixture0000000000000001".into(),
+        phase: WireWarmBootstrapPhase::WarmConsoleReady,
+        request_id: "oaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaE".into(),
+        timestamp: 1_795_700_039,
+    };
+    assert_eq!(
+        serde_json::to_value(&body).unwrap()["phase"],
+        json!("warm_console_ready")
+    );
 }

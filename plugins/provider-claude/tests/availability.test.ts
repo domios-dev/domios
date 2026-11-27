@@ -10,6 +10,9 @@
  * rows below report `unavailable`, which is exactly the shipped bug.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { decideAvailability, type Availability, type CliProbe } from "../src/models";
 
 let passed = 0;
@@ -49,6 +52,27 @@ eq(
   false,
   "could-not-run and ran-and-answered-no are not the same outcome",
 );
+
+console.log("\n--- manifest desktop CLI install directories ---\n");
+{
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"),
+  ) as { cliInstallDirs?: Record<string, string[]> };
+  const windowsDirs = manifest.cliInstallDirs?.windows ?? [];
+  const macosDirs = manifest.cliInstallDirs?.macos ?? [];
+  eq(windowsDirs.includes("%APPDATA%/Claude/claude-code/*"), true, "Windows cliInstallDirs checks %APPDATA%/Claude/claude-code/*");
+  eq(windowsDirs.includes("~/AppData/Roaming/Claude/claude-code/*"), true, "Windows cliInstallDirs checks ~/AppData/Roaming/Claude/claude-code/*");
+  eq(
+    macosDirs.includes("~/Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS"),
+    true,
+    "macOS cliInstallDirs checks Claude Desktop bundled claude.app",
+  );
+  eq(
+    macosDirs.includes("~/Library/Application Support/Claude/claude-code/*"),
+    true,
+    "macOS cliInstallDirs checks Claude Desktop versioned claude-code dir",
+  );
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

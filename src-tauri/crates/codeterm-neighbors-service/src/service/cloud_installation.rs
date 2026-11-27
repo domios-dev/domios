@@ -28,6 +28,11 @@ use zeroize::Zeroizing;
 
 const RECORD: &str = "domios-cloud-enrollment-v1";
 
+/// Failure bound while the guest enrollment handler waits for `AccountMesh` lifecycle binding.
+/// Evidence-driven via `watch::Receiver::wait_for`; no sleeps or polling.
+pub const ENROLLMENT_LIFECYCLE_WAIT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(180);
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 enum Stored {
@@ -367,7 +372,7 @@ impl EnrollmentHandler for CloudInstallation {
             }
             let mut lifecycle = self.0.lifecycle.subscribe();
             tokio::time::timeout(
-                std::time::Duration::from_secs(30),
+                ENROLLMENT_LIFECYCLE_WAIT_TIMEOUT,
                 lifecycle.wait_for(Option::is_some),
             )
             .await

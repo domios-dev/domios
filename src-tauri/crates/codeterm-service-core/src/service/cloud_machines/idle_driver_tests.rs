@@ -172,6 +172,7 @@ struct DriverProvisioning {
     sleep_calls: AtomicUsize,
     delete_calls: AtomicUsize,
     renew_outcomes: Mutex<VecDeque<Result<(), CloudError>>>,
+    usage: Mutex<CloudUsageSummary>,
 }
 
 impl DriverProvisioning {
@@ -183,6 +184,7 @@ impl DriverProvisioning {
             sleep_calls: AtomicUsize::new(0),
             delete_calls: AtomicUsize::new(0),
             renew_outcomes: Mutex::new(VecDeque::new()),
+            usage: Mutex::new(CloudUsageSummary::default()),
         })
     }
 }
@@ -236,15 +238,17 @@ impl CloudProvisioningPort for DriverProvisioning {
     }
 
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
-        Ok(CloudUsageSummary::default())
+        Ok(self.usage.lock().clone())
     }
 }
 
 struct DriverPeerControl {
     busy: Mutex<PeerBusySnapshot>,
     read_idle_error: Mutex<Option<String>>,
+    enter_drain_error: Mutex<Option<CloudError>>,
     read_idle_calls: AtomicUsize,
     drain_calls: AtomicUsize,
+    reopen_calls: AtomicUsize,
 }
 
 impl DriverPeerControl {
@@ -252,8 +256,10 @@ impl DriverPeerControl {
         Arc::new(Self {
             busy: Mutex::new(busy),
             read_idle_error: Mutex::new(None),
+            enter_drain_error: Mutex::new(None),
             read_idle_calls: AtomicUsize::new(0),
             drain_calls: AtomicUsize::new(0),
+            reopen_calls: AtomicUsize::new(0),
         })
     }
 }
@@ -273,6 +279,13 @@ impl CloudPeerControlPort for DriverPeerControl {
 
     async fn enter_drain(&self, _record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
         self.drain_calls.fetch_add(1, Ordering::SeqCst);
+        // A real drain awaits the peer; yield so the supervisor observes Draining mid-sleep.
+        for _ in 0..3 {
+            tokio::task::yield_now().await;
+        }
+        if let Some(err) = self.enter_drain_error.lock().clone() {
+            return Err(err);
+        }
         Ok(DrainToken {
             token: "drain-tok".into(),
             entered_at_ms: 0,
@@ -280,6 +293,7 @@ impl CloudPeerControlPort for DriverPeerControl {
     }
 
     async fn reopen_drain(&self, _record: &CloudMachineRecord) -> Result<(), CloudError> {
+        self.reopen_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -800,4 +814,321 @@ async fn max_awake_without_owner_ceiling_sleeps_busy_machine_and_owner_interacti
         ctrl.find_by_peer("cloud-ceiling").unwrap().state,
         CloudLifecycleState::Asleep
     );
+}
+
+fn draining_persisted_record(
+    id: &str,
+    now_ms: u64,
+    lease_expires_at_ms: u64,
+) -> CloudMachineRecord {
+    let mut rec = awake_record(id, now_ms, lease_expires_at_ms);
+    rec.state = CloudLifecycleState::Draining;
+    rec.pending_request = Some(PendingProvisioningRequest {
+        op: PendingProvisioningOp::Sleep,
+        request_id: "prior-sleep-req".into(),
+        started_at_ms: now_ms + 5_000,
+        unconfirmed: true,
+    });
+    rec
+}
+
+#[tokio::test]
+async fn restart_with_draining_reconciles_backend_asleep_and_out_of_credits() {
+    // Case 1: Backend already moved the machine to asleep (lapsed lease -> Conflict).
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join("cloud_machines.json");
+        CloudMachineStore::new(store_path.clone())
+            .save(&[draining_persisted_record(
+                "cloud-drain-asleep",
+                10_000,
+                200_000,
+            )])
+            .unwrap();
+
+        let clock = InjectedClock::new(900_000);
+        let ctrl = Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(store_path),
+            "home-1".into(),
+            clock.clone(),
+        ));
+        let prov = DriverProvisioning::new(clock.clone(), 600_000);
+        prov.renew_outcomes
+            .lock()
+            .push_back(Err(CloudError::Conflict("Machine is not awake".into())));
+        let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+        let waiter = SteppingWaiter::new(clock);
+
+        let handle = spawn_cloud_idle_driver(
+            ctrl.clone(),
+            prov.clone(),
+            peer.clone(),
+            waiter,
+            CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+        );
+        wait_for_active_ids(&handle, &[]).await;
+
+        let saved = ctrl.find_by_peer("cloud-drain-asleep").unwrap();
+        assert_eq!(saved.state, CloudLifecycleState::Asleep);
+        assert_eq!(saved.lease_id, None);
+        assert_eq!(saved.lease_expires_at_ms, None);
+        assert_eq!(saved.pending_request, None);
+        assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(peer.reopen_calls.load(Ordering::SeqCst), 1);
+    }
+
+    // Case 2: Backend reports credits exhausted -> stops provider if needed, reopens drain, settles OutOfCredits.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join("cloud_machines.json");
+        CloudMachineStore::new(store_path.clone())
+            .save(&[draining_persisted_record(
+                "cloud-drain-ooc",
+                10_000,
+                200_000,
+            )])
+            .unwrap();
+
+        let clock = InjectedClock::new(900_000);
+        let ctrl = Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(store_path),
+            "home-1".into(),
+            clock.clone(),
+        ));
+        let prov = DriverProvisioning::new(clock.clone(), 600_000);
+        prov.renew_outcomes
+            .lock()
+            .push_back(Err(CloudError::CreditsExhausted));
+        let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+        let waiter = SteppingWaiter::new(clock);
+
+        let handle = spawn_cloud_idle_driver(
+            ctrl.clone(),
+            prov.clone(),
+            peer.clone(),
+            waiter,
+            CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+        );
+        wait_for_active_ids(&handle, &[]).await;
+
+        let saved = ctrl.find_by_peer("cloud-drain-ooc").unwrap();
+        assert_eq!(saved.state, CloudLifecycleState::OutOfCredits);
+        assert_eq!(saved.lease_id, None);
+        assert_eq!(saved.lease_expires_at_ms, None);
+        assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(peer.reopen_calls.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+async fn restart_with_draining_reconciles_backend_awake_resumes_sleep_or_reopens_when_busy() {
+    // Case 1: Backend says machine is still awake and guest is idle -> resumes lease-safe drain & provider sleep.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join("cloud_machines.json");
+        CloudMachineStore::new(store_path.clone())
+            .save(&[draining_persisted_record(
+                "cloud-drain-awake-idle",
+                10_000,
+                610_000,
+            )])
+            .unwrap();
+
+        let clock = InjectedClock::new(200_000);
+        let ctrl = Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(store_path),
+            "home-1".into(),
+            clock.clone(),
+        ));
+        let prov = DriverProvisioning::new(clock.clone(), 600_000);
+        let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+        let waiter = SteppingWaiter::new(clock);
+
+        let handle = spawn_cloud_idle_driver(
+            ctrl.clone(),
+            prov.clone(),
+            peer.clone(),
+            waiter,
+            CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+        );
+        wait_for_active_ids(&handle, &[]).await;
+
+        let saved = ctrl.find_by_peer("cloud-drain-awake-idle").unwrap();
+        assert_eq!(saved.state, CloudLifecycleState::Asleep);
+        assert_eq!(saved.lease_id, None);
+        assert_eq!(saved.pending_request, None);
+        assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(peer.drain_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 1);
+    }
+
+    // Case 2: Backend says machine is still awake, guest is busy -> reopens drain, returns to Awake, keeps live idle loop.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join("cloud_machines.json");
+        CloudMachineStore::new(store_path.clone())
+            .save(&[draining_persisted_record(
+                "cloud-drain-awake-busy",
+                10_000,
+                610_000,
+            )])
+            .unwrap();
+
+        let clock = InjectedClock::new(200_000);
+        let ctrl = Arc::new(CloudMachineController::new(
+            CloudMachineStore::new(store_path),
+            "home-1".into(),
+            clock.clone(),
+        ));
+        let prov = DriverProvisioning::new(clock.clone(), 600_000);
+        let peer = DriverPeerControl::new(PeerBusySnapshot {
+            active_agent_turns: 1,
+            ..Default::default()
+        });
+        *peer.enter_drain_error.lock() = Some(CloudError::MachineBusy {
+            machine_id: "cloud-drain-awake-busy".into(),
+            reason: "active_agent_turns=1".into(),
+        });
+        let waiter = SteppingWaiter::new(clock);
+
+        let handle = spawn_cloud_idle_driver(
+            ctrl.clone(),
+            prov.clone(),
+            peer.clone(),
+            waiter.clone(),
+            CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+        );
+        waiter.wait_until_parked(1).await;
+
+        let saved = ctrl.find_by_peer("cloud-drain-awake-busy").unwrap();
+        assert_eq!(saved.state, CloudLifecycleState::Awake);
+        assert_eq!(saved.lease_id.as_deref(), Some("lease-0-r1"));
+        assert_eq!(saved.pending_request, None);
+        assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(peer.drain_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(peer.reopen_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(handle.active_machine_ids(), vec!["cloud-drain-awake-busy"]);
+    }
+}
+
+#[tokio::test]
+async fn draining_recovery_retries_after_transient_backend_error_without_losing_ownership() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    CloudMachineStore::new(store_path.clone())
+        .save(&[draining_persisted_record(
+            "cloud-drain-retry",
+            10_000,
+            200_000,
+        )])
+        .unwrap();
+
+    let clock = InjectedClock::new(300_000);
+    let ctrl = Arc::new(CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "home-1".into(),
+        clock.clone(),
+    ));
+    let prov = DriverProvisioning::new(clock.clone(), 600_000);
+    prov.renew_outcomes
+        .lock()
+        .push_back(Err(CloudError::ProviderUnavailable(
+            "temporary outage".into(),
+        )));
+    prov.renew_outcomes
+        .lock()
+        .push_back(Err(CloudError::Conflict("Machine is not awake".into())));
+    let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+    let waiter = SteppingWaiter::new(clock);
+
+    let handle = spawn_cloud_idle_driver(
+        ctrl.clone(),
+        prov.clone(),
+        peer.clone(),
+        waiter.clone(),
+        CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+    );
+    // First attempt hits transient outage -> machine stays owned in Draining and parks for one cadence.
+    waiter.wait_until_parked(1).await;
+    assert_eq!(
+        ctrl.find_by_peer("cloud-drain-retry").unwrap().state,
+        CloudLifecycleState::Draining
+    );
+    assert_eq!(handle.active_machine_ids(), vec!["cloud-drain-retry"]);
+
+    // Next stepped tick retries and reconciles to Asleep.
+    waiter
+        .advance_step_until(|| {
+            ctrl.find_by_peer("cloud-drain-retry")
+                .is_some_and(|r| r.state == CloudLifecycleState::Asleep)
+        })
+        .await;
+    wait_for_active_ids(&handle, &[]).await;
+    assert_eq!(
+        ctrl.find_by_peer("cloud-drain-retry").unwrap().state,
+        CloudLifecycleState::Asleep
+    );
+    assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(peer.reopen_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn supervisor_recovers_unowned_draining_record_appearing_without_live_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("cloud_machines.json");
+    let mut rec = awake_record("cloud-lost-loop", 10_000, 610_000);
+    rec.state = CloudLifecycleState::Asleep;
+    rec.lease_id = None;
+    CloudMachineStore::new(store_path.clone())
+        .save(&[rec])
+        .unwrap();
+
+    let clock = InjectedClock::new(200_000);
+    let ctrl = Arc::new(CloudMachineController::new(
+        CloudMachineStore::new(store_path),
+        "home-1".into(),
+        clock.clone(),
+    ));
+    let prov = DriverProvisioning::new(clock.clone(), 600_000);
+    prov.renew_outcomes
+        .lock()
+        .push_back(Err(CloudError::Conflict("Machine is not awake".into())));
+    let peer = DriverPeerControl::new(PeerBusySnapshot::default());
+    let waiter = SteppingWaiter::new(clock);
+
+    let handle = spawn_cloud_idle_driver(
+        ctrl.clone(),
+        prov.clone(),
+        peer.clone(),
+        waiter,
+        CloudIdleDriverConfig::with_idle_window_reader(Arc::new(|| 15 * 60_000)),
+    );
+    wait_for_active_ids(&handle, &[]).await;
+
+    // Simulate a record left in Draining with no live loop while the supervisor is running.
+    ctrl.update_record("cloud-lost-loop", |r| {
+        let mut next = r.clone();
+        next.state = CloudLifecycleState::Draining;
+        next.lease_id = Some("lease-orphan".into());
+        Ok(next)
+    })
+    .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if ctrl
+                .find_by_peer("cloud-lost-loop")
+                .is_some_and(|r| r.state == CloudLifecycleState::Asleep && r.lease_id.is_none())
+            {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("supervisor must recover unowned Draining record appearing without a live loop");
+    wait_for_active_ids(&handle, &[]).await;
+    assert_eq!(prov.renew_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(peer.reopen_calls.load(Ordering::SeqCst), 1);
 }

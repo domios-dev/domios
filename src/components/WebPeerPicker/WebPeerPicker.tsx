@@ -1,8 +1,8 @@
 import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
-import { ArrowRight, Check, ChevronDown, Network, Plus } from "lucide-react";
-import type { MeshPeersResponse } from "../../../gen/MeshPeersResponse";
-import type { PairedPeer } from "../../../gen/PairedPeer";
+import { ArrowRight, Check, ChevronDown, Moon, Network, Plus } from "lucide-react";
+import { cloudMachineCardView, type CloudListIcon } from "../../lib/cloudMachines/stateModel";
+import type { CloudReceipt, EnrichedMeshPeersResponse, EnrichedPairedPeer } from "../../lib/cloudMachines/types";
 import { listen } from "../../lib/bridge";
 import { effectiveWallpaper, wallpaperRenderStyle } from "../../lib/chatWallpaper";
 import type { MachineAppearance } from "../../lib/chatWallpaperClient";
@@ -58,17 +58,46 @@ function MachineDot({ peerId, online }: { peerId?: string; online: boolean }) {
 
 const offlineClock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 
-function peerStatus(peer: PairedPeer) {
-  if (peer.online) return peer.relay_protocol_version === RELAY_PROTOCOL_VERSION ? "online" : "update required";
+function peerStatus(
+  peer: EnrichedPairedPeer,
+  availability?: string,
+): { text: string; icon: CloudListIcon; online: boolean; cloud: boolean } {
+  if (peer.kind === "cloud" && peer.cloud) {
+    const view = cloudMachineCardView(peer.cloud);
+    if (view.listOnline && availability === "reconnecting") {
+      return { text: "reconnecting", icon: "dots", online: false, cloud: true };
+    }
+    return { text: view.listStatus, icon: view.listIcon, online: view.listOnline, cloud: true };
+  }
+  if (availability === "reconnecting") {
+    return { text: "reconnecting", icon: "dots", online: false, cloud: false };
+  }
+  if (availability === "unreachable") {
+    return { text: "unreachable", icon: "dot", online: false, cloud: false };
+  }
+  if (peer.online) {
+    return {
+      text: peer.relay_protocol_version === RELAY_PROTOCOL_VERSION ? "online" : "update required",
+      icon: "dot",
+      online: true,
+      cloud: false,
+    };
+  }
   const seen = peer.last_seen ? Date.parse(peer.last_seen) : NaN;
-  return Number.isFinite(seen) ? `offline since ${offlineClock.format(seen)}` : "offline";
+  return {
+    text: Number.isFinite(seen) ? `offline since ${offlineClock.format(seen)}` : "offline",
+    icon: "dot",
+    online: false,
+    cloud: false,
+  };
 }
 
 const noWorking = () => 0;
 const noSubscription = () => () => {};
 
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
-  const [peers, setPeers] = useState<PairedPeer[]>([]);
+  const [peers, setPeers] = useState<EnrichedPairedPeer[]>([]);
+  const [cloudMachines, setCloudMachines] = useState<CloudReceipt[]>([]);
   const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
   const target = useWorkspaceBrowseTarget();
@@ -88,10 +117,11 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
+      const res = await localJson<EnrichedMeshPeersResponse>("GET", "/api/mesh/peers");
       const paired = res.paired ?? [];
       setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));
+      setCloudMachines((res.cloud_machines ?? []).filter((machine) => machine.state !== "deleted"));
       setIdentities({ local_machine_identity: res.local_machine_identity, machine_identities: res.machine_identities });
     } catch (error) {
       if (isMeshDisabledError(error)) {
@@ -141,11 +171,13 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     triggerRef.current?.focus({ preventScroll: true });
   };
 
-  function openMesh(meshTab: "inventory" | "network") {
+  function openMesh(meshTab: "inventory" | "network", newMachine = false) {
     const previousFocus = document.activeElement;
     flushSync(() => {
       setOpen(false);
-      window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "mesh", meshTab } }));
+      window.dispatchEvent(new CustomEvent("codeterm:open-panel", {
+        detail: newMachine ? { panel: "mesh", meshTab, newMachine: true } : { panel: "mesh", meshTab },
+      }));
     });
     if (document.activeElement === previousFocus || document.activeElement === document.body) {
       triggerRef.current?.focus({ preventScroll: true });
@@ -177,26 +209,57 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     else items[action.index]?.focus();
   };
 
-  const peerName = (peer: PairedPeer) => accountNames.peers.get(peer.instance_id)
+  const peerName = (peer: EnrichedPairedPeer) => accountNames.peers.get(peer.instance_id)
     ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine";
+  const unpairedCloud = useMemo(() => {
+    const pairedIds = new Set(peers.map((peer) => peer.instance_id));
+    return cloudMachines.filter((machine) => {
+      const peerId = machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id;
+      return !pairedIds.has(peerId);
+    });
+  }, [cloudMachines, peers]);
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
+  const selectedCloud = !selectedPeer
+    ? unpairedCloud.find((machine) => (machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id) === target?.id)
+    : undefined;
+  const selectedGeneral = target ? generals.find(general => general.peerId === target.id) : undefined;
+  const selectedAvailability = target
+    ? (browse && browse.target.id === target.id ? browse.availability : selectedGeneral?.availability)
+    : undefined;
   const local = { name: accountNames.local ?? localName, identity: identities.local_machine_identity };
-  const singleMachine = peers.length === 0;
+  const totalRemote = peers.length + unpairedCloud.length;
+  const singleMachine = totalRemote === 0;
   const all = !singleMachine && filter === "all";
   const localSelected = filter === "local" || (singleMachine && !target);
+  const selectedReconnecting = !all && Boolean(target) && (
+    selectedAvailability === "reconnecting"
+    || Boolean(browse && target && browse.target.id === target.id && browse.synced === false)
+  );
   const label = all ? "All machines" : target
-    ? selectedPeer ? peerName(selectedPeer) : cleanMachineName(target.name, target.id) ?? "Machine"
+    ? selectedPeer ? peerName(selectedPeer) : selectedCloud ? selectedCloud.name : cleanMachineName(target.name, target.id) ?? "Machine"
     : local.name;
-  const identity = target ? identities.machine_identities?.[target.id] : local.identity;
+  const identity = target
+    ? selectedPeer?.kind === "cloud" || selectedCloud
+      ? { kind: "vm" as const }
+      : identities.machine_identities?.[target.id]
+    : local.identity;
   const viewer = useMachineViewerTheme();
-  const selectedOnline = !target || selectedPeer?.online === true;
+  const selectedOnline = !target || (
+    selectedPeer
+      ? peerStatus(selectedPeer, selectedAvailability).online
+      : selectedCloud
+        ? cloudMachineCardView(selectedCloud).listOnline
+        : false
+  );
   const selectedAppearance = useMachineChromeAppearance(target?.id, selectedOnline, !all);
   const selectedDoodle = useMachineDoodle(selectedAppearance, target?.id, selectedOnline);
   const selectedTone = !all && selectedAppearance ? machineGlyphColor(
     desaturateMachineColor(selectedAppearance.theme.blue, selectedOnline), viewer.background, viewer.foreground, 0.15,
   ) : undefined;
-  const onlineCount = 1 + peers.filter(peer => peer.online).length;
-  const machineCount = `${peers.length + 1} machines`;
+  const onlineCount = 1
+    + peers.filter(peer => peerStatus(peer, generals.find(g => g.peerId === peer.instance_id)?.availability).online).length
+    + unpairedCloud.filter(machine => cloudMachineCardView(machine).listOnline).length;
+  const machineCount = `${totalRemote + 1} machines`;
 
   function select(selection: Parameters<typeof setSidebarMachineFilter>[0], option: HTMLButtonElement, animate = true) {
     const bounds = option.getBoundingClientRect();
@@ -213,11 +276,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Machine: ${label}`}
+        aria-label={selectedReconnecting ? `Machine: ${label} (reconnecting)` : `Machine: ${label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         data-offline={!all && !selectedOnline || undefined}
+        data-reconnecting={selectedReconnecting || undefined}
         style={{ "--ct-switcher-tone": selectedTone } as CSSProperties}
         onClick={() => open ? close() : setOpen(true)}
         onKeyDown={event => {
@@ -231,6 +295,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         {!all && <MachineDoodle doodle={selectedDoodle} />}
         {all ? <Network size={12} className="shrink-0" aria-hidden="true" /> : <MachineGlyph {...identity} tone={selectedTone ?? neutralTone} />}
         <span className="ct-machine-switcher__label min-w-0 truncate">{label}</span>
+        {selectedReconnecting && (
+          <span role="status" data-testid="peer-picker-reconnecting" className="inline-flex items-center gap-1 text-[10px] opacity-80 shrink-0">
+            <ActivityDots size="micro" active />
+            <span className="hidden min-[400px]:inline">Reconnecting</span>
+          </span>
+        )}
         {localSelected && <MachineThisBadge className="ct-machine-switcher__this hidden min-[400px]:inline-flex" />}
         <ChevronDown size={12} className="ct-machine-switcher__chevron shrink-0 opacity-60" aria-hidden="true" />
       </button>
@@ -246,9 +316,13 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
               aria-label={`All machines, ${machineCount}, ${onlineCount} online`}
               onClick={event => select("all", event.currentTarget)} className="ct-machine-option ct-machine-option--all">
               <span className="ct-machine-constellation" aria-hidden="true"
-                style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peers.length + 1))}, minmax(0, 1fr))` }}>
+                style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(totalRemote + 1))}, minmax(0, 1fr))` }}>
                 <MachineDot online />
-                {peers.map(peer => <MachineDot key={peer.instance_id} peerId={peer.instance_id} online={peer.online} />)}
+                {peers.map(peer => <MachineDot key={peer.instance_id} peerId={peer.instance_id} online={peerStatus(peer).online} />)}
+                {unpairedCloud.map(machine => {
+                  const id = machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id;
+                  return <MachineDot key={id} peerId={id} online={cloudMachineCardView(machine).listOnline} />;
+                })}
               </span>
               <span className="ct-machine-option__copy">
                 <span>All machines</span>
@@ -261,14 +335,24 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
               onSelect={option => select("local", option)} />
             {peers.map(peer => {
               const name = peerName(peer);
-              const status = peerStatus(peer);
-              const working = browse?.target.id === peer.instance_id && browse.availability === "online"
-                ? observedWorkingCount(generals.find(general => general.peerId === peer.instance_id)?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
+              const general = generals.find(candidate => candidate.peerId === peer.instance_id);
+              const statusInfo = peerStatus(peer, general?.availability);
+              const working = browse && browse.target.id === peer.instance_id && browse.availability === "online"
+                ? observedWorkingCount(general?.sessions ?? [], browse.workspaces.flatMap(workspace => workspace.tabs))
                 : 0;
-              return <MachineOption key={peer.instance_id} name={name} identity={identities.machine_identities?.[peer.instance_id]}
-                peerId={peer.instance_id} status={status} working={working} online={peer.online} selected={target?.id === peer.instance_id}
+              const peerIdentity = statusInfo.cloud ? { kind: "vm" as const } : identities.machine_identities?.[peer.instance_id];
+              return <MachineOption key={peer.instance_id} name={name} identity={peerIdentity}
+                peerId={peer.instance_id} status={statusInfo.text} statusIcon={statusInfo.icon} working={working} online={statusInfo.online} selected={target?.id === peer.instance_id}
                 viewer={viewer}
-                onSelect={option => select({ id: peer.instance_id, name }, option, status === "online")} />;
+                onSelect={option => select({ id: peer.instance_id, name }, option, statusInfo.text === "online")} />;
+            })}
+            {unpairedCloud.map(machine => {
+              const peerId = machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id;
+              const view = cloudMachineCardView(machine);
+              return <MachineOption key={machine.machine_id} name={machine.name} identity={{ kind: "vm" }}
+                peerId={peerId} status={view.listStatus} statusIcon={view.listIcon} working={0} online={view.listOnline} selected={target?.id === peerId}
+                viewer={viewer}
+                onSelect={option => select({ id: peerId, name: machine.name }, option, view.listOnline)} />;
             })}
           </div>
           <div role="group" aria-label="Mesh actions" className="ct-machine-footer" data-invitation={singleMachine || undefined}>
@@ -277,7 +361,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
               <p className="ct-machine-footer__description">Install Domios on another computer and pair it to see its agents here.</p>
             </>}
             <div className="ct-machine-footer__actions">
-              <button type="button" tabIndex={-1} className="ct-machine-footer__add" onClick={() => openMesh("network")}>
+              <button type="button" tabIndex={-1} className="ct-machine-footer__add" onClick={() => openMesh("inventory", true)}>
                 <span className="ct-machine-footer__plus" aria-hidden="true"><Plus size={14} /></span>
                 Add machine
               </button>
@@ -304,11 +388,12 @@ function observedWorkingCount(general: ObservedTab[], desk: ObservedTab[]) {
   return seen.size;
 }
 
-function MachineOption({ name, identity, peerId, status, working, local, online, selected, viewer, onSelect }: {
+function MachineOption({ name, identity, peerId, status, statusIcon = "dot", working, local, online, selected, viewer, onSelect }: {
   name: string;
   identity?: MachineIdentity;
   peerId?: string;
   status: string;
+  statusIcon?: CloudListIcon;
   working: number;
   local?: boolean;
   online: boolean;
@@ -336,7 +421,11 @@ function MachineOption({ name, identity, peerId, status, working, local, online,
     <span className="ct-machine-option__copy">
       <span className="ct-machine-option__name"><span className="truncate">{name}</span>{local && <MachineThisBadge />}</span>
       <span className="ct-machine-option__status">
-        {busy ? <ActivityDots size="small" /> : <span aria-hidden="true" className="ct-machine-option__dot" data-online={online && status === "online" || undefined} />}
+        {busy || statusIcon === "dots"
+          ? <ActivityDots size="small" />
+          : statusIcon === "moon"
+            ? <Moon size={11} className="shrink-0" aria-hidden="true" />
+            : <span aria-hidden="true" className="ct-machine-option__dot" data-online={online && status === "online" || undefined} />}
         <span className="truncate">{state}</span>
       </span>
     </span>

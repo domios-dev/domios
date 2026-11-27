@@ -97,6 +97,7 @@ pub(super) struct DialogState {
 }
 
 impl DialogState {
+    #[cfg(test)]
     pub(super) fn is_blocking(&self) -> bool {
         self.active.is_some()
     }

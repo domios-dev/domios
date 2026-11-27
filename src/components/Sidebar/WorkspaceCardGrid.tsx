@@ -278,6 +278,16 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, w
           <MachinePickerRow name={resolvedMachineName} identity={machineIdentity} status={status ?? "online"} local={!machinePeerId} />
         </h3>
       )}
+      {!showMachineHeader && machinePeerId && status === "reconnecting" && (
+        <div
+          role="status"
+          data-testid="workspace-machine-reconnecting"
+          className="flex items-center gap-1.5 px-2 pb-1 text-xs text-[var(--ct-muted-fg)]"
+        >
+          <ActivityDots size="micro" active />
+          <span className="truncate">Reconnecting to {resolvedMachineName}…</span>
+        </div>
+      )}
       {grid}
     </div>
     {editingWorkspace && createPortal(

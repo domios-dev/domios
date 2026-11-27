@@ -795,7 +795,7 @@ pub fn rename_team_core(
     ) {
         return Err(refusal.to_string());
     }
-    authorize_team_manager(mux, team_id, caller)?;
+    authorize_team_rename(mux, team_id, caller)?;
     mux.rename_team(team_id, name)
 }
 
@@ -1069,6 +1069,21 @@ Safe recovery: run the mutation on {peer}."
         )),
         None => Ok(()),
     }
+}
+
+fn authorize_team_rename(
+    mux: &MultiplexerState,
+    team_id: &str,
+    caller: &TeamMutationCaller,
+) -> Result<(), String> {
+    if mux.get_team(team_id).is_none() {
+        return Err(format!("Team {team_id} not found"));
+    }
+    reject_remote_team_mutation(mux, team_id)?;
+    if matches!(caller, TeamMutationCaller::AuthenticatedMeshPeer(_)) {
+        return Ok(());
+    }
+    authorize_team_manager(mux, team_id, caller)
 }
 
 pub(super) fn authorize_team_manager(

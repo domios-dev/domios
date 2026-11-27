@@ -187,18 +187,30 @@ impl Drop for PendingSettlement {
 }
 
 pub fn observe_in(binary: &str, extra_dirs: &[PathBuf]) -> VersionObservation {
-    if binary.trim().is_empty() {
+    observe_candidates_in(&[binary], extra_dirs)
+}
+
+pub fn observe_candidates_in(binaries: &[&str], extra_dirs: &[PathBuf]) -> VersionObservation {
+    let candidates: Vec<&str> = binaries
+        .iter()
+        .map(|binary| binary.trim())
+        .filter(|binary| !binary.is_empty())
+        .collect();
+    if candidates.is_empty() {
         return VersionObservation::unknown(ProbeStatus::Missing);
     }
-    let path = match crate::js_runtime::probe_bin_with_extra_dirs(binary, extra_dirs).resolution {
-        crate::js_runtime::BinResolution::Found(path) => path,
-        crate::js_runtime::BinResolution::Missing => {
-            return VersionObservation::unknown(ProbeStatus::Missing)
-        }
-        crate::js_runtime::BinResolution::Unknown => {
-            return VersionObservation::unknown(ProbeStatus::Unreadable)
-        }
-    };
+    let path =
+        match crate::js_runtime::probe_bin_candidates_with_extra_dirs(&candidates, extra_dirs)
+            .resolution
+        {
+            crate::js_runtime::BinResolution::Found(path) => path,
+            crate::js_runtime::BinResolution::Missing => {
+                return VersionObservation::unknown(ProbeStatus::Missing)
+            }
+            crate::js_runtime::BinResolution::Unknown => {
+                return VersionObservation::unknown(ProbeStatus::Unreadable)
+            }
+        };
     let Some(identity) = BinaryIdentity::read(&path) else {
         return VersionObservation::unknown(ProbeStatus::Unreadable);
     };
