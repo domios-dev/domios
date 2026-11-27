@@ -76,7 +76,6 @@ pub enum WireCloudSleepMode {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireCloudManagedRate {
     pub amount: f64,
     pub currency: String,
@@ -155,7 +154,6 @@ pub enum WireCloudDeleteMode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireProviderSnapshotResidual {
     pub provider: String,
     pub snapshots_remaining: u32,
@@ -170,7 +168,6 @@ pub struct WireProviderSnapshotResidual {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireCloudMachineStorageUsage {
     pub machine_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,7 +205,6 @@ pub struct WireCloudMachineStorageUsage {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireCloudStorageUsageSummary {
     pub hot_gb_month_rate_cents: u64,
     pub hot_days: f64,
@@ -278,7 +274,6 @@ pub struct ManagedCloudMachineActionRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProvisionedMachineReply {
     pub machine_id: String,
     pub provider: String,
@@ -315,7 +310,6 @@ impl ProvisionedMachineReply {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SleepMachineReply {
     pub machine_id: String,
     pub sleep_mode: WireCloudSleepMode,
@@ -323,7 +317,6 @@ pub struct SleepMachineReply {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DeleteMachineReply {
     pub machine_id: String,
     pub state: String,
@@ -357,7 +350,6 @@ pub struct ResizeCloudVolumeRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ResizeCloudVolumeReply {
     pub machine_id: String,
     pub allocated_gb: u32,
@@ -373,7 +365,6 @@ pub enum WireWarmBootstrapPhase {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireCloudPhaseTimestamps {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested: Option<u64>,
@@ -412,7 +403,6 @@ pub struct RecordWarmBootstrapPhasesRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RecordWarmBootstrapPhasesReply {
     pub machine_id: String,
     pub last_create_phases: WireCloudPhaseTimestamps,
@@ -439,7 +429,6 @@ pub struct RenewLeaseRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RenewLeaseReply {
     pub machine_id: String,
     pub lease_id: String,
@@ -447,7 +436,6 @@ pub struct RenewLeaseReply {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireCloudUsageSize {
     pub id: String,
     pub cpu: u32,
@@ -457,7 +445,6 @@ pub struct WireCloudUsageSize {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireCloudUsagePack {
     pub pack_id: String,
     pub price_cents: u64,
@@ -465,7 +452,6 @@ pub struct WireCloudUsagePack {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WireCloudPlanAllowances {
     pub free: f64,
     pub pro: f64,
@@ -474,7 +460,6 @@ pub struct WireCloudPlanAllowances {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CloudUsageReply {
     pub used: f64,
     pub allowance: f64,
@@ -516,7 +501,6 @@ pub struct CreateCloudCreditPackCheckoutRequest {
 
 /// Wire reply for `createCloudCreditPackCheckout` (`shared/cloud-credits.ts::CreateCloudCreditPackCheckoutReply`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CreateCloudCreditPackCheckoutReply {
     pub url: String,
     pub session_id: String,
@@ -580,7 +564,6 @@ pub struct RedeemCloudCreditPromoRequest {
 
 /// Wire reply for `redeemCloudCreditPromo` (`shared/cloud-credits.ts::RedeemCloudCreditPromoReply`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RedeemCloudCreditPromoReply {
     pub schema_version: u8,
     pub status: String,

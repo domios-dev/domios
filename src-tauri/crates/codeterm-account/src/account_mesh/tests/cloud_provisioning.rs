@@ -491,7 +491,7 @@ fn decodes_and_validates_redeem_cloud_credit_promo_wire_types_and_refusals() {
     assert!(idempotent.already_redeemed);
     assert_eq!(idempotent.expires_at, None);
 
-    // Reject unknown fields and missing required fields on reply.
+    // Replies tolerate additive backend fields so shipped desktops survive backend upgrades.
     assert!(
         serde_json::from_value::<RedeemCloudCreditPromoReply>(json!({
             "schema_version": 1,
@@ -503,7 +503,7 @@ fn decodes_and_validates_redeem_cloud_credit_promo_wire_types_and_refusals() {
             "purchased": 25.0,
             "unexpected": 1
         }))
-        .is_err()
+        .is_ok()
     );
 
     // All 6 typed promo refusal reasons decode strictly and map through callable::refusal.
