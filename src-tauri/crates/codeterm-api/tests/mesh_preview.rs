@@ -183,6 +183,7 @@ async fn request(
 }
 
 async fn relay(app: axum::Router, token: &str, method: &str, path: &str, body: Value) -> Value {
+    let context = format!("{method} {path} body={body}");
     let (status, response) = request(
         app,
         token,
@@ -196,41 +197,34 @@ async fn relay(app: axum::Router, token: &str, method: &str, path: &str, body: V
         }),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{path}: {response}");
-    assert_eq!(response["status"], 200, "{path}: {response}");
-    assert_eq!(response["ok"], true, "{path}: {response}");
+    assert_eq!(status, StatusCode::OK, "{context}: {response}");
+    assert_eq!(response["status"], 200, "{context}: {response}");
+    assert_eq!(response["ok"], true, "{context}: {response}");
     response["data"].clone()
 }
 
 #[tokio::test]
-async fn mesh_owner_relay_opens_jsonl_chat_page_document_image_and_canvas_while_refusing_agents_and_unreferenced() {
+async fn mesh_owner_relay_opens_jsonl_chat_page_document_image_and_canvas_while_refusing_agents_and_unreferenced(
+) {
     initialize();
     let (source_mux, source_tab) = MultiplexerState::new();
     let source_fixture = ServiceFixture::new(source_mux);
+    let workspace = tempfile::tempdir().unwrap();
+    let root = codeterm_service_core::service::local_preview::html_preview::preview_test_root(
+        workspace.path(),
+    );
     let (mut target_mux, target_tab) = MultiplexerState::new();
-    target_mux.get_tab_mut(&target_tab).unwrap().agent_type = Some("mesh-preview-jsonl".into());
-    target_mux.get_tab_mut(&target_tab).unwrap().agent_session_id = Some("mesh-session".into());
-    target_mux
-        .get_tab_mut(&target_tab)
-        .unwrap()
-        .session_binding_nonce = Some("mesh-nonce".into());
+    let tab = target_mux.get_tab_mut(&target_tab).unwrap();
+    tab.agent_type = Some("mesh-preview-jsonl".into());
+    tab.agent_session_id = Some("mesh-session".into());
+    tab.session_binding_nonce = Some("mesh-nonce".into());
+    tab.cwd = Some(root.to_string_lossy().into_owned());
     let target_fixture = ServiceFixture::new(target_mux);
-    let cwd = target_fixture.temp.path().to_string_lossy().into_owned();
-    target_fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&target_tab)
-        .unwrap()
-        .cwd = Some(cwd);
     target_fixture
         .service
         .agent_registry
         .register_provider(Box::new(JsonlPreviewProvider));
 
-    let root = codeterm_service_core::service::local_preview::html_preview::preview_test_root(
-        target_fixture.temp.path(),
-    );
     let page = root.join("mesh-page.html");
     let doc = root.join("mesh-doc.md");
     let img = root.join("mesh-img.png");
@@ -244,19 +238,15 @@ async fn mesh_owner_relay_opens_jsonl_chat_page_document_image_and_canvas_while_
     std::fs::write(&doc, "# mesh doc").unwrap();
     std::fs::write(&img, &png_bytes).unwrap();
     std::fs::write(&canvas_img, &png_bytes).unwrap();
+    let items = json!([{"id": "pic", "kind": "image", "src": canvas_img, "x": 0, "y": 0, "w": 100, "h": 100}]);
     std::fs::write(
         &canvas,
-        json!({
-            "format": "domios.canvas/1",
-            "title": "Mesh board",
-            "items": [{"id": "pic", "kind": "image", "src": canvas_img, "x": 0, "y": 0, "w": 100, "h": 100}]
-        })
-        .to_string(),
+        format!(r#"{{"format":"domios.canvas/1","title":"Mesh board","items":{items}}}"#),
     )
     .unwrap();
     std::fs::write(&unreferenced, "<main>unreferenced</main>").unwrap();
 
-    let transcript = target_fixture.temp.path().join("mesh-session.jsonl");
+    let transcript = root.join("mesh-session.jsonl");
     let message = format!(
         "<ds-page src=\"{}\" />\n\n<ds-document src=\"{}\" />\n\n<ds-image src=\"{}\" />\n\n<ds-canvas src=\"{}\" />",
         page.display(),
