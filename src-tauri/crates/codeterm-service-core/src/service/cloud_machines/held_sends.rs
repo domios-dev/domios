@@ -516,11 +516,11 @@ impl CloudWakeQueue {
 
 pub struct InFlightWake {
     notify: Notify,
-    result: Mutex<Option<Result<(), String>>>,
+    result: Mutex<Option<Result<(), CloudError>>>,
 }
 
 impl InFlightWake {
-    pub async fn wait(&self) -> Result<(), String> {
+    pub async fn wait(&self) -> Result<(), CloudError> {
         loop {
             let notified = self.notify.notified();
             if let Some(outcome) = self.result.lock().clone() {
@@ -552,7 +552,7 @@ pub struct WakeLeaderGuard {
 }
 
 impl WakeLeaderGuard {
-    pub fn finish(mut self, outcome: Result<(), String>) {
+    pub fn finish(mut self, outcome: Result<(), CloudError>) {
         if let Some(entry) = self.entry.take() {
             *entry.wake.result.lock() = Some(outcome);
             self.owner.in_flight.lock().remove(&entry.machine_id);
@@ -566,7 +566,7 @@ impl Drop for WakeLeaderGuard {
         if let Some(entry) = self.entry.take() {
             let mut result = entry.wake.result.lock();
             if result.is_none() {
-                *result = Some(Err("wake cancelled".into()));
+                *result = Some(Err(CloudError::ProviderUnavailable("wake cancelled".into())));
             }
             drop(result);
             self.owner.in_flight.lock().remove(&entry.machine_id);

@@ -24,8 +24,8 @@ use super::state::{
 use super::store::{CloudMachineStore, CloudWakeQueueStore};
 use super::types::{
     CloudCostSummary, CloudEndpoint, CloudError, CloudLifecycleState, CloudMachineRecord,
-    CloudOwnershipReceipt, CloudReceipt, CloudSleepMode, CloudUsageSummary, PendingProvisioningOp,
-    PendingProvisioningRequest, DEFAULT_LEASE_RENEW_LEAD_MS,
+    CloudOwnershipReceipt, CloudPromoRedemption, CloudReceipt, CloudSleepMode, CloudUsageSummary,
+    PendingProvisioningOp, PendingProvisioningRequest, DEFAULT_LEASE_RENEW_LEAD_MS,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -355,7 +355,38 @@ impl CloudMachineController {
         &self,
         provisioning: &dyn CloudProvisioningPort,
     ) -> Result<CloudUsageSummary, CloudError> {
-        provisioning.usage().await
+        let summary = provisioning.usage().await?;
+        self.restore_credits_if_available(summary.remaining);
+        Ok(summary)
+    }
+
+    pub async fn redeem_promo(
+        &self,
+        code: &str,
+        provisioning: &dyn CloudProvisioningPort,
+    ) -> Result<CloudPromoRedemption, CloudError> {
+        let redeemed = provisioning.redeem_promo(code).await?;
+        self.restore_credits_if_available(redeemed.remaining);
+        Ok(redeemed)
+    }
+
+    pub async fn refresh_credits_for_wake(
+        &self,
+        selector: &str,
+        provisioning: &dyn CloudProvisioningPort,
+    ) -> Result<CloudMachineRecord, CloudError> {
+        let record = self.find_record(selector)?;
+        if record.state != CloudLifecycleState::OutOfCredits {
+            return Ok(record);
+        }
+        self.usage(provisioning).await?;
+        let current = self.find_record(&record.machine_id)?;
+        if current.state == CloudLifecycleState::OutOfCredits {
+            return Err(CloudError::MachineOutOfCredits {
+                machine_id: current.machine_id,
+            });
+        }
+        Ok(current)
     }
 
     pub async fn create(
@@ -748,11 +779,6 @@ impl CloudMachineController {
         deadline_ms: u64,
     ) -> Result<CloudReceipt, CloudError> {
         let record = self.find_record(selector)?;
-        if record.state == CloudLifecycleState::OutOfCredits {
-            return Err(CloudError::MachineOutOfCredits {
-                machine_id: record.machine_id,
-            });
-        }
         if record.state == CloudLifecycleState::Awake {
             self.flush_held_sends(&record.machine_id, peer_control)
                 .await;
@@ -763,10 +789,7 @@ impl CloudMachineController {
 
         match self.wakes.acquire(&record.machine_id) {
             WakeSlot::Follower(in_flight) => {
-                in_flight
-                    .wait()
-                    .await
-                    .map_err(CloudError::ProviderUnavailable)?;
+                in_flight.wait().await?;
                 let refreshed = self.find_record(&record.machine_id)?;
                 Ok(refreshed.receipt(self.clock.now_ms(), None))
             }
@@ -774,11 +797,12 @@ impl CloudMachineController {
                 let mut current = match self.find_record(&record.machine_id) {
                     Ok(found) => found,
                     Err(error) => {
-                        guard.finish(Err(error.to_string()));
+                        guard.finish(Err(error.clone()));
                         return Err(error);
                     }
                 };
-                if current.state == CloudLifecycleState::Draining {
+                let reconciled_draining = current.state == CloudLifecycleState::Draining;
+                if reconciled_draining {
                     current = match self
                         .reconcile_draining(
                             &current.machine_id,
@@ -791,17 +815,36 @@ impl CloudMachineController {
                     {
                         Ok(reconciled) => reconciled,
                         Err(error) => {
-                            guard.finish(Err(error.to_string()));
+                            guard.finish(Err(error.clone()));
                             return Err(error);
                         }
                     };
                 }
                 if current.state == CloudLifecycleState::OutOfCredits {
-                    let error = CloudError::MachineOutOfCredits {
-                        machine_id: current.machine_id,
+                    let checked = if reconciled_draining {
+                        Err(CloudError::MachineOutOfCredits {
+                            machine_id: current.machine_id.clone(),
+                        })
+                    } else {
+                        let remaining = wake_deadline_ms.saturating_sub(self.clock.now_ms());
+                        tokio::time::timeout(
+                            std::time::Duration::from_millis(remaining),
+                            self.refresh_credits_for_wake(&current.machine_id, provisioning),
+                        )
+                        .await
+                        .unwrap_or_else(|_| {
+                            Err(CloudError::WakeDeadlineExceeded {
+                                machine_id: current.machine_id.clone(),
+                            })
+                        })
                     };
-                    guard.finish(Err(error.to_string()));
-                    return Err(error);
+                    match checked {
+                        Ok(refreshed) => current = refreshed,
+                        Err(error) => {
+                            guard.finish(Err(error.clone()));
+                            return Err(error);
+                        }
+                    }
                 }
                 if current.state == CloudLifecycleState::Awake {
                     guard.finish(Ok(()));
@@ -821,7 +864,7 @@ impl CloudMachineController {
                             updated
                         }
                         Err(error) => {
-                            guard.finish(Err(error.to_string()));
+                            guard.finish(Err(error.clone()));
                             return Err(error);
                         }
                     }
@@ -832,7 +875,7 @@ impl CloudMachineController {
                 {
                     Ok(id) => id,
                     Err(error) => {
-                        guard.finish(Err(error.to_string()));
+                        guard.finish(Err(error.clone()));
                         return Err(error);
                     }
                 };
@@ -840,7 +883,7 @@ impl CloudMachineController {
                 let provider_machine_id = match require_provider_machine_id(&waking) {
                     Ok(id) => id.to_owned(),
                     Err(error) => {
-                        guard.finish(Err(error.to_string()));
+                        guard.finish(Err(error.clone()));
                         return Err(error);
                     }
                 };
@@ -896,7 +939,7 @@ impl CloudMachineController {
                                 continue;
                             }
                             if matches!(error, CloudError::CreditsExhausted) {
-                                let _ = self.update_record(&record.machine_id, |rec| {
+                                if let Ok(updated) = self.update_record(&record.machine_id, |rec| {
                                     let mut next = transition(
                                         rec,
                                         LifecycleEvent::CreditsExhausted,
@@ -904,7 +947,10 @@ impl CloudMachineController {
                                     )?;
                                     next.pending_request = None;
                                     Ok(next)
-                                });
+                                }) {
+                                    self.clear_link_flush_generation(&updated.machine_id);
+                                    peer_control.note_machine_asleep(&updated);
+                                }
                             } else {
                                 if error.is_uncertain_provisioning_outcome() {
                                     self.mark_pending_unconfirmed(
@@ -924,7 +970,7 @@ impl CloudMachineController {
                                 });
                             }
                             self.expire_overdue_held_sends(&record.machine_id);
-                            guard.finish(Err(error.to_string()));
+                            guard.finish(Err(error.clone()));
                             return Err(error);
                         }
                     }
@@ -951,7 +997,7 @@ impl CloudMachineController {
                 }) {
                     Ok(updated) => updated,
                     Err(error) => {
-                        guard.finish(Err(error.to_string()));
+                        guard.finish(Err(error.clone()));
                         return Err(error);
                     }
                 };
@@ -968,7 +1014,7 @@ impl CloudMachineController {
                             next.endpoint = previous_endpoint.clone();
                             Ok(next)
                         });
-                        guard.finish(Err(error.to_string()));
+                        guard.finish(Err(error.clone()));
                         return Err(error);
                     }
 
@@ -986,7 +1032,7 @@ impl CloudMachineController {
                             next.endpoint = previous_endpoint.clone();
                             Ok(next)
                         });
-                        guard.finish(Err(error.to_string()));
+                        guard.finish(Err(error.clone()));
                         return Err(error);
                     }
                 }
@@ -1003,7 +1049,7 @@ impl CloudMachineController {
                         )
                     });
                     self.expire_overdue_held_sends(&record.machine_id);
-                    guard.finish(Err(error.to_string()));
+                    guard.finish(Err(error.clone()));
                     return Err(error);
                 }
 
@@ -1013,7 +1059,7 @@ impl CloudMachineController {
                 }) {
                     Ok(updated) => updated,
                     Err(error) => {
-                        guard.finish(Err(error.to_string()));
+                        guard.finish(Err(error.clone()));
                         return Err(error);
                     }
                 };
@@ -1035,14 +1081,15 @@ impl CloudMachineController {
     ) -> Result<CloudReceipt, CloudError> {
         let decision = {
             let machines = self.machines.lock();
-            select_placement(&machines, target)?
+            select_placement(&machines, target)
         };
         match decision {
-            PlacementDecision::ReuseAwake(id) => {
+            Ok(PlacementDecision::ReuseAwake(id)) => {
                 let record = self.find_record(&id)?;
                 Ok(record.receipt(self.clock.now_ms(), None))
             }
-            PlacementDecision::WakeAndReuse(id) => {
+            Ok(PlacementDecision::WakeAndReuse(id))
+            | Err(CloudError::MachineOutOfCredits { machine_id: id }) => {
                 self.wake(
                     &id,
                     provisioning,
@@ -1051,11 +1098,12 @@ impl CloudMachineController {
                 )
                 .await
             }
-            PlacementDecision::CreateExplicit => {
+            Ok(PlacementDecision::CreateExplicit) => {
                 let params = create_params.unwrap_or_default();
                 self.create(params, provisioning, enrollment, peer_control)
                     .await
             }
+            Err(error) => Err(error),
         }
     }
 
@@ -1075,5 +1123,22 @@ impl CloudMachineController {
             transition(rec, LifecycleEvent::CreditsRestored, now_ms)
         })?;
         Ok(updated.receipt(now_ms, None))
+    }
+
+    fn restore_credits_if_available(&self, remaining: f64) {
+        if !remaining.is_finite() || remaining <= 0.0 {
+            return;
+        }
+        let exhausted_ids: Vec<String> = {
+            let machines = self.machines.lock();
+            machines
+                .iter()
+                .filter(|m| m.state == CloudLifecycleState::OutOfCredits)
+                .map(|m| m.machine_id.clone())
+                .collect()
+        };
+        for machine_id in exhausted_ids {
+            let _ = self.restore_credits(&machine_id);
+        }
     }
 }

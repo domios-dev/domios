@@ -132,6 +132,8 @@ impl CloudIngressConnector for FakeCloudChannel {
 struct FakeWakeProvisioning {
     endpoint: SocketAddrV4,
     wakes: AtomicUsize,
+    usage_calls: AtomicUsize,
+    usage: Mutex<Result<CloudUsageSummary, CloudError>>,
     allow_wake: AtomicBool,
     wake_gate: Notify,
 }
@@ -141,6 +143,8 @@ impl FakeWakeProvisioning {
         Arc::new(Self {
             endpoint,
             wakes: AtomicUsize::new(0),
+            usage_calls: AtomicUsize::new(0),
+            usage: Mutex::new(Ok(CloudUsageSummary::default())),
             allow_wake: AtomicBool::new(false),
             wake_gate: Notify::new(),
         })
@@ -214,7 +218,8 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
     }
 
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
-        Ok(CloudUsageSummary::default())
+        self.usage_calls.fetch_add(1, Ordering::SeqCst);
+        self.usage.lock().clone()
     }
 }
 
@@ -343,6 +348,90 @@ async fn post_relay_to(app: axum::Router, token: &str, payload: &Value) -> (Stat
 }
 
 #[tokio::test]
+async fn cloud_wake_positive_usage_restores_exhausted_machine() {
+    crate::register_api_extensions();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let address = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 33), 7687);
+    let (home, _, dir, controller, provisioning, _) =
+        setup_sleeping_cloud_peer(&fixture, "home-credit-refresh", address);
+    let machine = "cloud-sleeper-1";
+    controller.set_out_of_credits(machine).unwrap();
+    *provisioning.usage.lock() = Ok(CloudUsageSummary {
+        remaining: 25.0,
+        ..Default::default()
+    });
+
+    let app = routes::create_router_with_frontend(home.clone(), None);
+    let usage = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/mesh/cloud/usage")
+                .header("authorization", "Bearer owner-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(usage.status(), StatusCode::OK);
+    let persisted = CloudMachineStore::new(dir.path().join("cloud_machines.json")).load();
+    assert_eq!(persisted[0].machine_id, machine);
+    assert_eq!(persisted[0].state, CloudLifecycleState::Asleep);
+
+    provisioning.release_wake();
+    home.mesh
+        .lock()
+        .attach_reverse_stream_for_test("cloud-inst-wake".into(), [13u8; 32]);
+    let woken = tokio::time::timeout(
+        Duration::from_secs(1),
+        wake_machine_for_use(&home, machine),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(woken.state, CloudLifecycleState::Awake);
+    assert_eq!(provisioning.usage_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(provisioning.wakes.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn cloud_wake_relay_preserves_backend_credit_refusal_without_admitting_send() {
+    crate::register_api_extensions();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let address = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 34), 7687);
+    let (home, _, _dir, controller, provisioning, channel) =
+        setup_sleeping_cloud_peer(&fixture, "home-credit-refusal", address);
+    let machine = "cloud-sleeper-1";
+    controller.set_out_of_credits(machine).unwrap();
+    *provisioning.usage.lock() = Err(CloudError::LeaseRequired);
+
+    let app = routes::create_router_with_frontend(home, None);
+    let (status, reply) = post_relay_to(
+        app,
+        "owner-secret",
+        &json!({
+            "target_peer_id": "cloud-sleeper",
+            "method": "POST",
+            "path": "/api/tabs/cloud-tab-1/send",
+            "body": { "text": "credit-refused-payload" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reply}");
+    assert_eq!(reply["status"], 402, "{reply}");
+    assert_eq!(reply["data"]["error"]["code"], "lease_required");
+    assert_eq!(reply["data"]["error"]["bytes_written"], false);
+    assert!(reply["data"]["send_id"].is_null());
+    assert_eq!(controller.held_send_count(), 0);
+    assert!(channel.recorded().is_empty());
+    assert_eq!(provisioning.wakes.load(Ordering::SeqCst), 0);
+    assert_eq!(provisioning.usage_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        controller.find_by_peer(machine).unwrap().state,
+        CloudLifecycleState::OutOfCredits
+    );
+}
+
+#[tokio::test]
 async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_before_holding() {
     crate::register_api_extensions();
     let (mux, agent_tab) = MultiplexerState::new();
@@ -350,6 +439,11 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 30), 7687);
     let (home, home_pub, _dir, controller, provisioning, channel) =
         setup_sleeping_cloud_peer(&fixture, "home-agent-wake", cloud_addr);
+    controller.set_out_of_credits("cloud-sleeper-1").unwrap();
+    *provisioning.usage.lock() = Ok(CloudUsageSummary {
+        remaining: 25.0,
+        ..Default::default()
+    });
 
     let agent_token = home
         .svc
@@ -373,6 +467,7 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
     .await;
     assert_eq!(spoof_status, StatusCode::FORBIDDEN);
     assert_eq!(controller.held_send_count(), 0);
+    assert_eq!(provisioning.usage_calls.load(Ordering::SeqCst), 0);
     assert_eq!(provisioning.wakes.load(Ordering::SeqCst), 0);
     assert!(channel.recorded().is_empty());
 
@@ -392,6 +487,7 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
     assert_eq!(held_resp["status"], 202, "{held_resp}");
     assert_eq!(held_resp["data"]["held"], true);
     assert_eq!(held_resp["data"]["bytes_written"], false);
+    assert_eq!(provisioning.usage_calls.load(Ordering::SeqCst), 1);
     assert!(channel.recorded().is_empty());
 
     provisioning.release_wake();

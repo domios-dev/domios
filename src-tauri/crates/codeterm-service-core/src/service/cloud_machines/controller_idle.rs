@@ -267,7 +267,7 @@ impl CloudMachineController {
         provisioning: &dyn CloudProvisioningPort,
     ) -> Result<ProbedDrainingTruth, CloudError> {
         let mut usage_exhausted = false;
-        if let Ok(summary) = provisioning.usage().await {
+        if let Ok(summary) = self.usage(provisioning).await {
             if let Some(truth) = infer_backend_truth_from_usage(record, &summary) {
                 return Ok(ProbedDrainingTruth {
                     truth,

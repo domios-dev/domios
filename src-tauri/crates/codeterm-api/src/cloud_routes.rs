@@ -201,8 +201,8 @@ fn spawn_wake_delivery_watcher_with_shutdown(
     })
 }
 
-pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
-    let status = match &error {
+pub(crate) fn error_status(error: &CloudError) -> StatusCode {
+    match error {
         CloudError::LimitReached { .. }
         | CloudError::ImplicitCreateRefused
         | CloudError::CheckoutTerritory => StatusCode::FORBIDDEN,
@@ -237,7 +237,11 @@ pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json:
         CloudError::EnrollmentFailed(_) | CloudError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
-    };
+    }
+}
+
+pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
+    let status = error_status(&error);
     let mut body = serde_json::json!({
         "ok": false,
         "error": {
@@ -301,6 +305,19 @@ pub(super) fn require_local_owner(
             })),
         ))
     }
+}
+
+pub(crate) async fn check_credits_for_wake(
+    state: &AppState,
+    machine_id: &str,
+) -> Result<(), CloudError> {
+    let provisioning = resolve_provisioning(state);
+    state
+        .svc
+        .cloud_machines()
+        .refresh_credits_for_wake(machine_id, provisioning.as_ref())
+        .await?;
+    Ok(())
 }
 
 pub(crate) async fn wake_machine_for_use(
@@ -634,8 +651,10 @@ async fn redeem_promo(
         return Err(error_response(CloudError::PromoInvalidCode));
     }
     let provisioning = resolve_provisioning(&state);
-    let redeemed = provisioning
-        .redeem_promo(code)
+    let redeemed = state
+        .svc
+        .cloud_machines()
+        .redeem_promo(code, provisioning.as_ref())
         .await
         .map_err(error_response)?;
     if !redeemed.already_redeemed {
