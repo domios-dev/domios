@@ -88,6 +88,39 @@ export function resolveRemoteLoginTabId(
   return tabId.startsWith("mesh:") ? tabId : `mesh:${peerId}/${tabId}`;
 }
 
+export interface RemoteRuntimeLoginReply {
+  login?: AgentRuntimeState["login"];
+  state?: Partial<AgentRuntimeState>;
+  authentication?: AgentRuntimeState["authentication"];
+  apiKeyMethods?: AgentRuntimeState["apiKeyMethods"];
+  loginBinding?: AgentRuntimeState["loginBinding"];
+  codeSubmission?: AgentRuntimeState["codeSubmission"];
+}
+
+/** Merges an `agent_runtime_login` response into a detached remote sign-in card's state. */
+export function mergeRemoteRuntimeLoginReply(
+  current: AgentRuntimeState,
+  reply: RemoteRuntimeLoginReply,
+): AgentRuntimeState {
+  const next: AgentRuntimeState = {
+    ...current,
+    ...(reply.state ?? {}),
+  };
+  if (reply.login !== undefined) next.login = reply.login;
+  if (reply.authentication !== undefined) next.authentication = reply.authentication;
+  if (reply.apiKeyMethods !== undefined) next.apiKeyMethods = reply.apiKeyMethods;
+  if (reply.loginBinding !== undefined) {
+    next.loginBinding = reply.loginBinding;
+    if (typeof reply.loginBinding.epoch === "number") next.epoch = reply.loginBinding.epoch;
+  }
+  if (reply.codeSubmission !== undefined) next.codeSubmission = reply.codeSubmission;
+  if (next.login?.status === "completed") {
+    next.auth = "signedIn";
+    next.state = "loaded";
+  }
+  return next;
+}
+
 export interface PhaseTimingSummary {
   peerReadyDeltaSecs: number | null;
   warmBootstrapDeltaSecs: number | null;

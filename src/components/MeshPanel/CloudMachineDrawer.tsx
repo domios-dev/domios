@@ -23,6 +23,7 @@ import "./cloudMachines.css";
 
 export interface CloudMachineDrawerProps {
   machine: CloudReceipt;
+  machines?: readonly CloudReceipt[];
   usage: CloudUsagePayload | null;
   planId?: string | null;
   idleSleepMinutes: number;
@@ -40,6 +41,7 @@ export interface CloudMachineDrawerProps {
 
 export function CloudMachineDrawer({
   machine,
+  machines,
   usage,
   planId,
   idleSleepMinutes,
@@ -70,7 +72,11 @@ export function CloudMachineDrawer({
   const isAsleep = view.state === "asleep";
   const isOutOfCredits = view.state === "out_of_credits";
   const isWaking = view.state === "waking" || view.state === "creating" || view.state === "enrolling";
-  const machineStorage = usage?.storage?.machines.find((item) => item.machine_id === machine.machine_id);
+  const machineStorage = usage?.storage?.machines.find(
+    (item) =>
+      item.machine_id === machine.machine_id ||
+      (item.name != null && item.name.trim() === machine.name),
+  );
   const rawStorageTier = machineStorage?.tier ?? machine.storage_tier ?? "hot";
   const isArchived = rawStorageTier === "cold" || rawStorageTier === "recoverable_deleted";
   const isEvicting = rawStorageTier === "evicting";
@@ -139,6 +145,7 @@ export function CloudMachineDrawer({
           <>
             <CloudUsageMeter
               usage={usage}
+              machines={machines?.length ? machines : [machine]}
               planId={planId}
               onTopUp={() => onTopUp(isOutOfCredits)}
               onRedeem={onRedeem}

@@ -345,7 +345,37 @@ impl CloudMachineController {
         &self,
         provisioning: &dyn CloudProvisioningPort,
     ) -> Result<CloudUsageSummary, CloudError> {
-        provisioning.usage().await
+        let mut summary = provisioning.usage().await?;
+        self.enrich_storage_usage_names(&mut summary);
+        Ok(summary)
+    }
+
+    fn enrich_storage_usage_names(&self, summary: &mut CloudUsageSummary) {
+        let Some(storage) = summary.storage.as_mut() else {
+            return;
+        };
+        let records = self.machines.lock();
+        for entry in &mut storage.machines {
+            let needs_name = entry
+                .name
+                .as_deref()
+                .map(str::trim)
+                .is_none_or(|name| name.is_empty() || name == entry.machine_id);
+            if !needs_name {
+                continue;
+            }
+            let matched = records.iter().find(|rec| {
+                rec.ownership.provider_machine_id == entry.machine_id
+                    || rec.machine_id == entry.machine_id
+                    || entry
+                        .create_request_id
+                        .as_deref()
+                        .is_some_and(|req_id| rec.create_request_id() == Some(req_id))
+            });
+            if let Some(rec) = matched.filter(|rec| !rec.name.trim().is_empty()) {
+                entry.name = Some(rec.name.clone());
+            }
+        }
     }
 
     pub async fn create(

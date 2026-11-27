@@ -1,11 +1,18 @@
 use std::collections::BTreeSet;
+use std::path::Path;
 use std::time::Duration;
 
 use codeterm_plugin::agent_runtime::RuntimeLoginMethod;
 
-use crate::multiplexer::types::TabType;
-use crate::service::agent_runtime::launch_profile_install::{self, InstallState};
+use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::{Tab, TabBacking, TabType};
+use crate::service::agent_runtime::{
+    authority as runtime_authority, engine as runtime_engine,
+    launch_profile_install::{self, InstallState},
+};
 use crate::service::{MuxEmitCause, ServiceContext};
+
+const CLOUD_SIGNIN_TAB_MARKER: &str = "domios:cloud-provider-sign-in";
 
 use super::types::{
     PrepareProviderSignInItem, PrepareProviderSignInRequest, PrepareProviderSignInResponse,
@@ -87,23 +94,109 @@ fn runtime_method_name(method: &RuntimeLoginMethod) -> &'static str {
     }
 }
 
+fn is_usable_login_tab_candidate(
+    tab: &Tab,
+    provider_id: &str,
+    profile_id: Option<&str>,
+    has_runtime: bool,
+) -> bool {
+    if tab.agent_type.as_deref() != Some(provider_id) {
+        return false;
+    }
+    if !profile_id.is_none_or(|wanted| {
+        crate::service::agent_runtime::launch_profile::of_tab(tab).as_deref() == Some(wanted)
+    }) {
+        return false;
+    }
+    if !tab
+        .cwd
+        .as_deref()
+        .is_some_and(|cwd| !cwd.trim().is_empty())
+    {
+        return false;
+    }
+    if !tab
+        .session_binding_nonce
+        .as_deref()
+        .is_some_and(|nonce| !nonce.trim().is_empty())
+    {
+        return false;
+    }
+    if has_runtime
+        && !matches!(
+            &tab.backing,
+            TabBacking::ChatBackend { plugin_id, .. } if plugin_id == provider_id
+        )
+    {
+        return false;
+    }
+    true
+}
+
 fn find_existing_login_tab(
     svc: &ServiceContext,
     provider_id: &str,
     profile_id: Option<&str>,
 ) -> Option<String> {
-    let mux = svc.mux.read();
-    let found = mux
-        .all_tabs()
-        .find(|tab| {
-            tab.agent_type.as_deref() == Some(provider_id)
-                && profile_id.is_none_or(|wanted| {
-                    crate::service::agent_runtime::launch_profile::of_tab(tab).as_deref()
-                        == Some(wanted)
-                })
-        })
-        .map(|tab| tab.id.clone());
-    found
+    let has_runtime = svc
+        .agent_registry
+        .provider_arc(provider_id)
+        .is_some_and(|provider| provider.agent_runtime().is_some());
+    let candidates: Vec<(String, String, bool)> = {
+        let mux = svc.mux.read();
+        mux.all_tabs()
+            .filter(|tab| is_usable_login_tab_candidate(tab, provider_id, profile_id, has_runtime))
+            .filter_map(|tab| {
+                let nonce = tab.session_binding_nonce.clone()?;
+                let dedicated = tab.description.as_deref() == Some(CLOUD_SIGNIN_TAB_MARKER);
+                Some((tab.id.clone(), nonce, dedicated))
+            })
+            .collect()
+    };
+    let ordered = candidates
+        .iter()
+        .filter(|(_, _, dedicated)| *dedicated)
+        .chain(candidates.iter().filter(|(_, _, dedicated)| !*dedicated));
+    for (tab_id, nonce, _) in ordered {
+        if !has_runtime
+            || runtime_engine::for_tab(tab_id).is_some()
+            || runtime_authority::verifies(svc, tab_id, provider_id, nonce)
+        {
+            return Some(tab_id.clone());
+        }
+    }
+    None
+}
+
+fn signin_working_dir(mux: &MultiplexerState, workspace_id: &str) -> String {
+    let workspace_cwd = mux
+        .list_workspaces()
+        .iter()
+        .find(|ws| ws.id == workspace_id)
+        .and_then(|ws| ws.cwd.clone())
+        .filter(|dir| Path::new(dir).is_dir());
+    if let Some(dir) = workspace_cwd {
+        return dir;
+    }
+    let general_tab_cwd = mux
+        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+        .and_then(|id| mux.get_tab(&id))
+        .and_then(|tab| tab.cwd.clone())
+        .filter(|dir| Path::new(dir).is_dir());
+    if let Some(dir) = general_tab_cwd {
+        return dir;
+    }
+    let general_dir = crate::service::general_agent::general_dir();
+    if general_dir.is_dir() {
+        return general_dir.to_string_lossy().into_owned();
+    }
+    if let Some(home) = dirs::home_dir().filter(|dir| dir.is_dir()) {
+        return home.to_string_lossy().into_owned();
+    }
+    std::env::current_dir()
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Inspects configured providers and compatible launch profiles on this machine using only
@@ -286,28 +379,64 @@ fn ensure_signin_tab_for_provider(
     provider_id: &str,
     profile_id: Option<&str>,
 ) -> Option<String> {
+    let provider = svc.agent_registry.provider_arc(provider_id)?;
+    let has_runtime = provider.agent_runtime().is_some();
+    let has_cli_login = provider.cli_login().is_some();
+    if !has_runtime && !has_cli_login {
+        return None;
+    }
     if let Some(existing) = find_existing_login_tab(svc, provider_id, profile_id) {
         return Some(existing);
     }
-    let mut mux = svc.mux.write();
-    let ws_id = crate::service::general_agent::general_workspace_id(&mux)
-        .or_else(|| mux.list_workspaces().first().map(|ws| ws.id.clone()))?;
-    let tab_id = mux.create_tab(&ws_id).ok()?;
-    let title = match profile_id {
-        Some(profile) => format!("Sign in ({profile})"),
-        None => format!("Sign in ({provider_id})"),
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let tab_id = {
+        let mut mux = svc.mux.write();
+        let ws_id = crate::service::general_agent::general_workspace_id(&mux)
+            .or_else(|| mux.list_workspaces().first().map(|ws| ws.id.clone()))?;
+        let cwd = signin_working_dir(&mux, &ws_id);
+        let tab_id = mux.create_tab(&ws_id).ok()?;
+        let title = match profile_id {
+            Some(profile) => format!("Sign in ({profile})"),
+            None => format!("Sign in ({provider_id})"),
+        };
+        let _ = mux.rename_tab(&tab_id, &title);
+        if let Some(tab) = mux.get_tab_mut(&tab_id) {
+            tab.tab_type = TabType::Choice;
+            tab.hidden = true;
+            tab.show_in_tabbar = false;
+            tab.skip_snapshot = true;
+            tab.agent_type = Some(provider_id.to_owned());
+            tab.description = Some(CLOUD_SIGNIN_TAB_MARKER.into());
+            tab.cwd = Some(cwd);
+            tab.session_binding_nonce = Some(nonce.clone());
+            if let Some(profile) = profile_id {
+                tab.agent_runtime_config = Some(serde_json::json!({ "launchProfile": profile }));
+            }
+            if has_runtime {
+                tab.chat_view = true;
+                tab.backing = TabBacking::ChatBackend {
+                    plugin_id: provider_id.to_owned(),
+                    session_id: String::new(),
+                };
+                tab.agent_runtime_state = Some(serde_json::json!({
+                    "state": "loading",
+                    "epoch": 0,
+                    "auth": "unknown",
+                    "loginBinding": { "nonce": nonce, "epoch": 0 }
+                }));
+            }
+        }
+        tab_id
     };
-    let _ = mux.rename_tab(&tab_id, &title);
-    if let Some(tab) = mux.get_tab_mut(&tab_id) {
-        tab.tab_type = TabType::Choice;
-        tab.agent_type = Some(provider_id.to_owned());
-        tab.description = Some(crate::service::general_agent::FIRST_RUN_TAB_MARKER.into());
-        tab.skip_snapshot = true;
-        if let Some(profile) = profile_id {
-            tab.agent_runtime_config = Some(serde_json::json!({ "launchProfile": profile }));
+    if has_runtime {
+        if let Err(error) = runtime_authority::record_spawn(svc, &tab_id, provider_id, &nonce) {
+            log::warn!(
+                "[cloud-warm-bootstrap] failed to authorize runtime sign-in tab {tab_id} for {provider_id}: {error}"
+            );
+            let _ = svc.close_tab(&tab_id);
+            return None;
         }
     }
-    drop(mux);
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     Some(tab_id)
 }

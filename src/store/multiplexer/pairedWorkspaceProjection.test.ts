@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { RELAY_PROTOCOL_VERSION, type PairedPeer } from "../../lib/types";
-import { pairedAvailability, pairedPeerIdentity } from "./pairedWorkspaceProjection";
+import { FIRST_RUN_GA_TAB_MARKER } from "../../components/AgentPicker/constants";
+import { RELAY_PROTOCOL_VERSION, type MultiplexerState, type PairedPeer, type Tab } from "../../lib/types";
+import {
+  observedGeneralViewers,
+  pairedAvailability,
+  pairedPeerIdentity,
+  projectPairedGeneral,
+} from "./pairedWorkspaceProjection";
 
 const PEER_ID = "3efa6b47-cbad-4243-b381-86e57930319a";
 const INST_ID = "e45c9e4ff42143f0bee45f1f75b11a9c";
@@ -72,5 +78,63 @@ describe("pairedWorkspaceProjection", () => {
     expect(identity.peerId).toBe(PEER_ID);
     expect(identity.name).toBe("quill-fly-124-go");
     expect(identity.installation?.installation_id).toBe(INST_ID);
+  });
+
+  it("keeps a protected first-run Main tab visible in projectPairedGeneral and observedGeneralViewers", () => {
+    const firstRunMain: Tab = {
+      id: "tab-first-run-main",
+      pty_id: null,
+      tab_type: "Choice",
+      title: "Main",
+      description: FIRST_RUN_GA_TAB_MARKER,
+      cwd: "/home/user/.domios/general",
+      agent_type: null,
+      agent_session_id: null,
+      workspace_id: "ws-general",
+      protected: true,
+    };
+    const unprotectedPicker: Tab = {
+      ...firstRunMain,
+      id: "tab-unprotected-picker",
+      title: "Picker",
+      protected: false,
+    };
+    const snapshot: MultiplexerState = {
+      workspaces: [
+        {
+          id: "ws-general",
+          name: "General",
+          cwd: "/home/user/.domios/general",
+          tabs: [firstRunMain.id, unprotectedPicker.id],
+          active_tab_id: firstRunMain.id,
+          protected: true,
+        },
+      ],
+      active_workspace_id: "ws-general",
+      tabs: {
+        [firstRunMain.id]: firstRunMain,
+        [unprotectedPicker.id]: unprotectedPicker,
+      },
+      focused_tab_id: firstRunMain.id,
+    };
+
+    const sessions = projectPairedGeneral(PEER_ID, snapshot);
+    expect(sessions.map((s) => s.tab.id)).toEqual([firstRunMain.id]);
+    expect(sessions[0].viewerId).toBe(`mesh:${PEER_ID}/${firstRunMain.id}`);
+
+    const attachedViewer: Tab = {
+      ...firstRunMain,
+      id: `mesh:${PEER_ID}/${firstRunMain.id}`,
+      workspace_id: "local-general",
+      remote_peer_id: PEER_ID,
+      remote_tab_id: firstRunMain.id,
+    };
+    const viewers = observedGeneralViewers(
+      [{ peerId: PEER_ID, name: "Cloud Box", availability: "online", sessions: [] }],
+      { [attachedViewer.id]: attachedViewer },
+      "local-general",
+    );
+    expect(viewers).toHaveLength(1);
+    expect(viewers[0].session.viewerId).toBe(attachedViewer.id);
   });
 });

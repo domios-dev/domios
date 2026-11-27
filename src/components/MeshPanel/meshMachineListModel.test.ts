@@ -188,4 +188,55 @@ describe("meshMachineListModel", () => {
     expect(filterMeshMachineRows(rows, "1.22.1").map((r) => r.name)).toEqual(["Vacation iMac"]);
     expect(filterMeshMachineRows(rows, "garage").map((r) => r.name)).toEqual(["Garage Pi"]);
   });
+
+  it("uses the cloud machine's own timestamps rather than the owner's older account auth_time", () => {
+    const sevenDaysAgoSec = NOW - 7 * 24 * 3600;
+    const sixHoursAgoSec = NOW - 6 * 3600;
+    const sixHoursAgoMs = sixHoursAgoSec * 1000;
+    const cloudAccountRow = {
+      ...lenovoRow,
+      installation_id: "inst-cloud-fresh",
+      display_name: "fly-fresh",
+      authenticated_at: sevenDaysAgoSec,
+      admitted_at: sixHoursAgoSec,
+    };
+    const state = snapshot({
+      registry: { observed_at: NOW, rows: [selfRow, cloudAccountRow] },
+      pairs: [pair("peer-cloud-fresh", "fly-fresh", { installation_id: "inst-cloud-fresh", online: false })],
+    });
+    const peers: PeerStatus[] = [
+      makePeer("peer-cloud-fresh", "fly-fresh", { online: false, last_seen: null }),
+    ];
+    const cloudMachines: CloudReceipt[] = [
+      makeCloud("cm-fresh", "fly-fresh", "asleep", {
+        installation_id: "inst-cloud-fresh",
+        peer_instance_id: "peer-cloud-fresh",
+        created_at_ms: sixHoursAgoMs,
+        last_seen_at_ms: sixHoursAgoMs,
+      }),
+    ];
+    const canvas = accountCanvas({
+      view: myMachinesView({ account: "signed_in", snapshot: state, now: NOW }),
+      peers,
+      loadFailed: false,
+      listFailed: false,
+      failures: new Map(),
+    });
+    const rows = projectMeshMachineRows({
+      thisMachine: { name: "Studio", ip: "127.0.0.1" },
+      peers,
+      account: {
+        selfName: "Studio",
+        canvas,
+        actions: { onPlans: () => {}, onDismiss: () => {} },
+      },
+      cloudMachines,
+      localVersion: "1.24.0",
+    });
+
+    const cloudRow = rows.find((r) => r.id === "cloud:cm-fresh");
+    expect(cloudRow).toBeDefined();
+    expect(cloudRow?.lastSeenMs).toBe(sixHoursAgoMs);
+    expect(cloudRow?.lastSeenMs).not.toBe(sevenDaysAgoSec * 1000);
+  });
 });

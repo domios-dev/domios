@@ -487,6 +487,7 @@ impl MeshManager {
         if let Some(record) = self.links.links.get_mut(&party.instance_id) {
             record.link_nonce = Some(link_nonce.into());
         }
+        let now_rfc = chrono::Utc::now().to_rfc3339();
         let record = self
             .paired_peers
             .entry(party.instance_id.clone())
@@ -496,8 +497,8 @@ impl MeshManager {
                 addresses: Vec::new(),
                 api_port: peer.api_port,
                 public_key: party.mesh_public_key.clone(),
-                paired_at: chrono::Utc::now().to_rfc3339(),
-                last_seen: None,
+                paired_at: now_rfc.clone(),
+                last_seen: Some(now_rfc.clone()),
                 online: true,
                 is_primary: false,
                 access_level: types::AccessLevel::default(),
@@ -513,6 +514,7 @@ impl MeshManager {
             record.api_port = peer.api_port;
         }
         record.online = true;
+        record.last_seen = Some(now_rfc);
         record.consecutive_misses = 0;
         record.instance_name = peer.instance_name.clone();
         self.save().map_err(AdmissionRefusal::handshake)?;

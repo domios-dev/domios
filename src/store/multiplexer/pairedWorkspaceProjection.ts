@@ -74,8 +74,9 @@ export function observedGeneralViewers(
   }));
   const byPeerId = new Map(peers.map(peer => [peer.peerId, peer]));
   for (const tab of Object.values(tabs)) {
-    if (seen.has(tab.id) || tab.workspace_id !== generalWorkspaceId || !isGeneralAgent(tab)
-      || isFirstRunGeneralTab(tab) || tab.hidden || tab.show_in_tabbar === false) continue;
+    const isPairedMain = isGeneralAgent(tab) || (isFirstRunGeneralTab(tab) && tab.protected === true);
+    if (seen.has(tab.id) || tab.workspace_id !== generalWorkspaceId || !isPairedMain
+      || tab.hidden || tab.show_in_tabbar === false) continue;
     const identity = remoteViewerIdentity(tab);
     const peer = identity && byPeerId.get(identity.peerId);
     if (peer) observed.push({ peer, session: { viewerId: tab.id, tab }, attached: tab });
@@ -102,7 +103,11 @@ function localSessions(peerId: string, snapshot: MultiplexerState, workspace: Wo
 
 export function projectPairedGeneral(peerId: string, snapshot: MultiplexerState): ObservedPeerTab[] {
   const general = snapshot.workspaces.find(workspace => workspace.protected);
-  return general ? localSessions(peerId, snapshot, general).filter(({ tab }) => isGeneralAgent(tab) && !isFirstRunGeneralTab(tab)) : [];
+  // A fresh remote machine may still have a protected first-run Main tab; keep it visible as Main.
+  return general
+    ? localSessions(peerId, snapshot, general).filter(({ tab }) =>
+      isGeneralAgent(tab) || (isFirstRunGeneralTab(tab) && tab.protected === true))
+    : [];
 }
 
 export function deskWorkspaceMembership(

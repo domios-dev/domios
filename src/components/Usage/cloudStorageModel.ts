@@ -135,8 +135,14 @@ export function validateOwnerVolumeUpgrade(
 export function projectCloudStorageMeter(
   summary: CloudStorageUsageSummaryWire,
   currency = "USD",
+  machineNamesById?: ReadonlyMap<string, string>,
 ): CloudStorageMeterSummary {
   const rows: CloudMachineStorageRow[] = summary.machines.map(m => {
+    const rawName = m.name?.trim() || null;
+    const resolvedName =
+      rawName && rawName !== m.machine_id
+        ? rawName
+        : (machineNamesById?.get(m.machine_id)?.trim() || rawName);
     const capacityBytes = m.allocated_gb * 1024 * 1024 * 1024;
     const utilizationPct = m.tier === "hot" && capacityBytes > 0 && typeof m.used_bytes === "number"
       ? Math.min(100, Math.round((m.used_bytes / capacityBytes) * 100))
@@ -153,7 +159,7 @@ export function projectCloudStorageMeter(
 
     return {
       machineId: m.machine_id,
-      machineName: m.name ?? null,
+      machineName: resolvedName,
       tier: m.tier,
       tierLabel: storageTierLabel(m.tier),
       allocatedGb: m.allocated_gb,

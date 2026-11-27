@@ -89,6 +89,80 @@ pub fn loaded_runtime(
     }
 }
 
+pub struct SignedOutRuntimeGuard(String);
+
+impl Drop for SignedOutRuntimeGuard {
+    fn drop(&mut self) {
+        stop_test(&self.0);
+    }
+}
+
+pub fn signed_out_runtime(
+    tab: &Tab,
+    adapter: Arc<dyn crate::agent::provider::AgentProvider>,
+) -> (tokio::io::DuplexStream, SignedOutRuntimeGuard) {
+    let (process, peer) = {
+        let (host, peer) = tokio::io::duplex(4096);
+        let (reader, writer) = tokio::io::split(host);
+        (
+            Arc::new(Process::for_test(super::super::rpc::Client::attach(
+                reader, writer,
+            ))),
+            peer,
+        )
+    };
+    let mut state = RuntimeState::unloaded(tab.agent_session_id.clone());
+    let epoch = state.begin();
+    state.degrade(epoch, &RuntimeFailure::SignInRequired);
+    let session = Arc::new(Session {
+        account: Mutex::new("default".into()),
+        invocation: Mutex::new(None),
+        update_generation: std::sync::atomic::AtomicU64::new(0),
+        update_recovery_available: std::sync::atomic::AtomicBool::new(false),
+        provider: tab.agent_type.clone().unwrap(),
+        adapter: Mutex::new(Some(adapter)),
+        context: Mutex::new(RuntimeContext {
+            restricted_cli: None,
+            host_owned: Default::default(),
+            epoch,
+            tab_id: tab.id.clone(),
+            binding_nonce: tab.session_binding_nonce.clone().unwrap(),
+            thread_id: tab.agent_session_id.clone(),
+            cwd: tab.cwd.clone().unwrap_or_default(),
+            host_version: codeterm_build_info::version().into(),
+            ..Default::default()
+        }),
+        controls_confirmation: Mutex::new(None),
+        control_changes: tokio::sync::watch::channel(()).0,
+        reverted_thread: Mutex::new(None),
+        completions: Mutex::new(Default::default()),
+        state: Mutex::new(state),
+        cache: Mutex::new(Default::default()),
+        auth: Mutex::new(RuntimeAuthState::SignedOut),
+        login: Mutex::new(Default::default()),
+        credential_stamp: Mutex::new(None),
+        thread_loaded: std::sync::atomic::AtomicBool::new(false),
+        stream_progress: tokio::sync::watch::channel(0).0,
+        turn_requests: Mutex::new(HashMap::new()),
+        hook_state: Mutex::new(Value::Null),
+        maps: Mutex::new(super::super::events::RuntimeMaps::default()),
+        provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
+        bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
+        transcript_io: Default::default(),
+        prompts: Mutex::new(HashMap::new()),
+        prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
+        process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
+        gate: tokio::sync::Semaphore::new(1),
+        initialization: Default::default(),
+        compaction: Mutex::new(Default::default()),
+        abort_note: Mutex::new(None),
+        history_retry: Mutex::new(None),
+        capacity_retry: Mutex::new(Default::default()),
+    });
+    SESSIONS.lock().insert(tab.id.clone(), session);
+    (peer, SignedOutRuntimeGuard(tab.id.clone()))
+}
+
 pub fn stop_test(tab: &str) {
     let session = SESSIONS.lock().remove(tab);
     if let Some(session) = session {

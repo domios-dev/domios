@@ -267,6 +267,10 @@ pub struct CloudReceipt {
     pub lease_expires_at_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_tier: Option<CloudStorageTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen_at_ms: Option<u64>,
     pub billing_notice: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
@@ -355,6 +359,15 @@ impl CloudMachineRecord {
                 .auxiliary_resource_ids
                 .get(AUX_KEY_STORAGE_TIER)
                 .and_then(|raw| CloudStorageTier::from_aux_str(raw)),
+            created_at_ms: Some(self.created_at_ms),
+            last_seen_at_ms: Some(
+                self.last_awake_at_ms
+                    .into_iter()
+                    .chain(self.last_owner_interaction_at_ms)
+                    .chain(std::iter::once(self.created_at_ms))
+                    .max()
+                    .unwrap_or(self.created_at_ms),
+            ),
             billing_notice: COST_WARNING_TEXT.into(),
             warning,
             create_phases,

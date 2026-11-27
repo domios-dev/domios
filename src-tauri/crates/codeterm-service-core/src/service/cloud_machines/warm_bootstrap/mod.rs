@@ -6,6 +6,8 @@ pub mod providers;
 pub mod types;
 
 #[cfg(test)]
+mod providers_tests;
+#[cfg(test)]
 mod tests;
 
 pub use apply::{

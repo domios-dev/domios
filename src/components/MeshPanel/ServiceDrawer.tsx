@@ -139,6 +139,7 @@ export function ServiceDrawer({
       <CloudMachineDrawer
         key={machine.machine_id}
         machine={machine}
+        machines={cloudDrawer.machines}
         usage={cloudDrawer.usage}
         planId={cloudDrawer.planId}
         idleSleepMinutes={cloudDrawer.idleSleepMinutes}
@@ -170,6 +171,7 @@ export function ServiceDrawer({
           <CloudMachineDrawer
             key={cloudMatch.machine_id}
             machine={cloudMatch}
+            machines={cloudDrawer.machines}
             usage={cloudDrawer.usage}
             planId={cloudDrawer.planId}
             idleSleepMinutes={cloudDrawer.idleSleepMinutes}
