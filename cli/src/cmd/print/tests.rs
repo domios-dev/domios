@@ -294,3 +294,19 @@ fn human_output_uses_tab_field_names_without_changing_values() {
     assert!(value.get("pane_type").is_none());
     assert!(value.get("parentPaneId").is_none());
 }
+
+#[test]
+fn app_quit_unavailable_message_explains_detached_recovery() {
+    use codeterm_types::app_quit::{QuitOutput, QuitRefusal};
+
+    let msg = format_app_quit_message(&QuitOutput::Refused {
+        reason: QuitRefusal::Unavailable,
+    });
+    assert!(msg.contains("Unavailable"), "{msg}");
+    assert!(msg.contains("Relaunch"), "{msg}");
+
+    let busy = format_app_quit_message(&QuitOutput::Refused {
+        reason: QuitRefusal::Busy,
+    });
+    assert!(busy.contains("Busy"), "{busy}");
+}

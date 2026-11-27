@@ -69,6 +69,17 @@ impl CliError {
             Some(code) => format!("{code}: {detail}"),
             None => detail,
         };
+        let recovery = data
+            .get("recovery")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned);
+        if let Some(ref recovery) = recovery {
+            if data.get("hint").is_none() {
+                data["hint"] = serde_json::json!(recovery);
+            }
+        }
         let startup = data.get("startup").is_some()
             && matches!(
                 data.pointer("/error/code")
@@ -82,6 +93,8 @@ impl CliError {
             format!("✗ {message}\nfix: {hint}")
         } else if detail.is_empty() {
             format!("HTTP {status}")
+        } else if let Some(recovery) = recovery {
+            format!("HTTP {status}: {detail}\nrecovery: {recovery}")
         } else {
             format!("HTTP {status}: {detail}")
         };
@@ -757,6 +770,24 @@ pub fn print_taxonomy(value: &serde_json::Value) {
 #[cfg(test)]
 mod tests;
 
+pub fn format_app_quit_message(output: &codeterm_types::app_quit::QuitOutput) -> String {
+    use codeterm_types::app_quit::{QuitOutput, QuitRefusal};
+    match output {
+        QuitOutput::Confirmed { .. } => {
+            "Application and server exited after successful cleanup.".into()
+        }
+        QuitOutput::Refused {
+            reason: QuitRefusal::Unavailable,
+        } => "Quit refused: Unavailable (the native client attachment is unavailable). Relaunch the Domios app to re-attach, or stop the app and server processes before restarting.".into(),
+        QuitOutput::Refused { reason } => {
+            format!("Quit refused: {reason:?}. No replacement is authorized.")
+        }
+        QuitOutput::Uncertain { reason } => {
+            format!("Quit uncertain: {reason:?}. No replacement is authorized.")
+        }
+    }
+}
+
 pub fn finish_app_quit(output: codeterm_types::app_quit::QuitOutput, json: bool) -> ! {
     use codeterm_types::app_quit::QuitOutput;
     let confirmed = matches!(output, QuitOutput::Confirmed { .. });
@@ -766,17 +797,7 @@ pub fn finish_app_quit(output: codeterm_types::app_quit::QuitOutput, json: bool)
             crate::cmd::output::encode(&output).expect("Quit output serializes")
         );
     } else {
-        match &output {
-            QuitOutput::Confirmed { .. } => {
-                println!("Application and server exited after successful cleanup.")
-            }
-            QuitOutput::Refused { reason } => {
-                println!("Quit refused: {reason:?}. No replacement is authorized.")
-            }
-            QuitOutput::Uncertain { reason } => {
-                println!("Quit uncertain: {reason:?}. No replacement is authorized.")
-            }
-        }
+        println!("{}", format_app_quit_message(&output));
     }
     std::process::exit(if confirmed { 0 } else { 1 });
 }

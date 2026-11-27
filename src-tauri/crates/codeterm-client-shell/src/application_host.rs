@@ -45,6 +45,10 @@ pub trait ServerStop: Send + Sync {
         Err("the exact attached server identity is unavailable".into())
     }
 
+    async fn ensure_attached(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Resolves only after the server process exit was observed.
     async fn stop_server(&self) -> Result<(), ServerStopError>;
 }

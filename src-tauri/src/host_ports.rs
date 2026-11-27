@@ -199,8 +199,14 @@ pub(crate) fn native_webview_diagnostics_snapshot(
     slot.webview_diagnostics_snapshot(generation)
 }
 
+#[derive(Default)]
+struct ServerApiAttachmentState {
+    next_generation: u64,
+    active: Option<(u64, ServerApiAttachment)>,
+}
+
 #[derive(Clone, Default)]
-pub(crate) struct ServerApiAttachmentSlot(Arc<parking_lot::RwLock<Option<ServerApiAttachment>>>);
+pub(crate) struct ServerApiAttachmentSlot(Arc<parking_lot::RwLock<ServerApiAttachmentState>>);
 
 #[derive(Clone)]
 pub(crate) struct ServerApiAttachment {
@@ -211,7 +217,7 @@ pub(crate) struct ServerApiAttachment {
 }
 
 impl ServerApiAttachmentSlot {
-    pub(crate) fn install(&self, ready: ServerReady, token: String) -> Result<(), String> {
+    pub(crate) fn install(&self, ready: ServerReady, token: String) -> Result<u64, String> {
         let Some(api_address) = ready
             .loopback_api_address()
             .filter(|_| !token.trim().is_empty())
@@ -224,26 +230,62 @@ impl ServerApiAttachmentSlot {
             .timeout(SERVER_API_REQUEST_DEADLINE)
             .build()
             .map_err(|error| error.to_string())?;
-        *self.0.write() = Some(ServerApiAttachment {
-            ready,
-            api_address,
-            token,
-            client,
-        });
-        Ok(())
+        let mut state = self.0.write();
+        let generation = state
+            .next_generation
+            .checked_add(1)
+            .ok_or("Server attachment generation space is exhausted")?;
+        state.next_generation = generation;
+        state.active = Some((
+            generation,
+            ServerApiAttachment {
+                ready,
+                api_address,
+                token,
+                client,
+            },
+        ));
+        Ok(generation)
     }
 
     pub(crate) fn current(&self) -> Option<ServerApiAttachment> {
-        self.0.read().clone()
+        self.0
+            .read()
+            .active
+            .as_ref()
+            .map(|(_, attachment)| attachment.clone())
+    }
+
+    pub(crate) fn matches_generation(&self, generation: u64, expected: &ServerReady) -> bool {
+        self.0
+            .read()
+            .active
+            .as_ref()
+            .is_some_and(|(active_gen, active)| {
+                *active_gen == generation && active.ready() == expected
+            })
+    }
+
+    pub(crate) fn clear_if_generation(&self, generation: u64, expected: &ServerReady) -> bool {
+        let mut state = self.0.write();
+        if state.active.as_ref().is_some_and(|(active_gen, active)| {
+            *active_gen == generation && active.ready() == expected
+        }) {
+            state.active.take();
+            true
+        } else {
+            false
+        }
     }
 
     pub(crate) fn clear_if_current(&self, expected: &ServerReady) -> bool {
-        let mut current = self.0.write();
-        if current
+        let mut state = self.0.write();
+        if state
+            .active
             .as_ref()
-            .is_some_and(|active| active.ready() == expected)
+            .is_some_and(|(_, active)| active.ready() == expected)
         {
-            current.take();
+            state.active.take();
             true
         } else {
             false

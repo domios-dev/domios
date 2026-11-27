@@ -10,6 +10,7 @@ use model::{Activation, Frontend};
 pub(crate) struct DesktopLifecycle(Mutex<Frontend>);
 
 pub(crate) fn activate(app: &AppHandle) {
+    crate::host_ports::native_client::ensure_attached_in_background(app);
     let handle = app.clone();
     if let Err(error) = app.run_on_main_thread(move || {
         if let Err(error) = show_or_create(&handle) {

@@ -369,3 +369,20 @@ it.each(["applying", "success"])("retires archived failures when the native upda
     expect(panel.history).toEqual([]);
   } finally { await act(async () => root.unmount()); }
 });
+
+it("displays the typed install handoff failure reason and relaunch recovery", async () => {
+  fake.app.error = JSON.stringify({
+    ok: false,
+    kind: "install_handoff_failed",
+    code: "server_attachment_unavailable",
+    message: "The native host attachment to the Domios server is unavailable; the installer handoff was refused.",
+    recovery: "Relaunch the Domios desktop app and retry the update.",
+  });
+  const offer = { ...runningApp, latest: "1.23.3", state: "update_available", reason: "newer_version" } as const;
+  const { host, dispose } = await renderPanel({ errors: {}, items: [offer] });
+  try {
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("native host attachment");
+    expect(alert?.textContent).toContain("Relaunch the Domios desktop app");
+  } finally { await dispose(); }
+});

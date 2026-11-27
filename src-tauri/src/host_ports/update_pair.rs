@@ -55,7 +55,10 @@ pub(crate) fn install(app: &codeterm_client_shell::app_runtime::AppHandle) {
     app.manage(NativeHostClientSlot::default());
     app.manage(
         codeterm_client_shell::application_host::NativeUpdateApplyState(Arc::new(
-            app.state::<NativeHostClientSlot>().inner().clone(),
+            super::native_client::update::AttachedNativeUpdateApply {
+                app: app.clone(),
+                slot: app.state::<NativeHostClientSlot>().inner().clone(),
+            },
         )),
     );
     app.manage(ServerStopState(Arc::new(AttachedServerStop {
@@ -69,15 +72,16 @@ struct AttachedServerStop {
 
 #[async_trait::async_trait]
 impl ServerStop for AttachedServerStop {
+    async fn ensure_attached(&self) -> Result<(), String> {
+        let _ = super::native_client::recovery::ensure_server_api_attachment(&self.app).await?;
+        self.install_identity().map(|_| ())
+    }
+
     async fn reserve_install_shutdown(
         &self,
         request: codeterm_update::holders::ReserveHolders,
     ) -> Result<String, String> {
-        let api = self
-            .app
-            .try_state::<ServerApiAttachmentSlot>()
-            .and_then(|slot| slot.current())
-            .ok_or("the server attachment is unavailable")?;
+        let api = super::native_client::recovery::ensure_server_api_attachment(&self.app).await?;
         let response = api
             .client
             .post(format!("{}/api/update/reserve", api.api_origin()))
@@ -93,11 +97,7 @@ impl ServerStop for AttachedServerStop {
     }
 
     async fn release_install_shutdown(&self, id: &str) -> Result<(), String> {
-        let api = self
-            .app
-            .try_state::<ServerApiAttachmentSlot>()
-            .and_then(|slot| slot.current())
-            .ok_or("the server attachment is unavailable")?;
+        let api = super::native_client::recovery::ensure_server_api_attachment(&self.app).await?;
         let response = api
             .client
             .post(format!("{}/api/update/release", api.api_origin()))
@@ -117,11 +117,7 @@ impl ServerStop for AttachedServerStop {
         &self,
         processes: Vec<codeterm_update::holders::HolderProcess>,
     ) -> Result<Vec<codeterm_update::holders::HolderTab>, String> {
-        let api = self
-            .app
-            .try_state::<ServerApiAttachmentSlot>()
-            .and_then(|slot| slot.current())
-            .ok_or("the server attachment is unavailable")?;
+        let api = super::native_client::recovery::ensure_server_api_attachment(&self.app).await?;
         api.client
             .post(format!("{}/api/update/holders", api.api_origin()))
             .bearer_auth(api.token())
@@ -189,6 +185,9 @@ impl ServerStop for AttachedServerStop {
             dispatched: false,
             reason,
         };
+        super::native_client::recovery::ensure_server_api_attachment(&self.app)
+            .await
+            .map_err(refused)?;
         let native = self
             .app
             .try_state::<NativeHostClientSlot>()

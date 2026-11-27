@@ -3,7 +3,7 @@ use peer::{validate_challenge, verify_native_peer};
 mod bootstrap;
 mod output_flow;
 mod quit;
-mod recovery;
+pub(super) mod recovery;
 mod startup_log;
 pub(super) mod update;
 #[cfg(test)]
@@ -206,24 +206,24 @@ impl NativeHostClientSlot {
         api: &super::ServerApiAttachmentSlot,
         expected: Option<&codeterm_types::app_quit::QuitSnapshot>,
     ) -> ExactServerShutdownResult {
-        let Some(server_api) = api.current() else {
-            return ExactServerShutdownResult::RefusedBeforeDispatch(
-                ExactServerShutdownRefusal::ApiAttachmentUnavailable,
-            );
-        };
         let Some(client) = self.0.read().clone() else {
             return ExactServerShutdownResult::RefusedBeforeDispatch(
                 ExactServerShutdownRefusal::NativeHostUnavailable,
             );
         };
-        if expected.is_some_and(|expected| !quit::matches(&client, expected, server_api.ready())) {
+        let ready = match api.current() {
+            Some(server_api) => server_api.ready().clone(),
+            None => match recovery::ensure_server_api_attachment(&client.app).await {
+                Ok(server_api) => server_api.ready().clone(),
+                Err(_) => client.ready.clone(),
+            },
+        };
+        if expected.is_some_and(|expected| !quit::matches(&client, expected, &ready)) {
             return ExactServerShutdownResult::RefusedBeforeDispatch(
                 ExactServerShutdownRefusal::ApiAttachmentUnavailable,
             );
         }
-        client
-            .request_exact_server_shutdown(server_api.ready().clone(), api, self)
-            .await
+        client.request_exact_server_shutdown(ready, api, self).await
     }
 
     fn is_current(&self, client: &Arc<NativeHostClient>) -> bool {
@@ -300,6 +300,32 @@ impl NativeHostClientSlot {
             false
         }
     }
+
+    pub(crate) fn has_live_client(&self) -> bool {
+        self.0
+            .read()
+            .as_ref()
+            .is_some_and(|client| !client.retired.load(Ordering::Acquire))
+    }
+
+    pub(super) fn adopt_api_generation_if_same_server(
+        &self,
+        ready: &ServerReady,
+        generation: u64,
+    ) -> bool {
+        let active = self.0.read();
+        if let Some(client) = active.as_ref() {
+            if !client.retired.load(Ordering::Acquire) && &client.ready == ready {
+                client.adopt_api_generation(generation);
+                return true;
+            }
+        }
+        false
+    }
+}
+
+pub(crate) fn ensure_attached_in_background(app: &AppHandle) {
+    recovery::ensure_attached_in_background(app);
 }
 
 pub(crate) async fn initialize_client(
@@ -387,7 +413,7 @@ async fn initialize_client_once(
         .inner()
         .clone();
     startup_started(ClientStartupStage::ApiAttachment);
-    api.install(reply.ready.clone(), token)?;
+    let api_generation = api.install(reply.ready.clone(), token)?;
 
     if app.try_state::<NativeHostClientSlot>().is_none() {
         let _ = app.manage(NativeHostClientSlot::default());
@@ -400,26 +426,45 @@ async fn initialize_client_once(
         .unwrap_or_default();
 
     startup_started(ClientStartupStage::NativeEnrollment);
-    let native = match connect_native_host(
+    let first = connect_native_host(
         app.clone(),
         &verified,
         &reply.ready,
-        allowed_origins,
+        api_generation,
+        allowed_origins.clone(),
         diagnostics_mode,
     )
-    .await
-    {
+    .await;
+    let connected = match first {
+        Ok(pair) => Ok(pair),
+        Err(error) if error.retryable() => {
+            // Re-inspecting nudges the server to rebind a missing native socket before one retry.
+            let _ = bootstrap::attach_or_launch(&verified, false).await;
+            connect_native_host(
+                app.clone(),
+                &verified,
+                &reply.ready,
+                api_generation,
+                allowed_origins,
+                diagnostics_mode,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
+    let native = match connected {
         Ok((client, stream)) => {
             slot.replace(client.clone());
             tauri::async_runtime::spawn(async move {
                 client.clone().run(stream).await;
-                recovery::disconnected(&slot, &client);
+                recovery::disconnected(&slot, &client).await;
             });
             NativeClientStatus::Attached
         }
         Err(error) => {
+            slot.adopt_api_generation_if_same_server(&reply.ready, api_generation);
             startup_refused(ClientStartupStage::NativeEnrollment);
-            log::debug!("[native-client] optional host attachment unavailable: {error}");
+            log::warn!("[native-client] optional host attachment unavailable: {error}");
             NativeClientStatus::NativeHostUnavailable {
                 message: error.message().into(),
                 retryable: error.retryable(),
@@ -446,6 +491,7 @@ async fn connect_native_host(
     app: AppHandle,
     install: &VerifiedClientInstall,
     ready: &ServerReady,
+    api_attachment_generation: u64,
     allowed_view_origins: HashSet<String>,
     diagnostics_mode: crate::LocalWebviewDiagnosticsMode,
 ) -> Result<(Arc<NativeHostClient>, Stream), ClientStartupFailure> {
@@ -468,8 +514,13 @@ async fn connect_native_host(
 
     let challenge_frame: Frame = timeout(REQUEST_DEADLINE, read_frame(&mut stream))
         .await
-        .map_err(|_| "Native-host challenge deadline elapsed".to_string())?
-        .map_err(|error| error.to_string())?;
+        .map_err(|_| {
+            ClientStartupFailure::native_connection(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Native-host challenge deadline elapsed",
+            ))
+        })?
+        .map_err(ClientStartupFailure::native_connection)?;
     let NativeHostFrame::Challenge(challenge) = challenge_frame else {
         return Err("Native host did not begin with an enrollment challenge".into());
     };
@@ -489,13 +540,23 @@ async fn connect_native_host(
         ),
     )
     .await
-    .map_err(|_| "Native-host enrollment write deadline elapsed".to_string())?
-    .map_err(|error| error.to_string())?;
+    .map_err(|_| {
+        ClientStartupFailure::native_connection(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Native-host enrollment write deadline elapsed",
+        ))
+    })?
+    .map_err(ClientStartupFailure::native_connection)?;
 
     let enrollment_frame: Frame = timeout(REQUEST_DEADLINE, read_frame(&mut stream))
         .await
-        .map_err(|_| "Native-host enrollment deadline elapsed".to_string())?
-        .map_err(|error| error.to_string())?;
+        .map_err(|_| {
+            ClientStartupFailure::native_connection(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Native-host enrollment deadline elapsed",
+            ))
+        })?
+        .map_err(ClientStartupFailure::native_connection)?;
     let NativeHostFrame::Enrolled(enrollment) = enrollment_frame else {
         return Err("Native host did not acknowledge enrollment".into());
     };
@@ -518,6 +579,7 @@ async fn connect_native_host(
     let client = Arc::new(NativeHostClient {
         app,
         connection: challenge.connection,
+        api_attachment_generation: AtomicU64::new(api_attachment_generation),
         server_process,
         ready: ready.clone(),
         manifest: install.manifest.clone(),
@@ -553,6 +615,7 @@ async fn connect_native_host(
 struct NativeHostClient {
     app: AppHandle,
     connection: NativeHostConnection,
+    api_attachment_generation: AtomicU64,
     server_process: Arc<PinnedProcess>,
     ready: ServerReady,
     manifest: ServerComponentManifest,
@@ -576,6 +639,15 @@ struct NativeHostClient {
 }
 
 impl NativeHostClient {
+    pub(super) fn api_generation(&self) -> u64 {
+        self.api_attachment_generation.load(Ordering::Acquire)
+    }
+
+    pub(super) fn adopt_api_generation(&self, generation: u64) {
+        self.api_attachment_generation
+            .store(generation, Ordering::Release);
+    }
+
     fn bind_observed_view(
         &self,
         url: &Url,

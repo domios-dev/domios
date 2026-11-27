@@ -283,6 +283,8 @@ impl ClientStartupFailure {
             io::ErrorKind::NotFound
                 | io::ErrorKind::ConnectionRefused
                 | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::BrokenPipe
+                | io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::TimedOut
         );
         Self {
@@ -948,7 +950,8 @@ impl super::NativeHostClient {
                     || !slot.is_current(self)
                     || api
                         .current()
-                        .is_none_or(|attachment| attachment.ready() != &api_ready)
+                        .is_some_and(|attachment| attachment.ready() != &api_ready)
+                    || self.ready != api_ready
                     || self.server_process.ensure_alive().is_err()
                 {
                     Err(HelperFailure::PreDispatch(

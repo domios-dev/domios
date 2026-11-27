@@ -108,3 +108,20 @@ assert.deepEqual(blockingUpdateTabs(refusal), [blocker]);
 assert.equal(classifyUpdateFailure(refusal).message, "Update blocked by busy tabs: Build in Project: node long-task.js");
 assert.deepEqual(blockingUpdateTabs("[update-blocking-tabs]broken"), []);
 assert.deepEqual(blockingUpdateTabs('[update-blocking-tabs][{"tab_id":42}]'), []);
+
+const attachmentLoss = classifyUpdateFailure("the server attachment is unavailable");
+assert.match(attachmentLoss.message, /native host attachment/i);
+assert.match(attachmentLoss.recovery ?? "", /Relaunch/i);
+assert.equal(attachmentLoss.channelUnavailable, false);
+
+const typedWire = JSON.stringify({
+  ok: false,
+  kind: "install_handoff_failed",
+  code: "server_attachment_unavailable",
+  message: "The native host attachment to the Domios server is unavailable; the installer handoff was refused.",
+  recovery: "Relaunch the Domios desktop app and retry the update.",
+});
+const classifiedWire = classifyUpdateFailure(new Error(typedWire));
+assert.equal(classifiedWire.message, "The native host attachment to the Domios server is unavailable; the installer handoff was refused.");
+assert.equal(classifiedWire.recovery, "Relaunch the Domios desktop app and retry the update.");
+console.log("typed handoff and server attachment failure classification: passed");

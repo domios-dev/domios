@@ -702,3 +702,65 @@ fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetim
     endpoint.active.write().take();
     assert_eq!(endpoint.cdp_port(), None);
 }
+
+#[test]
+fn transient_accept_errors_never_kill_the_native_host_listener() {
+    use super::listener::is_transient_accept_error;
+    use std::io::{Error, ErrorKind};
+
+    for kind in [
+        ErrorKind::WouldBlock,
+        ErrorKind::Interrupted,
+        ErrorKind::ConnectionAborted,
+        ErrorKind::ConnectionReset,
+        ErrorKind::TimedOut,
+    ] {
+        assert!(is_transient_accept_error(&Error::from(kind)), "{kind:?}");
+    }
+    assert!(!is_transient_accept_error(&Error::from(
+        ErrorKind::PermissionDenied
+    )));
+    assert!(!is_transient_accept_error(&Error::from(
+        ErrorKind::InvalidInput
+    )));
+}
+
+#[test]
+fn fresh_client_replaces_dead_or_closed_session_while_live_owner_is_preserved() {
+    use super::listener::can_replace_active_session;
+
+    // A live, active different process still owns the instance.
+    assert!(!can_replace_active_session(false, false, true, false));
+    // Re-attachment from the same process is allowed.
+    assert!(can_replace_active_session(false, false, true, true));
+    // A fresh app can replace a retired, disconnected, or exited prior app.
+    assert!(can_replace_active_session(true, false, true, false));
+    assert!(can_replace_active_session(false, true, true, false));
+    assert!(can_replace_active_session(false, false, false, false));
+}
+
+#[test]
+fn quit_client_detaches_retired_or_closed_session_to_allow_headless_exact_quit() {
+    let directory = tempfile::tempdir().unwrap();
+    let (manifest, ready) = server_fixture(
+        directory.path().join("server-fixture.bin"),
+        b"server fixture image",
+    );
+    let endpoint = NativeHostEndpoint::<String, String> {
+        output_service: Arc::default(),
+        active: Arc::new(RwLock::new(None)),
+        active_generation: Arc::new(AtomicU64::new(9)),
+        attached_once: Arc::new(AtomicBool::new(true)),
+        next_request_id: Arc::new(AtomicU64::new(1)),
+        next_event_id: Arc::new(AtomicU64::new(1)),
+        ready,
+        manifest,
+    };
+    let client = session(None);
+    client.retire(NativeHostUncertainty::DisconnectedAfterDispatch);
+    *endpoint.active.write() = Some(client);
+
+    // A dead/retired native session must detach cleanly instead of refusing exact quit.
+    assert_eq!(endpoint.quit_client(), Ok(None));
+    assert!(endpoint.active.read().is_none());
+}

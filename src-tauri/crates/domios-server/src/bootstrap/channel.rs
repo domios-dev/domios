@@ -138,6 +138,15 @@ pub async fn serve(
     ready: ServerReady,
     token: Option<String>,
 ) -> io::Result<ShutdownCompletion> {
+    serve_with_inspect_hook(listener, ready, token, None).await
+}
+
+pub(crate) async fn serve_with_inspect_hook(
+    listener: Listener,
+    ready: ServerReady,
+    token: Option<String>,
+    on_inspect: Option<tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<()>>>,
+) -> io::Result<ShutdownCompletion> {
     let ready = Arc::new(ready);
     let (shutdown, mut stopped) = tokio::sync::mpsc::channel(1);
     loop {
@@ -148,9 +157,11 @@ pub async fn serve(
         let ready = ready.clone();
         let token = token.clone();
         let shutdown = shutdown.clone();
+        let on_inspect = on_inspect.clone();
         tokio::spawn(async move {
             if let Ok(Ok(Some(completion))) =
-                tokio::time::timeout(FAILURE_DEADLINE, reply(stream, &ready, token)).await
+                tokio::time::timeout(FAILURE_DEADLINE, reply(stream, &ready, token, on_inspect))
+                    .await
             {
                 let _ = shutdown.try_send(completion);
             }
@@ -162,12 +173,21 @@ async fn reply(
     mut stream: Stream,
     ready: &ServerReady,
     token: Option<String>,
+    on_inspect: Option<tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<()>>>,
 ) -> io::Result<Option<ShutdownCompletion>> {
     let peer = pin_peer(&stream)?;
     verify_peer(&peer, &ready.process.executable)?;
     let request: AttachRequest = read_frame(&mut stream).await?;
     validate_attach(&request, ready)?;
     peer.ensure_alive()?;
+    if request.operation == BootstrapOperation::Inspect {
+        if let Some(ensure_listener) = on_inspect {
+            let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+            if ensure_listener.try_send(ack_tx).is_ok() {
+                let _ = tokio::time::timeout(FAILURE_DEADLINE, ack_rx).await;
+            }
+        }
+    }
     let response = AttachReply {
         challenge: request.challenge,
         ready: ready.clone(),

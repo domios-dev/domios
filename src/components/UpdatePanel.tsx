@@ -100,7 +100,7 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
           </section>
         ))}
         {(update.checking || update.checkResult) && <div role="status" aria-label="Update check result" className="text-[11px] text-[var(--ct-muted-fg)]">{update.checking ? "Checking for updates..." : update.checkResult}</div>}
-        {update.error && <InlineErrorNotice description={{ title: `${update.rows.filter(row => row.state === "failed").map(row => row.name).join(", ") || "Update"} could not complete`, cause: `${update.error} Check again, then apply the available update.`, actions: ["retry"], raw: update.errorDetails ?? update.error }} blocking />}
+        {update.error && <InlineErrorNotice description={{ title: `${update.rows.filter(row => row.state === "failed").map(row => row.name).join(", ") || "Update"} could not complete`, cause: `${update.error} ${update.errorRecovery ?? "Check again, then apply the available update."}`, actions: ["retry"], raw: update.errorDetails ?? update.error }} blocking />}
         {update.history.length > 0 && <details className="text-[11px] text-[var(--ct-muted-fg)]"><summary className="cursor-pointer hover:text-[var(--ct-fg)]">Previous update failures</summary>{update.history.map((failure, index) => <InlineErrorNotice key={index} description={{ title: "Previous update failed", cause: failure.message, raw: failure.details, actions: [] }} />)}</details>}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-[11px] text-[var(--ct-muted-fg)]">{message}</div>)}
         {update.checkDetails.length > 0 && <details aria-label="Update check details" className="text-[11px] text-[var(--ct-muted-fg)]">

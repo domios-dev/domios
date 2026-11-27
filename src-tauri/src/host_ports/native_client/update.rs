@@ -3,22 +3,26 @@ use codeterm_client_shell::application_host::{
     DesktopApplicationHost, ServerStop, ServerStopError, ServerStopState,
 };
 use codeterm_types::native_update::apply::{
-    NativeUpdateApplyOptions, NativeUpdateApplyPhase as Phase, NativeUpdateApplyResult,
+    InstallHandoffFailure, NativeUpdateApplyOptions, NativeUpdateApplyPhase as Phase,
+    NativeUpdateApplyResult,
 };
 use codeterm_update::{native_handoff::NativeUpdateHandoff, single_flight, UpdateStateHandle};
 
+pub(in crate::host_ports) struct AttachedNativeUpdateApply {
+    pub(in crate::host_ports) app: AppHandle,
+    pub(in crate::host_ports) slot: super::NativeHostClientSlot,
+}
+
 #[async_trait::async_trait]
-impl codeterm_client_shell::application_host::NativeUpdateApply for super::NativeHostClientSlot {
+impl codeterm_client_shell::application_host::NativeUpdateApply for AttachedNativeUpdateApply {
     async fn apply(&self, channel: codeterm_update::Channel) -> Result<serde_json::Value, String> {
         use codeterm_types::native_update::{
             ExpectedServer, NativeUpdateAction, NativeUpdateOperationId,
         };
         use codeterm_types::server_bootstrap::ServerExpectation;
-        let client = self
-            .0
-            .read()
-            .clone()
-            .ok_or("the native host is unavailable")?;
+        let client = super::recovery::ensure_native_client_attachment(&self.app, &self.slot)
+            .await
+            .map_err(|error| InstallHandoffFailure::classify(&error).to_wire_string())?;
         let request = NativeUpdateRequest {
             operation_id: NativeUpdateOperationId::new(uuid::Uuid::new_v4())
                 .ok_or("native update operation identity is unavailable")?,
@@ -57,9 +61,10 @@ impl codeterm_client_shell::application_host::NativeUpdateApply for super::Nativ
             }
             Err(NativeHostRejection::UpdateAdmission { reason }) => return Err(reason.error()),
             Err(reason) => {
-                return Err(format!(
+                return Err(InstallHandoffFailure::classify(&format!(
                     "native updater refused before admission: {reason:?}"
                 ))
+                .to_wire_string())
             }
         };
         loop {
@@ -72,7 +77,9 @@ impl codeterm_client_shell::application_host::NativeUpdateApply for super::Nativ
                         }
                     ))
                 }
-                Phase::Failed { message } => return Err(message),
+                Phase::Failed { message } => {
+                    return Err(InstallHandoffFailure::classify(&message).to_wire_string())
+                }
                 Phase::Relaunching | Phase::Verified { .. } => {
                     return Ok(serde_json::json!(
                         codeterm_update::contracts::InstallResponse {
@@ -83,8 +90,15 @@ impl codeterm_client_shell::application_host::NativeUpdateApply for super::Nativ
                 }
                 _ => {}
             }
-            result = client.observe_update(result.operation_id, result.sequence).await
-                .map_err(|reason| format!("native update observation unavailable: {reason:?}; execution was not replayed"))?;
+            result = client
+                .observe_update(result.operation_id, result.sequence)
+                .await
+                .map_err(|reason| {
+                    InstallHandoffFailure::classify(&format!(
+                        "native update observation unavailable: {reason:?}; execution was not replayed"
+                    ))
+                    .to_wire_string()
+                })?;
         }
     }
 }
@@ -395,6 +409,10 @@ impl ServerStop for UpdateServerStop {
         &self,
     ) -> Result<codeterm_client_shell::application_host::AttachedServerIdentity, String> {
         self.inner.install_identity()
+    }
+
+    async fn ensure_attached(&self) -> Result<(), String> {
+        self.inner.ensure_attached().await
     }
 
     async fn prepare_update(&self, version: &str) -> Result<(), String> {

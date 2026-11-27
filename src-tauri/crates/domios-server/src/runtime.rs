@@ -332,9 +332,15 @@ pub fn run(
     let mut running = None;
     let control_result = continue_after_ack(acknowledgement, || {
         runtime.block_on(async {
-            let control = channel::serve(listener, ready, token);
+            let (rebind_tx, rebind_rx) = if native_server.is_some() {
+                let (tx, rx) = tokio::sync::mpsc::channel(8);
+                (Some(tx), Some(rx))
+            } else {
+                (None, None)
+            };
+            let control = channel::serve_with_inspect_hook(listener, ready, token, rebind_tx);
             tokio::pin!(control);
-            let native = serve_native(native_server, native_events);
+            let native = serve_native(native_server, native_events, rebind_rx);
             tokio::pin!(native);
             let orphaned = async {
                 if let Some(owner) = development_owner {
@@ -506,10 +512,14 @@ fn continue_after_ack<T>(
     serve()
 }
 
-async fn serve_native(server: Option<NativeServer>, events: NativeEventPort) -> io::Result<()> {
+async fn serve_native(
+    server: Option<NativeServer>,
+    events: NativeEventPort,
+    rebind_checks: Option<tokio::sync::mpsc::Receiver<tokio::sync::oneshot::Sender<()>>>,
+) -> io::Result<()> {
     if let Some(server) = server {
-        if let Err(error) = server.serve().await {
-            log::debug!("[native-host] listener unavailable; headless service retained: {error}");
+        if let Err(error) = server.serve_with_rebind(rebind_checks).await {
+            log::warn!("[native-host] listener unavailable; headless service retained: {error}");
         }
         *events.write() = None;
     }

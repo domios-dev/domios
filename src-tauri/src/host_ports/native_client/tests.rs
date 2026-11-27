@@ -98,6 +98,7 @@ fn output_flow_queue_full_preserves_the_native_client_and_view() {
     let client = Arc::new(NativeHostClient {
         app: app.handle().clone(),
         connection,
+        api_attachment_generation: AtomicU64::new(1),
         server_process: process,
         ready,
         manifest,

@@ -195,12 +195,61 @@ fn install_with_withdrawal(
     }
 }
 
+#[cfg(test)]
 fn update_failure_message(raw: &str) -> String {
     let raw = raw.split("\n[update-blocking-tabs]").next().unwrap_or(raw);
+    if let Some(failure) =
+        codeterm_types::native_update::apply::InstallHandoffFailure::from_wire(raw)
+    {
+        return failure.message;
+    }
     codeterm_types::native_update::apply::NativeUpdateAdmissionRefusal::from_error(raw)
         .map(|reason| reason.message())
         .unwrap_or(raw)
         .to_string()
+}
+
+fn format_update_failure(raw: &str) -> String {
+    let failure = codeterm_types::native_update::apply::InstallHandoffFailure::classify(raw);
+    format!(
+        "Update failed ({}): {}\nrecovery: {}",
+        failure.code.as_str(),
+        failure.message,
+        failure.recovery
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum LocalInstallResponseFailure {
+    None,
+    Failed(codeterm_types::native_update::apply::InstallHandoffFailure),
+}
+
+fn check_local_install_response(body: &serde_json::Value) -> LocalInstallResponseFailure {
+    let status = body["status"].as_str().unwrap_or_default();
+    let failed = body.get("ok").and_then(serde_json::Value::as_bool) == Some(false)
+        || body["phase"].as_str() == Some("error")
+        || matches!(
+            status,
+            "error" | "failed" | "blocked" | "elevation_required"
+        );
+    if !failed {
+        return LocalInstallResponseFailure::None;
+    }
+    if let Ok(existing) = serde_json::from_value::<
+        codeterm_types::native_update::apply::InstallHandoffFailure,
+    >(body.clone())
+    {
+        return LocalInstallResponseFailure::Failed(existing);
+    }
+    let raw = body["message"]
+        .as_str()
+        .or_else(|| body["last_error"].as_str())
+        .or_else(|| body["error"].as_str())
+        .unwrap_or(status);
+    LocalInstallResponseFailure::Failed(
+        codeterm_types::native_update::apply::InstallHandoffFailure::classify(raw),
+    )
 }
 
 fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
@@ -215,7 +264,7 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
             Ok(resp) if resp.status().is_success() => {
                 let body: serde_json::Value = resp.json().unwrap_or_default();
                 let phase = body["phase"].as_str().unwrap_or("idle").to_string();
-                let err = update_failure_message(body["last_error"].as_str().unwrap_or(""));
+                let raw_err = body["last_error"].as_str().unwrap_or("");
                 if phase != last_phase {
                     println!("phase: {}", phase);
                     last_phase = phase.clone();
@@ -229,7 +278,15 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
                         crate::cmd::print::fail(2, "Update completion is unverified: the daemon has no matching replacement-version receipt. Run domios update status after restart.");
                     }
                     "error" => {
-                        crate::cmd::print::fail(1, format!("Update failed: {}", if err.is_empty() { "(no detail)" } else { &err }));
+                        let failure = codeterm_types::native_update::apply::InstallHandoffFailure::classify(raw_err);
+                        crate::cmd::print::fail_with(
+                            1,
+                            &crate::cmd::print::CliError {
+                                message: format_update_failure(raw_err),
+                                code: None,
+                                data: Some(failure.to_api_json()),
+                            },
+                        );
                     }
                     "idle" => {
                         if body["native_update"]["phase"]["phase"] == "no_update" {
@@ -497,6 +554,23 @@ pub fn handle_update(
             match http.post(&url).send() {
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
+                    if let LocalInstallResponseFailure::Failed(failure) =
+                        check_local_install_response(&body)
+                    {
+                        crate::cmd::print::fail_with(
+                            1,
+                            &crate::cmd::print::CliError {
+                                message: format!(
+                                    "Update failed ({}): {}\nrecovery: {}",
+                                    failure.code.as_str(),
+                                    failure.message,
+                                    failure.recovery
+                                ),
+                                code: None,
+                                data: Some(failure.to_api_json()),
+                            },
+                        );
+                    }
                     if json {
                         println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
                         return;
