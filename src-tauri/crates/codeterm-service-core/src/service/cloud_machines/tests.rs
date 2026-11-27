@@ -772,7 +772,8 @@ async fn busy_guard_renews_credit_lease_by_deadline_and_refused_renewal_finishes
     assert_eq!(prov.sleep_calls.load(Ordering::SeqCst), 1);
     assert_eq!(ctrl.list()[0].state, CloudLifecycleState::OutOfCredits);
 
-    // Wake and auto placement are refused with credits_exhausted until topped up.
+    // Wake asks the backend for fresh credits; with none left it stays refused until topped up.
+    prov.usage.lock().remaining = 0.0;
     let wake_err = ctrl
         .wake(
             &created.machine_id,
