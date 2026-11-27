@@ -1,0 +1,227 @@
+{
+  "now": 1800000000,
+  "local_installation_id": "inst-self",
+  "cloud_machines": [
+    {
+      "machine_id": "cm-awake",
+      "name": "workhorse-a",
+      "provider": "fly_machines",
+      "size": "small",
+      "state": "awake",
+      "sleep_mode": "stop_billed",
+      "installation_id": "inst-cloud-awake",
+      "peer_instance_id": "peer-cloud-awake",
+      "storage_tier": "hot"
+    },
+    {
+      "machine_id": "cm-asleep",
+      "name": "quill-fly-124-warm",
+      "provider": "fly_machines",
+      "size": "small",
+      "state": "asleep",
+      "sleep_mode": "stop_billed",
+      "installation_id": "880cbbeedc6f433f8f332c9af20bc8c8",
+      "peer_instance_id": null,
+      "storage_tier": "hot"
+    },
+    {
+      "machine_id": "cm-cold",
+      "name": "vault-box",
+      "provider": "fly_machines",
+      "size": "small",
+      "state": "asleep",
+      "sleep_mode": "stop_billed",
+      "installation_id": "inst-cloud-cold",
+      "peer_instance_id": null,
+      "storage_tier": "cold"
+    },
+    {
+      "machine_id": "cm-draining",
+      "name": "worker-drain",
+      "provider": "fly_machines",
+      "size": "small",
+      "state": "draining",
+      "sleep_mode": "stop_billed",
+      "installation_id": "inst-cloud-draining",
+      "peer_instance_id": null,
+      "storage_tier": "hot"
+    },
+    {
+      "machine_id": "cm-waking",
+      "name": "booting-node",
+      "provider": "fly_machines",
+      "size": "small",
+      "state": "waking",
+      "sleep_mode": "stop_billed",
+      "installation_id": null,
+      "peer_instance_id": "peer-cloud-waking",
+      "storage_tier": "hot"
+    },
+    {
+      "machine_id": "cm-deleted",
+      "name": "old-cloud-deleted",
+      "provider": "fly_machines",
+      "size": "small",
+      "state": "deleted",
+      "sleep_mode": "stop_billed",
+      "installation_id": "inst-cloud-deleted",
+      "peer_instance_id": null,
+      "storage_tier": "recoverable_deleted"
+    },
+    {
+      "machine_id": "cm-purged",
+      "name": "old-cloud-purged",
+      "provider": "fly_machines",
+      "size": "small",
+      "state": "asleep",
+      "sleep_mode": "stop_billed",
+      "installation_id": "inst-cloud-purged",
+      "peer_instance_id": null,
+      "storage_tier": "purged"
+    }
+  ],
+  "pair_bindings": [
+    ["inst-cloud-waking", "peer-cloud-waking"]
+  ],
+  "registry_rows": [
+    {
+      "installation_id": "inst-self",
+      "display_name": "This-PC",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1797408000,
+      "membership_expires_at": 1799999900,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-ordinary-online",
+      "display_name": "Studio",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1799999940,
+      "membership_expires_at": 1800003600,
+      "endpoint_expires_at": 1800001800,
+      "online": true
+    },
+    {
+      "installation_id": "inst-cloud-awake",
+      "display_name": "workhorse-a",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1799992800,
+      "membership_expires_at": 1799996400,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "880cbbeedc6f433f8f332c9af20bc8c8",
+      "display_name": "quill-fly-124-warm",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1799985600,
+      "membership_expires_at": 1799989200,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-cloud-cold",
+      "display_name": "vault-box",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1797408000,
+      "membership_expires_at": 1797411600,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-cloud-draining",
+      "display_name": "worker-drain",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1799982000,
+      "membership_expires_at": 1799985600,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-cloud-waking",
+      "display_name": "booting-node",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1799978400,
+      "membership_expires_at": 1799982000,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-cloud-purged",
+      "display_name": "old-cloud-purged",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1798790400,
+      "membership_expires_at": null,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-ordinary-stale",
+      "display_name": "fly-ordinary-laptop",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1799740800,
+      "membership_expires_at": 1799740800,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-cloud-deleted",
+      "display_name": "old-cloud-deleted",
+      "active": true,
+      "presence": "present",
+      "authenticated_at": 1799827200,
+      "membership_expires_at": 1799827200,
+      "endpoint_expires_at": null,
+      "online": false
+    },
+    {
+      "installation_id": "inst-ordinary-signed-out",
+      "display_name": "Old Mac",
+      "active": true,
+      "presence": "signed_out",
+      "authenticated_at": 1799996400,
+      "membership_expires_at": null,
+      "endpoint_expires_at": null,
+      "online": false
+    }
+  ],
+  "expected_selected": [
+    {
+      "installation_id": "inst-cloud-purged",
+      "display_name": "old-cloud-purged",
+      "reason": "unreachable"
+    },
+    {
+      "installation_id": "inst-ordinary-stale",
+      "display_name": "fly-ordinary-laptop",
+      "reason": "membership_expired"
+    },
+    {
+      "installation_id": "inst-cloud-deleted",
+      "display_name": "old-cloud-deleted",
+      "reason": "membership_expired"
+    },
+    {
+      "installation_id": "inst-ordinary-signed-out",
+      "display_name": "Old Mac",
+      "reason": "signed_out"
+    }
+  ],
+  "expected_excluded_cloud_ids": [
+    "880cbbeedc6f433f8f332c9af20bc8c8",
+    "inst-cloud-awake",
+    "inst-cloud-cold",
+    "inst-cloud-draining",
+    "inst-cloud-waking"
+  ]
+}

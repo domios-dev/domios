@@ -455,3 +455,103 @@ fn malformed_callable_routes_are_refused_by_pure_pre_send_resolution() {
         }
     }
 }
+
+#[tokio::test]
+async fn remove_stale_installations_decodes_skipped_cloud_machine_and_preserves_three_field_rows() {
+    let reply = json!({
+        "result": {
+            "schema_version": 1,
+            "registry_revision": 9,
+            "removed_count": 1,
+            "already_removed_count": 1,
+            "skipped_count": 3,
+            "results": [
+                {
+                    "installation_id": "880cbbeedc6f433f8f332c9af20bc8c8",
+                    "status": "skipped",
+                    "slot_revision": 2,
+                    "reason": "cloud_machine"
+                },
+                {
+                    "installation_id": "inst-ordinary-stale",
+                    "status": "removed",
+                    "slot_revision": 3
+                },
+                {
+                    "installation_id": "inst-gone",
+                    "status": "already_removed",
+                    "slot_revision": 4
+                },
+                {
+                    "installation_id": "inst-self",
+                    "status": "refused_self",
+                    "slot_revision": 1
+                },
+                {
+                    "installation_id": "inst-online",
+                    "status": "refused_online",
+                    "slot_revision": 5
+                },
+                {
+                    "installation_id": "inst-missing",
+                    "status": "not_found",
+                    "slot_revision": null
+                }
+            ]
+        }
+    });
+    let registry = registry(Ok(reply));
+    let request = BatchRemoveRequest {
+        schema_version: MESH_SCHEMA_VERSION,
+        installation_id: "inst-self".into(),
+        request_id: "req-1".into(),
+        installation_ids: vec![
+            "880cbbeedc6f433f8f332c9af20bc8c8".into(),
+            "inst-ordinary-stale".into(),
+        ],
+    };
+    let decoded = registry
+        .remove_stale_installations(&session("user-1"), &request)
+        .await
+        .expect("decode removeStaleAccountInstallations reply with skipped cloud_machine");
+
+    assert_eq!(decoded.schema_version, 1);
+    assert_eq!(decoded.registry_revision, 9);
+    assert_eq!(decoded.removed_count, 1);
+    assert_eq!(decoded.already_removed_count, 1);
+    assert_eq!(decoded.skipped_count, 3);
+    assert_eq!(
+        decoded.results[0],
+        BatchRemoveRowResult {
+            installation_id: "880cbbeedc6f433f8f332c9af20bc8c8".into(),
+            status: BatchRemoveRowStatus::Skipped,
+            slot_revision: Some(2),
+            reason: Some("cloud_machine".into()),
+        }
+    );
+    assert_eq!(
+        decoded.results[1],
+        BatchRemoveRowResult {
+            installation_id: "inst-ordinary-stale".into(),
+            status: BatchRemoveRowStatus::Removed,
+            slot_revision: Some(3),
+            reason: None,
+        }
+    );
+    assert_eq!(
+        decoded.results[2].status,
+        BatchRemoveRowStatus::AlreadyRemoved
+    );
+    assert_eq!(decoded.results[3].status, BatchRemoveRowStatus::RefusedSelf);
+    assert_eq!(
+        decoded.results[4].status,
+        BatchRemoveRowStatus::RefusedOnline
+    );
+    assert_eq!(decoded.results[5].status, BatchRemoveRowStatus::NotFound);
+
+    // Existing statuses keep exactly 3 serialized fields (omitting absent reason).
+    let serialized_removed = serde_json::to_value(&decoded.results[1]).unwrap();
+    let obj = serialized_removed.as_object().expect("row object");
+    assert_eq!(obj.len(), 3);
+    assert!(!obj.contains_key("reason"));
+}

@@ -385,4 +385,271 @@ describe("MeshMachineList wiring", () => {
     expect(onPeerClick).toHaveBeenCalledWith("peer-15");
     expect(scroller.scrollTop).toBe(420);
   });
+
+  it("excludes live sleeping, cold, and draining cloud machines from stale cleanup count and explains cloud exclusion in confirmation", async () => {
+    const onRemoveStale = vi.fn(async (ids: string[]) => ({
+      dry_run: false,
+      matched: ids.length,
+      removed: ids.length,
+      already_removed: 0,
+      skipped: 0,
+      rows: [],
+    }));
+
+    const ordinaryStale = {
+      ...lenovoRow,
+      installation_id: "inst-ordinary-stale",
+      display_name: "fly-ordinary-laptop",
+      membership_expires_at: NOW - 3600,
+      authenticated_at: NOW - 7200,
+    };
+    const asleepCloudRow = {
+      ...lenovoRow,
+      installation_id: "880cbbeedc6f433f8f332c9af20bc8c8",
+      display_name: "quill-fly-124-warm",
+      membership_expires_at: NOW - 3600,
+      authenticated_at: NOW - 7200,
+    };
+    const coldCloudRow = {
+      ...lenovoRow,
+      installation_id: "inst-cloud-cold",
+      display_name: "vault-box",
+      membership_expires_at: NOW - 86_400 * 30,
+      authenticated_at: NOW - 86_400 * 30,
+    };
+    const drainingCloudRow = {
+      ...lenovoRow,
+      installation_id: "inst-cloud-draining",
+      display_name: "worker-drain",
+      membership_expires_at: NOW - 3600,
+      authenticated_at: NOW - 7200,
+    };
+
+    const state = snapshot({
+      registry: {
+        observed_at: NOW,
+        rows: [selfRow, macRow, ordinaryStale, asleepCloudRow, coldCloudRow, drainingCloudRow],
+      },
+      pairs: [pair("peer-mac", "MacBook Air", { installation_id: macRow.installation_id, online: true })],
+    });
+    const peers = [makePeer(1, { instance_id: "peer-mac", name: "MacBook Air", online: true })];
+    const canvas = accountCanvas({
+      view: myMachinesView({ account: "signed_in", snapshot: state, now: NOW }),
+      peers,
+      loadFailed: false,
+      listFailed: false,
+      failures: new Map(),
+    });
+    const account: CanvasAccount = {
+      selfName: "Studio",
+      canvas,
+      busy: null,
+      signingIn: false,
+      now: NOW * 1000,
+      actions: {
+        onPlans: () => {},
+        onDismiss: () => {},
+        onRemove: async () => true,
+        onRemoveStale,
+      },
+      onSignIn: () => {},
+      onRetry: () => {},
+    };
+    const cloud: CanvasCloud = {
+      machines: [
+        {
+          ...makeCloud("cm-asleep", "quill-fly-124-warm", "asleep"),
+          installation_id: "880cbbeedc6f433f8f332c9af20bc8c8",
+          storage_tier: "hot",
+        },
+        {
+          ...makeCloud("cm-cold", "vault-box", "asleep"),
+          installation_id: "inst-cloud-cold",
+          storage_tier: "cold",
+        },
+        {
+          ...makeCloud("cm-draining", "worker-drain", "draining"),
+          installation_id: "inst-cloud-draining",
+          storage_tier: "hot",
+        },
+      ],
+      usage: USAGE,
+      isFree: false,
+      slotOpen: false,
+      pendingCreate: null,
+      onOpenSlot: () => {},
+      onCloseSlot: () => {},
+      onCreateCloud: () => {},
+      onPairComputer: () => {},
+      onSelectMachine: () => {},
+      onTopUpMachine: () => {},
+      onSleepMachine: async () => ({ ok: true }),
+      onWakeMachine: async () => ({ ok: true }),
+      onFailureAction: () => {},
+    };
+
+    window.localStorage.setItem(MESH_VIEW_MODE_STORAGE_KEY, "list");
+    await act(async () => {
+      root.render(
+        <MeshCanvas
+          account={account}
+          cloud={cloud}
+          thisMachine={{ name: "Studio", ip: "192.168.1.2" }}
+          peers={peers}
+          onPeerClick={() => {}}
+          recentPushes={[]}
+          width={1280}
+          height={800}
+        />,
+      );
+    });
+
+    const cleanupButton = host.querySelector<HTMLButtonElement>('[data-testid="mesh-stale-cleanup"]')!;
+    expect(cleanupButton).not.toBeNull();
+    expect(cleanupButton.textContent?.trim()).toBe("Clean up 1 stale machine");
+
+    await act(async () => cleanupButton.click());
+    const confirmGroup = host.querySelector<HTMLElement>('[role="group"][aria-label="Remove 1 stale machine"]')!;
+    expect(confirmGroup).not.toBeNull();
+    expect(confirmGroup.textContent).toContain("fly-ordinary-laptop");
+    expect(confirmGroup.textContent).not.toContain("quill-fly-124-warm");
+    expect(confirmGroup.textContent).not.toContain("vault-box");
+    expect(confirmGroup.textContent).not.toContain("worker-drain");
+    const exclusionNote = confirmGroup.querySelector('[data-testid="mesh-stale-cloud-exclusion"]');
+    expect(exclusionNote?.textContent).toContain(
+      "Cloud machines are never removed here; delete them from the cloud drawer",
+    );
+
+    const confirmBtn = Array.from(confirmGroup.querySelectorAll<HTMLButtonElement>("button")).find(
+      (btn) => btn.textContent?.trim() === "Remove 1 machine",
+    )!;
+    await act(async () => confirmBtn.click());
+    expect(onRemoveStale).toHaveBeenCalledTimes(1);
+    expect(onRemoveStale).toHaveBeenCalledWith(["inst-ordinary-stale"]);
+  });
+
+  it("hides stale cleanup when only live cloud machines look stale and omits the cloud note when none are excluded", async () => {
+    const asleepCloudRow = {
+      ...lenovoRow,
+      installation_id: "880cbbeedc6f433f8f332c9af20bc8c8",
+      display_name: "quill-fly-124-warm",
+      membership_expires_at: NOW - 3600,
+      authenticated_at: NOW - 7200,
+    };
+    const overLimitRow = {
+      ...lenovoRow,
+      installation_id: "inst-limit",
+      display_name: "Locked Laptop",
+      eligibility: "mesh-allowance" as const,
+    };
+    const cloudOnlyState = snapshot({
+      registry: { observed_at: NOW, rows: [selfRow, asleepCloudRow, overLimitRow] },
+      pairs: [],
+    });
+    const cloudOnlyCanvas = accountCanvas({
+      view: myMachinesView({ account: "signed_in", snapshot: cloudOnlyState, now: NOW }),
+      peers: [],
+      loadFailed: false,
+      listFailed: false,
+      failures: new Map(),
+    });
+    const makeAccount = (canvas: ReturnType<typeof accountCanvas>): CanvasAccount => ({
+      selfName: "Studio",
+      canvas,
+      busy: null,
+      signingIn: false,
+      now: NOW * 1000,
+      actions: {
+        onPlans: () => {},
+        onDismiss: () => {},
+        onRemove: async () => true,
+        onRemoveStale: async () => ({
+          dry_run: false,
+          matched: 0,
+          removed: 0,
+          already_removed: 0,
+          skipped: 0,
+          rows: [],
+        }),
+      },
+      onSignIn: () => {},
+      onRetry: () => {},
+    });
+    const cloud: CanvasCloud = {
+      machines: [
+        {
+          ...makeCloud("cm-asleep", "quill-fly-124-warm", "asleep"),
+          installation_id: "880cbbeedc6f433f8f332c9af20bc8c8",
+          storage_tier: "hot",
+        },
+      ],
+      usage: USAGE,
+      isFree: false,
+      slotOpen: false,
+      pendingCreate: null,
+      onOpenSlot: () => {},
+      onCloseSlot: () => {},
+      onCreateCloud: () => {},
+      onPairComputer: () => {},
+      onSelectMachine: () => {},
+      onTopUpMachine: () => {},
+      onSleepMachine: async () => ({ ok: true }),
+      onWakeMachine: async () => ({ ok: true }),
+      onFailureAction: () => {},
+    };
+
+    window.localStorage.setItem(MESH_VIEW_MODE_STORAGE_KEY, "list");
+    await act(async () => {
+      root.render(
+        <MeshCanvas
+          account={makeAccount(cloudOnlyCanvas)}
+          cloud={cloud}
+          thisMachine={{ name: "Studio", ip: "192.168.1.2" }}
+          peers={[]}
+          onPeerClick={() => {}}
+          recentPushes={[]}
+          width={1280}
+          height={800}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="mesh-stale-cleanup"]')).toBeNull();
+
+    // Without any cloud machines excluded, confirmation omits the cloud drawer note.
+    const ordinaryOnlyRow = {
+      ...lenovoRow,
+      installation_id: "inst-ordinary",
+      display_name: "Old Mac",
+      presence: "signed_out" as const,
+      authenticated_at: NOW - 3600,
+    };
+    const ordinaryState = snapshot({
+      registry: { observed_at: NOW, rows: [selfRow, ordinaryOnlyRow] },
+      pairs: [],
+    });
+    const ordinaryCanvas = accountCanvas({
+      view: myMachinesView({ account: "signed_in", snapshot: ordinaryState, now: NOW }),
+      peers: [],
+      loadFailed: false,
+      listFailed: false,
+      failures: new Map(),
+    });
+    await act(async () => {
+      root.render(
+        <MeshCanvas
+          account={makeAccount(ordinaryCanvas)}
+          thisMachine={{ name: "Studio", ip: "192.168.1.2" }}
+          peers={[]}
+          onPeerClick={() => {}}
+          recentPushes={[]}
+          width={1280}
+          height={800}
+        />,
+      );
+    });
+    const btn = host.querySelector<HTMLButtonElement>('[data-testid="mesh-stale-cleanup"]')!;
+    expect(btn.textContent?.trim()).toBe("Clean up 1 stale machine");
+    await act(async () => btn.click());
+    expect(host.querySelector('[data-testid="mesh-stale-cloud-exclusion"]')).toBeNull();
+  });
 });

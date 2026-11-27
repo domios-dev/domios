@@ -307,6 +307,7 @@ pub enum BatchRemoveRowStatus {
     AlreadyRemoved,
     RefusedSelf,
     RefusedOnline,
+    Skipped,
     NotFound,
 }
 
@@ -316,6 +317,8 @@ pub struct BatchRemoveRowResult {
     pub installation_id: String,
     pub status: BatchRemoveRowStatus,
     pub slot_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

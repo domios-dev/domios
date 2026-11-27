@@ -251,6 +251,141 @@ fn mesh_remove_stale_formats_dry_run_and_batch_results() {
 }
 
 #[test]
+fn mesh_remove_stale_excludes_live_cloud_machines_and_explains_exclusion_on_shared_fixture() {
+    use clap::Parser;
+    use serde_json::json;
+
+    let parsed = crate::Cli::try_parse_from(["domios", "mesh", "remove", "--stale", "--dry-run"])
+        .expect("mesh remove --stale --dry-run parses");
+    match &parsed.command {
+        crate::Commands::Mesh {
+            action:
+                crate::MeshAction::Remove {
+                    stale: true,
+                    older_than,
+                    dry_run: true,
+                    ..
+                },
+        } => {
+            assert_eq!(
+                super::build_remove_stale_body(*older_than, true),
+                json!({ "dry_run": true })
+            );
+        }
+        _ => panic!("expected MeshAction::Remove --stale --dry-run"),
+    }
+
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/mesh-stale-cleanup.json"
+    )))
+    .expect("parse shared stale cleanup fixture");
+
+    let expected_selected = fixture["expected_selected"]
+        .as_array()
+        .expect("expected_selected array");
+    let expected_excluded = fixture["expected_excluded_cloud_ids"]
+        .as_array()
+        .expect("expected_excluded_cloud_ids array");
+    assert!(!expected_selected.is_empty());
+    assert!(!expected_excluded.is_empty());
+
+    let dry_run_rows: Vec<serde_json::Value> = expected_selected
+        .iter()
+        .map(|entry| {
+            json!({
+                "installation_id": entry["installation_id"],
+                "display_name": entry["display_name"],
+                "reason": entry["reason"],
+                "status": "would_remove",
+                "slot_revision": 1
+            })
+        })
+        .collect();
+    let dry_run_payload = json!({
+        "dry_run": true,
+        "matched": dry_run_rows.len(),
+        "removed": 0,
+        "already_removed": 0,
+        "skipped": 0,
+        "excluded_cloud_count": expected_excluded.len(),
+        "rows": dry_run_rows
+    });
+    let dry_run_lines = super::format_remove_stale_lines(&dry_run_payload);
+    assert_eq!(
+        dry_run_lines.first().map(String::as_str),
+        Some("Dry run: 4 stale machines would be removed:")
+    );
+    for entry in expected_selected {
+        let id = entry["installation_id"].as_str().unwrap();
+        let name = entry["display_name"].as_str().unwrap();
+        assert!(
+            dry_run_lines
+                .iter()
+                .any(|line| line.contains(id) && line.contains(name)),
+            "missing expected stale candidate {name} ({id}) in {dry_run_lines:?}"
+        );
+    }
+    for excluded_id in expected_excluded {
+        let id = excluded_id.as_str().unwrap();
+        assert!(
+            !dry_run_lines.iter().any(|line| line.contains(id)),
+            "live cloud machine {id} must never appear in stale removal output: {dry_run_lines:?}"
+        );
+    }
+    assert_eq!(
+        dry_run_lines.last().map(String::as_str),
+        Some(super::CLOUD_EXCLUSION_NOTE)
+    );
+
+    // When only live cloud machines look stale, report none matched and explain cloud exclusion.
+    let only_cloud_excluded = json!({
+        "dry_run": false,
+        "matched": 0,
+        "removed": 0,
+        "already_removed": 0,
+        "skipped": 0,
+        "excluded_cloud_count": expected_excluded.len(),
+        "rows": []
+    });
+    assert_eq!(
+        super::format_remove_stale_lines(&only_cloud_excluded),
+        vec![
+            "No stale machines found.".to_owned(),
+            super::CLOUD_EXCLUSION_NOTE.to_owned(),
+        ]
+    );
+
+    // Explicit refusal of a cloud machine row prints a clear skip reason and the exclusion note.
+    let refused_cloud = json!({
+        "dry_run": false,
+        "matched": 1,
+        "removed": 0,
+        "already_removed": 0,
+        "skipped": 1,
+        "excluded_cloud_count": 1,
+        "rows": [
+            {
+                "installation_id": "880cbbeedc6f433f8f332c9af20bc8c8",
+                "display_name": "quill-fly-124-warm",
+                "reason": null,
+                "status": "refused_cloud",
+                "slot_revision": 2
+            }
+        ]
+    });
+    assert_eq!(
+        super::format_remove_stale_lines(&refused_cloud),
+        vec![
+            "Removed 0 stale machines (1 skipped):".to_owned(),
+            "  quill-fly-124-warm (880cbbeedc6f433f8f332c9af20bc8c8): skipped (cloud machine)"
+                .to_owned(),
+            super::CLOUD_EXCLUSION_NOTE.to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn mesh_identity_set_accepts_kind_only_and_rejects_color() {
     use clap::Parser;
     let parsed =

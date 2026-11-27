@@ -793,16 +793,27 @@ impl NeighborsExt for ServiceContext {
             .as_ref()
             .map(|registry| registry.rows.clone())
             .unwrap_or_default();
-        let connected_live_ids: std::collections::HashSet<String> = self
+        let (connected_live_ids, pair_bindings) = self
             .try_ext::<crate::MeshStateHandle>()
             .map(|mesh| {
                 let manager = mesh.lock();
-                rows.iter()
+                let live: std::collections::HashSet<String> = rows
+                    .iter()
                     .filter(|row| manager.has_healthy_connection(&row.installation_id))
                     .map(|row| row.installation_id.clone())
-                    .collect()
+                    .collect();
+                let mut bindings = manager.installation_instance_bindings();
+                for pair in manager.account_mesh_pairs() {
+                    if let Some(inst) = pair.installation_id {
+                        bindings.push((inst, pair.instance_id));
+                    }
+                }
+                (live, bindings)
             })
             .unwrap_or_default();
+        let cloud_records = self.cloud_machines().list_records();
+        let protected_cloud_ids =
+            stale::protected_cloud_installation_ids(&cloud_records, &pair_bindings);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -815,6 +826,9 @@ impl NeighborsExt for ServiceContext {
             .iter()
             .map(|r| (r.installation_id.as_str(), r))
             .collect();
+
+        let mut refused_cloud_rows: Vec<RemoveStaleRowView> = Vec::new();
+        let mut excluded_cloud_count = 0usize;
 
         let candidates: Vec<(String, Option<String>, Option<StaleReason>, Option<u64>)> =
             if let Some(explicit_ids) = installation_ids {
@@ -833,6 +847,17 @@ impl NeighborsExt for ServiceContext {
                             .get(&id)
                             .cloned()
                             .or_else(|| row.and_then(|r| r.display_name.clone()));
+                        if protected_cloud_ids.contains(&id) {
+                            excluded_cloud_count += 1;
+                            refused_cloud_rows.push(RemoveStaleRowView {
+                                installation_id: id,
+                                display_name,
+                                reason: None,
+                                status: RemoveStaleRowStatus::RefusedCloud,
+                                slot_revision: row.map(|r| r.slot_revision),
+                            });
+                            continue;
+                        }
                         let reason = row.and_then(|r| {
                             stale::classify_stale_reason(
                                 r,
@@ -844,7 +869,7 @@ impl NeighborsExt for ServiceContext {
                         deduped.push((id, display_name, reason, row.map(|r| r.slot_revision)));
                     }
                 }
-                if deduped.is_empty() {
+                if seen.is_empty() {
                     return Ok(AccountMeshOutcome::of(
                         Err(AccountMeshRefusal::Invalid),
                         None,
@@ -852,28 +877,33 @@ impl NeighborsExt for ServiceContext {
                 }
                 deduped
             } else {
-                stale::select_stale_installations(
+                let selection = stale::select_stale_installations_with_cloud_exclusions(
                     &rows,
                     &local_installation_id,
                     &connected_live_ids,
+                    &protected_cloud_ids,
                     now,
                     older_than_days,
-                )
-                .into_iter()
-                .map(|c| {
-                    (
-                        c.row.installation_id,
-                        Some(c.label),
-                        Some(c.reason),
-                        Some(c.row.slot_revision),
-                    )
-                })
-                .collect()
+                );
+                excluded_cloud_count = selection.excluded_cloud_ids.len();
+                selection
+                    .candidates
+                    .into_iter()
+                    .map(|c| {
+                        (
+                            c.row.installation_id,
+                            Some(c.label),
+                            Some(c.reason),
+                            Some(c.row.slot_revision),
+                        )
+                    })
+                    .collect()
             };
 
         if dry_run || candidates.is_empty() {
-            let matched = candidates.len();
-            let preview_rows = candidates
+            let skipped = refused_cloud_rows.len();
+            let matched = candidates.len() + skipped;
+            let mut preview_rows: Vec<RemoveStaleRowView> = candidates
                 .into_iter()
                 .map(
                     |(installation_id, display_name, reason, slot_revision)| RemoveStaleRowView {
@@ -885,13 +915,15 @@ impl NeighborsExt for ServiceContext {
                     },
                 )
                 .collect();
+            preview_rows.extend(refused_cloud_rows);
             return Ok(AccountMeshOutcome::of(
                 Ok(RemoveStaleResultView {
                     dry_run,
                     matched,
                     removed: 0,
                     already_removed: 0,
-                    skipped: 0,
+                    skipped,
+                    excluded_cloud_count,
                     rows: preview_rows,
                 }),
                 None,
@@ -904,11 +936,11 @@ impl NeighborsExt for ServiceContext {
                 .map(|(id, name, reason, _)| (id.clone(), (name.clone(), *reason)))
                 .collect();
         let all_ids: Vec<String> = candidates.into_iter().map(|(id, ..)| id).collect();
-        let matched = all_ids.len();
+        let matched = all_ids.len() + refused_cloud_rows.len();
         let mut out_rows = Vec::with_capacity(matched);
         let mut removed = 0usize;
         let mut already_removed = 0usize;
-        let mut skipped = 0usize;
+        let mut skipped = refused_cloud_rows.len();
 
         for chunk in all_ids.chunks(codeterm_account::account_mesh::wire::BATCH_REMOVE_MAX_ITEMS) {
             let batch = match service.mesh.remove_stale(chunk.to_vec()).await {
@@ -929,6 +961,11 @@ impl NeighborsExt for ServiceContext {
                             .remove_account_installation(&row.installation_id);
                     }
                 }
+                let status =
+                    RemoveStaleRowStatus::from_batch_row(row.status, row.reason.as_deref());
+                if status == RemoveStaleRowStatus::RefusedCloud {
+                    excluded_cloud_count += 1;
+                }
                 let (display_name, reason) = meta_by_id
                     .get(&row.installation_id)
                     .cloned()
@@ -936,12 +973,17 @@ impl NeighborsExt for ServiceContext {
                 out_rows.push(RemoveStaleRowView {
                     installation_id: row.installation_id,
                     display_name,
-                    reason,
-                    status: row.status.into(),
+                    reason: if status == RemoveStaleRowStatus::RefusedCloud {
+                        None
+                    } else {
+                        reason
+                    },
+                    status,
                     slot_revision: row.slot_revision,
                 });
             }
         }
+        out_rows.extend(refused_cloud_rows);
 
         Ok(AccountMeshOutcome::of(
             Ok(RemoveStaleResultView {
@@ -950,6 +992,7 @@ impl NeighborsExt for ServiceContext {
                 removed,
                 already_removed,
                 skipped,
+                excluded_cloud_count,
                 rows: out_rows,
             }),
             None,
