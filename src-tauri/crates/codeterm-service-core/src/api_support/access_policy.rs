@@ -342,7 +342,7 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                 }
                 PeerScope::new(ReadOutput, Service(id))
             } else if *method == Method::POST
-                && scoped_path(path, "/api/workspaces/").is_some_and(|(_, action)| {
+                && (scoped_path(path, "/api/workspaces/").is_some_and(|(_, action)| {
                     matches!(
                         action,
                         "focus"
@@ -354,11 +354,8 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
                             | "tabs/reorder"
                             | "tabs/display-order"
                     )
-                })
-            {
-                PeerScope::new(ManageWorkspace, Host)
-            } else if *method == Method::POST
-                && scoped_path(path, "/api/teams/").is_some_and(|(_, action)| action == "close")
+                }) || scoped_path(path, "/api/teams/")
+                    .is_some_and(|(_, action)| action == "close"))
             {
                 PeerScope::new(ManageWorkspace, Host)
             } else {

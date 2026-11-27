@@ -6,13 +6,15 @@ use codeterm_neighbors_service::service::cloud_installation::controller::{
     enroll as baker_enroll, publish_direct_endpoint as ferry_publish_direct_endpoint,
     ControllerError, CreationBinding,
 };
+#[cfg(any(test, feature = "test-support"))]
+use codeterm_service_core::service::cloud_machines::CloudProvisioningPort;
 use codeterm_service_core::{
     mesh::crown::AuthenticatedOrigin,
     service::cloud_machines::{
         evaluate_guest_link_readiness, CloudEndpoint, CloudEnrollmentPort, CloudError,
-        CloudMachineRecord, CloudPeerControlPort, CloudProvisioningPort, CloudRouteSpec,
-        DrainToken, EnrollmentBinding, EnrollmentOutcome, FlushWriteOutcome, GuestLinkReadiness,
-        GuestLinkReadinessInput, HeldCloudSend, PeerBusySnapshot,
+        CloudMachineRecord, CloudPeerControlPort, CloudRouteSpec, DrainToken, EnrollmentBinding,
+        EnrollmentOutcome, FlushWriteOutcome, GuestLinkReadiness, GuestLinkReadinessInput,
+        HeldCloudSend, PeerBusySnapshot,
     },
 };
 

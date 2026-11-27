@@ -135,7 +135,7 @@ async fn nonlocal_memory_actors_can_mutate_without_local_run_attribution() {
         let keeper = state.svc.mem.save(new_item("keeper")).unwrap();
         let lesser = state.svc.mem.save(new_item("lesser")).unwrap();
         let archived = state.svc.mem.save(new_item("archived")).unwrap();
-        graph::mem_graph_relate(
+        let Json(relation) = graph::mem_graph_relate(
             State(state.clone()),
             headers.clone(),
             Json(
@@ -147,7 +147,8 @@ async fn nonlocal_memory_actors_can_mutate_without_local_run_attribution() {
         )
         .await
         .unwrap();
-        items::mem_update(
+        assert_eq!(relation["ok"], true);
+        let Json(update) = items::mem_update(
             State(state.clone()),
             headers.clone(),
             axum::extract::Path(keeper.clone()),
@@ -155,7 +156,8 @@ async fn nonlocal_memory_actors_can_mutate_without_local_run_attribution() {
         )
         .await
         .unwrap();
-        items::mem_archive(
+        assert_eq!(update["updated"].as_str(), Some(keeper.as_str()));
+        let Json(archive) = items::mem_archive(
             State(state.clone()),
             headers.clone(),
             axum::extract::Path(archived.clone()),
@@ -163,7 +165,8 @@ async fn nonlocal_memory_actors_can_mutate_without_local_run_attribution() {
         )
         .await
         .unwrap();
-        mem_merge::mem_merge(
+        assert_eq!(archive["archived"].as_str(), Some(archived.as_str()));
+        let Json(merge) = mem_merge::mem_merge(
             State(state.clone()),
             headers.clone(),
             Json(
@@ -173,6 +176,7 @@ async fn nonlocal_memory_actors_can_mutate_without_local_run_attribution() {
         )
         .await
         .unwrap();
+        assert_eq!(merge["keeper"].as_str(), Some(keeper.as_str()));
         assert_eq!(state.svc.mem.get(&keeper).unwrap().unwrap().importance, 4.0);
         assert_eq!(
             state.svc.mem.get(&archived).unwrap().unwrap().kind,

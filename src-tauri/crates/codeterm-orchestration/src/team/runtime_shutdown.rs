@@ -7,7 +7,8 @@ pub(super) async fn stop_members(
     member_tab_ids: &[String],
 ) -> Result<(), String> {
     let mut stops = JoinSet::new();
-    for tab_id in member_tab_ids.iter().cloned() {
+    for tab_id in member_tab_ids {
+        let tab_id = tab_id.clone();
         let service = svc.clone();
         stops.spawn(async move {
             service
