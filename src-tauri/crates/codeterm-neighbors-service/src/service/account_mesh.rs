@@ -25,11 +25,13 @@ pub mod authority;
 pub mod presence;
 pub mod reconcile;
 pub mod remove;
+pub mod stale;
 pub mod tailnet;
 pub use authority::{mesh_state, AccountAuthority};
 pub use remove::{
     AccountMeshRemoveOutcome, AmbiguousMachineMatch, RemoveTargetError, RemovedResultView,
 };
+pub use stale::{RemoveStaleResultView, RemoveStaleRowStatus, RemoveStaleRowView, StaleReason};
 
 #[cfg(test)]
 pub mod tests;
@@ -344,6 +346,13 @@ pub trait NeighborsExt {
         &self,
         machine: String,
     ) -> impl std::future::Future<Output = Result<AccountMeshRemoveOutcome, String>> + Send;
+    fn account_mesh_remove_stale(
+        &self,
+        installation_ids: Option<Vec<String>>,
+        older_than_days: Option<u64>,
+        dry_run: bool,
+    ) -> impl std::future::Future<Output = Result<AccountMeshOutcome<RemoveStaleResultView>, String>>
+           + Send;
     fn account_mesh_session_revoke(
         &self,
         installation_id: Option<String>,
@@ -762,6 +771,189 @@ impl NeighborsExt for ServiceContext {
         Ok(AccountMeshRemoveOutcome::Outcome(AccountMeshOutcome::of(
             result, None,
         )))
+    }
+
+    async fn account_mesh_remove_stale(
+        &self,
+        installation_ids: Option<Vec<String>>,
+        older_than_days: Option<u64>,
+        dry_run: bool,
+    ) -> Result<AccountMeshOutcome<RemoveStaleResultView>, String> {
+        let service = self.account_mesh().await?;
+        let local_installation_id = service.installation_id.clone();
+
+        if let Err(failure) = service.mesh.list_fresh().await {
+            return Ok(AccountMeshOutcome::of(Err(failure), None));
+        }
+
+        let rows = service
+            .mesh
+            .state()
+            .registry
+            .as_ref()
+            .map(|registry| registry.rows.clone())
+            .unwrap_or_default();
+        let connected_live_ids: std::collections::HashSet<String> = self
+            .try_ext::<crate::MeshStateHandle>()
+            .map(|mesh| {
+                let manager = mesh.lock();
+                rows.iter()
+                    .filter(|row| manager.has_healthy_connection(&row.installation_id))
+                    .map(|row| row.installation_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let labels = remove::disambiguated_labels(&rows);
+        let row_map: std::collections::HashMap<
+            &str,
+            &codeterm_account::account_mesh::wire::MeshManagementRow,
+        > = rows
+            .iter()
+            .map(|r| (r.installation_id.as_str(), r))
+            .collect();
+
+        let candidates: Vec<(String, Option<String>, Option<StaleReason>, Option<u64>)> =
+            if let Some(explicit_ids) = installation_ids {
+                let mut deduped = Vec::with_capacity(explicit_ids.len());
+                let mut seen = std::collections::HashSet::with_capacity(explicit_ids.len());
+                for id in explicit_ids {
+                    if id == local_installation_id {
+                        return Ok(AccountMeshOutcome::of(
+                            Err(AccountMeshRefusal::Forbidden),
+                            None,
+                        ));
+                    }
+                    if seen.insert(id.clone()) {
+                        let row = row_map.get(id.as_str()).copied();
+                        let display_name = labels
+                            .get(&id)
+                            .cloned()
+                            .or_else(|| row.and_then(|r| r.display_name.clone()));
+                        let reason = row.and_then(|r| {
+                            stale::classify_stale_reason(
+                                r,
+                                &local_installation_id,
+                                connected_live_ids.contains(&id),
+                                now,
+                            )
+                        });
+                        deduped.push((id, display_name, reason, row.map(|r| r.slot_revision)));
+                    }
+                }
+                if deduped.is_empty() {
+                    return Ok(AccountMeshOutcome::of(
+                        Err(AccountMeshRefusal::Invalid),
+                        None,
+                    ));
+                }
+                deduped
+            } else {
+                stale::select_stale_installations(
+                    &rows,
+                    &local_installation_id,
+                    &connected_live_ids,
+                    now,
+                    older_than_days,
+                )
+                .into_iter()
+                .map(|c| {
+                    (
+                        c.row.installation_id,
+                        Some(c.label),
+                        Some(c.reason),
+                        Some(c.row.slot_revision),
+                    )
+                })
+                .collect()
+            };
+
+        if dry_run || candidates.is_empty() {
+            let matched = candidates.len();
+            let preview_rows = candidates
+                .into_iter()
+                .map(
+                    |(installation_id, display_name, reason, slot_revision)| RemoveStaleRowView {
+                        installation_id,
+                        display_name,
+                        reason,
+                        status: RemoveStaleRowStatus::WouldRemove,
+                        slot_revision,
+                    },
+                )
+                .collect();
+            return Ok(AccountMeshOutcome::of(
+                Ok(RemoveStaleResultView {
+                    dry_run,
+                    matched,
+                    removed: 0,
+                    already_removed: 0,
+                    skipped: 0,
+                    rows: preview_rows,
+                }),
+                None,
+            ));
+        }
+
+        let meta_by_id: std::collections::HashMap<String, (Option<String>, Option<StaleReason>)> =
+            candidates
+                .iter()
+                .map(|(id, name, reason, _)| (id.clone(), (name.clone(), *reason)))
+                .collect();
+        let all_ids: Vec<String> = candidates.into_iter().map(|(id, ..)| id).collect();
+        let matched = all_ids.len();
+        let mut out_rows = Vec::with_capacity(matched);
+        let mut removed = 0usize;
+        let mut already_removed = 0usize;
+        let mut skipped = 0usize;
+
+        for chunk in all_ids.chunks(codeterm_account::account_mesh::wire::BATCH_REMOVE_MAX_ITEMS) {
+            let batch = match service.mesh.remove_stale(chunk.to_vec()).await {
+                Ok(batch) => batch,
+                Err(failure) => return Ok(AccountMeshOutcome::of(Err(failure), None)),
+            };
+            removed += batch.removed_count as usize;
+            already_removed += batch.already_removed_count as usize;
+            skipped += batch.skipped_count as usize;
+            for row in batch.results {
+                if matches!(
+                    row.status,
+                    codeterm_account::account_mesh::wire::BatchRemoveRowStatus::Removed
+                        | codeterm_account::account_mesh::wire::BatchRemoveRowStatus::AlreadyRemoved
+                ) {
+                    if let Some(mesh) = self.try_ext::<crate::MeshStateHandle>() {
+                        mesh.lock()
+                            .remove_account_installation(&row.installation_id);
+                    }
+                }
+                let (display_name, reason) = meta_by_id
+                    .get(&row.installation_id)
+                    .cloned()
+                    .unwrap_or((None, None));
+                out_rows.push(RemoveStaleRowView {
+                    installation_id: row.installation_id,
+                    display_name,
+                    reason,
+                    status: row.status.into(),
+                    slot_revision: row.slot_revision,
+                });
+            }
+        }
+
+        Ok(AccountMeshOutcome::of(
+            Ok(RemoveStaleResultView {
+                dry_run: false,
+                matched,
+                removed,
+                already_removed,
+                skipped,
+                rows: out_rows,
+            }),
+            None,
+        ))
     }
 
     async fn account_mesh_session_revoke(

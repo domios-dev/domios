@@ -102,12 +102,152 @@ fn mesh_remove_parses_machine_target_and_blocks_mesh_relay() {
         .expect("mesh remove parses");
     match &parsed.command {
         crate::Commands::Mesh {
-            action: crate::MeshAction::Remove { machine },
-        } => assert_eq!(machine, "BLACKSTAR #4"),
+            action:
+                crate::MeshAction::Remove {
+                    machine,
+                    stale,
+                    older_than,
+                    dry_run,
+                },
+        } => {
+            assert_eq!(machine.as_deref(), Some("BLACKSTAR #4"));
+            assert!(!stale);
+            assert_eq!(*older_than, None);
+            assert!(!dry_run);
+        }
         _ => panic!("expected MeshAction::Remove"),
     }
     let (method, _, _) = crate::mesh_cli::api_map::cli_command_to_api(&parsed.command);
     assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
+}
+
+#[test]
+fn mesh_remove_stale_parses_flags_and_enforces_conflicts() {
+    use clap::Parser;
+    let parsed = crate::Cli::try_parse_from([
+        "domios",
+        "mesh",
+        "remove",
+        "--stale",
+        "--older-than",
+        "14",
+        "--dry-run",
+    ])
+    .expect("mesh remove --stale parses");
+    match &parsed.command {
+        crate::Commands::Mesh {
+            action:
+                crate::MeshAction::Remove {
+                    machine,
+                    stale,
+                    older_than,
+                    dry_run,
+                },
+        } => {
+            assert_eq!(*machine, None);
+            assert!(*stale);
+            assert_eq!(*older_than, Some(14));
+            assert!(*dry_run);
+        }
+        _ => panic!("expected MeshAction::Remove --stale"),
+    }
+    assert!(crate::Cli::try_parse_from(["domios", "mesh", "remove"]).is_err());
+    assert!(crate::Cli::try_parse_from(["domios", "mesh", "remove", "--dry-run"]).is_err());
+    assert!(crate::Cli::try_parse_from(["domios", "mesh", "remove", "m1", "--stale"]).is_err());
+    assert!(crate::Cli::try_parse_from(["domios", "mesh", "remove", "m1", "--dry-run"]).is_err());
+    assert!(
+        crate::Cli::try_parse_from(["domios", "mesh", "remove", "m1", "--older-than", "7"])
+            .is_err()
+    );
+}
+
+#[test]
+fn mesh_remove_stale_formats_dry_run_and_batch_results() {
+    use serde_json::json;
+    let empty = json!({
+        "dry_run": true,
+        "matched": 0,
+        "removed": 0,
+        "already_removed": 0,
+        "skipped": 0,
+        "rows": []
+    });
+    assert_eq!(
+        super::format_remove_stale_lines(&empty),
+        vec!["No stale machines found."]
+    );
+
+    let dry_run = json!({
+        "dry_run": true,
+        "matched": 2,
+        "removed": 0,
+        "already_removed": 0,
+        "skipped": 0,
+        "rows": [
+            {
+                "installation_id": "inst-1",
+                "display_name": "Old Laptop",
+                "reason": "membership_expired",
+                "status": "would_remove",
+                "slot_revision": 1
+            },
+            {
+                "installation_id": "inst-2",
+                "display_name": "Dormant Box",
+                "reason": "signed_out",
+                "status": "would_remove",
+                "slot_revision": 2
+            }
+        ]
+    });
+    assert_eq!(
+        super::format_remove_stale_lines(&dry_run),
+        vec![
+            "Dry run: 2 stale machines would be removed:",
+            "  Old Laptop (inst-1): would remove (membership expired)",
+            "  Dormant Box (inst-2): would remove (signed out)",
+        ]
+    );
+
+    let applied = json!({
+        "dry_run": false,
+        "matched": 3,
+        "removed": 1,
+        "already_removed": 1,
+        "skipped": 1,
+        "rows": [
+            {
+                "installation_id": "inst-1",
+                "display_name": "Old Laptop",
+                "reason": "membership_expired",
+                "status": "removed",
+                "slot_revision": 2
+            },
+            {
+                "installation_id": "inst-2",
+                "display_name": "Gone Box",
+                "reason": "signed_out",
+                "status": "already_removed",
+                "slot_revision": 2
+            },
+            {
+                "installation_id": "inst-3",
+                "display_name": "Live Box",
+                "reason": null,
+                "status": "refused_online",
+                "slot_revision": 1
+            }
+        ]
+    });
+    assert_eq!(
+        super::format_remove_stale_lines(&applied),
+        vec![
+            "Removed 1 stale machine (1 already removed, 1 skipped):",
+            "  Old Laptop (inst-1): removed (membership expired)",
+            "  Gone Box (inst-2): already removed (signed out)",
+            "  Live Box (inst-3): skipped (online)",
+        ]
+    );
 }
 
 #[test]

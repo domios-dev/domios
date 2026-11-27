@@ -75,11 +75,26 @@ pub enum MeshAction {
     Offline,
     /// Come back online — resume mesh activity. Local-only.
     Online,
-    /// Remove another machine from the account mesh. Signs out an online
-    /// machine first. Refuses to remove the current machine. Local-only.
+    /// Remove another machine from the account mesh, or batch-remove stale machines.
+    /// Single removal signs out an online machine first. Never removes the current machine. Local-only.
     Remove {
         /// Target machine (installation ID, display name, or disambiguated label)
-        machine: String,
+        #[arg(required_unless_present = "stale", conflicts_with = "stale")]
+        machine: Option<String>,
+        /// Batch-remove expired, signed-out, and long-unreachable machines
+        #[arg(long)]
+        stale: bool,
+        /// Only include stale machines inactive for at least this many days (with --stale)
+        #[arg(
+            long = "older-than",
+            value_name = "DAYS",
+            requires = "stale",
+            conflicts_with = "machine"
+        )]
+        older_than: Option<u64>,
+        /// Preview which stale machines would be removed without removing them (with --stale)
+        #[arg(long = "dry-run", requires = "stale", conflicts_with = "machine")]
+        dry_run: bool,
     },
     /// Create, list, sleep, wake, or delete cloud machines on this controller. Local-only.
     Cloud {

@@ -13,8 +13,8 @@ use axum::{
 use codeterm_account::account_mesh::wire::MeshTarget;
 use codeterm_neighbors_service::prelude::*;
 use codeterm_neighbors_service::service::account_mesh::{
-    AccountMeshOutcome, AccountMeshRemoveOutcome, AccountMeshSnapshot, RemoveTargetError,
-    RevokedResultView, UpdatedResultView,
+    AccountMeshOutcome, AccountMeshRemoveOutcome, AccountMeshSnapshot, RemoveStaleResultView,
+    RemoveTargetError, RevokedResultView, UpdatedResultView,
 };
 use codeterm_service_core::mesh::machine_identity::MachineIdentity;
 use serde::Deserialize;
@@ -34,6 +34,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/account/mesh/revoke", post(revoke))
         .route("/api/account/mesh/remove", post(remove))
+        .route("/api/account/mesh/remove-stale", post(remove_stale))
         .route("/api/account/mesh/session-revoke", post(revoke_session))
         .route(
             "/api/account/mesh/limit-notice/ack",
@@ -236,6 +237,33 @@ pub async fn remove(
         AccountMeshRemoveOutcome::Outcome(outcome) => Ok(Json(outcome).into_response()),
         AccountMeshRemoveOutcome::Target(error) => Ok(remove_target_response(error)),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveStale {
+    #[serde(default)]
+    installation_ids: Option<Vec<String>>,
+    #[serde(default)]
+    older_than_days: Option<u64>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// Lists and batch-removes stale machines from the account mesh (never self, never online).
+pub async fn remove_stale(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(input): Json<RemoveStale>,
+) -> Result<Json<AccountMeshOutcome<RemoveStaleResultView>>, Error> {
+    admit(caller.as_ref())?;
+    Ok(Json(
+        state
+            .svc
+            .account_mesh_remove_stale(input.installation_ids, input.older_than_days, input.dry_run)
+            .await
+            .map_err(unavailable)?,
+    ))
 }
 
 #[derive(Deserialize)]

@@ -96,6 +96,12 @@
         "/api/account/mesh/revoke"
       ]
     ],
+    "account_mesh_remove_stale": [
+      [
+        "POST",
+        "/api/account/mesh/remove-stale"
+      ]
+    ],
     "account_mesh_session_revoke": [
       [
         "POST",

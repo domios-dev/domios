@@ -53,7 +53,7 @@ Health `status:"ok"` proves liveness. `/api/startup` and `/api/startup/events` (
 
 #### Account machines
 
-Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {installation_id?:string|null}` signs out the selected machine (default: this one), returning `{ok:true,result:{target_installation_id,revoked_at}}` or typed refusal. Preserve key/pairings; UI confirms first. POST `/api/account/mesh/remove {machine}` removes another machine from the account mesh (signing it out first when online and refusing the current machine), returning `{ok:true,result:{installation_id,display_name,slot_revision,signed_out}}` or refusal.
+Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {installation_id?:string|null}` signs out the selected machine (default: this one), returning `{ok:true,result:{target_installation_id,revoked_at}}` or typed refusal. Preserve key/pairings; UI confirms first. POST `/api/account/mesh/remove {machine}` removes another machine from the account mesh (signing it out first when online and refusing the current machine), returning `{ok:true,result:{installation_id,display_name,slot_revision,signed_out}}` or refusal. POST `/api/account/mesh/remove-stale {installation_ids?, older_than_days?, dry_run?}` lists and batch-removes stale machines (never self, never online) through one audited backend call, returning `{ok:true,result:{dry_run,matched,removed,already_removed,skipped,rows}}`.
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -232,4 +232,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 260 -->
+<!-- revision: 261 -->

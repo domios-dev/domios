@@ -8,7 +8,7 @@ import { useMyMachines } from "./useMyMachines";
 /** My machines projected onto the Mesh canvas, live with the account and the paired peers. */
 export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey: number, account: MeshAccount, enabled = true): CanvasAccount {
   const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, signingIn: account.signingIn, cancelSignIn: account.cancelSignIn, onChanged, enabled });
-  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession, retryEnrollment } = machines;
+  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, removeStale, revokeSession, retryEnrollment } = machines;
   const lastRefreshKey = useRef(registryRefreshKey);
   useEffect(() => {
     if (lastRefreshKey.current === registryRefreshKey) return;
@@ -24,10 +24,11 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   const actions = useMemo(() => ({
     onSignOut: revokeSession,
     onRemove: revoke,
+    onRemoveStale: removeStale,
     onRename: rename,
     onPlans: openPlans,
     onDismiss: dismissFailure,
-  }), [openPlans, dismissFailure, rename, revoke, revokeSession]);
+  }), [openPlans, dismissFailure, rename, revoke, removeStale, revokeSession]);
   const self = view.kind === "account" ? view.self : null;
   return useMemo(() => ({
     selfSameNameOthers: view.kind === "account" ? view.selfSameNameOthers : undefined,

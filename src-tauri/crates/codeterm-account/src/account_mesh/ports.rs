@@ -118,6 +118,13 @@ pub trait MeshRegistry: Send + Sync {
         session: &Session,
         envelope: &SignedEnvelope<MeshAdmissionBody>,
     ) -> RegistryResult<MeshResult>;
+    async fn remove_stale_installations(
+        &self,
+        _session: &Session,
+        _request: &super::wire::BatchRemoveRequest,
+    ) -> RegistryResult<super::wire::BatchRemoveResult> {
+        Err(RegistryRefusal::Unavailable)
+    }
 }
 
 /// Current verified session, read on demand so no token outlives the account that owns it.

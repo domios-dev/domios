@@ -78,6 +78,7 @@ describe("capabilities HTTP transport", () => {
     await transport.account_mesh_list();
     await transport.account_mesh_rename_self({ expectedMetadataRevision: 2, displayName: "Desk" });
     await transport.account_mesh_revoke({ target });
+    await transport.account_mesh_remove_stale({ installationIds: ["old-1", "old-2"] });
     await transport.account_mesh_session_revoke({ installationId: "laptop" });
     await transport.account_mesh_session_revoke({});
     await transport.account_mesh_acknowledge_limit({ requestId: "r1" });
@@ -87,6 +88,7 @@ describe("capabilities HTTP transport", () => {
       ["local", "POST", "/api/account/mesh/list", undefined],
       ["local", "POST", "/api/account/mesh/rename", { expected_metadata_revision: 2, display_name: "Desk" }],
       ["local", "POST", "/api/account/mesh/revoke", { target }],
+      ["local", "POST", "/api/account/mesh/remove-stale", { installation_ids: ["old-1", "old-2"] }],
       ["local", "POST", "/api/account/mesh/session-revoke", { installation_id: "laptop" }],
       ["local", "POST", "/api/account/mesh/session-revoke", { installation_id: null }],
       ["local", "POST", "/api/account/mesh/limit-notice/ack", { request_id: "r1" }],

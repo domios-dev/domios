@@ -2,6 +2,7 @@
 //! the sign-in / sign-out lifecycle that gates every Mesh edge of this installation.
 
 mod admission;
+mod batch_remove;
 mod cache;
 pub mod callable;
 mod callable_budget;

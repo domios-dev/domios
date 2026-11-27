@@ -550,6 +550,13 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         )
         .await
     }
+    async fn remove_stale_installations(
+        &self,
+        session: &Session,
+        request: &BatchRemoveRequest,
+    ) -> RegistryResult<BatchRemoveResult> {
+        self.call(ROUTE_BATCH_REMOVE, session, request).await
+    }
 }
 
 pub(super) fn cleanup_operation(request: &MeshAdmissionBody) -> bool {

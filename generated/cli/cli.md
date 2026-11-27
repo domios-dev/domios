@@ -2105,9 +2105,12 @@ Re-detect local addresses (Tailscale + LAN) and announce them to all paired peer
 
 #### `domios mesh remove`
 
-Remove another machine from the account mesh. Signs out an online machine first. Refuses to remove the current machine. Local-only
+Remove another machine from the account mesh, or batch-remove stale machines. Single removal signs out an online machine first. Never removes the current machine. Local-only
 
+- `--dry-run` — Preview which stale machines would be removed without removing them (with --stale)
 - `<machine>` — Target machine (installation ID, display name, or disambiguated label)
+- `--older-than` — Only include stale machines inactive for at least this many days (with --stale)
+- `--stale` — Batch-remove expired, signed-out, and long-unreachable machines
 
 #### `domios mesh status`
 

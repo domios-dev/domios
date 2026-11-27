@@ -338,7 +338,20 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         },
         MeshAction::Offline => set_mesh_enabled(&http, &base, &token, false, json),
         MeshAction::Online => set_mesh_enabled(&http, &base, &token, true, json),
-        MeshAction::Remove { machine } => remove_mesh_machine(&http, &base, &token, &machine, json),
+        MeshAction::Remove {
+            machine,
+            stale,
+            older_than,
+            dry_run,
+        } => {
+            if stale {
+                remove_stale_mesh_machines(&http, &base, &token, older_than, dry_run, json);
+            } else if let Some(machine) = machine {
+                remove_mesh_machine(&http, &base, &token, &machine, json);
+            } else {
+                crate::cmd::print::fail(1, "specify a target machine or pass --stale");
+            }
+        }
         MeshAction::Cloud { action } => {
             mesh_cli::cloud::handle_cloud(&http, &base, &token, json, action)
         }
@@ -391,6 +404,127 @@ fn remove_mesh_machine(
         }
         Err(error) => crate::cmd::print::fail(1, error.to_string()),
     }
+}
+
+fn remove_stale_mesh_machines(
+    http: &crate::local_api::LocalApiClient,
+    base: &str,
+    token: &Option<String>,
+    older_than_days: Option<u64>,
+    dry_run: bool,
+    json: bool,
+) {
+    let mut body = serde_json::json!({ "dry_run": dry_run });
+    if let Some(days) = older_than_days {
+        body["older_than_days"] = serde_json::json!(days);
+    }
+    let resp = http
+        .post(format!("{base}/api/account/mesh/remove-stale"))
+        .header(
+            "Authorization",
+            format!("Bearer {}", token.as_deref().unwrap_or("")),
+        )
+        .json(&body)
+        .send();
+    match resp {
+        Ok(resp) if resp.status().is_success() => {
+            let val: serde_json::Value = match resp.json() {
+                Ok(val) => val,
+                Err(error) => crate::cmd::print::fail(1, format!("Bad JSON: {error}")),
+            };
+            if val.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                crate::cmd::print::fail_http(1, 400, &val.to_string());
+            }
+            let result = val.get("result").cloned().unwrap_or(val);
+            if json {
+                crate::cmd::print::print_json(&result);
+            } else {
+                for line in format_remove_stale_lines(&result) {
+                    println!("{line}");
+                }
+            }
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().unwrap_or_default();
+            crate::cmd::print::fail_http(1, status.as_u16(), &body);
+        }
+        Err(error) => crate::cmd::print::fail(1, error.to_string()),
+    }
+}
+
+fn stale_reason_label(reason: Option<&str>) -> Option<&'static str> {
+    match reason? {
+        "signed_out" => Some("signed out"),
+        "membership_expired" => Some("membership expired"),
+        "unreachable" => Some("unreachable"),
+        _ => None,
+    }
+}
+
+fn stale_status_label(status: &str) -> &'static str {
+    match status {
+        "would_remove" => "would remove",
+        "removed" => "removed",
+        "already_removed" => "already removed",
+        "refused_self" => "skipped (this machine)",
+        "refused_online" => "skipped (online)",
+        "not_found" => "not found",
+        _ => "unknown",
+    }
+}
+
+pub(crate) fn format_remove_stale_lines(result: &serde_json::Value) -> Vec<String> {
+    let dry_run = result["dry_run"].as_bool().unwrap_or(false);
+    let rows = result["rows"].as_array();
+    let matched = result["matched"]
+        .as_u64()
+        .unwrap_or_else(|| rows.map_or(0, |r| r.len() as u64));
+    if matched == 0 {
+        return vec!["No stale machines found.".into()];
+    }
+    let noun = |n: u64| if n == 1 { "machine" } else { "machines" };
+    let mut lines = Vec::new();
+    if dry_run {
+        lines.push(format!(
+            "Dry run: {matched} stale {} would be removed:",
+            noun(matched)
+        ));
+    } else {
+        let removed = result["removed"].as_u64().unwrap_or(0);
+        let already_removed = result["already_removed"].as_u64().unwrap_or(0);
+        let skipped = result["skipped"].as_u64().unwrap_or(0);
+        let mut extras = Vec::new();
+        if already_removed > 0 {
+            extras.push(format!("{already_removed} already removed"));
+        }
+        if skipped > 0 {
+            extras.push(format!("{skipped} skipped"));
+        }
+        if extras.is_empty() {
+            lines.push(format!("Removed {removed} stale {}:", noun(removed)));
+        } else {
+            lines.push(format!(
+                "Removed {removed} stale {} ({}):",
+                noun(removed),
+                extras.join(", ")
+            ));
+        }
+    }
+    if let Some(rows) = rows {
+        for row in rows {
+            let id = row["installation_id"].as_str().unwrap_or("?");
+            let name = row["display_name"].as_str().unwrap_or(id);
+            let status = stale_status_label(row["status"].as_str().unwrap_or(""));
+            let reason = stale_reason_label(row["reason"].as_str());
+            let detail = match reason {
+                Some(reason) => format!("{status} ({reason})"),
+                None => status.to_owned(),
+            };
+            lines.push(format!("  {name} ({id}): {detail}"));
+        }
+    }
+    lines
 }
 
 #[cfg(test)]

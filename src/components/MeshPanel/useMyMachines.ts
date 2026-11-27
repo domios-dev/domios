@@ -8,6 +8,7 @@ import {
   type AccountMeshSnapshot,
   type MeshTarget,
 } from "./accountMeshClient";
+import type { RemoveStaleResult } from "./staleMachinesModel";
 
 
 
@@ -42,6 +43,7 @@ export interface MyMachines {
   load: () => Promise<void>;
   signIn: () => Promise<void>;
   revoke: (row: MachineRowView, target: MeshTarget, alsoSignOut?: boolean) => Promise<boolean>;
+  removeStale: (installationIds: string[]) => Promise<RemoveStaleResult | null>;
   revokeSession: (row: MachineRowView) => Promise<boolean>;
   renameSelf: (name: string) => Promise<boolean>;
   rename: (row: MachineRowView, name: string) => Promise<boolean>;
@@ -52,7 +54,9 @@ export interface MyMachines {
 
 const epochSeconds = () => Math.floor(Date.now() / 1000);
 
-async function settle(run: () => Promise<AccountMeshOutcome>): Promise<AccountMeshOutcome> {
+async function settle<T = {display_name: string; metadata_revision: number}>(
+  run: () => Promise<AccountMeshOutcome<T>>,
+): Promise<AccountMeshOutcome<T>> {
   try {
     return await run();
   } catch {
@@ -176,6 +180,22 @@ export function useMyMachines({ account, onSignIn, signingIn: pendingLogin, canc
     return true;
   }, [client, dismissFailure, fail, load, onChanged]);
 
+  const removeStale = useCallback(async (installationIds: string[]): Promise<RemoveStaleResult | null> => {
+    const removeBatch = client.removeStale;
+    if (!removeBatch || installationIds.length === 0) return null;
+    setBusy("cleanup-stale");
+    dismissFailure("cleanup-stale");
+    const outcome = await settle(() => removeBatch.call(client, installationIds));
+    setBusy(null);
+    if (!outcome.ok || !outcome.result) {
+      fail("cleanup-stale", "clean up stale machines", outcome.ok ? { reason: "unavailable" } : outcome.failure);
+      return null;
+    }
+    onChanged?.();
+    await load();
+    return outcome.result;
+  }, [client, dismissFailure, fail, load, onChanged]);
+
   const revokeSession = useCallback(async (row: MachineRowView) => {
     dismissFailure(row.key);
     setBusy(row.key);
@@ -231,6 +251,6 @@ export function useMyMachines({ account, onSignIn, signingIn: pendingLogin, canc
 
   return {
     view, snapshot, listFailure, loadFailed, refreshing, signingIn: signingIn || !!pendingLogin, cancelSignIn, busy, failures,
-    load, signIn, revoke, revokeSession, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
+    load, signIn, revoke, removeStale, revokeSession, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
   };
 }

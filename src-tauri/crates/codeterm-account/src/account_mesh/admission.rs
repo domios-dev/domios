@@ -109,7 +109,7 @@ impl AccountMesh {
         result
     }
 
-    async fn call_session_refresh(&self) -> Outcome<Option<crate::Session>> {
+    pub(super) async fn call_session_refresh(&self) -> Outcome<Option<crate::Session>> {
         tokio::time::timeout(self.config.call_deadline, self.ports.sessions.refresh())
             .await
             .map_err(|_| AccountMeshRefusal::Offline)?
