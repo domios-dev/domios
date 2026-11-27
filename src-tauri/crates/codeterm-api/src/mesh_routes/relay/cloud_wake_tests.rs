@@ -130,7 +130,7 @@ impl CloudIngressConnector for FakeCloudChannel {
 }
 
 struct FakeWakeProvisioning {
-    endpoint: SocketAddrV4,
+    endpoint: CloudEndpoint,
     wakes: AtomicUsize,
     usage_calls: AtomicUsize,
     usage: Mutex<Result<CloudUsageSummary, CloudError>>,
@@ -139,7 +139,7 @@ struct FakeWakeProvisioning {
 }
 
 impl FakeWakeProvisioning {
-    fn new(endpoint: SocketAddrV4) -> Arc<Self> {
+    fn new(endpoint: CloudEndpoint) -> Arc<Self> {
         Arc::new(Self {
             endpoint,
             wakes: AtomicUsize::new(0),
@@ -183,7 +183,7 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
         Ok(ProvisionedMachine {
             machine_id: machine_id.to_owned(),
             provider: "managed".into(),
-            endpoint: CloudEndpoint::Direct(self.endpoint),
+            endpoint: self.endpoint.clone(),
             size: "small".into(),
             rate: CloudRate {
                 amount: 0.05,
@@ -226,7 +226,7 @@ impl CloudProvisioningPort for FakeWakeProvisioning {
 fn setup_sleeping_cloud_peer(
     fixture: &ServiceFixture,
     instance_id: &str,
-    cloud_addr: SocketAddrV4,
+    endpoint: CloudEndpoint,
 ) -> (
     AppState,
     String,
@@ -267,7 +267,7 @@ fn setup_sleeping_cloud_peer(
                 last_active_ms: None,
             },
         );
-        mesh.insert_direct_ingress_endpoint_for_test("cloud-inst-wake".into(), cloud_addr);
+        mesh.insert_cloud_endpoint_for_test("cloud-inst-wake".into(), endpoint.clone());
     }
 
     let store_dir = tempfile::tempdir().unwrap();
@@ -314,7 +314,7 @@ fn setup_sleeping_cloud_peer(
         .svc
         .install_cloud_machines_for_test(controller.clone());
 
-    let provisioning = FakeWakeProvisioning::new(cloud_addr);
+    let provisioning = FakeWakeProvisioning::new(endpoint);
     assert!(state
         .svc
         .set_ext(CloudProvisioningOverride(provisioning.clone()))
@@ -352,8 +352,11 @@ async fn cloud_wake_positive_usage_restores_exhausted_machine() {
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let address = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 33), 7687);
-    let (home, _, dir, controller, provisioning, _) =
-        setup_sleeping_cloud_peer(&fixture, "home-credit-refresh", address);
+    let (home, _, dir, controller, provisioning, _) = setup_sleeping_cloud_peer(
+        &fixture,
+        "home-credit-refresh",
+        CloudEndpoint::Direct(address),
+    );
     let machine = "cloud-sleeper-1";
     controller.set_out_of_credits(machine).unwrap();
     *provisioning.usage.lock() = Ok(CloudUsageSummary {
@@ -398,8 +401,11 @@ async fn cloud_wake_relay_preserves_backend_credit_refusal_without_admitting_sen
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let address = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 34), 7687);
-    let (home, _, _dir, controller, provisioning, channel) =
-        setup_sleeping_cloud_peer(&fixture, "home-credit-refusal", address);
+    let (home, _, _dir, controller, provisioning, channel) = setup_sleeping_cloud_peer(
+        &fixture,
+        "home-credit-refusal",
+        CloudEndpoint::Direct(address),
+    );
     let machine = "cloud-sleeper-1";
     controller.set_out_of_credits(machine).unwrap();
     *provisioning.usage.lock() = Err(CloudError::LeaseRequired);
@@ -437,8 +443,11 @@ async fn agent_held_send_preserves_agent_origin_and_refuses_spoofed_source_tab_b
     let (mux, agent_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 30), 7687);
-    let (home, home_pub, _dir, controller, provisioning, channel) =
-        setup_sleeping_cloud_peer(&fixture, "home-agent-wake", cloud_addr);
+    let (home, home_pub, _dir, controller, provisioning, channel) = setup_sleeping_cloud_peer(
+        &fixture,
+        "home-agent-wake",
+        CloudEndpoint::Direct(cloud_addr),
+    );
     controller.set_out_of_credits("cloud-sleeper-1").unwrap();
     *provisioning.usage.lock() = Ok(CloudUsageSummary {
         remaining: 25.0,
@@ -528,8 +537,11 @@ async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failu
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 31), 7687);
-    let (home, _home_pub, _dir, controller, provisioning, channel) =
-        setup_sleeping_cloud_peer(&fixture, "home-transient-wake", cloud_addr);
+    let (home, _home_pub, _dir, controller, provisioning, channel) = setup_sleeping_cloud_peer(
+        &fixture,
+        "home-transient-wake",
+        CloudEndpoint::Direct(cloud_addr),
+    );
 
     // Override endpoint publication to fail once, then succeed and record the published endpoint.
     let published = Arc::new(Mutex::new(Vec::<(CloudEndpoint, String)>::new()));
@@ -619,21 +631,41 @@ async fn transient_connect_unavailable_keeps_held_send_pending_and_publish_failu
 async fn persisted_endpoint_is_not_ready_and_watcher_flushes_once_when_guest_links() {
     crate::register_api_extensions();
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
-    let cloud_addr = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 32), 7687);
-    let (home, _home_pub, _dir, controller, _provisioning, channel) =
-        setup_sleeping_cloud_peer(&fixture, "home-link-watch", cloud_addr);
+    let endpoint = CloudEndpoint::ProviderProxy {
+        host: "cloud-link-watch.fly.dev".into(),
+    };
+    let (home, _home_pub, _dir, controller, provisioning, channel) =
+        setup_sleeping_cloud_peer(&fixture, "home-link-watch", endpoint.clone());
+    let machine_id = "cloud-sleeper-1";
+    let installation_id = "cloud-inst-wake";
+    let first_binding = [10u8; 32];
+    provisioning.release_wake();
+    home.mesh
+        .lock()
+        .attach_reverse_stream_for_test(installation_id.into(), first_binding);
+    let woken = tokio::time::timeout(
+        Duration::from_secs(5),
+        wake_machine_for_use(&home, machine_id),
+    )
+    .await
+    .expect("timed out waking the cloud fixture")
+    .unwrap();
+    assert_eq!(woken.state, CloudLifecycleState::Awake);
+    home.mesh
+        .lock()
+        .detach_reverse_stream_for_test(installation_id, &first_binding);
 
-    let record = controller.find_by_peer("cloud-sleeper-1").unwrap();
+    let record = controller.find_by_peer(machine_id).unwrap();
+    assert_eq!(record.endpoint, Some(endpoint));
     let peer_ctrl = MeshPeerControlAdapter::new(home.clone());
     assert!(
         !peer_ctrl.peer_is_online(&record),
         "persisted cloud ingress endpoint alone must not count as guest readiness"
     );
 
-    let watcher = crate::cloud_routes::spawn_wake_delivery_watcher(home.clone());
     let held = controller
         .hold_send_for_wake(
-            "cloud-sleeper-1",
+            machine_id,
             "cloud-tab-1",
             "deliv-watch-1".into(),
             "POST".into(),
@@ -645,29 +677,55 @@ async fn persisted_endpoint_is_not_ready_and_watcher_flushes_once_when_guest_lin
         )
         .unwrap();
 
-    // Unlinked gate change must not flush.
-    home.mesh.lock().notify_connection_change();
-    tokio::task::yield_now().await;
+    // Expiration acknowledges the watcher ran while the guest was still unlinked.
+    let expired = controller
+        .hold_send_for_wake(
+            machine_id,
+            "cloud-tab-1",
+            "deliv-expired-before-link".into(),
+            "POST".into(),
+            "/api/tabs/cloud-tab-1/send".into(),
+            json!({ "text": "expired-before-link" }),
+            AuthenticatedOrigin::Owner,
+            None,
+            0,
+        )
+        .unwrap();
+    let mut queue = controller.subscribe_wake_queue();
+    let watcher = crate::cloud_routes::spawn_wake_delivery_watcher(home.clone());
+    tokio::time::timeout(Duration::from_secs(5), queue.changed())
+        .await
+        .expect("timed out waiting for the watcher's first pass")
+        .unwrap();
+    assert_eq!(
+        controller
+            .inspect_held_send(&expired.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Failed
+    );
     assert!(channel.recorded().is_empty());
     assert_eq!(
         controller.inspect_held_send(&held.send_id).unwrap().state,
         ChatSendState::Pending
     );
 
-    // Real guest link (attached reverse stream) wakes the watcher and flushes once.
     home.mesh
         .lock()
-        .attach_reverse_stream_for_test("cloud-inst-wake".into(), [11u8; 32]);
-    channel.wait_for_calls(1).await;
-    assert_eq!(channel.recorded().len(), 1);
+        .attach_reverse_stream_for_test(installation_id.into(), [11u8; 32]);
+    tokio::time::timeout(Duration::from_secs(5), queue.changed())
+        .await
+        .expect("timed out waiting for the watcher to settle the send")
+        .unwrap();
     assert_eq!(
         controller.inspect_held_send(&held.send_id).unwrap().state,
         ChatSendState::Sent
     );
-
-    // Another gate bump for the same link must never replay.
-    home.mesh.lock().notify_connection_change();
-    tokio::task::yield_now().await;
-    assert_eq!(channel.recorded().len(), 1);
+    let calls = channel.recorded();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0].command.delivery_id.as_deref(),
+        Some("deliv-watch-1")
+    );
     watcher.abort();
 }
