@@ -482,11 +482,34 @@ pub(super) async fn stop(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
     stop_within(runtime, CLOSE_DEADLINE).await
 }
 
+#[cfg(test)]
+pub(super) async fn stop_discard(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
+    stop_without_dialog_answer(runtime, CLOSE_DEADLINE).await
+}
+
 /// `stop` with the graceful window bounded by `deadline` before the tree is killed.
 pub(super) async fn stop_within(runtime: Arc<Runtime>, deadline: Duration) -> Option<CloseOutcome> {
     let lease = runtime.lease.lock().take();
     match lease {
         Some(lease) => lease.release(deadline).await,
+        None => {
+            if matches!(runtime.mode, BrowserMode::Attached { .. }) {
+                runtime
+                    .client
+                    .close("attached browser disconnected by host");
+            }
+            None
+        }
+    }
+}
+
+pub(super) async fn stop_without_dialog_answer(
+    runtime: Arc<Runtime>,
+    deadline: Duration,
+) -> Option<CloseOutcome> {
+    let lease = runtime.lease.lock().take();
+    match lease {
+        Some(lease) => lease.release_without_dialog_answer(deadline).await,
         None => {
             if matches!(runtime.mode, BrowserMode::Attached { .. }) {
                 runtime

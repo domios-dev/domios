@@ -120,6 +120,8 @@ struct ViewerLease {
 
 impl Drop for ViewerLease {
     fn drop(&mut self) {
+        self.runtime
+            .release_control_if_generation(&self.viewer, self.generation);
         let runtime = self.runtime.clone();
         let viewer = self.viewer.clone();
         let generation = self.generation;

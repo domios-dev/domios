@@ -167,10 +167,18 @@ impl BrowserHost {
     }
 
     async fn stop_current(&self) -> Option<CloseOutcome> {
-        self.stop_current_within(CLOSE_DEADLINE).await
+        self.stop_current_with(CLOSE_DEADLINE, false).await
     }
 
     async fn stop_current_within(&self, graceful: Duration) -> Option<CloseOutcome> {
+        self.stop_current_with(graceful, false).await
+    }
+
+    async fn stop_current_with(
+        &self,
+        graceful: Duration,
+        without_dialog_answer: bool,
+    ) -> Option<CloseOutcome> {
         let pending = self.pending_termination.lock().clone();
         if let Some(process) = pending {
             return match process.exit_status() {
@@ -185,7 +193,11 @@ impl BrowserHost {
         match previous {
             Some(runtime) => {
                 let process = runtime.process.clone();
-                let outcome = runtime::stop_within(runtime, graceful).await;
+                let outcome = if without_dialog_answer {
+                    runtime::stop_without_dialog_answer(runtime, graceful).await
+                } else {
+                    runtime::stop_within(runtime, graceful).await
+                };
                 if outcome == Some(CloseOutcome::Killed(None)) {
                     *self.pending_termination.lock() = process;
                 }
@@ -281,6 +293,13 @@ impl BrowserHost {
         let _lifecycle = self.lifecycle.lock().await;
         self.launch_error.lock().take();
         self.stop_current().await
+    }
+
+    /// Agent discard teardown: closes the target or process without ever answering a JS dialog.
+    pub async fn close_without_dialog_answer(&self) -> Option<CloseOutcome> {
+        let _lifecycle = self.lifecycle.lock().await;
+        self.launch_error.lock().take();
+        self.stop_current_with(CLOSE_DEADLINE, true).await
     }
 
     /// Owner or Team teardown: close the browser and end every frame subscription.

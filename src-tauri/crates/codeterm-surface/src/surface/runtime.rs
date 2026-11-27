@@ -80,6 +80,13 @@ pub fn evidence_dir(
         .unwrap_or_else(|| data_dir.join("browsers").join("screenshots"))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentCloseMode {
+    #[default]
+    Normal,
+    DiscardUnsaved,
+}
+
 /// Side effects a runtime asks core to perform after a call; it never reaches back into core itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SurfaceEffect {
@@ -153,9 +160,15 @@ pub trait SurfaceRuntime: Send + Sync {
         self.dispose().await;
         Ok(())
     }
-    /// Agent-initiated close; runtimes may refuse if a pre-existing owner modal is blocking.
-    async fn agent_close(&self) -> Result<(), SurfaceError> {
-        self.close().await
+    /// Agent-initiated close; runtimes may refuse if a dialog or owner Take control blocks it.
+    async fn agent_close(
+        &self,
+        ctx: &SurfaceCallCtx,
+        mode: AgentCloseMode,
+    ) -> Result<Option<String>, SurfaceError> {
+        let _ = (ctx, mode);
+        self.close().await?;
+        Ok(None)
     }
     /// Daemon exit: dispose with only `graceful` before a kill; false when something was killed.
     async fn shutdown(&self, graceful: Duration) -> bool {

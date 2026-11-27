@@ -623,6 +623,8 @@ suite.test("only Take control claims size, including when the viewer already own
   await act(async () => fake.emitOpen());
   assert.equal(fake.callsTo("viewport.claim").length, 1);
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize), []);
+  await act(async () => getByRole(host, "button", "Take control").click());
+  assert.deepEqual(fake.callsTo("control.release").map(call => call.args), [{ viewer: fake.viewer() }]);
   await unmount();
 });
 

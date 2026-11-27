@@ -89,9 +89,11 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
     if (interactive && !wasInteractive.current) {
       setInputFailure(null);
       stream.takeControl();
+    } else if (!interactive && wasInteractive.current) {
+      stream.releaseControl();
     }
     wasInteractive.current = interactive;
-  }, [interactive, stream.takeControl]);
+  }, [interactive, stream.takeControl, stream.releaseControl]);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [snipping, setSnipping] = useState(false);

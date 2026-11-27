@@ -19,6 +19,7 @@ export interface SurfaceStream {
   onViewport(viewport: StreamViewport): void;
   onHidden(): void;
   takeControl(): void;
+  releaseControl(): void;
 }
 
 interface Connection {
@@ -131,5 +132,12 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       .catch((error: unknown) => publishNotice({ kind: "debug", severity: "Warning", title: "Surface viewport claim failed", detail: String(error) }));
   }, [transport, viewer, visible]);
 
-  return { state, notice, paused, unavailable, frames: feed, subscribeCursor, setNotice, onViewport, onHidden, takeControl };
+  const releaseControl = useCallback(() => {
+    const current = connection.current;
+    if (!current.disconnect) return;
+    void transport.invoke("control.release", { viewer })
+      .catch(() => undefined);
+  }, [transport, viewer]);
+
+  return { state, notice, paused, unavailable, frames: feed, subscribeCursor, setNotice, onViewport, onHidden, takeControl, releaseControl };
 }

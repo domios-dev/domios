@@ -266,6 +266,17 @@ fn surface_agent_call_of_cannot_close_another_agents_browser() {
 }
 
 #[test]
+fn surface_agent_call_close_args_accept_only_discard_unsaved() {
+    assert_eq!(parse_close_args(&[]), Ok(AgentCloseMode::Normal));
+    assert_eq!(
+        parse_close_args(&["--discard-unsaved".into()]),
+        Ok(AgentCloseMode::DiscardUnsaved)
+    );
+    assert!(parse_close_args(&["--force".into()]).is_err());
+    assert!(parse_close_args(&["--discard-unsaved".into(), "--extra".into()]).is_err());
+}
+
+#[test]
 fn surface_agent_call_of_runs_every_verb_on_the_owners_path_with_the_actor() {
     let team = team();
     for verb in [

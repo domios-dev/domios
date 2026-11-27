@@ -218,6 +218,17 @@ impl BrowserProcess {
         self.exit_status()
     }
 
+    pub async fn force_close(&self) -> CloseOutcome {
+        if let Some(exit) = self.exit_status() {
+            return CloseOutcome::AlreadyExited(exit);
+        }
+        self.kill();
+        CloseOutcome::Killed(
+            self.wait_exit_until(Instant::now() + forced_exit_window())
+                .await,
+        )
+    }
+
     /// `request_close` asks Chromium to quit (CDP `Browser.close`) so it flushes the profile first.
     pub async fn close_with<F>(&self, request_close: F, deadline: Duration) -> CloseOutcome
     where

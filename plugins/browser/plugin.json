@@ -257,7 +257,7 @@
     "inbox [all]",
     "annotate @ref | <role> <name> <comment> --of <agent> [--intent question|change|bug]",
     "endpoint",
-    "close",
+    "close [--discard-unsaved]",
     "attach --profile NAME --origin URL [--expect-build SHA] [--ephemeral]",
     "connect --profile NAME --origin URL [--expect-build SHA] [--ephemeral] --stdin",
     "profile list | profile remove NAME",

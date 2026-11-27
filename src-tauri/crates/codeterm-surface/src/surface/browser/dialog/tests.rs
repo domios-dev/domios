@@ -12,7 +12,7 @@ fn dialog(kind: &str, message: &str) -> ActiveDialog {
 
 #[test]
 fn all_dialogs_including_beforeunload_block_and_format_status_and_error() {
-    for kind in ["alert", "confirm", "prompt", "beforeunload"] {
+    for kind in ["alert", "confirm", "prompt", "auth", "beforeunload"] {
         let mut state = DialogState::default();
         let opened = dialog(kind, "Unsaved changes");
         state.on_dialog_opening(opened.clone());
@@ -30,6 +30,17 @@ fn all_dialogs_including_beforeunload_block_and_format_status_and_error() {
         );
         assert!(error.contains("needs human: dialog"), "{error}");
         assert!(error.contains("Take control"), "{error}");
+        if kind == "beforeunload" {
+            assert!(
+                error.contains("domios plugin browser close --discard-unsaved"),
+                "{error}"
+            );
+        } else {
+            assert!(
+                !error.contains("--discard-unsaved"),
+                "non-beforeunload dialog must not suggest discard: {error}"
+            );
+        }
 
         state.on_dialog_closed();
         assert!(!state.is_blocking());
@@ -392,13 +403,22 @@ async fn agent_close_and_open_profile_refuse_pre_existing_dialog_without_unbind_
     .unwrap();
 
     // Agent close must refuse before unbinding or tearing down the target.
-    let close_err = runtime.agent_close().await.unwrap_err();
+    let owner_ctx = call_ctx(_root.path(), Some("tab-id"), Some("tab-id"), None);
+    let close_err = runtime
+        .agent_close(&owner_ctx, crate::surface::runtime::AgentCloseMode::Normal)
+        .await
+        .unwrap_err();
     match close_err {
         SurfaceError::Blocked(detail) => {
             assert!(
                 detail.contains("dialog: beforeunload — Owner draft"),
                 "{detail}"
             );
+            assert!(
+                detail.contains("domios plugin browser close --discard-unsaved"),
+                "{detail}"
+            );
+            assert!(detail.contains("Take control"), "{detail}");
         }
         other => panic!("expected SurfaceError::Blocked, got {other:?}"),
     }
@@ -694,4 +714,190 @@ async fn cancelling_after_overlay_suppression_ack_restores_presentation_once_aft
     assert_eq!(ok["data"], "QQ==");
     assert_eq!(conn2.capture_true_calls.load(Ordering::SeqCst), 1);
     assert_eq!(conn2.capture_false_calls.load(Ordering::SeqCst), 1);
+}
+
+fn call_ctx(
+    root: &std::path::Path,
+    owner: Option<&str>,
+    caller: Option<&str>,
+    actor: Option<&str>,
+) -> SurfaceCallCtx {
+    SurfaceCallCtx {
+        host: std::sync::Arc::new(crate::test_support::RecordingSurfaceHost::default()),
+        owner_tab_id: owner.map(str::to_string),
+        caller_tab_id: caller.map(str::to_string),
+        data_dir: root.to_path_buf(),
+        actor: actor.map(str::to_string),
+    }
+}
+
+#[tokio::test]
+async fn beforeunload_discard_closes_owned_session_without_dialog_answer_and_records_activity() {
+    use crate::surface::runtime::{AgentCloseMode, SurfaceRuntime};
+
+    let (root, runtime, _page, conn) = runtime_with_fake_page(DialogBehavior::Clean).await;
+    let mut dialogs = runtime.shared.subscribe_dialogs();
+    let mut notices = runtime.shared.subscribe_notices();
+    conn.emit(
+        "Page.javascriptDialogOpening",
+        Some("ST1"),
+        json!({
+            "type": "beforeunload",
+            "message": "Unsaved reply draft",
+            "url": "https://x.com/compose/post?draft=1#secret",
+        }),
+    );
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        dialogs.wait_for(|snapshot| snapshot.dialog.is_some()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let owner_ctx = call_ctx(root.path(), Some("tab-id"), Some("tab-id"), None);
+    let activity = runtime
+        .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+        .await
+        .unwrap()
+        .expect("discard must record an activity line");
+    assert!(activity.contains("Orla"), "{activity}");
+    assert!(activity.contains("https://x.com"), "{activity}");
+    assert!(!activity.contains("secret"), "{activity}");
+    assert!(activity.contains("beforeunload"), "{activity}");
+    assert_eq!(notices.try_recv().unwrap().text, activity);
+    assert_eq!(runtime.shared.state().activity, activity);
+    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+    assert_eq!(runtime.shared.state().needs_human, "none");
+    assert!(runtime.shared.active_dialog().is_none());
+    assert!(runtime.shared.state().target_id.is_empty());
+}
+
+#[tokio::test]
+async fn discard_refuses_non_beforeunload_dialogs_non_owner_and_owner_take_control() {
+    use crate::surface::runtime::{AgentCloseMode, SurfaceRuntime};
+    use codeterm_browser::viewport::ViewportRequest;
+
+    for kind in ["alert", "confirm", "prompt", "auth"] {
+        let (root, runtime, _page, conn) = runtime_with_fake_page(DialogBehavior::Clean).await;
+        let mut dialogs = runtime.shared.subscribe_dialogs();
+        let mut notices = runtime.shared.subscribe_notices();
+        conn.emit(
+            "Page.javascriptDialogOpening",
+            Some("ST1"),
+            json!({ "type": kind, "message": "Human check", "url": "https://guard.test/form" }),
+        );
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            dialogs.wait_for(|snapshot| snapshot.dialog.is_some()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        let owner_ctx = call_ctx(root.path(), Some("tab-id"), Some("tab-id"), None);
+        let err = runtime
+            .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+            .await
+            .unwrap_err();
+        match err {
+            SurfaceError::Blocked(detail) => {
+                assert!(detail.contains(&format!("dialog: {kind}")), "{detail}");
+                assert!(!detail.contains("--discard-unsaved"), "{detail}");
+            }
+            other => panic!("expected SurfaceError::Blocked for {kind}, got {other:?}"),
+        }
+        assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+        assert_eq!(conn.count("Target.closeTarget"), 0);
+        assert_eq!(runtime.shared.state().needs_human, "dialog");
+        assert!(notices.try_recv().is_err());
+    }
+
+    let (root, runtime, _page, conn) = runtime_with_fake_page(DialogBehavior::Clean).await;
+    let mut dialogs = runtime.shared.subscribe_dialogs();
+    let mut notices = runtime.shared.subscribe_notices();
+    conn.emit(
+        "Page.javascriptDialogOpening",
+        Some("ST1"),
+        json!({ "type": "beforeunload", "message": "Draft", "url": "https://dirty.test/reply" }),
+    );
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        dialogs.wait_for(|snapshot| snapshot.dialog.is_some()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    for non_owner in [
+        call_ctx(root.path(), Some("tab-id"), Some("other-tab"), None),
+        call_ctx(root.path(), Some("tab-id"), Some("tab-id"), Some("QA")),
+        call_ctx(root.path(), None, Some("tab-id"), None),
+    ] {
+        assert!(matches!(
+            runtime
+                .agent_close(&non_owner, AgentCloseMode::DiscardUnsaved)
+                .await,
+            Err(SurfaceError::Blocked(_))
+        ));
+    }
+    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+    assert!(runtime.shared.active_dialog().is_some());
+    assert!(notices.try_recv().is_err());
+
+    let owner_ctx = call_ctx(root.path(), Some("tab-id"), Some("tab-id"), None);
+    let gen1 = runtime
+        .viewport
+        .lock()
+        .await
+        .join(
+            "owner-viewer".into(),
+            ViewportRequest {
+                width: 1280.0,
+                height: 720.0,
+                dpr: 1.0,
+            },
+            false,
+        )
+        .unwrap();
+    runtime
+        .view_call(
+            &owner_ctx,
+            "viewport.claim",
+            json!({ "viewer": "owner-viewer", "width": 1280.0, "height": 720.0, "dpr": 1.0 }),
+        )
+        .await
+        .unwrap();
+    match runtime
+        .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+        .await
+        .unwrap_err()
+    {
+        SurfaceError::Blocked(detail) => assert!(detail.contains("Take control"), "{detail}"),
+        other => panic!("expected Take control refusal, got {other:?}"),
+    }
+    assert!(runtime.shared.active_dialog().is_some());
+    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+    assert!(notices.try_recv().is_err());
+
+    // A stale viewer generation never revokes active control.
+    runtime.release_control_if_generation("owner-viewer", gen1 + 1);
+    assert!(runtime.owner_holds_control());
+
+    runtime
+        .view_call(
+            &owner_ctx,
+            "control.release",
+            json!({ "viewer": "owner-viewer" }),
+        )
+        .await
+        .unwrap();
+    assert!(!runtime.owner_holds_control());
+    let activity = runtime
+        .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+        .await
+        .unwrap()
+        .expect("discard succeeds once owner releases Take control");
+    assert!(activity.contains("https://dirty.test"), "{activity}");
+    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
 }

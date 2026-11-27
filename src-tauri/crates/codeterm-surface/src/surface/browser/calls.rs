@@ -18,6 +18,11 @@ struct ResizeArgs {
     dpr: f64,
 }
 
+#[derive(Deserialize)]
+struct ViewerArgs {
+    viewer: String,
+}
+
 fn unit_dpr() -> f64 {
     1.0
 }
@@ -83,6 +88,11 @@ impl BrowserRuntime {
                 let size: ResizeArgs = parse(method, args)?;
                 let _guard = self.action_gate.lock().await;
                 let mut model = self.viewport.lock().await;
+                if method == "viewport.claim" {
+                    if let Some(generation) = model.viewer_generation(&size.viewer) {
+                        self.claim_control(&size.viewer, generation);
+                    }
+                }
                 let accepted = model
                     .request(
                         &size.viewer,
@@ -102,6 +112,11 @@ impl BrowserRuntime {
                     self.apply_viewer_viewport(&mut model).await?;
                 }
                 json!({ "owner": model.owner() })
+            }
+            "control.release" => {
+                let viewer: ViewerArgs = parse(method, args)?;
+                self.release_control(&viewer.viewer);
+                Value::Null
             }
             "input" => {
                 let input: InputArgs = parse(method, args)?;
