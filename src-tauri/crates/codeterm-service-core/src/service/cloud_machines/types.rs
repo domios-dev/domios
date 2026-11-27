@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 pub use codeterm_util::cloud_endpoint::{CloudEndpoint, CLOUD_INGRESS_PORT, PROVIDER_PROXY_PORT};
 use serde::{Deserialize, Serialize};
 
-use super::storage::CloudStorageUsageSummary;
+use super::storage::{CloudStorageTier, CloudStorageUsageSummary, AUX_KEY_STORAGE_TIER};
 
 pub const DEFAULT_IDLE_SLEEP_MINUTES: u32 = 15;
 pub const DEFAULT_LEASE_RENEW_LEAD_MS: u64 = 120_000;
@@ -77,6 +77,7 @@ pub enum PendingProvisioningOp {
     Create,
     Wake,
     Sleep,
+    Archive,
     Delete,
 }
 
@@ -264,6 +265,8 @@ pub struct CloudReceipt {
     pub endpoint: Option<CloudEndpoint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease_expires_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_tier: Option<CloudStorageTier>,
     pub billing_notice: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
@@ -347,6 +350,11 @@ impl CloudMachineRecord {
             peer_instance_id: self.peer_instance_id.clone(),
             endpoint: self.endpoint.clone(),
             lease_expires_at_ms: self.lease_expires_at_ms,
+            storage_tier: self
+                .ownership
+                .auxiliary_resource_ids
+                .get(AUX_KEY_STORAGE_TIER)
+                .and_then(|raw| CloudStorageTier::from_aux_str(raw)),
             billing_notice: COST_WARNING_TEXT.into(),
             warning,
             create_phases,

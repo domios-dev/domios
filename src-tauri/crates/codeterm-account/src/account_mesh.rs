@@ -7,6 +7,7 @@ pub mod callable;
 mod callable_budget;
 pub mod cloud_enrollment;
 pub mod cloud_provisioning;
+mod cloud_provisioning_ops;
 pub mod delegated_renewal;
 mod endpoint_sequence;
 mod key;

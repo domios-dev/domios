@@ -8,6 +8,7 @@ import {
 } from "../../lib/cloudMachines/promoModel";
 import { cloudUsageMeterView } from "../../lib/cloudMachines/usageModel";
 import type { CloudPromoRedemption, CloudUsagePayload } from "../../lib/cloudMachines/types";
+import { projectCloudStorageMeter } from "../Usage/cloudStorageModel";
 import { Button } from "../shared/Button";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import "./cloudMachines.css";
@@ -30,6 +31,9 @@ export function CloudUsageMeter({
   className = "",
 }: CloudUsageMeterProps) {
   const view = cloudUsageMeterView(usage, { planId });
+  const storageView = usage.storage
+    ? projectCloudStorageMeter(usage.storage, usage.currency ?? "USD")
+    : null;
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [code, setCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
@@ -237,6 +241,28 @@ export function CloudUsageMeter({
           <Check size={14} strokeWidth={2.25} className="shrink-0 text-[var(--ct-green)]" aria-hidden="true" />
           <span>{redeemSuccess}</span>
         </p>
+      )}
+
+      {storageView && (
+        <div
+          className="mt-2.5 flex flex-col gap-1 border-t border-[var(--ct-border-subtle)] pt-2 text-[11px] text-[var(--ct-muted-fg)]"
+          data-testid="cloud-storage-usage"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium text-[var(--ct-fg)]">Storage</span>
+            <span>{storageView.autoArchiveLabel}</span>
+          </div>
+          {storageView.rows.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+              {storageView.rows.map((row) => (
+                <span key={row.machineId} data-testid={`cloud-storage-tier-${row.machineId}`}>
+                  {row.machineName ?? row.machineId}:{" "}
+                  <strong className="font-medium text-[var(--ct-fg)]">{row.tierLabel}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </section>
   );

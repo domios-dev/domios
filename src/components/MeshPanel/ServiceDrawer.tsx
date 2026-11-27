@@ -56,6 +56,7 @@ export interface CloudDrawerControls {
   onTopUp: (machine: CloudReceipt, forWake: boolean) => void;
   onRedeem: (code: string) => Promise<CloudPromoRedemption>;
   onSleep: (machineId: string) => Promise<unknown>;
+  onArchive?: (machineId: string) => Promise<unknown>;
   onWake: (machineId: string) => Promise<unknown>;
   onDelete: (machineId: string) => Promise<boolean>;
 }
@@ -148,6 +149,7 @@ export function ServiceDrawer({
         onTopUp={(forWake) => cloudDrawer.onTopUp(machine, forWake)}
         onRedeem={cloudDrawer.onRedeem}
         onSleep={() => cloudDrawer.onSleep(machine.machine_id)}
+        onArchive={cloudDrawer.onArchive ? () => cloudDrawer.onArchive!(machine.machine_id) : undefined}
         onWake={() => cloudDrawer.onWake(machine.machine_id)}
         onDelete={() => cloudDrawer.onDelete(machine.machine_id)}
       />
@@ -178,6 +180,7 @@ export function ServiceDrawer({
             onTopUp={(forWake) => cloudDrawer.onTopUp(cloudMatch, forWake)}
             onRedeem={cloudDrawer.onRedeem}
             onSleep={() => cloudDrawer.onSleep(cloudMatch.machine_id)}
+            onArchive={cloudDrawer.onArchive ? () => cloudDrawer.onArchive!(cloudMatch.machine_id) : undefined}
             onWake={() => cloudDrawer.onWake(cloudMatch.machine_id)}
             onDelete={() => cloudDrawer.onDelete(cloudMatch.machine_id)}
           />

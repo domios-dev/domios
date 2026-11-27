@@ -119,7 +119,7 @@ fn parses_mesh_cloud_verbs_and_flags() {
         ));
     }
 
-    for verb in ["sleep", "wake"] {
+    for verb in ["sleep", "archive", "wake"] {
         let parsed = Cli::try_parse_from(["domios", "mesh", "cloud", verb, "cloud-1"]).unwrap();
         assert!(matches!(
             parsed.command,

@@ -64,6 +64,7 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 | POST | `/api/mesh/cloud/create` | `{size?, name?, retry_machine_id?, labels?}` | Local-only. Provision and enroll a managed cloud machine through the Domios backend; surfaces `limit_reached`, `lease_required`, and `credits_exhausted`. |
 | GET | `/api/mesh/cloud/list` | — | Local-only. List managed cloud machines with state, hourly rate, endpoint, and uptime. |
 | POST | `/api/mesh/cloud/{id}/sleep` | `{}` | Local-only. Run two-phase drain on an idle cloud peer and sleep it through the backend (`machine_busy` if work runs). |
+| POST | `/api/mesh/cloud/{id}/archive` | `{}` | Local-only. Immediately archive an asleep or idle cloud machine's disk via the verified eviction pipeline (drains and sleeps first if awake and idle; refuses with `machine_busy` while work runs). |
 | POST | `/api/mesh/cloud/{id}/wake` | `{}` | Local-only. Wake a sleeping cloud machine through the backend (concurrent wakes join one wake), update its endpoint before readiness, and flush held sends in order. |
 | POST | `/api/mesh/cloud/{id}/delete` | `{confirm}` | Local-only. Delete a cloud machine through the backend; without `confirm: true` returns `delete_confirmation_required` warning about unpushed work. |
 | POST | `/api/mesh/cloud/resolve` | `{target, size?, name?}` | Local-only. Resolve reuse-first cloud placement (`auto` reuses awake then wakes asleep, never creates; `new` creates explicitly; `<machine>` targets one). |
@@ -232,4 +233,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 260 -->
+<!-- revision: 261 -->

@@ -169,6 +169,7 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "cloud.machines": return `Your plan allows ${failure.limit} cloud ${failure.limit === 1 ? "machine" : "machines"}.`;
     case "lease_required": return "Cloud hours are needed to start this machine.";
     case "credits_exhausted": return "Out of cloud hours. Top up to continue.";
+    case "machine_busy": return "This cloud machine is busy with active work. Wait until it is idle and try again.";
     case "invalid_code": return "That code is not valid.";
     case "expired": return "That code has expired.";
     case "disabled": return "That code is no longer active.";

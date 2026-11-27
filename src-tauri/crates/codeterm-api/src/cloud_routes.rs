@@ -1,4 +1,5 @@
 mod adapters;
+mod provisioning_adapter;
 mod warm_bootstrap;
 
 use std::collections::BTreeMap;
@@ -13,16 +14,18 @@ use axum::{
 use codeterm_service_core::service::cloud_machines::{
     spawn_cloud_idle_driver, CloudDeleteMode, CloudError, CloudIdleDriverConfig,
     CloudIdleDriverHandle, CloudProvisioningPort, CloudTarget, CreateCloudMachineParams,
-    TokioIdleTickWaiter, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_WAKE_HOLD_DEADLINE_MS,
+    TokioIdleTickWaiter, AUX_KEY_STORAGE_TIER, DEFAULT_IDLE_SLEEP_MINUTES,
+    DEFAULT_WAKE_HOLD_DEADLINE_MS,
 };
 use serde::Deserialize;
 
 use crate::routes::AppState;
 
+use adapters::BakerEnrollmentAdapter;
 pub use adapters::MeshPeerControlAdapter;
-use adapters::{AccountCloudProvisioningAdapter, BakerEnrollmentAdapter};
 #[cfg(any(test, feature = "test-support"))]
 pub use adapters::{CloudEndpointPublisherOverride, CloudProvisioningOverride};
+use provisioning_adapter::AccountCloudProvisioningAdapter;
 
 pub(crate) fn register_extensions(
     #[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables))]
@@ -199,6 +202,29 @@ pub(crate) async fn wake_machine_for_use(
         .ok_or_else(|| CloudError::MachineNotFound(machine_id.to_owned()))?;
     let provisioning = resolve_provisioning(state);
     let peer_ctrl = MeshPeerControlAdapter::new(state.clone());
+    let is_cold = matches!(
+        record
+            .ownership
+            .auxiliary_resource_ids
+            .get(AUX_KEY_STORAGE_TIER)
+            .map(String::as_str),
+        Some("cold" | "recoverable_deleted")
+    );
+    if is_cold {
+        let enrollment = BakerEnrollmentAdapter {
+            svc: state.svc.clone(),
+        };
+        return ctrl
+            .recreate_from_archive(
+                &record.machine_id,
+                None,
+                provisioning.as_ref(),
+                &enrollment,
+                &peer_ctrl,
+                DEFAULT_WAKE_HOLD_DEADLINE_MS,
+            )
+            .await;
+    }
     ctrl.wake(
         &record.machine_id,
         provisioning.as_ref(),
@@ -280,6 +306,25 @@ async fn sleep_machine(
     let peer_ctrl = MeshPeerControlAdapter::new(state.clone());
     let receipt = ctrl
         .sleep(&record.machine_id, provisioning.as_ref(), &peer_ctrl, true)
+        .await
+        .map_err(error_response)?;
+    Ok(Json(serde_json::to_value(receipt).unwrap_or_default()))
+}
+
+async fn archive_machine(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_local_caller(&state, &headers)?;
+    let ctrl = state.svc.cloud_machines();
+    let record = ctrl
+        .find_by_peer(&id)
+        .ok_or_else(|| error_response(CloudError::MachineNotFound(id.clone())))?;
+    let provisioning = resolve_provisioning(&state);
+    let peer_ctrl = MeshPeerControlAdapter::new(state.clone());
+    let receipt = ctrl
+        .archive_now(&record.machine_id, provisioning.as_ref(), &peer_ctrl)
         .await
         .map_err(error_response)?;
     Ok(Json(serde_json::to_value(receipt).unwrap_or_default()))
@@ -749,6 +794,7 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/mesh/cloud/create", post(create_machine))
         .route("/api/mesh/cloud/list", get(list_machines))
         .route("/api/mesh/cloud/{id}/sleep", post(sleep_machine))
+        .route("/api/mesh/cloud/{id}/archive", post(archive_machine))
         .route("/api/mesh/cloud/{id}/wake", post(wake_machine))
         .route("/api/mesh/cloud/{id}/delete", post(delete_machine))
         .route("/api/mesh/cloud/{id}/recreate", post(recreate_machine))

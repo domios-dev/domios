@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import {
+  archiveCloudMachine,
   CloudApiError,
   createCloudMachine,
   deleteCloudMachine,
@@ -160,6 +161,24 @@ export function useCloudMachines(enabled: boolean, onMeshChanged?: () => void) {
     }
   }, [onMeshChanged, usageState]);
 
+  const archive = useCallback(async (machineId: string) => {
+    setBusyMachineId(machineId);
+    setActionError(null);
+    try {
+      const receipt = await archiveCloudMachine(machineId);
+      setMachines((current) => current.map((item) => (item.machine_id === receipt.machine_id ? receipt : item)));
+      onMeshChanged?.();
+      void usageState.refresh();
+      return { ok: true as const, receipt };
+    } catch (err) {
+      const message = err instanceof CloudApiError ? err.message : "Couldn't archive this machine.";
+      setActionError(message);
+      return { ok: false as const, message };
+    } finally {
+      setBusyMachineId(null);
+    }
+  }, [onMeshChanged, usageState]);
+
   const wake = useCallback(async (machineId: string) => {
     setBusyMachineId(machineId);
     setActionError(null);
@@ -227,6 +246,7 @@ export function useCloudMachines(enabled: boolean, onMeshChanged?: () => void) {
     create,
     clearPendingCreate,
     sleep,
+    archive,
     wake,
     remove,
     redeem,

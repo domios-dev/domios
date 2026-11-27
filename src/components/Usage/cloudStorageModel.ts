@@ -17,6 +17,9 @@ export interface ProviderSnapshotResidualView {
 
 export interface CloudMachineStorageUsageWire {
   machine_id: string;
+  create_request_id?: string | null;
+  name?: string | null;
+  created_at_ms?: number | null;
   tier: CloudStorageTier;
   allocated_gb: number;
   used_bytes?: number | null;
@@ -50,6 +53,7 @@ export interface CloudStorageUsageSummaryWire {
 
 export interface CloudMachineStorageRow {
   machineId: string;
+  machineName: string | null;
   tier: CloudStorageTier;
   tierLabel: string;
   allocatedGb: number;
@@ -71,6 +75,7 @@ export interface CloudStorageMeterSummary {
   totalHotMonthlyCostLabel: string;
   hotRateLabel: string;
   coldPolicyLabel: string;
+  autoArchiveLabel: string;
   anyMachineDiskFull: boolean;
   rows: CloudMachineStorageRow[];
 }
@@ -94,12 +99,19 @@ export function formatStorageBytes(bytes: number | null | undefined): string {
 
 export function storageTierLabel(tier: CloudStorageTier): string {
   switch (tier) {
-    case "hot": return "Hot volume";
+    case "hot": return "Hot";
     case "evicting": return "Archiving";
-    case "cold": return "Cold archive";
-    case "recoverable_deleted": return "Recoverable archive";
+    case "cold": return "Archived - wakes in ~2 min";
+    case "recoverable_deleted": return "Archived - wakes in ~2 min";
     case "purged": return "Purged";
   }
+}
+
+export function formatAutoArchiveLabel(hotDays: number | null | undefined): string {
+  const safe = typeof hotDays === "number" && Number.isFinite(hotDays) && hotDays > 0 ? hotDays : 1;
+  return safe === 1
+    ? "auto-archives after 1 day asleep"
+    : `auto-archives after ${safe} days asleep`;
 }
 
 export function validateOwnerVolumeUpgrade(
@@ -141,6 +153,7 @@ export function projectCloudStorageMeter(
 
     return {
       machineId: m.machine_id,
+      machineName: m.name ?? null,
       tier: m.tier,
       tierLabel: storageTierLabel(m.tier),
       allocatedGb: m.allocated_gb,
@@ -167,6 +180,7 @@ export function projectCloudStorageMeter(
     totalHotMonthlyCostLabel: `${formatMoneyCents(summary.total_hot_monthly_cost_cents, currency)}/mo`,
     hotRateLabel: `${formatMoneyCents(summary.hot_gb_month_rate_cents, currency)}/GB-month`,
     coldPolicyLabel: `${summary.hot_days}d hot -> ${summary.purge_days}d cold (included)`,
+    autoArchiveLabel: formatAutoArchiveLabel(summary.hot_days),
     anyMachineDiskFull: rows.some(r => r.diskFullLocal),
     rows,
   };

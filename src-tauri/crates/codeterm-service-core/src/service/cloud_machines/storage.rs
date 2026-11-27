@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 pub const MAX_VOLUME_SIZE_GB: u32 = 500;
-pub const DEFAULT_HOT_RETENTION_DAYS: f64 = 14.0;
+pub const DEFAULT_HOT_RETENTION_DAYS: f64 = 1.0;
 pub const DEFAULT_COLD_PURGE_DAYS: f64 = 90.0;
 pub const DEFAULT_HOT_GB_MONTH_RATE_CENTS: u64 = 15;
 pub const AUX_KEY_RECOVERABLE_ARCHIVE_ID: &str = "recoverable_archive_id";
@@ -29,6 +29,17 @@ impl CloudStorageTier {
             Self::Cold => "cold",
             Self::RecoverableDeleted => "recoverable_deleted",
             Self::Purged => "purged",
+        }
+    }
+
+    pub fn from_aux_str(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "hot" => Some(Self::Hot),
+            "evicting" => Some(Self::Evicting),
+            "cold" => Some(Self::Cold),
+            "recoverable_deleted" => Some(Self::RecoverableDeleted),
+            "purged" => Some(Self::Purged),
+            _ => None,
         }
     }
 }
@@ -114,6 +125,20 @@ pub struct CloudDeleteReceipt {
     pub archive_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purge_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_residual: Option<ProviderSnapshotResidual>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudArchiveReceipt {
+    pub machine_id: String,
+    pub state: String,
+    pub storage_tier: CloudStorageTier,
+    pub archive_id: String,
+    pub cold_since_at: u64,
+    pub purge_at: u64,
+    pub archive_generation: u64,
+    pub already_archived: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_residual: Option<ProviderSnapshotResidual>,
 }

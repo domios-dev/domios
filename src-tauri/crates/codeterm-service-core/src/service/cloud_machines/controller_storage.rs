@@ -8,7 +8,7 @@ use super::ports::{
 use super::state::{transition, LifecycleEvent};
 use super::storage::{
     validate_volume_upgrade_gb, CloudColdWakeParams, CloudStorageTier, CloudVolumeResizeReply,
-    AUX_KEY_ALLOCATED_GB, AUX_KEY_RECOVERABLE_ARCHIVE_ID, AUX_KEY_STORAGE_TIER,
+    AUX_KEY_ALLOCATED_GB, AUX_KEY_PURGE_AT, AUX_KEY_RECOVERABLE_ARCHIVE_ID, AUX_KEY_STORAGE_TIER,
 };
 use super::types::{
     CloudError, CloudLifecycleState, CloudMachineRecord, CloudReceipt, PendingProvisioningOp,
@@ -198,6 +198,86 @@ impl CloudMachineController {
             Ok(next)
         });
         Ok(reply)
+    }
+
+    /// Owner-triggered immediate hot->cold archive: drains and sleeps an awake idle machine first
+    /// (refusing with `MachineBusy` while work runs), then invokes `archiveManagedCloudMachineNow`
+    /// through the verified eviction chain and updates local storage-tier metadata on success.
+    pub async fn archive_now(
+        &self,
+        selector: &str,
+        provisioning: &dyn CloudProvisioningPort,
+        peer_control: &dyn CloudPeerControlPort,
+    ) -> Result<CloudReceipt, CloudError> {
+        let initial = self.find_record(selector)?;
+        if matches!(
+            initial.state,
+            CloudLifecycleState::Awake | CloudLifecycleState::Draining
+        ) {
+            self.sleep(&initial.machine_id, provisioning, peer_control, true)
+                .await?;
+        }
+        let record = self.find_record(&initial.machine_id)?;
+        if !matches!(
+            record.state,
+            CloudLifecycleState::Asleep | CloudLifecycleState::OutOfCredits
+        ) {
+            return Err(CloudError::InvalidTransition {
+                from: record.state,
+                event: "archive_now",
+            });
+        }
+        let provider_machine_id = require_provider_machine_id(&record)?.to_owned();
+        let request_id =
+            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Archive)?;
+        let archived = match provisioning
+            .archive_now(&provider_machine_id, &request_id)
+            .await
+        {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                if error.is_uncertain_provisioning_outcome() {
+                    self.mark_pending_unconfirmed(
+                        &record.machine_id,
+                        PendingProvisioningOp::Archive,
+                        &error.to_string(),
+                    );
+                } else {
+                    self.clear_pending_request(&record.machine_id);
+                }
+                return Err(error);
+            }
+        };
+        let now_ms = self.clock.now_ms();
+        let updated = self.update_record(&record.machine_id, |rec| {
+            let mut next = rec.clone();
+            next.state = if archived.state == "out_of_credits" {
+                CloudLifecycleState::OutOfCredits
+            } else {
+                CloudLifecycleState::Asleep
+            };
+            next.endpoint = None;
+            next.lease_id = None;
+            next.lease_expires_at_ms = None;
+            next.pending_request = None;
+            next.last_error = None;
+            next.ownership.auxiliary_resource_ids.insert(
+                AUX_KEY_STORAGE_TIER.into(),
+                CloudStorageTier::Cold.as_str().into(),
+            );
+            next.ownership.auxiliary_resource_ids.insert(
+                AUX_KEY_RECOVERABLE_ARCHIVE_ID.into(),
+                archived.archive_id.clone(),
+            );
+            next.ownership
+                .auxiliary_resource_ids
+                .insert(AUX_KEY_PURGE_AT.into(), archived.purge_at.to_string());
+            next.ownership
+                .auxiliary_resource_ids
+                .insert(AUX_KEY_ALLOCATED_GB.into(), "0".into());
+            Ok(next)
+        })?;
+        Ok(updated.receipt(now_ms, None))
     }
 
     pub(super) fn find_record_including_deleted(

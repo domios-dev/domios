@@ -398,6 +398,18 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         )
         .await
     }
+    async fn archive_cloud_machine(
+        &self,
+        session: &Session,
+        request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ArchiveMachineReply> {
+        self.call(
+            super::cloud_provisioning::ROUTE_CLOUD_ARCHIVE,
+            session,
+            request,
+        )
+        .await
+    }
     async fn delete_cloud_machine(
         &self,
         session: &Session,
@@ -612,6 +624,7 @@ pub(super) fn callable_timeout(route: &str) -> Duration {
         super::cloud_provisioning::ROUTE_CLOUD_CREATE
         | super::cloud_provisioning::ROUTE_CLOUD_WAKE
         | super::cloud_provisioning::ROUTE_CLOUD_SLEEP
+        | super::cloud_provisioning::ROUTE_CLOUD_ARCHIVE
         | super::cloud_provisioning::ROUTE_CLOUD_DELETE
         | super::cloud_provisioning::ROUTE_CLOUD_VOLUME_RESIZE
         | "enrollDelegatedCloudInstallation" => Duration::from_secs(130),

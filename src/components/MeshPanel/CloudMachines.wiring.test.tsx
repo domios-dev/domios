@@ -274,3 +274,140 @@ it("CloudMachineDrawer wires inline Redeem code states, config idle sleep, and d
     await act(async () => root.unmount());
   }
 });
+
+it("CloudMachineDrawer wires Archive now with confirmation, displays Hot/Archived tier and 1-day auto-archive copy in drawer and usage", async () => {
+  const onArchive = vi.fn(async () => ({ ok: true }));
+  const usageWithStorage: CloudUsagePayload = {
+    ...USAGE,
+    storage: {
+      hot_gb_month_rate_cents: 30,
+      hot_days: 1,
+      purge_days: 90,
+      purge_warning_days: [7, 1],
+      cold_archive_included: true,
+      total_allocated_gb: 10,
+      total_used_bytes: 0,
+      total_hot_monthly_cost_cents: 300,
+      machines: [
+        {
+          machine_id: "cm_1",
+          name: "Scratch",
+          tier: "hot",
+          allocated_gb: 10,
+          used_bytes: 0,
+          used_gb: 0,
+          hot_monthly_cost_cents: 300,
+          hot_accrued_cents: 0,
+          cold_included: true,
+          archive_generation: 1,
+          disk_full: false,
+          volume_upgrade_max_gb: 500,
+        },
+        {
+          machine_id: "cm_2",
+          name: "VaultBox",
+          tier: "cold",
+          allocated_gb: 0,
+          used_bytes: 1024,
+          used_gb: 0,
+          hot_monthly_cost_cents: 0,
+          hot_accrued_cents: 0,
+          cold_included: true,
+          archive_generation: 2,
+          disk_full: false,
+          volume_upgrade_max_gb: 500,
+        },
+      ],
+    },
+  };
+  const { host, root } = createHost();
+  try {
+    // 1. Asleep hot machine shows Hot tier, 1-day auto-archive copy, usage tiers, and Archive now confirmation
+    await act(async () =>
+      root.render(
+        <CloudMachineDrawer
+          machine={{ ...MACHINE, state: "asleep", storage_tier: "hot" }}
+          usage={usageWithStorage}
+          planId="pro"
+          idleSleepMinutes={15}
+          onClose={() => {}}
+          onTopUp={() => {}}
+          onRedeem={async () => ({
+            schema_version: 1,
+            status: "redeemed",
+            already_redeemed: false,
+            hours: 1,
+            expires_at: null,
+            remaining: 39.8,
+            purchased: 36,
+          })}
+          onSleep={async () => {}}
+          onArchive={onArchive}
+          onWake={async () => {}}
+          onDelete={async () => false}
+        />,
+      ),
+    );
+    expect(host.querySelector('[data-testid="cloud-machine-storage-tier"]')?.textContent).toBe("Hot");
+    expect(host.textContent).toContain("Wakes in seconds");
+    expect(host.textContent).toContain("auto-archives after 1 day asleep");
+    expect(host.querySelector('[data-testid="cloud-storage-tier-cm_1"]')?.textContent).toContain("Hot");
+    expect(host.querySelector('[data-testid="cloud-storage-tier-cm_2"]')?.textContent).toContain("Archived - wakes in ~2 min");
+
+    const archiveTrigger = Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Archive now")!;
+    expect(archiveTrigger).toBeDefined();
+    await act(async () => archiveTrigger.click());
+    expect(onArchive).not.toHaveBeenCalled();
+
+    const confirmGroup = host.querySelector('[role="group"][aria-label="Archive Scratch"]')!;
+    expect(confirmGroup.textContent).toContain(
+      "Free its disk now; only your sessions, settings, memory and repo state are kept, free of charge. Repos re-clone on the next wake.",
+    );
+    expect(confirmGroup.textContent).toContain("Archived - wakes in ~2 min");
+
+    const cancelBtn = Array.from(confirmGroup.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Cancel")!;
+    await act(async () => cancelBtn.click());
+    expect(host.querySelector('[role="group"][aria-label="Archive Scratch"]')).toBeNull();
+    expect(onArchive).not.toHaveBeenCalled();
+
+    const archiveTriggerAgain = Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Archive now")!;
+    await act(async () => archiveTriggerAgain.click());
+    const confirmBtn = Array.from(
+      host.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Archive Scratch"] button'),
+    ).find((b) => b.textContent?.trim() === "Archive now")!;
+    await act(async () => confirmBtn.click());
+    expect(onArchive).toHaveBeenCalledTimes(1);
+
+    // 2. Archived (cold) machine displays Archived tier and hides Archive now
+    await act(async () =>
+      root.render(
+        <CloudMachineDrawer
+          machine={{ ...MACHINE, machine_id: "cm_2", name: "VaultBox", state: "asleep", storage_tier: "cold" }}
+          usage={usageWithStorage}
+          planId="pro"
+          idleSleepMinutes={15}
+          onClose={() => {}}
+          onTopUp={() => {}}
+          onRedeem={async () => ({
+            schema_version: 1,
+            status: "redeemed",
+            already_redeemed: false,
+            hours: 1,
+            expires_at: null,
+            remaining: 39.8,
+            purchased: 36,
+          })}
+          onSleep={async () => {}}
+          onArchive={onArchive}
+          onWake={async () => {}}
+          onDelete={async () => false}
+        />,
+      ),
+    );
+    expect(host.querySelector('[data-testid="cloud-machine-storage-tier"]')?.textContent).toBe("Archived - wakes in ~2 min");
+    expect(host.textContent).toContain("auto-archives after 1 day asleep");
+    expect(Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Archive now")).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

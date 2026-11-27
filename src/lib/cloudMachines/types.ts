@@ -1,5 +1,9 @@
 import type { MeshPeersResponse } from "../../../gen/MeshPeersResponse";
 import type { PairedPeer } from "../../../gen/PairedPeer";
+import type {
+  CloudStorageTier,
+  CloudStorageUsageSummaryWire,
+} from "../../components/Usage/cloudStorageModel";
 
 export type CloudLifecycleState =
   | "creating"
@@ -52,6 +56,7 @@ export interface CloudReceipt {
   peer_instance_id?: string | null;
   endpoint?: CloudEndpoint | null;
   lease_expires_at_ms?: number | null;
+  storage_tier?: CloudStorageTier | null;
   billing_notice: string;
   warning?: string | null;
 }
@@ -87,6 +92,7 @@ export interface CloudUsagePayload {
   packs?: CloudCreditPackOption[] | null;
   purchased_expiry_days?: number | null;
   allowance_hours?: Partial<Record<string, number>> | null;
+  storage?: CloudStorageUsageSummaryWire | null;
 }
 
 export interface CloudPromoRedemption {
