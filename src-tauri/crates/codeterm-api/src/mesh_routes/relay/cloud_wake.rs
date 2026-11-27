@@ -68,26 +68,12 @@ pub(super) async fn preflight_cloud_wake(
             .unwrap_or_else(|| machine.machine_id.clone()),
         instance_name: machine.name.clone(),
     };
-    if machine.state == CloudLifecycleState::OutOfCredits {
-        return Ok(Some(PeerRelayResponse {
-            response: relay_failure(
-                StatusCode::PAYMENT_REQUIRED.as_u16(),
-                "credits_exhausted",
-                Some(false),
-                format!(
-                    "Out of credits: top up to wake cloud machine {}",
-                    machine.machine_id
-                ),
-            ),
-            peer,
-        }));
-    }
-    if !machine.state.needs_wake_for_use() {
+    if !machine.state.needs_wake_for_use() && machine.state != CloudLifecycleState::OutOfCredits {
         return Ok(None);
     }
 
-    // Authenticate and sign the local caller before holding or waking so held sends
-    // never escalate privilege or bypass caller/origin checks.
+    // Authenticate and sign the local caller before checking credits, holding, or waking so
+    // unauthenticated callers never trigger backend probes or escalate privilege.
     let (caller_origin, caller_agent, _) =
         crate::auth::off_runtime(state, headers, origin::signed_caller_token).await?;
     if caller_origin == AuthenticatedOrigin::Owner {
@@ -116,6 +102,21 @@ pub(super) async fn preflight_cloud_wake(
         crate::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &req.body)
             .await
             .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error))?;
+        if machine.state == CloudLifecycleState::OutOfCredits {
+            if let Err(error) =
+                crate::cloud_routes::check_credits_for_wake(state, &machine.machine_id).await
+            {
+                return Ok(Some(PeerRelayResponse {
+                    response: relay_failure(
+                        crate::cloud_routes::error_status(&error).as_u16(),
+                        error.code(),
+                        Some(false),
+                        error.to_string(),
+                    ),
+                    peer,
+                }));
+            }
+        }
         let tab_id = tab_id_from_path(&req.path);
         let delivery_id = relay_send_delivery_id(&req.method, &req.path)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -157,7 +158,7 @@ pub(super) async fn preflight_cloud_wake(
     {
         return Ok(Some(PeerRelayResponse {
             response: relay_failure(
-                StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                crate::cloud_routes::error_status(&error).as_u16(),
                 error.code(),
                 Some(false),
                 error.to_string(),

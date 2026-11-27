@@ -28,6 +28,12 @@ impl CloudMachineController {
         deadline_ms: u64,
     ) -> Result<CloudReceipt, CloudError> {
         let record = self.find_record_including_deleted(selector)?;
+        let record = if record.state == CloudLifecycleState::OutOfCredits {
+            self.refresh_credits_for_wake(&record.machine_id, provisioning)
+                .await?
+        } else {
+            record
+        };
         let resolved_archive_id = archive_id
             .map(str::trim)
             .filter(|s| !s.is_empty())

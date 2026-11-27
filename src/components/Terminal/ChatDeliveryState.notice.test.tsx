@@ -114,3 +114,40 @@ test("a held CLI notice shows its queued state while collapsed and drops it once
   assert.ok(!host.querySelector('[role="status"][aria-label="Queued until the current turn ends"]'));
   await act(async () => root.unmount());
 });
+
+test("expired cloud-wake send renders terminal not-delivered state with Retry and Remove", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  let retried = 0;
+  let removed = 0;
+  const expiredError = "expired_not_delivered: cloud machine cloud-1 did not connect before the wake deadline; nothing was written";
+
+  await act(async () => root.render(
+    <MessageBubble
+      message={{ id: "wake-expired", type: "user", content: "preserve my text" }}
+      userFooter={<ChatDeliveryState inline state="failed" error={expiredError}
+        onRetry={() => retried++} onRemove={() => removed++} />}
+    />,
+  ));
+  assert.ok(host.textContent?.includes("preserve my text"));
+  const status = host.querySelector<HTMLElement>('[role="status"]');
+  assert.equal(status?.dataset.state, "failed");
+  assert.equal(
+    status?.getAttribute("aria-label"),
+    "cloud machine cloud-1 did not connect before the wake deadline; nothing was written",
+  );
+  const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")];
+  assert.deepEqual(buttons.map(button => button.textContent), ["Retry", "Remove"]);
+  await act(async () => buttons[0].click());
+  await act(async () => buttons[1].click());
+  assert.equal(retried, 1);
+  assert.equal(removed, 1);
+
+  await act(async () => root.render(<ChatDeliveryState inline state="failed" error="expired_not_delivered" onRetry={() => {}} />));
+  assert.equal(
+    host.querySelector<HTMLElement>('[role="status"]')?.getAttribute("aria-label"),
+    "Not delivered: wake deadline expired before the machine connected.",
+  );
+  await act(async () => root.unmount());
+});

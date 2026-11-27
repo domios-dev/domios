@@ -633,6 +633,8 @@ pub enum RegistryRefusal {
     ProviderUnavailable,
     #[serde(rename = "provider_unconfirmed")]
     ProviderUnconfirmed,
+    #[serde(rename = "provider_starting")]
+    ProviderStarting,
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
     #[serde(rename = "authority-unavailable")]
@@ -648,6 +650,13 @@ impl RegistryRefusal {
     pub fn from_details(details: &serde_json::Value) -> Self {
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("provider_refused") {
             return Self::ProviderRefused;
+        }
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("provider_unconfirmed")
+        {
+            return Self::ProviderUnconfirmed;
+        }
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("provider_starting") {
+            return Self::ProviderStarting;
         }
         if details.get("reason").and_then(serde_json::Value::as_str) == Some("spend_cap_exceeded") {
             return match serde_json::from_value::<super::cloud_provisioning::CloudCheckoutRefusal>(

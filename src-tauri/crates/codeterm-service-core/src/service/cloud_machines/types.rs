@@ -519,6 +519,10 @@ impl CloudError {
             Self::ProviderUnconfirmed(_) | Self::ProviderUnavailable(_)
         )
     }
+
+    pub fn is_retryable_wake_error(&self) -> bool {
+        matches!(self, Self::ProviderUnconfirmed(_))
+    }
 }
 
 impl std::fmt::Display for CloudError {

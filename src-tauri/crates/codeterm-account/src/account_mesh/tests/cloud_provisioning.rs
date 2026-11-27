@@ -22,6 +22,7 @@ use crate::account_mesh::{
         ROUTE_CLOUD_WAKE,
     },
     delegated_renewal::{RenewalReply, RenewalRequest},
+    state::AccountMeshRefusal,
     wire::RegistryRefusal,
 };
 
@@ -426,6 +427,21 @@ fn decodes_all_ledger_cloud_provisioning_refusal_fixtures() {
             CloudProvisioningRefusal::ProviderUnconfirmed,
             RegistryRefusal::ProviderUnconfirmed
         )
+    );
+    assert_eq!(
+        RegistryRefusal::from_details(&serde_json::json!({ "reason": "provider_starting" })),
+        RegistryRefusal::ProviderStarting
+    );
+    assert_eq!(
+        serde_json::from_value::<CloudProvisioningRefusal>(serde_json::json!({
+            "reason": "provider_starting"
+        }))
+        .unwrap(),
+        CloudProvisioningRefusal::ProviderStarting
+    );
+    assert_eq!(
+        AccountMeshRefusal::from(RegistryRefusal::ProviderStarting),
+        AccountMeshRefusal::ProviderUnconfirmed
     );
     assert_eq!(
         decode_http("authority_unavailable"),

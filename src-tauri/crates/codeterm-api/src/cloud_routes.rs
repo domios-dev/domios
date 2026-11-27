@@ -80,18 +80,129 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
             .cloud_max_awake_without_owner_minutes;
         (minutes > 0).then(|| u64::from(minutes).saturating_mul(60_000))
     });
-    Some(spawn_cloud_idle_driver(
+    let handle = spawn_cloud_idle_driver(
         controller,
         provisioning,
         peer_control,
         Arc::new(TokioIdleTickWaiter),
         CloudIdleDriverConfig::with_idle_window_reader(idle_window_ms)
             .with_max_awake_without_owner_reader(max_awake_without_owner_ms),
-    ))
+    );
+    let watcher = spawn_wake_delivery_watcher_with_shutdown(state, Some(handle.subscribe_shutdown()));
+    handle.attach_auxiliary_task(watcher);
+    Some(handle)
 }
 
-pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
-    let status = match &error {
+/// Event-driven watcher that re-attempts flushing held cloud-wake sends when the guest
+/// actually links (at most once per link generation) and settles overdue held sends into
+/// `expired_not_delivered` at their exact deadline without polling.
+pub fn spawn_wake_delivery_watcher(state: AppState) -> tokio::task::JoinHandle<()> {
+    spawn_wake_delivery_watcher_with_shutdown(state, None)
+}
+
+async fn wait_for_shutdown(shutdown_rx: &mut Option<tokio::sync::watch::Receiver<bool>>) {
+    match shutdown_rx.as_mut() {
+        Some(rx) => {
+            while !*rx.borrow() {
+                if rx.changed().await.is_err() {
+                    return;
+                }
+            }
+        }
+        None => std::future::pending().await,
+    }
+}
+
+fn spawn_wake_delivery_watcher_with_shutdown(
+    state: AppState,
+    mut shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        use codeterm_service_core::service::cloud_machines::CloudPeerControlPort;
+        let controller = state.svc.cloud_machines();
+        let peer_control = MeshPeerControlAdapter::new(state.clone());
+        let mut gate = state.mesh.lock().gate_watch();
+        let mut wake_queue_rx = controller.subscribe_wake_queue();
+        let mut lifecycle_rx = controller.subscribe_lifecycle();
+        loop {
+            if shutdown_rx.as_ref().is_some_and(|rx| *rx.borrow()) {
+                break;
+            }
+            gate.borrow_and_update();
+            wake_queue_rx.borrow_and_update();
+            lifecycle_rx.borrow_and_update();
+
+            controller.expire_all_overdue_held_sends();
+            for machine_id in controller.machines_with_held_sends() {
+                let Some(record) = controller.find_by_peer(&machine_id) else {
+                    continue;
+                };
+                if let Some(link_generation) = peer_control.current_link_generation(&record) {
+                    controller
+                        .flush_held_sends_for_link_generation(
+                            &record.machine_id,
+                            &link_generation,
+                            &peer_control,
+                        )
+                        .await;
+                }
+            }
+
+            let next_deadline_ms = controller.earliest_held_send_deadline_ms();
+            match next_deadline_ms {
+                Some(deadline_ms) => {
+                    let now_ms = controller.now_ms();
+                    let remaining =
+                        std::time::Duration::from_millis(deadline_ms.saturating_sub(now_ms));
+                    tokio::select! {
+                        biased;
+                        _ = wait_for_shutdown(&mut shutdown_rx) => break,
+                        changed = gate.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = wake_queue_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = lifecycle_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        _ = tokio::time::sleep(remaining) => {}
+                    }
+                }
+                None => {
+                    tokio::select! {
+                        biased;
+                        _ = wait_for_shutdown(&mut shutdown_rx) => break,
+                        changed = gate.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = wake_queue_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        changed = lifecycle_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+pub(crate) fn error_status(error: &CloudError) -> StatusCode {
+    match error {
         CloudError::LimitReached { .. }
         | CloudError::ImplicitCreateRefused
         | CloudError::CheckoutTerritory => StatusCode::FORBIDDEN,
@@ -126,7 +237,11 @@ pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json:
         CloudError::EnrollmentFailed(_) | CloudError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
-    };
+    }
+}
+
+pub(super) fn error_response(error: CloudError) -> (StatusCode, Json<serde_json::Value>) {
+    let status = error_status(&error);
     let mut body = serde_json::json!({
         "ok": false,
         "error": {
@@ -190,6 +305,19 @@ pub(super) fn require_local_owner(
             })),
         ))
     }
+}
+
+pub(crate) async fn check_credits_for_wake(
+    state: &AppState,
+    machine_id: &str,
+) -> Result<(), CloudError> {
+    let provisioning = resolve_provisioning(state);
+    state
+        .svc
+        .cloud_machines()
+        .refresh_credits_for_wake(machine_id, provisioning.as_ref())
+        .await?;
+    Ok(())
 }
 
 pub(crate) async fn wake_machine_for_use(
@@ -523,8 +651,10 @@ async fn redeem_promo(
         return Err(error_response(CloudError::PromoInvalidCode));
     }
     let provisioning = resolve_provisioning(&state);
-    let redeemed = provisioning
-        .redeem_promo(code)
+    let redeemed = state
+        .svc
+        .cloud_machines()
+        .redeem_promo(code, provisioning.as_ref())
         .await
         .map_err(error_response)?;
     if !redeemed.already_redeemed {

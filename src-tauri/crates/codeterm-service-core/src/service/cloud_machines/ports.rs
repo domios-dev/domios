@@ -220,6 +220,16 @@ pub trait CloudPeerControlPort: Send + Sync {
         send: &HeldCloudSend,
     ) -> FlushWriteOutcome;
 
+    /// Returns the guest's current link generation token when the peer is genuinely linked
+    /// (account mesh link or attached reverse stream), or `None` when unlinked.
+    /// Defaults to `None` for minimal unit-test stubs.
+    fn current_link_generation(&self, _record: &CloudMachineRecord) -> Option<String> {
+        None
+    }
+
+    /// Clears stale pre-sleep liveness state after a cloud machine transitions to asleep.
+    fn note_machine_asleep(&self, _record: &CloudMachineRecord) {}
+
     /// Post-enrollment warm first-console bootstrap over the authenticated same-account peer channel.
     /// Returns `Ok(None)` when the adapter does not perform warm seeding (e.g. unit-test stubs).
     async fn apply_warm_bootstrap(

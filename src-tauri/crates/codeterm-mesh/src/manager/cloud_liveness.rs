@@ -122,6 +122,50 @@ impl MeshManager {
         self.reverse_streams.keys().cloned().collect()
     }
 
+    pub fn reverse_stream_binding(&self, installation_id: &str) -> Option<[u8; 32]> {
+        self.reverse_streams.get(installation_id).copied()
+    }
+
+    /// Clears stale pre-sleep cloud liveness once a managed cloud machine stops so a fast
+    /// subsequent wake cannot treat pre-sleep relay/online state as post-wake guest readiness.
+    pub fn clear_sleeping_cloud_liveness(
+        &mut self,
+        peer_id: Option<&str>,
+        installation_id: Option<&str>,
+    ) {
+        let mut changed = false;
+        let stream_attached =
+            installation_id.is_some_and(|id| self.reverse_streams.contains_key(id));
+        if let Some(id) = installation_id {
+            if self.cloud_relay_ok_at.remove(id).is_some() {
+                changed = true;
+            }
+        }
+        if !stream_attached {
+            if let Some(id) = peer_id {
+                if let Some(peer) = self.paired_peers.get_mut(id) {
+                    if peer.online {
+                        peer.online = false;
+                        changed = true;
+                    }
+                }
+            }
+            if let Some(inst) = installation_id {
+                for id in self.peer_ids_for_installation(inst) {
+                    if let Some(peer) = self.paired_peers.get_mut(&id) {
+                        if peer.online {
+                            peer.online = false;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        if changed {
+            self.bump_gate();
+        }
+    }
+
     pub fn installation_instance_bindings(&self) -> Vec<(String, String)> {
         self.links
             .links
