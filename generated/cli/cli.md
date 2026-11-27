@@ -2001,6 +2001,12 @@ Push our current address list to paired peers without re-detecting locally. Use 
 
 Create, list, sleep, wake, or delete cloud machines on this controller. Local-only
 
+#### `domios mesh cloud archive`
+
+Archive an asleep or idle cloud machine's disk now (keeps sessions, settings, memory, and repo state free of charge)
+
+- `<machine>` — Cloud machine ID, name, or peer ID
+
 #### `domios mesh cloud create`
 
 Create and enroll a new managed cloud machine

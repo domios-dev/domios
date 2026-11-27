@@ -8767,6 +8767,24 @@
           "args": [],
           "subcommands": [
             {
+              "name": "archive",
+              "about": "Archive an asleep or idle cloud machine's disk now (keeps sessions, settings, memory, and repo state free of charge)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "machine",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MACHINE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Cloud machine ID, name, or peer ID",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "create",
               "about": "Create and enroll a new managed cloud machine",
               "aliases": [],
