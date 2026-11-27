@@ -606,6 +606,19 @@ impl HttpCallable {
     }
 }
 
+/// Provider-backed cloud calls wait on machine boot and volume work; outlast the 120 s backend bound.
+pub(super) fn callable_timeout(route: &str) -> Duration {
+    match route {
+        super::cloud_provisioning::ROUTE_CLOUD_CREATE
+        | super::cloud_provisioning::ROUTE_CLOUD_WAKE
+        | super::cloud_provisioning::ROUTE_CLOUD_SLEEP
+        | super::cloud_provisioning::ROUTE_CLOUD_DELETE
+        | super::cloud_provisioning::ROUTE_CLOUD_VOLUME_RESIZE
+        | "enrollDelegatedCloudInstallation" => Duration::from_secs(130),
+        _ => Duration::from_secs(15),
+    }
+}
+
 pub(super) fn callable_url(base: &url::Url, route: &str) -> Result<url::Url, CallableFailure> {
     let invalid = || CallableFailure::Status {
         status: 400,
@@ -635,31 +648,11 @@ impl CallableTransport for HttpCallable {
         id_token: &str,
         data: Value,
     ) -> Result<Value, CallableFailure> {
-        let endpoints = crate::firebase_endpoints::current();
-        let url = if matches!(
-            route,
-            "enrollDelegatedCloudInstallation"
-                | "renewDelegatedCloudInstallation"
-                | super::cloud_provisioning::ROUTE_CLOUD_CREATE
-                | super::cloud_provisioning::ROUTE_CLOUD_WAKE
-                | super::cloud_provisioning::ROUTE_CLOUD_SLEEP
-                | super::cloud_provisioning::ROUTE_CLOUD_DELETE
-                | super::cloud_provisioning::ROUTE_CLOUD_WARM_PHASES
-                | super::cloud_provisioning::ROUTE_CLOUD_LEASE_RENEW
-                | super::cloud_provisioning::ROUTE_CLOUD_USAGE
-                | super::cloud_provisioning::ROUTE_CLOUD_REDEEM_PROMO
-                | super::cloud_provisioning::ROUTE_CLOUD_CHECKOUT
-                | super::cloud_provisioning::ROUTE_CLOUD_VOLUME_RESIZE
-        ) && !endpoints.emulator
-        {
-            let redeem = url::Url::parse(endpoints.redeem).map_err(|_| CallableFailure::Offline)?;
-            redeem.join(route).map_err(|_| CallableFailure::Offline)?
-        } else {
-            callable_url(&self.base, route)?
-        };
+        let url = callable_url(&self.base, route)?;
         let response = self
             .client
             .post(url)
+            .timeout(callable_timeout(route))
             .bearer_auth(id_token)
             .json(&serde_json::json!({ "data": data }))
             .send()
