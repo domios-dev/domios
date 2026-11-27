@@ -616,6 +616,33 @@ async fn peer_idle(
     })))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeerHoursExhaustedBody {
+    lease_expires_at_ms: u64,
+}
+
+async fn peer_hours_exhausted(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PeerHoursExhaustedBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_peer_control_authority(&state, &headers)?;
+    if state
+        .svc
+        .try_ext::<codeterm_mesh::cloud_ingress::CloudIngressHandle>()
+        .is_none()
+    {
+        return Err(error_response(CloudError::ProviderUnavailable(
+            "cloud guest required".into(),
+        )));
+    }
+    state
+        .svc
+        .show_cloud_hours_exhausted_in_tabs(body.lease_expires_at_ms);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 async fn peer_drain(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -822,6 +849,10 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/mesh/cloud/checkout", post(create_checkout))
         .route("/api/mesh/cloud/peer/idle", get(peer_idle))
         .route("/api/mesh/cloud/peer/drain", post(peer_drain))
+        .route(
+            "/api/mesh/cloud/peer/hours-exhausted",
+            post(peer_hours_exhausted),
+        )
         .route("/api/mesh/cloud/peer/reopen", post(peer_reopen))
         .route(
             "/api/mesh/cloud/peer/export-archive",

@@ -15,6 +15,7 @@ pub mod storage;
 pub mod store;
 pub mod types;
 pub mod warm_bootstrap;
+mod warnings;
 
 use std::sync::Arc;
 

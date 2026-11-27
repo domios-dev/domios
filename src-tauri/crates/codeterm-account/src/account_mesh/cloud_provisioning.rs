@@ -272,8 +272,22 @@ pub struct ManagedCloudMachineActionRequest {
     pub controller_signature: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireCloudCreditWarnings {
+    #[serde(default)]
+    pub epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pct80_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pct95_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exhausted_at: Option<u64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProvisionedMachineReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<WireCloudCreditWarnings>,
     pub machine_id: String,
     pub provider: String,
     pub endpoint: WireCloudEndpoint,
@@ -321,9 +335,12 @@ pub struct ArchiveMachineReply {
     pub state: String,
     pub storage_tier: WireCloudStorageTier,
     pub archive_id: String,
-    pub cold_since_at: u64,
-    pub purge_at: u64,
-    pub archive_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_since_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purge_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_generation: Option<u64>,
     #[serde(default)]
     pub already_archived: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -444,6 +461,8 @@ pub struct RenewLeaseRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenewLeaseReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<WireCloudCreditWarnings>,
     pub machine_id: String,
     pub lease_id: String,
     pub lease_expires_at: u64,
@@ -475,6 +494,8 @@ pub struct WireCloudPlanAllowances {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloudUsageReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<WireCloudCreditWarnings>,
     pub used: f64,
     pub allowance: f64,
     pub purchased: f64,

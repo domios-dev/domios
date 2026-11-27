@@ -79,6 +79,12 @@ export interface CloudCreditPackOption {
 }
 
 export interface CloudUsagePayload {
+  warnings?: {
+    epoch: number;
+    pct80_at?: number;
+    pct95_at?: number;
+    exhausted_at?: number;
+  } | null;
   used: number;
   allowance: number;
   purchased: number;

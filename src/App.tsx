@@ -284,7 +284,12 @@ function AppInner() {
       return open ? "memory" : "workspace";
     });
   }, []);
-  const [meshTabRequest, setMeshTabRequest] = useState<{ tab: MeshTab; newMachine?: boolean; seq?: number }>();
+  const [meshTabRequest, setMeshTabRequest] = useState<{ tab: MeshTab; newMachine?: boolean; cloudTopUp?: boolean; seq?: number }>();
+  const consumeCloudTopUp = useCallback((seq?: number) => {
+    setMeshTabRequest((request) => request?.cloudTopUp && request.seq === seq
+      ? { ...request, cloudTopUp: false }
+      : request);
+  }, []);
   const setMeshOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "mesh";
@@ -461,7 +466,7 @@ function AppInner() {
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
-      const detail = (e as CustomEvent<{ panel?: string; cwd?: string | null; memoryState?: MemoryInitialState; meshTab?: MeshTab; newMachine?: boolean }>).detail;
+      const detail = (e as CustomEvent<{ panel?: string; cwd?: string | null; memoryState?: MemoryInitialState; meshTab?: MeshTab; newMachine?: boolean; cloudTopUp?: boolean }>).detail;
       const panel = detail?.panel;
       if (lockedRef.current) {
         if (panel === "settings:general") setFirstRunSettings(true);
@@ -479,7 +484,7 @@ function AppInner() {
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
         openSettings(panel.slice("settings:".length) as SettingsLinkId);
       } else if (panel === "mesh") {
-        setMeshTabRequest((prev) => ({ tab: detail?.meshTab === "network" ? "network" : "inventory", newMachine: detail?.newMachine === true, seq: (prev?.seq ?? 0) + 1 }));
+        setMeshTabRequest((prev) => ({ tab: detail?.meshTab === "network" ? "network" : "inventory", newMachine: detail?.newMachine === true, cloudTopUp: detail?.cloudTopUp === true, seq: (prev?.seq ?? 0) + 1 }));
         setMeshOpen(true);
         closeSidebarOnMobile();
       } else if (panel === "neighbors") {
@@ -994,6 +999,7 @@ function AppInner() {
                 onConfigUpdate={updateConfig}
                 onClose={closeMesh}
                 tabRequest={meshTabRequest}
+                onCloudTopUpOpened={consumeCloudTopUp}
               />
             </div>
           )}

@@ -37,6 +37,17 @@ export function formatResetDate(periodEndAt: number | null | undefined): string 
   return `Resets ${RESET_MONTH_DAY.format(new Date(ms))}`;
 }
 
+export function cloudHoursStatus(
+  usage: CloudUsagePayload | null | undefined,
+  outOfCredits = false,
+): "Out of hours" | "Low on hours" | null {
+  if (outOfCredits) return "Out of hours";
+  if (!usage) return null;
+  const { exhausted, lowBalance } = cloudUsageMeterView(usage);
+  if (exhausted) return "Out of hours";
+  return lowBalance ? "Low on hours" : null;
+}
+
 export function cloudUsageMeterView(
   usage: CloudUsagePayload,
   options?: { planId?: string | null },
@@ -66,8 +77,10 @@ export function cloudUsageMeterView(
       : "left";
 
   const usedRatio = totalPool > 0 ? used / totalPool : 0;
-  const exhausted = remaining <= 0 && (allowance > 0 || used > 0 || purchased > 0);
-  const lowBalance = !exhausted && remaining > 0 && (remaining < 2 || usedRatio >= 0.8);
+  const exhausted = remaining <= 0 && (Boolean(usage.warnings?.exhausted_at) || allowance > 0 || used > 0 || purchased > 0);
+  const lowBalance = !exhausted && remaining > 0 && (usage.warnings
+    ? Boolean(usage.warnings.pct80_at || usage.warnings.pct95_at)
+    : remaining < 2 || usedRatio >= 0.8);
 
   return {
     remainingLabel: formatCreditHours(remaining),

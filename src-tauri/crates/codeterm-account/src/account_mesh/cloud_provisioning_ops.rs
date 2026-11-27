@@ -14,6 +14,10 @@ use super::cloud_provisioning::{
 use super::state::AccountMeshRefusal;
 
 impl CloudController<'_> {
+    pub fn account_id(&self) -> &str {
+        &self.signed.account
+    }
+
     fn ensure_current(&self) -> Result<(), AccountMeshRefusal> {
         let view = self.mesh.state();
         if view.account_epoch == self.signed.epoch

@@ -76,11 +76,19 @@ it("opens machine management on request and returns to Mesh inventory on the nex
   const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
   const actions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
   const client = new FakeAccountMeshClient(snapshot());
-  const navigate = (tab: "network" | "inventory") => act(async () => {
+  const onCloudTopUpOpened = vi.fn();
+  const navigate = (tab: "network" | "inventory", cloudTopUp = false) => act(async () => {
     root.render(
       <MultiplexerActionsContext.Provider value={actions}>
         <AccountMeshClientProvider value={client}>
-          <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} tabRequest={{ tab }} />
+          <MeshPanel
+            api={config.api}
+            config={config}
+            onConfigUpdate={async () => {}}
+            onClose={() => {}}
+            tabRequest={{ tab, cloudTopUp, seq: 4 }}
+            onCloudTopUpOpened={onCloudTopUpOpened}
+          />
         </AccountMeshClientProvider>
       </MultiplexerActionsContext.Provider>,
     );
@@ -94,6 +102,9 @@ it("opens machine management on request and returns to Mesh inventory on the nex
     await navigate("inventory");
     expect(host.querySelector('section[aria-label="My machines"]')).toBeNull();
     expect(host.querySelector('[aria-label="Mesh UI"]')).not.toBeNull();
+    await navigate("inventory", true);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Top up cloud hours");
+    expect(onCloudTopUpOpened).toHaveBeenCalledExactlyOnceWith(4);
   } finally {
     await act(async () => root.unmount());
     host.remove();

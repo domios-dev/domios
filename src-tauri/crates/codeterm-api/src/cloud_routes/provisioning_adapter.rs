@@ -407,10 +407,24 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             .cloud_controller()
             .await
             .map_err(map_account_refusal)?;
-        let reply = controller
+        let renewed = controller
             .renew_lease(machine_id, lease_id, request_id)
             .await
-            .map_err(map_account_refusal)?;
+            .map_err(map_account_refusal);
+        if renewed.is_ok()
+            || matches!(
+                &renewed,
+                Err(CloudError::CreditsExhausted | CloudError::LeaseRequired)
+            )
+        {
+            let adapter = Self {
+                svc: self.svc.clone(),
+            };
+            tokio::spawn(async move {
+                let _ = adapter.usage().await;
+            });
+        }
+        let reply = renewed?;
         Ok(ProvisionedLease {
             machine_id: reply.machine_id,
             lease_id: reply.lease_id,
@@ -433,7 +447,30 @@ impl CloudProvisioningPort for AccountCloudProvisioningAdapter {
             .cloud_usage()
             .await
             .map_err(map_account_refusal)?;
+        if let Some(warnings) = reply.warnings {
+            let remaining = reply.remaining;
+            let backend_machines = reply.storage.as_ref().map(|storage| {
+                storage
+                    .machines
+                    .iter()
+                    .filter(|machine| {
+                        !matches!(
+                            machine.tier,
+                            WireCloudStorageTier::Purged | WireCloudStorageTier::RecoverableDeleted
+                        )
+                    })
+                    .map(|machine| (machine.machine_id.clone(), machine.name.clone()))
+                    .collect()
+            });
+            let account = controller.account_id().to_owned();
+            let svc = self.svc.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                svc.observe_cloud_hours(&account, remaining, warnings, backend_machines);
+            })
+            .await;
+        }
         Ok(CloudUsageSummary {
+            warnings: reply.warnings,
             used: reply.used,
             allowance: reply.allowance,
             purchased: reply.purchased,

@@ -196,6 +196,8 @@ pub trait CloudEnrollmentPort: Send + Sync {
 
 #[async_trait]
 pub trait CloudPeerControlPort: Send + Sync {
+    async fn warn_hours_exhausted(&self, _record: &CloudMachineRecord) {}
+
     async fn read_idle(&self, record: &CloudMachineRecord) -> Result<PeerBusySnapshot, CloudError>;
     async fn enter_drain(&self, record: &CloudMachineRecord) -> Result<DrainToken, CloudError>;
     async fn reopen_drain(&self, record: &CloudMachineRecord) -> Result<(), CloudError>;

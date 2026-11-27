@@ -240,6 +240,37 @@ impl MeshPeerControlAdapter {
 
 #[async_trait]
 impl CloudPeerControlPort for MeshPeerControlAdapter {
+    async fn warn_hours_exhausted(&self, record: &CloudMachineRecord) {
+        let Some(lease_expires_at_ms) = record.lease_expires_at_ms else {
+            return;
+        };
+        let path = "/api/mesh/cloud/peer/hours-exhausted";
+        let body = serde_json::json!({ "lease_expires_at_ms": lease_expires_at_ms });
+        if let Some(result) = self
+            .send_controller_cloud_relay(
+                record,
+                codeterm_service_core::mesh::types::RelayCommand {
+                    method: "POST".into(),
+                    path: path.into(),
+                    body: body.clone(),
+                    delivery_id: None,
+                },
+            )
+            .await
+        {
+            if !result.is_ok_and(|reply| reply.ok) {
+                log::debug!("Cloud hours notice could not reach {}", record.machine_id);
+            }
+        } else if let Ok(client) = self.peer_client(record) {
+            if let Err(error) = client.auth_post_json(path, &body).await {
+                log::debug!(
+                    "Cloud hours notice could not reach {}: {error}",
+                    record.machine_id
+                );
+            }
+        }
+    }
+
     async fn read_idle(&self, record: &CloudMachineRecord) -> Result<PeerBusySnapshot, CloudError> {
         let value = if let Some(cloud_result) = self
             .send_controller_cloud_relay(

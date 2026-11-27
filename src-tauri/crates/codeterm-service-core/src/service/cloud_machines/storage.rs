@@ -135,9 +135,12 @@ pub struct CloudArchiveReceipt {
     pub state: String,
     pub storage_tier: CloudStorageTier,
     pub archive_id: String,
-    pub cold_since_at: u64,
-    pub purge_at: u64,
-    pub archive_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_since_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purge_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_generation: Option<u64>,
     pub already_archived: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_residual: Option<ProviderSnapshotResidual>,

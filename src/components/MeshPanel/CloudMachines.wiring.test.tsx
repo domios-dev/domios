@@ -625,3 +625,67 @@ it("CloudMachineDrawer matches storage tier by machine_id when two machines shar
     await act(async () => root.unmount());
   }
 });
+
+it.each([
+  ["Low on hours", { ...USAGE, remaining: 9, warnings: { epoch: 2, pct80_at: 101 } }],
+  ["Out of hours", { ...USAGE, remaining: 0, warnings: { epoch: 2, exhausted_at: 103 } }],
+] as const)("shows %s in the cloud drawer with a Top up action", async (label, usage) => {
+  const { host, root } = createHost();
+  const onTopUp = vi.fn();
+  try {
+    await act(async () => root.render(
+      <CloudMachineDrawer
+        machine={{ ...MACHINE, state: "asleep" }}
+        usage={usage}
+        idleSleepMinutes={15}
+        onClose={() => {}}
+        onTopUp={onTopUp}
+        onRedeem={vi.fn()}
+        onSleep={vi.fn()}
+        onWake={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    ));
+    expect(host.textContent).toContain(label);
+    const topUp = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Top up");
+    expect(topUp).toBeDefined();
+    await act(async () => topUp!.click());
+    expect(onTopUp).toHaveBeenCalledExactlyOnceWith(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("shows Archiving and withholds Archive now until a cold machine receipt arrives", async () => {
+  const { host, root } = createHost();
+  const onArchive = vi.fn();
+  const render = (storage_tier: CloudReceipt["storage_tier"]) => act(async () => root.render(
+    <CloudMachineDrawer
+      machine={{ ...MACHINE, state: "asleep", storage_tier }}
+      usage={USAGE}
+      idleSleepMinutes={15}
+      onClose={() => {}}
+      onTopUp={vi.fn()}
+      onRedeem={vi.fn()}
+      onSleep={vi.fn()}
+      onArchive={onArchive}
+      onWake={vi.fn()}
+      onDelete={vi.fn()}
+    />,
+  ));
+  const archiveButton = () => Array.from(host.querySelectorAll("button"))
+    .find((button) => button.textContent?.trim() === "Archive now");
+  try {
+    await render("hot");
+    expect(archiveButton()).toBeDefined();
+    await act(async () => archiveButton()!.click());
+    await render("evicting");
+    expect(host.textContent).toContain("Archiving…");
+    expect(archiveButton()).toBeUndefined();
+    expect(onArchive).not.toHaveBeenCalled();
+    await render("cold");
+    expect(host.textContent).toContain("Archived");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
