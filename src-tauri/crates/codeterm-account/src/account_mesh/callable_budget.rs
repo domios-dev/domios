@@ -127,7 +127,7 @@ pub(super) async fn run<T: super::callable::CallableTransport + ?Sized>(
     let response = tokio::select! {
         biased;
         _ = guard.retired() => return Err(CallableFailure::Retired),
-        response = tokio::time::timeout(Duration::from_secs(15), transport.call(route, id_token, data)) => {
+        response = tokio::time::timeout(super::callable::callable_timeout(route), transport.call(route, id_token, data)) => {
             response.unwrap_or(Err(CallableFailure::Offline))
         },
     };
