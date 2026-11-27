@@ -116,6 +116,8 @@ Standard envelope fields (separate from event properties):
 | `cloud_machine_woken` | None |
 | `cloud_machine_slept` | `reason`: CloudSleepReason |
 | `promo_redeemed` | None |
+| `payment_received` | None |
+| `payment_refunded` | None |
 
 - **Platform:** `macos`, `windows`, `linux`
 - **AuthProvider:** `local`, `fake`, `firebase`
@@ -184,4 +186,4 @@ Browser sign-in progress and completion arrive through the `account-sign-in` eve
 
 An owner installation enrolls a new cloud machine through its authenticated creation channel. The cloud machine generates its own keys. A server-signed membership lets its local command socket report the account without a browser sign-in or a Firebase refresh credential. On that machine, `domios account status --json` includes `signed_in` and `installation_id`. Expired membership makes `signed_in` false. The original creation binding stays consumed across restarts.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

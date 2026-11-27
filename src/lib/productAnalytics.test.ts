@@ -34,6 +34,8 @@ test("deferred actions have closed payloads and share the consent and failure bo
     { event_type: "update_checked", event_properties: { offers: 0 } },
     { event_type: "account_created", event_properties: { auth_provider: "firebase" } },
     { event_type: "neighbor_invite_created", event_properties: {} },
+    { event_type: "payment_received", event_properties: {} },
+    { event_type: "payment_refunded", event_properties: {} },
   ];
   const sent: unknown[] = [];
   for (const event of events) {

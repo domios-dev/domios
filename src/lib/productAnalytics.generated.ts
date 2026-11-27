@@ -73,6 +73,8 @@ export type ProductEvent =
   | { event_type: "cloud_machine_woken"; event_properties: Record<string, never> }
   | { event_type: "cloud_machine_slept"; event_properties: { reason: CloudSleepReason } }
   | { event_type: "promo_redeemed"; event_properties: Record<string, never> }
+  | { event_type: "payment_received"; event_properties: Record<string, never> }
+  | { event_type: "payment_refunded"; event_properties: Record<string, never> }
 ;
 export const PRODUCT_EVENT_CATALOG = {
   "app_first_run": {
@@ -196,7 +198,9 @@ export const PRODUCT_EVENT_CATALOG = {
   "cloud_machine_slept": {
     "reason": "CloudSleepReason"
   },
-  "promo_redeemed": {}
+  "promo_redeemed": {},
+  "payment_received": {},
+  "payment_refunded": {}
 } as const;
 export const PRODUCT_EVENT_ENUMS = {
   "Platform": [

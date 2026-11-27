@@ -771,4 +771,6 @@ pub enum Event {
         reason: CloudSleepReason,
     },
     PromoRedeemed {},
+    PaymentReceived {},
+    PaymentRefunded {},
 }

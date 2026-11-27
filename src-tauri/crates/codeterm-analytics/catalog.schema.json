@@ -306,6 +306,8 @@
     "cloud_machine_slept": {
       "reason": "CloudSleepReason"
     },
-    "promo_redeemed": {}
+    "promo_redeemed": {},
+    "payment_received": {},
+    "payment_refunded": {}
   }
 }
