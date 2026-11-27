@@ -135,12 +135,12 @@ fn refusal() -> Response {
         .into_response()
 }
 
-fn remote_agent_refusal(
+fn remote_viewer_refusal(
     caller: Option<&CallerIdentity>,
     origin: Option<&AuthenticatedOrigin>,
 ) -> Option<Response> {
     (matches!(caller, Some(CallerIdentity::Peer { .. }))
-        && matches!(origin, Some(AuthenticatedOrigin::Agent)))
+        && !origin.is_some_and(|origin| origin.owner_trusted()))
     .then(|| {
         (
             StatusCode::FORBIDDEN,
@@ -157,7 +157,7 @@ pub(super) async fn prepare(
     caller: Option<Extension<CallerIdentity>>,
     origin: Option<Extension<AuthenticatedOrigin>>,
 ) -> Response {
-    if let Some(refusal) = remote_agent_refusal(caller.as_deref(), origin.as_deref()) {
+    if let Some(refusal) = remote_viewer_refusal(caller.as_deref(), origin.as_deref()) {
         return refusal;
     }
     if let Err(status) = admission.count((admission.clock)()) {
@@ -186,7 +186,7 @@ pub(super) async fn read(
     origin: Option<Extension<AuthenticatedOrigin>>,
     Json(body): Json<ReadBody>,
 ) -> Response {
-    if let Some(refusal) = remote_agent_refusal(caller.as_deref(), origin.as_deref()) {
+    if let Some(refusal) = remote_viewer_refusal(caller.as_deref(), origin.as_deref()) {
         return refusal;
     }
     let permit = match admission.admit((admission.clock)()).await {
@@ -254,7 +254,7 @@ pub(super) async fn check(
     origin: Option<Extension<AuthenticatedOrigin>>,
     Json(body): Json<CheckBody>,
 ) -> Response {
-    if let Some(refusal) = remote_agent_refusal(caller.as_deref(), origin.as_deref()) {
+    if let Some(refusal) = remote_viewer_refusal(caller.as_deref(), origin.as_deref()) {
         return refusal;
     }
     if body.paths.len() > MAX_BATCH {

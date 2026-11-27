@@ -35,6 +35,8 @@ struct Source {
 pub struct Preparation {
     pub state: &'static str,
     pub index_id: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub waited: bool,
 }
 
 #[derive(Default)]
@@ -79,7 +81,7 @@ impl Prepared {
             notified.as_mut().enable();
             {
                 let state = entry.state.lock();
-                if entry.cancelled.load(Ordering::Acquire) || state.index_id != index_id {
+                if entry.cancelled.load(Ordering::Acquire) {
                     return Err("Preview session changed".into());
                 }
                 if !state.running {
@@ -88,16 +90,26 @@ impl Prepared {
                     }
                     return Ok(Preparation {
                         state: if state.complete { "ready" } else { "failed" },
-                        index_id,
+                        index_id: state.index_id.clone(),
+                        waited: true,
+                    });
+                }
+                if state.index_id != index_id {
+                    return Ok(Preparation {
+                        state: "indexing",
+                        index_id: state.index_id.clone(),
+                        waited: true,
                     });
                 }
             }
             tokio::select! {
                 _ = &mut notified => {}
                 _ = &mut timeout => {
+                    let current_id = entry.state.lock().index_id.clone();
                     return Ok(Preparation {
                         state: "indexing",
-                        index_id,
+                        index_id: if current_id.is_empty() { index_id } else { current_id },
+                        waited: true,
                     });
                 }
             }
@@ -232,6 +244,7 @@ pub fn prepare_waitable(svc: &ServiceContext, tab: &str) -> Result<Prepared, Str
             preparation: Preparation {
                 state: "ready",
                 index_id: String::new(),
+                waited: false,
             },
             waiter: None,
         });
@@ -245,6 +258,7 @@ pub fn prepare_waitable(svc: &ServiceContext, tab: &str) -> Result<Prepared, Str
             preparation: Preparation {
                 state: "indexing",
                 index_id: index_id.clone(),
+                waited: false,
             },
             waiter: Some((entry, index_id)),
         });
@@ -257,6 +271,7 @@ pub fn prepare_waitable(svc: &ServiceContext, tab: &str) -> Result<Prepared, Str
             preparation: Preparation {
                 state: "ready",
                 index_id: String::new(),
+                waited: false,
             },
             waiter: None,
         });
@@ -266,12 +281,20 @@ pub fn prepare_waitable(svc: &ServiceContext, tab: &str) -> Result<Prepared, Str
             preparation: Preparation {
                 state: "ready",
                 index_id: state.index_id.clone(),
+                waited: false,
             },
             waiter: None,
         });
     }
-    if let Some(error) = &state.error {
-        return Err(error.clone());
+    if state.error.is_some() {
+        let grew = std::fs::metadata(&entry.source.path)
+            .map(|meta| meta.len() > state.total)
+            .unwrap_or(false);
+        if grew {
+            state.error = None;
+        } else if let Some(error) = state.error.clone() {
+            return Err(error);
+        }
     }
     state.running = true;
     state.index_id = uuid::Uuid::new_v4().to_string();
@@ -309,6 +332,7 @@ pub fn prepare_waitable(svc: &ServiceContext, tab: &str) -> Result<Prepared, Str
         preparation: Preparation {
             state: "indexing",
             index_id: index_id.clone(),
+            waited: false,
         },
         waiter: Some((entry, index_id)),
     })
@@ -334,16 +358,24 @@ pub fn catch_up_if_grown(
             return Ok(None);
         }
         state.running = true;
+        state.index_id = uuid::Uuid::new_v4().to_string();
     }
     let result = build(svc, tab, &entry);
-    let references = {
+    let (references, index_id) = {
         let mut state = entry.state.lock();
         state.running = false;
         state.error = result.as_ref().err().cloned();
         state.complete = result.is_ok();
-        state.references.clone()
+        (state.references.clone(), state.index_id.clone())
     };
     entry.notify.notify_waiters();
+    svc.ui.emit(
+        &format!("preview-index-state-{tab}"),
+        serde_json::json!({
+            "index_id": index_id,
+            "state": if result.is_ok() { "ready" } else { "failed" }
+        }),
+    );
     result.map(|()| Some(references))
 }
 

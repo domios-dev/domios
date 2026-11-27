@@ -990,7 +990,7 @@ async fn canvas_write_and_watch_refuse_tab_credentials_and_serve_only_the_local_
 }
 
 #[tokio::test]
-async fn remote_agent_cannot_prepare_read_or_check_previews_while_peer_owner_can() {
+async fn remote_non_owner_origins_cannot_prepare_read_or_check_previews_while_peer_owner_can() {
     let fixture = Fixture::new();
     let (private, public) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     fixture.state.config.lock().mesh.enabled = true;
@@ -1031,16 +1031,27 @@ async fn remote_agent_cannot_prepare_read_or_check_previews_while_peer_owner_can
         )
         .unwrap()
     );
-    for (suffix, body) in [
-        ("prepare", serde_json::json!({})),
-        ("read", serde_json::json!({"path": page, "kind": "page"})),
-        ("check", serde_json::json!({"paths": [page]})),
-    ] {
-        let response = fixture
-            .post(&fixture.owner, suffix, body, Some(&agent_auth))
-            .await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{suffix}");
-        assert_headers(&response);
+    let service_auth = format!(
+        "Bearer {}",
+        codeterm_service_core::mesh::crown::sign_request_with_origin(
+            &private,
+            "remote-peer",
+            codeterm_service_core::mesh::crown::AuthenticatedOrigin::Service,
+        )
+        .unwrap()
+    );
+    for (label, auth) in [("agent", agent_auth.as_str()), ("service", service_auth.as_str())] {
+        for (suffix, body) in [
+            ("prepare", serde_json::json!({})),
+            ("read", serde_json::json!({"path": page, "kind": "page"})),
+            ("check", serde_json::json!({"paths": [page]})),
+        ] {
+            let response = fixture
+                .post(&fixture.owner, suffix, body, Some(auth))
+                .await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{label} {suffix}");
+            assert_headers(&response);
+        }
     }
 
     let owner_auth = format!(

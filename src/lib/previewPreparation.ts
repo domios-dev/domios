@@ -1,6 +1,7 @@
 export interface PreviewPreparation {
   state: "ready" | "indexing" | "failed";
   index_id: string;
+  waited?: boolean;
 }
 
 interface Ports {
@@ -8,6 +9,12 @@ interface Ports {
   listen(tabId: string, handler: (state: PreviewPreparation) => void): Promise<() => void>;
   reconnect?(handler: () => void, tabId: string): () => void;
   canReceiveEvents?(tabId: string): boolean;
+}
+
+function unwaitedPeerError(): Error {
+  const error = new Error("Preview indexing requires updating the peer that has this file") as Error & { code?: string };
+  error.code = "version_unsupported";
+  return error;
 }
 
 export function createPreviewPreparation(ports: Ports) {
@@ -36,7 +43,6 @@ export function createPreviewPreparation(ports: Ports) {
       });
       const refresh = async (): Promise<PreviewPreparation> => {
         const state = await ports.prepare(tabId);
-        if (expected !== undefined && state.index_id !== expected) throw new Error("Preview session changed");
         expected = state.index_id;
         if (state.state === "ready") finish();
         else if (state.state === "failed") fail(new Error("Preview reference indexing failed"));
@@ -46,8 +52,16 @@ export function createPreviewPreparation(ports: Ports) {
       const disconnect = ports.reconnect?.(() => { void refresh().catch(fail); }, tabId);
       const deadline = setTimeout(() => fail(new Error("Preview reference indexing timed out")), 120_000);
       try {
+        let unwaitedRetries = 0;
         let state = await refresh();
         while (!settled && state.state === "indexing" && ports.canReceiveEvents?.(tabId) === false) {
+          if (state.waited !== true) {
+            if (unwaitedRetries >= 1) {
+              fail(unwaitedPeerError());
+              break;
+            }
+            unwaitedRetries += 1;
+          }
           const next = refresh();
           next.catch(() => {});
           state = await Promise.race([next, ready.then(() => state)]);

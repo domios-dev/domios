@@ -262,7 +262,7 @@ it("opens page, document, image and canvas through web relayTarget even when pre
       return Response.json({
         ok: true,
         status: 200,
-        data: { state: prepareCount === 1 ? "indexing" : "ready", index_id: "relay-idx" },
+        data: { state: prepareCount === 1 ? "indexing" : "ready", index_id: "relay-idx", waited: true },
       });
     }
     expect(envelope.path).toBe("/api/tabs/relayed-tab/preview/read");
@@ -328,4 +328,23 @@ it("shows a clear offline or asleep owning-machine state for remote blocks while
   configureLocalArtifactOpener(async () => {}, (tabId) => !tabId?.startsWith("mesh:"));
   expect(localArtifactOpeningAvailable("local-tab")).toBe(true);
   expect(localArtifactOpeningAvailable("mesh:offline-host/remote-tab")).toBe(false);
+});
+
+it("stops after one retry against an older peer whose prepare never waits and shows an update message", async () => {
+  let prepareCalls = 0;
+  fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+    expect(new URL(input).pathname).toBe("/api/mesh/relay-to");
+    const envelope = JSON.parse(String(init?.body)) as { path: string };
+    expect(envelope.path).toBe("/api/tabs/legacy-tab/preview/prepare");
+    prepareCalls += 1;
+    return Response.json({ ok: true, status: 200, data: { state: "indexing", index_id: "legacy-idx" } });
+  });
+  await act(async () => root?.render(
+    <LocalArtifactScope tabId="mesh:legacy-peer/legacy-tab">
+      <RichMarkdown text={'<ds-page src="/legacy/page.html" />'} />
+    </LocalArtifactScope>,
+  ));
+  await act(settleDaemon);
+  expect(prepareCalls).toBe(2);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("The machine that has this file needs an update to preview it.");
 });
