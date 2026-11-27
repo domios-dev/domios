@@ -69,7 +69,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keep
   keepTextInline?: boolean;
   focusAttachments?: boolean;
 }) {
-  const [raw, setRaw] = usePersistentDraft(`tab-session-chat-capsules:${tabId}`, onError);
+  const [raw, setRaw, draftStatus] = usePersistentDraft(`tab-session-chat-capsules:${tabId}`);
   const [registry, setRegistry] = useState(() => decodeCapsuleRegistry(raw));
   const registryRef = useRef<CapsuleRegistry>(registry);
   registryRef.current = registry;
@@ -227,5 +227,5 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keep
     return absorbed.text;
   }, [commit]);
 
-  return { registry, registryRef, clear, detach: () => commit(EMPTY_CAPSULES), insert, insertContext, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable, uploads };
+  return { registry, registryRef, clear, detach: () => commit(EMPTY_CAPSULES), insert, insertContext, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable, uploads, draftSaveUnavailable: draftStatus.saveUnavailable };
 }

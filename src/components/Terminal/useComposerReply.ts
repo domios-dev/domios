@@ -12,7 +12,7 @@ import { storeBlob } from "./voice/audio";
 
 /** The composer's docked reply: Quote requests replace it, send and Remove clear it. */
 export function useComposerReply(tabId: string, onError: (message: string) => void, onDocked: () => void, keepInline = false) {
-  const [raw, setRaw] = usePersistentDraft(`tab-session-chat-reply:${tabId}`, onError);
+  const [raw, setRaw, draftStatus] = usePersistentDraft(`tab-session-chat-reply:${tabId}`);
   const reply = useMemo(() => decodeComposerReply(raw), [raw]);
   const replyRef = useRef<ComposerReply | null>(reply);
   replyRef.current = reply;
@@ -58,5 +58,5 @@ export function useComposerReply(tabId: string, onError: (message: string) => vo
     return composerReplyStore.subscribe(drain);
   }, [set, tabId]);
 
-  return { reply, replyRef, clear, clearIfSent };
+  return { reply, replyRef, clear, clearIfSent, draftSaveUnavailable: draftStatus.saveUnavailable };
 }

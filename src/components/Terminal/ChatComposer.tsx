@@ -247,7 +247,7 @@ function ChatComposerImpl({
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
-  const [persisted, persist] = usePersistentDraft(`tab-session-chat:${tabId}`, showComposerError);
+  const [persisted, persist, textDraftStatus] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const [expandedEditor, setExpandedEditor] = useState(false);
   const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
@@ -712,6 +712,9 @@ function ChatComposerImpl({
 
   if (replacement) return <ComposerDock mode={composerLayout.mode} ref={shellRef}>{replacement}</ComposerDock>;
 
+  const draftSaveHint = (textDraftStatus.saveUnavailable || capsules.draftSaveUnavailable || reply.draftSaveUnavailable)
+    && (input.length > 0 || reply.reply !== null);
+
   const composerActions = (
     <ComposerActions
       expanded={expandedEditor}
@@ -747,6 +750,11 @@ function ChatComposerImpl({
         {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
         {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
       </>}
+      cardFooter={draftSaveHint ? (
+        <span role="note" data-testid="draft-save-hint" className="text-[11px] text-[var(--ct-muted-fg)]">
+          Draft kept in memory — local save unavailable
+        </span>
+      ) : undefined}
     >
       {transcriptionFailure && <TranscriberSetupAction reason={transcriptionFailure} />}
       <SlashPicker
