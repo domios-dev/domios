@@ -191,7 +191,7 @@ where
         UpdateResult: Sync,
     {
         let NativeHostServer {
-            listener,
+            mut listener,
             endpoint,
             ready,
             manifest,
@@ -206,11 +206,9 @@ where
             attaching: Mutex::new(None),
             pending_attaches: Arc::new(Semaphore::new(8)),
         });
-        let mut listener = Some(listener);
         loop {
-            let active_listener = listener.as_mut().expect("native listener active");
             let stream = tokio::select! {
-                accepted = active_listener.accept() => match accepted {
+                accepted = listener.accept() => match accepted {
                     Ok(stream) => stream,
                     Err(error) if is_transient_accept_error(&error) => {
                         log::warn!("[native-host] transient accept error: {error}");
@@ -218,8 +216,8 @@ where
                     }
                     Err(error) => {
                         log::warn!("[native-host] accept error ({error}); attempting listener rebind");
-                        listener = None;
-                        listener = Some(create_listener(&state.ready)?);
+                        drop(listener);
+                        listener = create_listener(&state.ready)?;
                         continue;
                     }
                 },
@@ -227,7 +225,7 @@ where
                     if native_socket_path_missing(&state.ready) {
                         match create_listener(&state.ready) {
                             Ok(rebound) => {
-                                listener = Some(rebound);
+                                listener = rebound;
                                 log::warn!("[native-host] socket path missing; rebound native-host listener");
                             }
                             Err(error) => {

@@ -77,13 +77,13 @@ fn is_host_mcp(argv: &[String], filter: Option<&HostMcpFilter>) -> bool {
     let Some(first) = argv.first() else {
         return false;
     };
-    if executable(first).to_ascii_lowercase() != executable(&filter.command).to_ascii_lowercase() {
+    if !executable(first).eq_ignore_ascii_case(&executable(&filter.command)) {
         return false;
     }
     if filter.args.is_empty() {
         return false;
     }
-    argv.len() >= 1 + filter.args.len() && argv[1..=filter.args.len()] == filter.args[..]
+    argv.len() > filter.args.len() && argv[1..=filter.args.len()] == filter.args[..]
 }
 
 fn looks_like_mcp_token(value: &str) -> bool {
@@ -110,7 +110,7 @@ fn is_persistent_mcp_sidecar(argv: &[String]) -> bool {
         return true;
     }
     let runner = executable(first).to_ascii_lowercase();
-    if matches!(
+    matches!(
         runner.as_str(),
         "node"
             | "npx"
@@ -123,17 +123,11 @@ fn is_persistent_mcp_sidecar(argv: &[String]) -> bool {
             | "python3"
             | "uv"
             | "uvx"
-    ) {
-        if argv
-            .iter()
-            .skip(1)
-            .take(4)
-            .any(|arg| !arg.starts_with('-') && looks_like_mcp_token(arg))
-        {
-            return true;
-        }
-    }
-    false
+    ) && argv
+        .iter()
+        .skip(1)
+        .take(4)
+        .any(|arg| !arg.starts_with('-') && looks_like_mcp_token(arg))
 }
 
 fn is_compiler_daemon(argv: &[String]) -> bool {

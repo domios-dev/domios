@@ -234,31 +234,35 @@ async fn draft_editor_clears_via_native_editing_and_fails_closed_on_rendered_mis
         .unwrap();
     assert_eq!(working.model.lock().as_str(), "new post text");
     assert_eq!(working.rendered.lock().as_str(), "new post text");
-    let cmds = working.commands.lock();
-    let backspace = cmds
-        .iter()
-        .position(|(m, p)| {
-            m == "Input.dispatchKeyEvent" && p["type"] == "rawKeyDown" && p["key"] == "Backspace"
-        })
-        .unwrap();
-    let insert = cmds
-        .iter()
-        .position(|(m, _)| m == "Input.insertText")
-        .unwrap();
-    let readback = cmds
-        .iter()
-        .position(|(m, p)| {
-            m == "Runtime.callFunctionOn"
-                && p["functionDeclaration"]
-                    .as_str()
-                    .is_some_and(|src| src.contains("function domiosTypeReadback"))
-        })
-        .unwrap();
-    let present = cmds
-        .iter()
-        .position(|(_, p)| p["awaitPromise"] == true)
-        .unwrap();
-    assert!(backspace < insert && insert < readback && readback < present);
+    {
+        let cmds = working.commands.lock();
+        let backspace = cmds
+            .iter()
+            .position(|(m, p)| {
+                m == "Input.dispatchKeyEvent"
+                    && p["type"] == "rawKeyDown"
+                    && p["key"] == "Backspace"
+            })
+            .unwrap();
+        let insert = cmds
+            .iter()
+            .position(|(m, _)| m == "Input.insertText")
+            .unwrap();
+        let readback = cmds
+            .iter()
+            .position(|(m, p)| {
+                m == "Runtime.callFunctionOn"
+                    && p["functionDeclaration"]
+                        .as_str()
+                        .is_some_and(|src| src.contains("function domiosTypeReadback"))
+            })
+            .unwrap();
+        let present = cmds
+            .iter()
+            .position(|(_, p)| p["awaitPromise"] == true)
+            .unwrap();
+        assert!(backspace < insert && insert < readback && readback < present);
+    }
 
     let mismatch = Arc::new(DraftEditorConnection {
         model: Mutex::new(String::new()),
@@ -279,12 +283,14 @@ async fn draft_editor_clears_via_native_editing_and_fails_closed_on_rendered_mis
         .unwrap_err();
     assert!(err.starts_with("typing_unconfirmed:"), "{err}");
     assert!(err.contains("never replay"), "{err}");
-    let cmds = mismatch.commands.lock();
-    assert_eq!(
-        cmds.iter().filter(|(m, _)| m == "Input.insertText").count(),
-        1
-    );
-    assert!(!cmds.iter().any(|(_, p)| p["awaitPromise"] == true));
+    {
+        let cmds = mismatch.commands.lock();
+        assert_eq!(
+            cmds.iter().filter(|(m, _)| m == "Input.insertText").count(),
+            1
+        );
+        assert!(!cmds.iter().any(|(_, p)| p["awaitPromise"] == true));
+    }
 
     let secret = "opaque-secret-value";
     let truncated_secret = Arc::new(DraftEditorConnection {

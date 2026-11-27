@@ -495,8 +495,9 @@ struct Boundary {
 
 impl Boundary {
     fn consume(&mut self, pcm: &[u8], pause_from: usize) -> (usize, bool) {
-        for (index, pair) in pcm.chunks_exact(2).enumerate() {
-            let sample = i64::from(i16::from_le_bytes([pair[0], pair[1]]));
+        let (pairs, _) = pcm.as_chunks::<2>();
+        for (index, &pair) in pairs.iter().enumerate() {
+            let sample = i64::from(i16::from_le_bytes(pair));
             self.energy += sample * sample;
             self.samples += 1;
             self.window_len += 1;

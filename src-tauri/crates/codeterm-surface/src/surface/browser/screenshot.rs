@@ -52,15 +52,15 @@ pub(super) fn inspect_png_bytes(bytes: &[u8]) -> Result<CapturePixels, String> {
     if width == 0 || height == 0 {
         return Ok(CapturePixels::Empty);
     }
-    let mut chunks = rgba.as_raw().chunks_exact(4);
-    let Some(first) = chunks.next() else {
+    let (pixels, _) = rgba.as_raw().as_chunks::<4>();
+    let Some((first, rest)) = pixels.split_first() else {
         return Ok(CapturePixels::Empty);
     };
-    if chunks.any(|pixel| pixel != first) {
+    if rest.iter().any(|pixel| pixel != first) {
         return Ok(CapturePixels::Rendered);
     }
     Ok(CapturePixels::Uniform {
-        rgba: [first[0], first[1], first[2], first[3]],
+        rgba: *first,
         width,
         height,
     })
