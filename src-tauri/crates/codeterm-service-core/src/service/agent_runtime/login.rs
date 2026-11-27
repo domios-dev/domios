@@ -394,10 +394,15 @@ fn run_failure_reason(failure: &RuntimeFailure) -> String {
         format!("Sign-in failed: {reason}")
     }
 }
+fn sanitize_log_label(raw: &str) -> String {
+    raw.chars().filter(|c| !c.is_control()).take(64).collect()
+}
+
 fn request_label(request: &LoginRequest) -> String {
     let method = request
         .method_id
-        .clone()
+        .as_deref()
+        .map(sanitize_log_label)
         .or_else(|| {
             request.method.as_ref().map(|method| {
                 serde_json::to_value(method)
@@ -407,9 +412,9 @@ fn request_label(request: &LoginRequest) -> String {
             })
         })
         .unwrap_or_default();
+    let action = sanitize_log_label(request.action.as_deref().unwrap_or("start"));
     format!(
-        "{}{}{method}",
-        request.action.as_deref().unwrap_or("start"),
+        "{action}{}{method}",
         if method.is_empty() { "" } else { ":" }
     )
 }

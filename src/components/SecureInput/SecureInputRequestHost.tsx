@@ -30,13 +30,9 @@ export function SecureInputRequestHost() {
     let active = true;
     void refresh();
     let unlisten: (() => void) | null = null;
-    void listen<{ requests?: SecureInputRequestView[] }>(CHANGED_EVENT, (event) => {
-      if (!active) return;
-      if (Array.isArray(event.payload?.requests)) {
-        setRequests(event.payload.requests);
-      } else {
-        void refresh();
-      }
+    // The event carries no metadata (P1-6); always fetch through the owner-only REST route.
+    void listen<Record<string, never>>(CHANGED_EVENT, () => {
+      if (active) void refresh();
     }).then((fn) => {
       if (active) unlisten = fn;
       else fn();
@@ -89,6 +85,7 @@ export function SecureInputRequestHost() {
   const visible = requests.filter(
     (req) =>
       req.status === "pending" ||
+      req.status === "submitting" ||
       (!dismissedIds.has(req.requestId) &&
         (req.status === "delivered" || req.status === "uncertain")),
   );

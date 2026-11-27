@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Lock, Send, X } from "lucide-react";
 
 export type SecureInputKind = "code" | "token" | "password" | "key";
-export type SecureInputStatus = "pending" | "delivered" | "refused" | "expired" | "uncertain";
+export type SecureInputStatus =
+  | "pending"
+  | "submitting"
+  | "delivered"
+  | "refused"
+  | "expired"
+  | "uncertain";
 
 export type SecureInputConsumer =
   | {
@@ -45,19 +51,39 @@ export interface SecureInputRequestView {
 
 interface Props {
   request: SecureInputRequestView;
-  onSubmit: (requestId: string, value: string, expectedInstallationId: string) => Promise<SecureInputRequestView>;
+  onSubmit: (
+    requestId: string,
+    value: string,
+    expectedInstallationId: string,
+  ) => Promise<SecureInputRequestView>;
   onRefuse: (requestId: string) => Promise<void>;
   onDismiss?: (requestId: string) => void;
 }
 
+const TERMINAL_OR_LOCKED_STATUSES: ReadonlySet<SecureInputStatus> = new Set([
+  "delivered",
+  "uncertain",
+  "refused",
+  "expired",
+]);
+
 function consumerSummary(request: SecureInputRequestView): string {
   switch (request.consumer.type) {
     case "vault_slot":
-      return `Secret store slot "${request.consumer.name}"`;
-    case "provider_login":
-      return `Provider sign-in on tab ${request.consumer.tab_id}`;
-    case "provider_key":
-      return `Provider API key for ${request.consumer.provider_id}`;
+      return request.consumer.overwrite
+        ? `Secret store slot "${request.consumer.name}" (overwrites existing)`
+        : `Secret store slot "${request.consumer.name}"`;
+    case "provider_login": {
+      const parts = [`Provider sign-in on tab ${request.consumer.tab_id}`];
+      if (request.consumer.method_id) parts.push(`method: ${request.consumer.method_id}`);
+      return parts.join(" · ");
+    }
+    case "provider_key": {
+      const parts = [`Provider API key for ${request.consumer.provider_id}`];
+      if (request.consumer.tab_id) parts.push(`tab: ${request.consumer.tab_id}`);
+      if (request.consumer.method_id) parts.push(`method: ${request.consumer.method_id}`);
+      return parts.join(" · ");
+    }
   }
 }
 
@@ -74,7 +100,18 @@ function kindLabel(kind: SecureInputKind): string {
   }
 }
 
-export function SecureInputRequestCard({ request, onSubmit, onRefuse, onDismiss }: Props) {
+function containsSecretVariant(text: string, raw: string): boolean {
+  if (raw.length > 0 && text.includes(raw)) return true;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 && text.includes(trimmed);
+}
+
+export function SecureInputRequestCard({
+  request,
+  onSubmit,
+  onRefuse,
+  onDismiss,
+}: Props) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -82,7 +119,17 @@ export function SecureInputRequestCard({ request, onSubmit, onRefuse, onDismiss 
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setSettled(request);
+    // Never downgrade a locally observed terminal/uncertain status back to pending or submitting (P1-5).
+    setSettled((prev) => {
+      if (prev.requestId !== request.requestId) return request;
+      if (
+        TERMINAL_OR_LOCKED_STATUSES.has(prev.status) &&
+        (request.status === "pending" || request.status === "submitting")
+      ) {
+        return prev;
+      }
+      return request;
+    });
   }, [request]);
 
   const status = settled.status;
@@ -97,6 +144,7 @@ export function SecureInputRequestCard({ request, onSubmit, onRefuse, onDismiss 
     setValue("");
     setSubmitting(true);
     setLocalError(null);
+    setSettled((prev) => ({ ...prev, status: "submitting" }));
     try {
       const updated = await onSubmit(
         settled.requestId,
@@ -106,7 +154,9 @@ export function SecureInputRequestCard({ request, onSubmit, onRefuse, onDismiss 
       setSettled(updated);
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      const safe = text.includes(raw) ? "Submission failed. Check status before retrying." : text;
+      const safe = containsSecretVariant(text, raw)
+        ? "Submission failed. Check status before retrying."
+        : text;
       setLocalError(safe);
       setSettled((prev) => ({
         ...prev,
@@ -146,10 +196,12 @@ export function SecureInputRequestCard({ request, onSubmit, onRefuse, onDismiss 
           <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>Secure Input Request</span>
           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
-            {settled.isRemote ? `Remote: ${settled.targetMachineName}` : `Local: ${settled.targetMachineName}`}
+            {settled.isRemote
+              ? `Remote: ${settled.targetMachineName}`
+              : `Local: ${settled.targetMachineName}`}
           </span>
         </div>
-        {status !== "pending" && onDismiss && (
+        {TERMINAL_OR_LOCKED_STATUSES.has(status) && onDismiss && (
           <button
             type="button"
             aria-label="Dismiss secure input request"
@@ -203,13 +255,18 @@ export function SecureInputRequestCard({ request, onSubmit, onRefuse, onDismiss 
                 className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-zinc-950 hover:bg-amber-400 disabled:opacity-50"
               >
                 <Send className="h-3 w-3" aria-hidden="true" />
-                {submitting ? "Sending…" : "Send securely"}
+                Send securely
               </button>
             </div>
           </div>
         </form>
       )}
 
+      {status === "submitting" && (
+        <p role="status" className="mt-2.5 text-xs font-medium text-amber-200">
+          Sending securely to {settled.targetLabel}…
+        </p>
+      )}
       {status === "delivered" && (
         <p role="status" className="mt-2.5 text-xs font-medium text-emerald-400">
           Delivered directly to {settled.targetLabel}.

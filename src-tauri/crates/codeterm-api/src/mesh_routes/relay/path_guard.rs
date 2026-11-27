@@ -64,8 +64,14 @@ pub(super) fn refuse_non_owner_login_code(
     Ok(())
 }
 
+pub(super) fn is_sensitive_relay(method: &str, path: &str, body: &serde_json::Value) -> bool {
+    let bare = path.split('?').next().unwrap_or(path);
+    is_runtime_login_code_relay(method, path, body)
+        || (method.eq_ignore_ascii_case("POST") && bare == "/api/secure-input/deliver")
+}
+
 pub(super) fn zeroize_login_body(body: &mut serde_json::Value) {
-    codeterm_service_core::service::agent_runtime::login::zeroize_login_json_value(body);
+    codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(body);
 }
 
 fn is_dot_segment(segment: &str) -> bool {

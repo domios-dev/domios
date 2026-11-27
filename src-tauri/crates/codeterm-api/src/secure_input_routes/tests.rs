@@ -1,7 +1,12 @@
 use super::*;
-use axum::{body::Body, http::Request, middleware, routing::post};
+use axum::{
+    body::Body,
+    http::Request,
+    middleware,
+    routing::{delete, post},
+};
 use codeterm_service_core::{
-    mesh::types::{AccessLevel, PairedPeer},
+    mesh::types::{AccessLevel, PairedPeer, RelayCommand},
     multiplexer::state::MultiplexerState,
     service::test_fixture::ServiceFixture,
 };
@@ -9,9 +14,14 @@ use tower::ServiceExt;
 
 fn test_app(state: AppState) -> Router {
     router()
+        .route("/api/secrets/items", post(crate::secrets_routes::save_item))
         .route(
             "/api/secrets/items/{name}/value",
             post(crate::secrets_routes::reveal_value),
+        )
+        .route(
+            "/api/secrets/items/{name}",
+            delete(crate::secrets_routes::delete_item),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -50,8 +60,29 @@ async fn json_request(
     (status, String::from_utf8_lossy(&bytes).into_owned())
 }
 
+fn paired_peer(id: &str, name: &str, access_level: AccessLevel) -> PairedPeer {
+    PairedPeer {
+        instance_id: id.into(),
+        instance_name: name.into(),
+        addresses: Vec::new(),
+        api_port: 7685,
+        public_key: String::new(),
+        paired_at: "2026-01-01T00:00:00Z".into(),
+        last_seen: None,
+        online: true,
+        is_primary: false,
+        access_level,
+        domios_version: None,
+        domios_build: None,
+        web_ui: None,
+        relay_protocol_version: 2,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    }
+}
+
 #[tokio::test]
-async fn agent_can_request_and_read_status_but_cannot_submit_or_reveal_vault_secret() {
+async fn agent_can_request_and_read_status_but_cannot_submit_reveal_overwrite_or_delete() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
@@ -140,7 +171,7 @@ async fn agent_can_request_and_read_status_but_cannot_submit_or_reveal_vault_sec
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
 
-    // 6. Agent sees status=delivered, never the value, and CANNOT reveal the stored vault slot.
+    // 6. Agent sees status=delivered, never the value, and CANNOT reveal, overwrite, or delete (P0-2).
     let (status, status_body) = json_request(
         &app,
         "GET",
@@ -151,10 +182,6 @@ async fn agent_can_request_and_read_status_but_cannot_submit_or_reveal_vault_sec
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(!status_body.contains(secret));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&status_body).unwrap()["status"],
-        "delivered"
-    );
 
     let (status, reveal_body) = json_request(
         &app,
@@ -167,7 +194,47 @@ async fn agent_can_request_and_read_status_but_cannot_submit_or_reveal_vault_sec
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(!reveal_body.contains(secret));
 
-    // 7. Owner can still reveal the slot directly when needed.
+    // Agent cannot overwrite a protected or reserved vault slot via save_item (P0-2).
+    let (status, _) = json_request(
+        &app,
+        "POST",
+        "/api/secrets/items",
+        &agent_token,
+        Some(serde_json::json!({
+            "name": "deploy-pat",
+            "value": "hijacked",
+            "overwrite": true,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _) = json_request(
+        &app,
+        "POST",
+        "/api/secrets/items",
+        &agent_token,
+        Some(serde_json::json!({
+            "name": "domios:provider:anthropic:api_key",
+            "value": "hijacked",
+            "overwrite": true,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Agent cannot delete a protected slot (P0-2).
+    let (status, _) = json_request(
+        &app,
+        "DELETE",
+        "/api/secrets/items/deploy-pat",
+        &agent_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // 7. Local Owner can still reveal the slot directly when needed.
     let (status, owner_reveal) = json_request(
         &app,
         "POST",
@@ -181,35 +248,24 @@ async fn agent_can_request_and_read_status_but_cannot_submit_or_reveal_vault_sec
 }
 
 #[tokio::test]
-async fn unauthorized_machine_reserved_consumer_and_neighbor_or_sandbox_callers_are_refused() {
-    let (mux, tab) = MultiplexerState::new();
+async fn unauthorized_machine_ambiguous_name_cross_tab_provider_key_and_neighbor_are_refused() {
+    let (mut mux, tab) = MultiplexerState::new();
+    let ws = mux.find_workspace_for_tab(&tab).unwrap();
+    let other_tab = mux.create_tab(&ws).unwrap();
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
     state.config.lock().api.token = Some("owner-token".into());
 
-    // Register a ReadOnly peer (must be refused for secure input).
+    let own_name = state.mesh.lock().status().instance_name;
     {
         let mut mesh = state.mesh.lock();
         mesh.paired_peers.insert(
             "peer-ro".into(),
-            PairedPeer {
-                instance_id: "peer-ro".into(),
-                instance_name: "readonly-box".into(),
-                addresses: Vec::new(),
-                api_port: 7685,
-                public_key: String::new(),
-                paired_at: "2026-01-01T00:00:00Z".into(),
-                last_seen: None,
-                online: true,
-                is_primary: false,
-                access_level: AccessLevel::ReadOnly,
-                domios_version: None,
-                domios_build: None,
-                web_ui: None,
-                relay_protocol_version: 2,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
+            paired_peer("peer-ro", "readonly-box", AccessLevel::ReadOnly),
+        );
+        mesh.paired_peers.insert(
+            "peer-shadow".into(),
+            paired_peer("peer-shadow", &own_name, AccessLevel::Full),
         );
     }
 
@@ -247,6 +303,22 @@ async fn unauthorized_machine_reserved_consumer_and_neighbor_or_sandbox_callers_
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
+    // Ambiguous machine name matching both local host and a paired peer is refused (P2-9).
+    let (status, _) = json_request(
+        &app,
+        "POST",
+        "/api/secure-input/requests",
+        "owner-token",
+        Some(serde_json::json!({
+            "machine": own_name,
+            "target": "vault:ci-key",
+            "kind": "key",
+            "reason": "Ambiguous host name",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
     // Reserved host vault slot is refused.
     let (status, _) = json_request(
         &app,
@@ -276,6 +348,28 @@ async fn unauthorized_machine_reserved_consumer_and_neighbor_or_sandbox_callers_
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Non-orchestrator agent tab cannot target another tab with ProviderKey (P1-7).
+    let other_token = state
+        .svc
+        .frontend_pty_env(Some(&other_tab))
+        .unwrap()
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let (status, _) = json_request(
+        &app,
+        "POST",
+        "/api/secure-input/requests",
+        &other_token,
+        Some(serde_json::json!({
+            "target": "provider-key:anthropic",
+            "tabId": tab,
+            "kind": "key",
+            "reason": "Cross-tab provider key attempt",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 
     // Neighbor tab is refused even for a local vault slot.
     let agent_token = state
@@ -374,4 +468,69 @@ async fn deliver_endpoint_enforces_owner_authority_and_single_use_dedupe() {
         serde_json::from_str::<serde_json::Value>(&replay_body).unwrap()["status"],
         "refused"
     );
+}
+
+#[test]
+fn remote_delivery_classification_reads_bytes_written_pointer_and_locks_uncertainty() {
+    // P0-1: explicit bytes_written: false -> Refused.
+    let pre_write = RelayResponse {
+        ok: false,
+        status: 503,
+        data: Some(serde_json::json!({
+            "ok": false,
+            "outcome": "refused",
+            "error": { "bytes_written": false, "code": "peer_unreachable" }
+        })),
+        error: Some("peer unreachable".into()),
+    };
+    assert_eq!(
+        classify_remote_delivery_result(Err(pre_write)).status,
+        SecureInputStatus::Refused
+    );
+
+    // P0-1: absent bytes_written -> Uncertain (never replay!).
+    let unknown = RelayResponse {
+        ok: false,
+        status: 504,
+        data: Some(serde_json::json!({
+            "ok": false,
+            "outcome": "unknown",
+            "error": { "code": "timeout" }
+        })),
+        error: Some("timeout".into()),
+    };
+    assert_eq!(
+        classify_remote_delivery_result(Err(unknown)).status,
+        SecureInputStatus::Uncertain
+    );
+
+    // P0-1: bytes_written: true -> Uncertain (never replay!).
+    let written = RelayResponse {
+        ok: false,
+        status: 502,
+        data: Some(serde_json::json!({
+            "ok": false,
+            "error": { "bytes_written": true }
+        })),
+        error: Some("connection reset after write".into()),
+    };
+    assert_eq!(
+        classify_remote_delivery_result(Err(written)).status,
+        SecureInputStatus::Uncertain
+    );
+
+    // P1-3: RelayCommand Debug redacts body and zeroize_sensitive_body scrubs value/code/apiKey.
+    let mut cmd = RelayCommand {
+        method: "POST".into(),
+        path: "/api/secure-input/deliver".into(),
+        body: serde_json::json!({ "value": "TOP-SECRET-RELAY-771", "code": "CODE-991" }),
+        delivery_id: Some("sir_1".into()),
+    };
+    let debug = format!("{cmd:?}");
+    assert!(!debug.contains("TOP-SECRET-RELAY-771"));
+    assert!(!debug.contains("CODE-991"));
+    assert!(debug.contains("<redacted>"));
+    cmd.zeroize_sensitive_body();
+    assert!(!cmd.body.to_string().contains("TOP-SECRET-RELAY-771"));
+    assert!(!cmd.body.to_string().contains("CODE-991"));
 }

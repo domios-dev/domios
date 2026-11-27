@@ -19,8 +19,8 @@ mod peer_rail;
 mod peer_stream;
 mod peer_stream_backoff;
 pub(crate) use cloud_producer::{
-    cloud_outbox_announce, resolve_cloud_ingress_endpoint, send_owner_secure_delivery,
-    send_via_cloud_ingress,
+    cloud_outbox_announce, resolve_cloud_ingress_endpoint, resolve_secure_input_peer,
+    send_owner_secure_delivery, send_via_cloud_ingress,
 };
 pub use cloud_producer::{
     CloudIngressConnector, CloudIngressSendError, CLOUD_NOTIFICATION_RELAY_REFUSED,
@@ -508,7 +508,7 @@ pub async fn mesh_relay_to_peer(
     // The sender hop's own transport failure classifies into the same
     // relay_failure() vocabulary the receiving hop uses (see relay_error_summary).
     let relay_result = transport.send_relay(&state, &cmd).await;
-    if is_login_code {
+    if is_login_code || path_guard::is_sensitive_relay(&cmd.method, &cmd.path, &cmd.body) {
         path_guard::zeroize_login_body(&mut cmd.body);
     }
     let resp = match relay_result {
@@ -565,7 +565,7 @@ pub async fn mesh_relay_to_peer(
 pub async fn mesh_relay(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(cmd): Json<codeterm_service_core::mesh::types::RelayCommand>,
+    Json(mut cmd): Json<codeterm_service_core::mesh::types::RelayCommand>,
 ) -> Result<Json<codeterm_service_core::mesh::types::RelayResponse>, (StatusCode, String)> {
     let caller =
         crate::auth::off_runtime(&state, &headers, origin::authenticate_signed_mesh_request)
@@ -579,9 +579,10 @@ pub async fn mesh_relay(
         .map(str::trim)
         .filter(|id| !id.is_empty() && is_tab_delivery(&cmd.method, &cmd.path))
     else {
-        return perform_relay(&state, &caller, &cmd, headers.get(header::AUTHORIZATION))
-            .await
-            .map(Json);
+        let outcome =
+            perform_relay(&state, &caller, &cmd, headers.get(header::AUTHORIZATION)).await;
+        path_guard::zeroize_login_body(&mut cmd.body);
+        return outcome.map(Json);
     };
 
     // At-most-once (#240): one dispatch per (authenticated sender, delivery_id);
@@ -990,8 +991,9 @@ async fn perform_relay_unredacted(
     } else {
         return Ok((grant_refusal(), true));
     };
-    let forward_target = origin::build_local_forward(state, cmd, &body, auth_header, &sender_name)?;
+    let forward_target = origin::build_local_forward(state, cmd, &body, auth_header, &sender_name);
     path_guard::zeroize_login_body(&mut body);
+    let forward_target = forward_target?;
     if admitted_grant
         .as_ref()
         .is_some_and(|grant| !grant.current(&state.mesh.lock()))

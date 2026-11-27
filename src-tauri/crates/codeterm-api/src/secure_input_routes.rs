@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
 };
 use codeterm_service_core::{
-    mesh::types::AccessLevel,
+    mesh::types::{AccessLevel, RelayResponse},
     service::{
         agent_runtime::login::SecretString,
         secure_input::{
@@ -119,19 +119,20 @@ fn require_local_owner(state: &AppState, headers: &HeaderMap) -> Result<(), (Sta
     }
 }
 
+/// Returns `Ok(is_remote_delivery)` on valid Owner authority.
 fn require_delivery_authority(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(), (StatusCode, String)> {
+) -> Result<bool, (StatusCode, String)> {
     match authenticated_request(state, headers)? {
-        (CallerIdentity::Local, AuthenticatedOrigin::Owner) => Ok(()),
+        (CallerIdentity::Local, AuthenticatedOrigin::Owner) => Ok(false),
         (
             CallerIdentity::Peer {
                 access_level: AccessLevel::Full,
                 ..
             },
             AuthenticatedOrigin::Owner,
-        ) => Ok(()),
+        ) => Ok(true),
         _ => Err((
             StatusCode::FORBIDDEN,
             "Secure input delivery requires the local owner or a Full-access peer with Owner origin"
@@ -150,10 +151,18 @@ fn resolve_target_machine(
     state: &AppState,
     requested_machine: Option<&str>,
 ) -> Result<ResolvedTargetMachine, (StatusCode, String)> {
-    let mesh = state.mesh.lock();
-    let status = mesh.status();
-    let own_id = status.instance_id.clone();
-    let own_name = status.instance_name.clone();
+    let (own_id, own_name, peer_name_collision) = {
+        let mesh = state.mesh.lock();
+        let status = mesh.status();
+        let selector = requested_machine.map(str::trim).filter(|s| !s.is_empty());
+        let collides_with_peer = selector.is_some_and(|sel| {
+            mesh.paired_peers.values().any(|peer| {
+                peer.instance_name.eq_ignore_ascii_case(sel)
+                    || peer.instance_id.eq_ignore_ascii_case(sel)
+            })
+        });
+        (status.instance_id, status.instance_name, collides_with_peer)
+    };
     let selector = requested_machine.map(str::trim).filter(|s| !s.is_empty());
 
     let Some(selector) = selector else {
@@ -163,10 +172,22 @@ fn resolve_target_machine(
             is_remote: false,
         });
     };
-    if selector.eq_ignore_ascii_case("local")
-        || selector == own_id
-        || selector.eq_ignore_ascii_case(&own_name)
-    {
+    if selector == own_id {
+        return Ok(ResolvedTargetMachine {
+            installation_id: own_id,
+            machine_name: own_name,
+            is_remote: false,
+        });
+    }
+    if selector.eq_ignore_ascii_case("local") || selector.eq_ignore_ascii_case(&own_name) {
+        if peer_name_collision {
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "Target machine '{selector}' matches both the local host and a paired peer; specify the exact installation id"
+                ),
+            ));
+        }
         return Ok(ResolvedTargetMachine {
             installation_id: own_id,
             machine_name: own_name,
@@ -174,33 +195,11 @@ fn resolve_target_machine(
         });
     }
 
-    let peer = mesh.resolve_peer(selector).map_err(|err| {
-        (
-            StatusCode::FORBIDDEN,
-            format!("Target machine '{selector}' is not an authorized online peer: {err:?}"),
-        )
-    })?;
-    if peer.access_level != AccessLevel::Full {
-        return Err((
-            StatusCode::FORBIDDEN,
-            format!(
-                "Target machine '{}' does not grant Full access for secure input delivery",
-                peer.instance_name
-            ),
-        ));
-    }
-    if !mesh.traffic_open(&peer.instance_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            format!(
-                "Target machine '{}' is currently unavailable or revoked",
-                peer.instance_name
-            ),
-        ));
-    }
+    let (peer_id, peer_name) =
+        crate::mesh_routes::relay::resolve_secure_input_peer(state, selector)?;
     Ok(ResolvedTargetMachine {
-        installation_id: peer.instance_id.clone(),
-        machine_name: peer.instance_name.clone(),
+        installation_id: peer_id,
+        machine_name: peer_name,
         is_remote: true,
     })
 }
@@ -231,18 +230,21 @@ fn validate_tab_requester(
         ));
     }
     if !is_remote {
-        if let SecureInputConsumer::ProviderLogin {
-            tab_id: target_tab, ..
-        } = consumer
-        {
+        let target_tab = match consumer {
+            SecureInputConsumer::ProviderLogin { tab_id, .. } => Some(tab_id.as_str()),
+            SecureInputConsumer::ProviderKey { tab_id, .. } => tab_id.as_deref(),
+            SecureInputConsumer::VaultSlot { .. } => None,
+        };
+        if let Some(target_tab) = target_tab {
             let allowed_cross_tab = tab_id == target_tab
                 || codeterm_service_core::service::general_agent::identity::is_general_agent(tab)
-                || tab.agent_role
-                    == Some(codeterm_service_core::multiplexer::types::AgentRole::Orchestrator);
+                || (tab.role
+                    == Some(codeterm_service_core::multiplexer::types::AgentRole::Manager)
+                    && tab.role_profile.as_deref() == Some("orchestrator"));
             if !allowed_cross_tab {
                 return Err((
                     StatusCode::FORBIDDEN,
-                    "Only the owning tab, General Agent, or Orchestrator may request sign-in input for a local tab"
+                    "Only the owning tab, General Agent, or Orchestrator may target another local tab for sign-in or provider key input"
                         .to_owned(),
                 ));
             }
@@ -258,7 +260,7 @@ async fn create_request(
 ) -> Result<(HeaderMap, Json<SecureInputRequestView>), (StatusCode, String)> {
     let requester_tab_id = match authenticated_request(&state, &headers)? {
         (CallerIdentity::Local, AuthenticatedOrigin::Owner) => None,
-        (CallerIdentity::Tab(tab_id), _) => Some(tab_id),
+        (CallerIdentity::Tab(caller), _) => Some(caller.tab_id),
         _ => {
             return Err((
                 StatusCode::FORBIDDEN,
@@ -337,8 +339,8 @@ async fn get_request(
         })?;
     match caller {
         (CallerIdentity::Local, AuthenticatedOrigin::Owner) => Ok(no_store_json(view)),
-        (CallerIdentity::Tab(tab_id), _)
-            if view.requester_tab_id.as_deref() == Some(tab_id.as_str()) =>
+        (CallerIdentity::Tab(caller), _)
+            if view.requester_tab_id.as_deref() == Some(caller.tab_id.as_str()) =>
         {
             Ok(no_store_json(view))
         }
@@ -357,7 +359,7 @@ async fn cancel_request(
 ) -> Result<(HeaderMap, Json<SecureInputRequestView>), (StatusCode, String)> {
     let (is_owner, requester_tab) = match authenticated_request(&state, &headers)? {
         (CallerIdentity::Local, AuthenticatedOrigin::Owner) => (true, None),
-        (CallerIdentity::Tab(tab_id), _) => (false, Some(tab_id)),
+        (CallerIdentity::Tab(caller), _) => (false, Some(caller.tab_id)),
         _ => {
             return Err((
                 StatusCode::FORBIDDEN,
@@ -400,17 +402,20 @@ async fn submit_request(
     }
 
     let now = secure_input::now_ms();
-    let claimed = state
+    let mut claimed = state
         .svc
         .secure_input()
         .claim_submission(&id, body.expected_installation_id.as_deref(), now)
         .map_err(map_service_error)?;
+    // Publish `Submitting` state immediately so any concurrent UI refresh stays locked.
+    secure_input::emit_requests_changed(&state.svc);
 
     let delivery = if !claimed.is_remote {
         let own_id = state.mesh.lock().status().instance_id;
         secure_input::deliver_to_consumer(
             &state.svc,
             &own_id,
+            false,
             SecureInputDeliveryPayload {
                 request_id: claimed.request_id.clone(),
                 target_installation_id: claimed.target_installation_id.clone(),
@@ -429,8 +434,12 @@ async fn submit_request(
     let updated = state
         .svc
         .secure_input()
-        .settle_submission(&id, delivery.status, delivery.reason)
-        .unwrap_or(claimed);
+        .settle_submission(&id, delivery.status, delivery.reason.clone())
+        .unwrap_or_else(|| {
+            claimed.status = delivery.status;
+            claimed.reason_detail = delivery.reason.map(|r| secure_input::sanitize_detail(&r));
+            claimed
+        });
     secure_input::emit_requests_changed(&state.svc);
     Ok(no_store_json(updated))
 }
@@ -478,7 +487,12 @@ async fn submit_remote_delivery(
     )
     .await;
     secure_input::zeroize_secure_input_json_value(&mut payload_json);
+    classify_remote_delivery_result(relay_result)
+}
 
+pub(crate) fn classify_remote_delivery_result(
+    relay_result: Result<RelayResponse, RelayResponse>,
+) -> SecureInputDeliveryResult {
     match relay_result {
         Ok(resp) if resp.ok => {
             if let Some(data) = resp.data {
@@ -492,7 +506,9 @@ async fn submit_remote_delivery(
             }
         }
         Ok(resp) => {
-            let status = if resp.bytes_written == Some(false) {
+            let proven_unwritten = relay_response_bytes_written(&resp) == Some(false)
+                || matches!(resp.status, 400 | 401 | 403 | 404);
+            let status = if proven_unwritten {
                 SecureInputStatus::Refused
             } else {
                 SecureInputStatus::Uncertain
@@ -505,7 +521,7 @@ async fn submit_remote_delivery(
             }
         }
         Err(resp) => {
-            let status = if resp.bytes_written == Some(false) {
+            let status = if relay_response_bytes_written(&resp) == Some(false) {
                 SecureInputStatus::Refused
             } else {
                 SecureInputStatus::Uncertain
@@ -520,16 +536,30 @@ async fn submit_remote_delivery(
     }
 }
 
+/// Extracts `data["error"]["bytes_written"]` as populated by `relay_failure()`.
+/// Absent or `Some(true)` is never treated as "nothing written".
+fn relay_response_bytes_written(resp: &RelayResponse) -> Option<bool> {
+    resp.data
+        .as_ref()?
+        .pointer("/error/bytes_written")?
+        .as_bool()
+}
+
 async fn deliver_secret(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(payload): Json<SecureInputDeliveryPayload>,
 ) -> Result<(HeaderMap, Json<SecureInputDeliveryResult>), (StatusCode, String)> {
-    require_delivery_authority(&state, &headers)?;
+    let is_remote = require_delivery_authority(&state, &headers)?;
     let own_id = state.mesh.lock().status().instance_id;
-    let result =
-        secure_input::deliver_to_consumer(&state.svc, &own_id, payload, secure_input::now_ms())
-            .await;
+    let result = secure_input::deliver_to_consumer(
+        &state.svc,
+        &own_id,
+        is_remote,
+        payload,
+        secure_input::now_ms(),
+    )
+    .await;
     Ok(no_store_json(result))
 }
 
