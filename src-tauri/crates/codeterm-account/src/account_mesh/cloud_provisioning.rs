@@ -19,6 +19,7 @@ pub const ROUTE_CLOUD_LEASE_RENEW: &str = "renewManagedCloudLease";
 pub const ROUTE_CLOUD_USAGE: &str = "getManagedCloudUsage";
 pub const ROUTE_CLOUD_REDEEM_PROMO: &str = "redeemCloudCreditPromo";
 pub const ROUTE_CLOUD_CHECKOUT: &str = "createCloudCreditPackCheckout";
+pub const ROUTE_CLOUD_VOLUME_RESIZE: &str = "resizeManagedCloudMachineVolume";
 
 pub const DOMAIN_CLOUD_CREATE: &str = "domios.cloud-create.v1";
 pub const DOMAIN_CLOUD_WAKE: &str = "domios.cloud-wake.v1";
@@ -26,6 +27,7 @@ pub const DOMAIN_CLOUD_SLEEP: &str = "domios.cloud-sleep.v1";
 pub const DOMAIN_CLOUD_DELETE: &str = "domios.cloud-delete.v1";
 pub const DOMAIN_CLOUD_WARM_PHASES: &str = "domios.cloud-warm-bootstrap-phases.v1";
 pub const DOMAIN_CLOUD_LEASE_RENEW: &str = "domios.cloud-lease-renew.v1";
+pub const DOMAIN_CLOUD_VOLUME_RESIZE: &str = "domios.cloud-volume-resize.v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -135,7 +137,86 @@ pub struct CreateCloudMachineRequest {
     pub controller_signature: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WireCloudStorageTier {
+    Hot,
+    Evicting,
+    Cold,
+    RecoverableDeleted,
+    Purged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WireCloudDeleteMode {
+    Permanent,
+    Recoverable,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireProviderSnapshotResidual {
+    pub provider: String,
+    pub snapshots_remaining: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earliest_expiry_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_expiry_at: Option<u64>,
+    pub auto_backup_enabled: bool,
+    pub individual_delete_supported: bool,
+    pub erasure_state: String,
+    pub checked_at: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCloudMachineStorageUsage {
+    pub machine_id: String,
+    pub tier: WireCloudStorageTier,
+    pub allocated_gb: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_gb: Option<f64>,
+    pub hot_monthly_cost_cents: u64,
+    pub hot_accrued_cents: f64,
+    pub cold_included: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hot_until_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_since_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purge_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_bytes: Option<u64>,
+    pub archive_generation: u64,
+    pub disk_full: bool,
+    pub volume_upgrade_max_gb: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_residual: Option<WireProviderSnapshotResidual>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCloudStorageUsageSummary {
+    pub hot_gb_month_rate_cents: u64,
+    pub hot_days: f64,
+    pub purge_days: f64,
+    pub purge_warning_days: [f64; 2],
+    pub cold_archive_included: bool,
+    pub total_allocated_gb: u32,
+    pub total_used_bytes: u64,
+    pub total_hot_monthly_cost_cents: u64,
+    #[serde(default)]
+    pub machines: Vec<WireCloudMachineStorageUsage>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManagedCloudMachineActionBody {
     pub schema_version: u8,
@@ -143,6 +224,44 @@ pub struct ManagedCloudMachineActionBody {
     pub machine_id: String,
     pub request_id: String,
     pub timestamp: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<WireCloudDeleteMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creation_psk: Option<String>,
+}
+
+impl Drop for ManagedCloudMachineActionBody {
+    fn drop(&mut self) {
+        if let Some(psk) = self.creation_psk.as_mut() {
+            psk.zeroize();
+        }
+    }
+}
+
+impl fmt::Debug for ManagedCloudMachineActionBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ManagedCloudMachineActionBody")
+            .field("schema_version", &self.schema_version)
+            .field(
+                "controller_installation_id",
+                &self.controller_installation_id,
+            )
+            .field("machine_id", &self.machine_id)
+            .field("request_id", &self.request_id)
+            .field("timestamp", &self.timestamp)
+            .field("mode", &self.mode)
+            .field("archive_id", &self.archive_id)
+            .field("controller_key", &self.controller_key)
+            .field(
+                "creation_psk",
+                &self.creation_psk.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,6 +283,14 @@ pub struct ProvisionedMachineReply {
     pub state: String,
     pub lease_id: String,
     pub lease_expires_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_restore: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_generation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_installation_revoked: Option<bool>,
 }
 
 impl ProvisionedMachineReply {
@@ -194,6 +321,42 @@ pub struct SleepMachineReply {
 pub struct DeleteMachineReply {
     pub machine_id: String,
     pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_tier: Option<WireCloudStorageTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purge_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_residual: Option<WireProviderSnapshotResidual>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResizeCloudVolumeBody {
+    pub schema_version: u8,
+    pub controller_installation_id: String,
+    pub machine_id: String,
+    pub new_size_gb: u32,
+    pub confirmed_by_owner: bool,
+    pub request_id: String,
+    pub timestamp: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResizeCloudVolumeRequest {
+    pub body: ResizeCloudVolumeBody,
+    pub controller_signature: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResizeCloudVolumeReply {
+    pub machine_id: String,
+    pub allocated_gb: u32,
+    pub needs_restart: bool,
+    pub hot_monthly_cost_cents: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -332,6 +495,8 @@ pub struct CloudUsageReply {
     pub purchased_expiry_days: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowance_hours: Option<WireCloudPlanAllowances>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<WireCloudStorageUsageSummary>,
 }
 
 /// Wire request for `createCloudCreditPackCheckout` (`shared/cloud-credits.ts`).
@@ -601,6 +766,10 @@ impl CloudController<'_> {
             machine_id: machine_id.trim().to_owned(),
             request_id: request_id.to_owned(),
             timestamp: self.mesh.now(),
+            mode: None,
+            archive_id: None,
+            controller_key: None,
+            creation_psk: None,
         };
         let message = provisioning_message(
             domain,
@@ -665,7 +834,46 @@ impl CloudController<'_> {
         machine_id: &str,
         request_id: &str,
     ) -> Result<DeleteMachineReply, AccountMeshRefusal> {
-        let request = self.build_action_request(DOMAIN_CLOUD_DELETE, machine_id, request_id)?;
+        self.delete_machine_with_mode(machine_id, request_id, None, None)
+            .await
+    }
+
+    pub async fn delete_machine_with_mode(
+        &self,
+        machine_id: &str,
+        request_id: &str,
+        mode: Option<WireCloudDeleteMode>,
+        archive_id: Option<&str>,
+    ) -> Result<DeleteMachineReply, AccountMeshRefusal> {
+        self.ensure_current()?;
+        if machine_id.trim().is_empty() || fixed_bytes::<32>(request_id).is_none() {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        let body = ManagedCloudMachineActionBody {
+            schema_version: 1,
+            controller_installation_id: self.mesh.installation(),
+            machine_id: machine_id.trim().to_owned(),
+            request_id: request_id.to_owned(),
+            timestamp: self.mesh.now(),
+            mode,
+            archive_id: archive_id
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty()),
+            controller_key: None,
+            creation_psk: None,
+        };
+        let message = provisioning_message(
+            DOMAIN_CLOUD_DELETE,
+            self.signed.trust.project(),
+            &self.signed.account,
+            &body,
+        )
+        .ok_or(AccountMeshRefusal::Invalid)?;
+        let controller_signature = self.signed.key.sign_cloud_provisioning(&message);
+        let request = ManagedCloudMachineActionRequest {
+            body,
+            controller_signature,
+        };
         let reply = self
             .mesh
             .call(
@@ -679,6 +887,114 @@ impl CloudController<'_> {
         if reply.state != "deleted" || reply.machine_id != machine_id.trim() {
             return Err(AccountMeshRefusal::Unavailable);
         }
+        Ok(reply)
+    }
+
+    pub async fn wake_machine_cold(
+        &self,
+        machine_id: &str,
+        request_id: &str,
+        controller_key: &str,
+        creation_psk: &str,
+        archive_id: Option<&str>,
+    ) -> Result<ProvisionedMachineReply, AccountMeshRefusal> {
+        self.ensure_current()?;
+        if machine_id.trim().is_empty()
+            || fixed_bytes::<32>(request_id).is_none()
+            || fixed_bytes::<32>(controller_key).is_none()
+            || fixed_bytes::<32>(creation_psk).is_none()
+        {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        let body = ManagedCloudMachineActionBody {
+            schema_version: 1,
+            controller_installation_id: self.mesh.installation(),
+            machine_id: machine_id.trim().to_owned(),
+            request_id: request_id.to_owned(),
+            timestamp: self.mesh.now(),
+            mode: None,
+            archive_id: archive_id
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty()),
+            controller_key: Some(controller_key.to_owned()),
+            creation_psk: Some(creation_psk.to_owned()),
+        };
+        let message = provisioning_message(
+            DOMAIN_CLOUD_WAKE,
+            self.signed.trust.project(),
+            &self.signed.account,
+            &body,
+        )
+        .ok_or(AccountMeshRefusal::Invalid)?;
+        let controller_signature = self.signed.key.sign_cloud_provisioning(&message);
+        let request = ManagedCloudMachineActionRequest {
+            body,
+            controller_signature,
+        };
+        let reply = self
+            .mesh
+            .call(
+                self.mesh
+                    .ports
+                    .registry
+                    .wake_cloud_machine(&self.signed.session, &request),
+            )
+            .await?;
+        drop(request);
+        self.ensure_current()?;
+        if reply.validated_endpoint().is_none() {
+            return Err(AccountMeshRefusal::Unavailable);
+        }
+        Ok(reply)
+    }
+
+    pub async fn resize_volume(
+        &self,
+        machine_id: &str,
+        new_size_gb: u32,
+        confirmed_by_owner: bool,
+        request_id: &str,
+    ) -> Result<ResizeCloudVolumeReply, AccountMeshRefusal> {
+        self.ensure_current()?;
+        if !confirmed_by_owner
+            || machine_id.trim().is_empty()
+            || new_size_gb == 0
+            || new_size_gb > 500
+            || fixed_bytes::<32>(request_id).is_none()
+        {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        let body = ResizeCloudVolumeBody {
+            schema_version: 1,
+            controller_installation_id: self.mesh.installation(),
+            machine_id: machine_id.trim().to_owned(),
+            new_size_gb,
+            confirmed_by_owner: true,
+            request_id: request_id.to_owned(),
+            timestamp: self.mesh.now(),
+        };
+        let message = provisioning_message(
+            DOMAIN_CLOUD_VOLUME_RESIZE,
+            self.signed.trust.project(),
+            &self.signed.account,
+            &body,
+        )
+        .ok_or(AccountMeshRefusal::Invalid)?;
+        let controller_signature = self.signed.key.sign_cloud_provisioning(&message);
+        let request = ResizeCloudVolumeRequest {
+            body,
+            controller_signature,
+        };
+        let reply = self
+            .mesh
+            .call(
+                self.mesh
+                    .ports
+                    .registry
+                    .resize_cloud_volume(&self.signed.session, &request),
+            )
+            .await?;
+        self.ensure_current()?;
         Ok(reply)
     }
 
@@ -728,7 +1044,6 @@ impl CloudController<'_> {
         }
         Ok(reply)
     }
-
     pub async fn renew_lease(
         &self,
         machine_id: &str,

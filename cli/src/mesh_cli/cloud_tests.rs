@@ -30,6 +30,80 @@ fn parses_mesh_cloud_verbs_and_flags() {
                 action: MeshCloudAction::Delete {
                     ref machine,
                     confirm: true,
+                    recoverable: false,
+                    archive_id: None,
+                }
+            }
+        } if machine == "cloud-1"
+    ));
+
+    let delete_rec = Cli::try_parse_from([
+        "domios",
+        "mesh",
+        "cloud",
+        "delete",
+        "cloud-1",
+        "--confirm",
+        "--recoverable",
+        "--archive-id",
+        "arch-1",
+    ])
+    .unwrap();
+    assert!(matches!(
+        delete_rec.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::Delete {
+                    ref machine,
+                    confirm: true,
+                    recoverable: true,
+                    archive_id: Some(ref aid),
+                }
+            }
+        } if machine == "cloud-1" && aid == "arch-1"
+    ));
+
+    let recreate = Cli::try_parse_from([
+        "domios",
+        "mesh",
+        "cloud",
+        "recreate",
+        "cloud-1",
+        "--archive-id",
+        "arch-1",
+    ])
+    .unwrap();
+    assert!(matches!(
+        recreate.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::Recreate {
+                    ref machine,
+                    archive_id: Some(ref aid),
+                }
+            }
+        } if machine == "cloud-1" && aid == "arch-1"
+    ));
+
+    let resize = Cli::try_parse_from([
+        "domios",
+        "mesh",
+        "cloud",
+        "resize-volume",
+        "cloud-1",
+        "--size-gb",
+        "20",
+        "--confirm",
+    ])
+    .unwrap();
+    assert!(matches!(
+        resize.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::ResizeVolume {
+                    ref machine,
+                    size_gb: 20,
+                    confirm: true,
                 }
             }
         } if machine == "cloud-1"

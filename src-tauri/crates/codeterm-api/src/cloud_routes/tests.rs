@@ -1020,6 +1020,7 @@ async fn cloud_usage_route_forwards_custom_bounds_and_full_catalog_fields() {
             max: 40.0,
             sponsor: 120.0,
         }),
+        storage: None,
     };
     let provisioning = FakeCheckoutProvisioning::new(vec![], usage);
     assert!(state

@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 pub use codeterm_util::cloud_endpoint::{CloudEndpoint, CLOUD_INGRESS_PORT, PROVIDER_PROXY_PORT};
 use serde::{Deserialize, Serialize};
 
+use super::storage::CloudStorageUsageSummary;
+
 pub const DEFAULT_IDLE_SLEEP_MINUTES: u32 = 15;
 pub const DEFAULT_LEASE_RENEW_LEAD_MS: u64 = 120_000;
 pub const CLOUD_WAKE_SEND_PREFIX: &str = "cloud-wake:";
@@ -138,6 +140,8 @@ pub struct CloudUsageSummary {
     pub purchased_expiry_days: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowance_hours: Option<CloudPlanAllowances>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<CloudStorageUsageSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -394,6 +398,15 @@ pub enum CloudError {
         machine_id: String,
         warning: String,
     },
+    VolumeUpgradeConfirmationRequired {
+        machine_id: String,
+        new_size_gb: u32,
+        warning: String,
+    },
+    DiskFullLocal {
+        machine_id: String,
+        detail: String,
+    },
     ProviderRefused(String),
     ProviderUnconfirmed(String),
     ProviderUnavailable(String),
@@ -436,6 +449,10 @@ impl CloudError {
             Self::MachineBusy { .. } => "machine_busy",
             Self::InvalidTransition { .. } => "invalid_transition",
             Self::DeleteConfirmationRequired { .. } => "delete_confirmation_required",
+            Self::VolumeUpgradeConfirmationRequired { .. } => {
+                "volume_upgrade_confirmation_required"
+            }
+            Self::DiskFullLocal { .. } => "disk_full_local",
             Self::ProviderRefused(_) => "provider_refused",
             Self::ProviderUnconfirmed(_) => "provider_unconfirmed",
             Self::ProviderUnavailable(_) => "provider_unavailable",
@@ -544,6 +561,10 @@ impl std::fmt::Display for CloudError {
                 )
             }
             Self::DeleteConfirmationRequired { warning, .. } => f.write_str(warning),
+            Self::VolumeUpgradeConfirmationRequired { warning, .. } => f.write_str(warning),
+            Self::DiskFullLocal { machine_id, detail } => {
+                write!(f, "cloud machine {machine_id} disk is full: {detail}")
+            }
             Self::ProviderRefused(detail) => write!(f, "cloud provisioning refused: {detail}"),
             Self::ProviderUnconfirmed(detail) => {
                 write!(f, "cloud provisioning outcome unconfirmed: {detail}")

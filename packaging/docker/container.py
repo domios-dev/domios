@@ -20,6 +20,8 @@ import urllib.parse
 DATA = pathlib.Path.home() / ".domios"
 SERVER = "/opt/domios/domios-server/domios-server"
 CLOUD_HOME = pathlib.Path("/var/lib/domios-cloud")
+CLOUD_RUNTIME_DIR = pathlib.Path("/run/domios-cloud")
+EXPORT_KEY_FILENAME = "export-archive.key"
 CLOUD_START = "/usr/local/bin/domios-cloud-start"
 CLOUD_PROFILE = pathlib.Path("/etc/domios-cloud-profile")
 CLOUD_USER = "node"
@@ -369,6 +371,42 @@ def stage_cloud_binding_pipe(env, *, strict=False):
     return 9
 
 
+def stage_export_archive_key(env, runtime_dir=None):
+    """Pops DOMIOS_EXPORT_* secrets from `env` before execve and stages a valid 64-hex export key
+    in a 0600 one-shot file inside `runtime_dir` (tmpfs /run/domios-cloud, owned by CLOUD_USER)."""
+    key_hex = env.pop("DOMIOS_EXPORT_ARCHIVE_KEY_HEX", None)
+    for var_name in list(env.keys()):
+        if var_name.startswith("DOMIOS_EXPORT_"):
+            env.pop(var_name, None)
+    target_dir = CLOUD_RUNTIME_DIR if runtime_dir is None else pathlib.Path(runtime_dir)
+    key_path = target_dir / EXPORT_KEY_FILENAME
+    if key_hex is None:
+        key_path.unlink(missing_ok=True)
+        return None
+    cleaned = key_hex.strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", cleaned):
+        key_path.unlink(missing_ok=True)
+        return None
+    target_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(target_dir, 0o700)
+    tmp_path = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(prefix=".export-key-", dir=target_dir)
+        tmp_path = pathlib.Path(tmp_name)
+        os.chmod(tmp_path, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(cleaned.encode("ascii"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp_path, key_path)
+        os.chmod(key_path, 0o600)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+    return key_path
+
+
 def run_fly_machines(args):
     if args:
         raise ValueError("Fly Machines entrypoint accepts no command arguments")
@@ -381,6 +419,9 @@ def run_fly_machines(args):
     if os.geteuid() == 0:
         os.chown(CLOUD_HOME, pw.pw_uid, pw.pw_gid)
         os.chmod(CLOUD_HOME, 0o700)
+        CLOUD_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        os.chown(CLOUD_RUNTIME_DIR, pw.pw_uid, pw.pw_gid)
+        os.chmod(CLOUD_RUNTIME_DIR, 0o700)
         drop_privileges(CLOUD_USER)
     os.umask(0o077)
     private(CLOUD_HOME, 0o700, directory=True)
@@ -399,6 +440,60 @@ def run_fly_machines(args):
     data_name = {"qa": ".domios-dev", "release": ".domios"}.get(profile)
     if data_name is None:
         raise RuntimeError(f"Unknown cloud profile: {profile}")
+    # Safe cold-wake / recoverable-recreate restore BEFORE starting daemon or publishing peer-ready.
+    # Scrub ALL ephemeral restore/export secrets from env before execve so /proc/<pid>/environ never retains them.
+    restore_archive = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_PATH", None)
+    restore_url = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_URL", None)
+    restore_sha256 = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_SHA256", None)
+    restore_key_hex = os.environ.pop("DOMIOS_RESTORE_ARCHIVE_KEY_HEX", None)
+    restore_uid = os.environ.pop("DOMIOS_RESTORE_OWNER_UID", None)
+    restore_machine = os.environ.pop("DOMIOS_RESTORE_MACHINE_ID", None)
+    restore_gen_raw = os.environ.pop("DOMIOS_RESTORE_GENERATION", None)
+    if restore_archive or restore_url:
+        if not (restore_key_hex and restore_uid and restore_machine):
+            raise RuntimeError("Incomplete cold-restore archive binding environment")
+        import importlib.util as _ilu
+        _arc_path = pathlib.Path("/usr/local/lib/domios-cloud-archive.py")
+        if not _arc_path.exists():
+            _arc_path = pathlib.Path(__file__).with_name("cloud_archive.py")
+        _spec = _ilu.spec_from_file_location("domios_cloud_archive", _arc_path)
+        _arc = _ilu.module_from_spec(_spec)
+        sys.modules[_spec.name] = _arc
+        _spec.loader.exec_module(_arc)
+        _gen = int(restore_gen_raw) if restore_gen_raw else None
+        _downloaded_tmp = None
+        try:
+            if restore_url and not restore_archive:
+                _fd, _tmp_name = tempfile.mkstemp(prefix=".domios-restore-", suffix=".enc", dir=CLOUD_HOME)
+                os.close(_fd)
+                _downloaded_tmp = pathlib.Path(_tmp_name)
+                os.chmod(_downloaded_tmp, 0o600)
+                _arc.download_encrypted_archive(
+                    restore_url,
+                    _downloaded_tmp,
+                    expected_sha256=restore_sha256 or None,
+                )
+                _src_archive = _downloaded_tmp
+            else:
+                _src_archive = pathlib.Path(restore_archive)
+            _res = _arc.restore_essentials_archive(
+                _src_archive,
+                CLOUD_HOME,
+                owner_key=bytes.fromhex(restore_key_hex),
+                requester_uid=restore_uid,
+                target_machine_id=restore_machine,
+                expected_generation=_gen,
+                expected_ciphertext_sha256=restore_sha256 or None,
+            )
+            if not _res.recovery_ready:
+                raise RuntimeError(f"Cold restore incomplete: {_res.missing_or_partial}")
+        finally:
+            if _downloaded_tmp is not None:
+                _downloaded_tmp.unlink(missing_ok=True)
+    # Stage one-shot export key into private 0600 tmpfs file and scrub all DOMIOS_EXPORT_* / DOMIOS_RESTORE_* vars.
+    stage_export_archive_key(os.environ)
+    for _stray in [k for k in os.environ if k.startswith(("DOMIOS_RESTORE_", "DOMIOS_EXPORT_"))]:
+        os.environ.pop(_stray, None)
     data_dir = CLOUD_HOME / data_name
     if not data_dir.exists() and not data_dir.is_symlink():
         os.mkdir(data_dir, 0o700)
