@@ -2,8 +2,17 @@ use super::*;
 use codeterm_account::account_mesh::wire::{
     Eligibility, MeshEndpointObservation, PublicationState,
 };
+use codeterm_service_core::service::cloud_machines::{
+    CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt, CloudSleepMode,
+    CloudStorageTier, AUX_KEY_STORAGE_TIER,
+};
+use serde::Deserialize;
 
 const NOW: u64 = 1_800_000_000;
+const SHARED_STALE_FIXTURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../tests/fixtures/mesh-stale-cleanup.json"
+));
 
 fn row(
     id: &str,
@@ -126,8 +135,9 @@ fn default_selection_picks_expired_signed_out_and_long_unreachable_and_spares_se
         ),
     ];
     let live: HashSet<String> = ["online-live".to_owned()].into_iter().collect();
+    let protected_cloud = HashSet::new();
 
-    let selected = select_stale_installations(&rows, "self-id", &live, NOW, None);
+    let selected = select_stale_installations(&rows, "self-id", &live, &protected_cloud, NOW, None);
     let summary: Vec<(&str, StaleReason)> = selected
         .iter()
         .map(|c| (c.row.installation_id.as_str(), c.reason))
@@ -192,9 +202,11 @@ fn older_than_days_filters_all_stale_categories_by_age_and_never_selects_online_
         ),
     ];
     let live = HashSet::new();
+    let protected_cloud = HashSet::new();
 
     // --older-than 14 only keeps the 30-day-old expired machine.
-    let older_14 = select_stale_installations(&rows, "self-id", &live, NOW, Some(14));
+    let older_14 =
+        select_stale_installations(&rows, "self-id", &live, &protected_cloud, NOW, Some(14));
     assert_eq!(
         older_14
             .iter()
@@ -204,12 +216,165 @@ fn older_than_days_filters_all_stale_categories_by_age_and_never_selects_online_
     );
 
     // --older-than 0 includes every non-online stale machine, still sparing self and online.
-    let older_0 = select_stale_installations(&rows, "self-id", &live, NOW, Some(0));
+    let older_0 =
+        select_stale_installations(&rows, "self-id", &live, &protected_cloud, NOW, Some(0));
     assert_eq!(
         older_0
             .iter()
             .map(|c| c.row.installation_id.as_str())
             .collect::<Vec<_>>(),
         vec!["expired-30d", "signed-out-2d", "unreachable-2d"]
+    );
+}
+
+#[derive(Deserialize)]
+struct SharedStaleFixture {
+    now: u64,
+    local_installation_id: String,
+    cloud_machines: Vec<SharedCloudFixture>,
+    pair_bindings: Vec<(String, String)>,
+    registry_rows: Vec<SharedRegistryRowFixture>,
+    expected_selected: Vec<SharedExpectedSelected>,
+    expected_excluded_cloud_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct SharedCloudFixture {
+    machine_id: String,
+    name: String,
+    provider: String,
+    size: String,
+    state: CloudLifecycleState,
+    sleep_mode: CloudSleepMode,
+    installation_id: Option<String>,
+    peer_instance_id: Option<String>,
+    storage_tier: Option<CloudStorageTier>,
+}
+
+#[derive(Deserialize)]
+struct SharedRegistryRowFixture {
+    installation_id: String,
+    display_name: Option<String>,
+    active: bool,
+    presence: RegistryPresence,
+    authenticated_at: u64,
+    membership_expires_at: Option<u64>,
+    endpoint_expires_at: Option<u64>,
+    online: bool,
+}
+
+#[derive(Deserialize)]
+struct SharedExpectedSelected {
+    installation_id: String,
+    display_name: String,
+    reason: String,
+}
+
+fn fixture_cloud_record(entry: &SharedCloudFixture) -> CloudMachineRecord {
+    let mut ownership = CloudOwnershipReceipt::default();
+    if let Some(tier) = entry.storage_tier {
+        ownership
+            .auxiliary_resource_ids
+            .insert(AUX_KEY_STORAGE_TIER.into(), tier.as_str().into());
+    }
+    CloudMachineRecord {
+        machine_id: entry.machine_id.clone(),
+        name: entry.name.clone(),
+        provider: entry.provider.clone(),
+        size: entry.size.clone(),
+        state: entry.state,
+        sleep_mode: entry.sleep_mode,
+        installation_id: entry.installation_id.clone(),
+        peer_instance_id: entry.peer_instance_id.clone(),
+        endpoint: None,
+        rate_per_hour: None,
+        created_at_ms: 0,
+        last_awake_at_ms: None,
+        last_owner_interaction_at_ms: None,
+        accumulated_awake_secs: 0,
+        period_start_ms: 0,
+        lease_id: None,
+        lease_expires_at_ms: None,
+        exhaustion_pending: false,
+        idle_since_ms: None,
+        apply_unconfirmed: false,
+        pending_request: None,
+        last_error: None,
+        ownership,
+    }
+}
+
+fn parse_reason(raw: &str) -> StaleReason {
+    match raw {
+        "signed_out" => StaleReason::SignedOut,
+        "membership_expired" => StaleReason::MembershipExpired,
+        "unreachable" => StaleReason::Unreachable,
+        other => panic!("unexpected fixture stale reason: {other}"),
+    }
+}
+
+#[test]
+fn stale_selection_excludes_live_cloud_machines_across_states_on_shared_fixture() {
+    let fixture: SharedStaleFixture =
+        serde_json::from_str(SHARED_STALE_FIXTURE).expect("parse shared stale cleanup fixture");
+
+    let cloud_records: Vec<CloudMachineRecord> = fixture
+        .cloud_machines
+        .iter()
+        .map(fixture_cloud_record)
+        .collect();
+    let protected_cloud = protected_cloud_installation_ids(&cloud_records, &fixture.pair_bindings);
+
+    let rows: Vec<MeshManagementRow> = fixture
+        .registry_rows
+        .iter()
+        .map(|entry| {
+            row(
+                &entry.installation_id,
+                entry.display_name.as_deref(),
+                entry.authenticated_at,
+                entry.active,
+                entry.presence,
+                entry.membership_expires_at,
+                entry.endpoint_expires_at,
+            )
+        })
+        .collect();
+    let live: HashSet<String> = fixture
+        .registry_rows
+        .iter()
+        .filter(|entry| entry.online)
+        .map(|entry| entry.installation_id.clone())
+        .collect();
+
+    let selection = select_stale_installations_with_cloud_exclusions(
+        &rows,
+        &fixture.local_installation_id,
+        &live,
+        &protected_cloud,
+        fixture.now,
+        None,
+    );
+
+    let actual_selected: Vec<(&str, &str, StaleReason)> = selection
+        .candidates
+        .iter()
+        .map(|c| (c.row.installation_id.as_str(), c.label.as_str(), c.reason))
+        .collect();
+    let expected_selected: Vec<(&str, &str, StaleReason)> = fixture
+        .expected_selected
+        .iter()
+        .map(|e| {
+            (
+                e.installation_id.as_str(),
+                e.display_name.as_str(),
+                parse_reason(&e.reason),
+            )
+        })
+        .collect();
+    assert_eq!(actual_selected, expected_selected);
+    assert_eq!(
+        selection.excluded_cloud_ids,
+        fixture.expected_excluded_cloud_ids
     );
 }

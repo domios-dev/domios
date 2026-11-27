@@ -495,6 +495,7 @@
   "src/components/MeshPanel/meshViewModeModel.test.ts",
   "src/components/MeshPanel/meshMachineListModel.test.ts",
   "src/components/MeshPanel/MeshMachineList.wiring.test.tsx",
+  "src/components/MeshPanel/staleMachinesModel.test.ts",
   "src/lib/cloudBootstrap/model.test.ts",
   "src/components/CloudBootstrap/CloudBootstrapPanel.test.tsx",
   "src/components/Usage/cloudStorageModel.test.ts",

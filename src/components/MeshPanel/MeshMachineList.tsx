@@ -9,8 +9,9 @@ import { CloudMachineCard } from "./CloudMachineCard";
 import { CloudMachineSlot } from "./CloudMachineSlot";
 import type { CanvasAccount, CanvasCloud } from "./MeshCanvas";
 import { MeshMachineListRow } from "./MeshMachineListRow";
+import type { MachineRowView } from "./accountMachines";
 import { StaleCleanupConfirm } from "./StaleCleanupConfirm";
-import { selectStaleMachineRows, staleCleanupActionLabel } from "./staleMachinesModel";
+import { selectStaleMachinePlan, staleCleanupActionLabel } from "./staleMachinesModel";
 import {
   collapsedGroupSummary,
   FILTER_VISIBLE_THRESHOLD,
@@ -97,10 +98,26 @@ export function MeshMachineList({
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
   const accountNodes = account?.canvas.nodes;
-  const staleMachines = useMemo(
-    () => selectStaleMachineRows((accountNodes ?? []).map((node) => node.row)),
-    [accountNodes],
-  );
+  const accountPeerFooters = account?.canvas.peerFooters;
+  const cloudMachines = cloud?.machines;
+  const accountNowSec = account?.now != null ? Math.floor(account.now / 1000) : undefined;
+  const staleSelection = useMemo(() => {
+    const rowsByKey = new Map<string, MachineRowView>();
+    for (const node of accountNodes ?? []) {
+      rowsByKey.set(node.row.key, node.row);
+    }
+    for (const footer of accountPeerFooters?.values() ?? []) {
+      if (!rowsByKey.has(footer.row.key)) {
+        rowsByKey.set(footer.row.key, footer.row);
+      }
+    }
+    return selectStaleMachinePlan([...rowsByKey.values()], {
+      now: accountNowSec,
+      cloudMachines,
+    });
+  }, [accountNodes, accountPeerFooters, accountNowSec, cloudMachines]);
+  const staleMachines = staleSelection.candidates;
+  const excludedCloudCount = staleSelection.excludedCloud.length;
   const onRemoveStale = account?.actions.onRemoveStale;
   const confirmCleanup = useCallback(async () => {
     if (!onRemoveStale) return;
@@ -311,6 +328,7 @@ export function MeshMachineList({
                 {isAttention && cleanupOpen && (
                   <StaleCleanupConfirm
                     machines={staleMachines}
+                    excludedCloudCount={excludedCloudCount}
                     busy={cleanupBusy}
                     error={cleanupError}
                     onConfirm={confirmCleanup}

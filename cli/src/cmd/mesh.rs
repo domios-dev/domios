@@ -406,6 +406,20 @@ fn remove_mesh_machine(
     }
 }
 
+pub(crate) const CLOUD_EXCLUSION_NOTE: &str =
+    "Cloud machines are never removed here; delete them from the cloud drawer.";
+
+pub(crate) fn build_remove_stale_body(
+    older_than_days: Option<u64>,
+    dry_run: bool,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({ "dry_run": dry_run });
+    if let Some(days) = older_than_days {
+        body["older_than_days"] = serde_json::json!(days);
+    }
+    body
+}
+
 fn remove_stale_mesh_machines(
     http: &crate::local_api::LocalApiClient,
     base: &str,
@@ -414,10 +428,7 @@ fn remove_stale_mesh_machines(
     dry_run: bool,
     json: bool,
 ) {
-    let mut body = serde_json::json!({ "dry_run": dry_run });
-    if let Some(days) = older_than_days {
-        body["older_than_days"] = serde_json::json!(days);
-    }
+    let body = build_remove_stale_body(older_than_days, dry_run);
     let resp = http
         .post(format!("{base}/api/account/mesh/remove-stale"))
         .header(
@@ -469,6 +480,7 @@ fn stale_status_label(status: &str) -> &'static str {
         "already_removed" => "already removed",
         "refused_self" => "skipped (this machine)",
         "refused_online" => "skipped (online)",
+        "refused_cloud" => "skipped (cloud machine)",
         "not_found" => "not found",
         _ => "unknown",
     }
@@ -480,8 +492,18 @@ pub(crate) fn format_remove_stale_lines(result: &serde_json::Value) -> Vec<Strin
     let matched = result["matched"]
         .as_u64()
         .unwrap_or_else(|| rows.map_or(0, |r| r.len() as u64));
+    let excluded_cloud_count = result["excluded_cloud_count"].as_u64().unwrap_or(0);
+    let has_refused_cloud = rows.is_some_and(|rows| {
+        rows.iter()
+            .any(|row| row["status"].as_str() == Some("refused_cloud"))
+    });
+    let cloud_excluded = excluded_cloud_count > 0 || has_refused_cloud;
     if matched == 0 {
-        return vec!["No stale machines found.".into()];
+        let mut lines = vec!["No stale machines found.".into()];
+        if cloud_excluded {
+            lines.push(CLOUD_EXCLUSION_NOTE.into());
+        }
+        return lines;
     }
     let noun = |n: u64| if n == 1 { "machine" } else { "machines" };
     let mut lines = Vec::new();
@@ -523,6 +545,9 @@ pub(crate) fn format_remove_stale_lines(result: &serde_json::Value) -> Vec<Strin
             };
             lines.push(format!("  {name} ({id}): {detail}"));
         }
+    }
+    if cloud_excluded {
+        lines.push(CLOUD_EXCLUSION_NOTE.into());
     }
     lines
 }
