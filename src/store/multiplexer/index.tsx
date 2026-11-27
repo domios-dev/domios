@@ -1092,8 +1092,9 @@ export function MultiplexerProvider({ children, pairedCacheAccount }: { children
       dispatch,
       persist: (args) => guardedInvoke("mux_rename_tab", args),
       notify: publishNotice,
+      onRemoteRenamed: refreshPeerInventory,
     }, workspaceId, tabId, title);
-  }, [guardedInvoke, publishNotice]);
+  }, [guardedInvoke, publishNotice, refreshPeerInventory]);
 
   const setAgentType = useCallback((tabId: string, agentType: string | null) => {
     dispatch({ type: "SET_AGENT_TYPE", tabId, agentType });

@@ -30,6 +30,80 @@ fn parses_mesh_cloud_verbs_and_flags() {
                 action: MeshCloudAction::Delete {
                     ref machine,
                     confirm: true,
+                    recoverable: false,
+                    archive_id: None,
+                }
+            }
+        } if machine == "cloud-1"
+    ));
+
+    let delete_rec = Cli::try_parse_from([
+        "domios",
+        "mesh",
+        "cloud",
+        "delete",
+        "cloud-1",
+        "--confirm",
+        "--recoverable",
+        "--archive-id",
+        "arch-1",
+    ])
+    .unwrap();
+    assert!(matches!(
+        delete_rec.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::Delete {
+                    ref machine,
+                    confirm: true,
+                    recoverable: true,
+                    archive_id: Some(ref aid),
+                }
+            }
+        } if machine == "cloud-1" && aid == "arch-1"
+    ));
+
+    let recreate = Cli::try_parse_from([
+        "domios",
+        "mesh",
+        "cloud",
+        "recreate",
+        "cloud-1",
+        "--archive-id",
+        "arch-1",
+    ])
+    .unwrap();
+    assert!(matches!(
+        recreate.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::Recreate {
+                    ref machine,
+                    archive_id: Some(ref aid),
+                }
+            }
+        } if machine == "cloud-1" && aid == "arch-1"
+    ));
+
+    let resize = Cli::try_parse_from([
+        "domios",
+        "mesh",
+        "cloud",
+        "resize-volume",
+        "cloud-1",
+        "--size-gb",
+        "20",
+        "--confirm",
+    ])
+    .unwrap();
+    assert!(matches!(
+        resize.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::ResizeVolume {
+                    ref machine,
+                    size_gb: 20,
+                    confirm: true,
                 }
             }
         } if machine == "cloud-1"
@@ -64,6 +138,40 @@ fn parses_mesh_cloud_verbs_and_flags() {
             }
         } if code == "BETA-25"
     ));
+
+    let topup_pack =
+        Cli::try_parse_from(["domios", "mesh", "cloud", "topup", "--pack", "pack_5"]).unwrap();
+    assert!(matches!(
+        topup_pack.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::Topup {
+                    pack: Some(ref p),
+                    amount: None,
+                }
+            }
+        } if p == "pack_5"
+    ));
+
+    let topup_amount =
+        Cli::try_parse_from(["domios", "mesh", "cloud", "topup", "--amount", "7"]).unwrap();
+    assert!(matches!(
+        topup_amount.command,
+        Commands::Mesh {
+            action: MeshAction::Cloud {
+                action: MeshCloudAction::Topup {
+                    pack: None,
+                    amount: Some(ref a),
+                }
+            }
+        } if a == "7"
+    ));
+
+    assert!(Cli::try_parse_from(["domios", "mesh", "cloud", "topup"]).is_err());
+    assert!(Cli::try_parse_from([
+        "domios", "mesh", "cloud", "topup", "--pack", "pack_5", "--amount", "7"
+    ])
+    .is_err());
 }
 
 #[test]
@@ -178,4 +286,29 @@ fn format_receipt_and_usage_human_surface_managed_cost_fields() {
     let rendered_already = format_redeem_human(&already);
     assert!(rendered_already.contains("already redeemed"));
     assert!(rendered_already.contains("expires=never"));
+
+    let checkout = serde_json::json!({
+        "url": "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5",
+        "session_id": "cs_test_fixture_pack_5",
+        "pack_id": "pack_5",
+        "credits": 25.0,
+        "amount_cents": 500,
+        "currency": "USD"
+    });
+    assert_eq!(
+        format_topup_human(&checkout),
+        "https://checkout.stripe.com/c/pay/cs_test_fixture_pack_5"
+    );
+}
+
+#[test]
+fn parses_topup_usd_amounts_to_exact_cents() {
+    assert_eq!(parse_usd_to_cents("7").unwrap(), 700);
+    assert_eq!(parse_usd_to_cents("$7").unwrap(), 700);
+    assert_eq!(parse_usd_to_cents("7.00").unwrap(), 700);
+    assert_eq!(parse_usd_to_cents("12.5").unwrap(), 1250);
+    assert_eq!(parse_usd_to_cents("12.50").unwrap(), 1250);
+    for bad in ["", " ", "0", "0.00", "-5", "+5", "7.", "7.123", "abc", "$"] {
+        assert!(parse_usd_to_cents(bad).is_err(), "{bad:?}");
+    }
 }

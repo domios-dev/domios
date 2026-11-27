@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { Plus } from "lucide-react";
 import { usePeerPlanSummaries } from "../Canvas/PlansProvider";
 import { remoteViewerIdentity } from "../../lib/remoteTabPortal";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
@@ -29,13 +30,17 @@ interface WorkspaceBrowseSectionProps {
   onSelectViewer: (viewerId: string) => void;
   onRenameViewer: (tab: Tab, title: string) => void;
   onCloseViewer: (tabId: string, title: string, ownerWorkspaceId?: string) => void;
+  onRenameTeam?: (peerId: string, teamId: string, name: string) => void | Promise<void>;
   onCloseTeam?: (target: RemoteTeamCloseTarget) => void;
   onOpenCanvas?: () => void;
+  onNewSession?: () => void;
+  newSessionDisabledReason?: string | null;
+  sidebarActionText?: string;
 }
 
 export function WorkspaceBrowseSection({
   workspace: { workspace, peerId, teams, tabs, planTitles },
-  selectedViewerId, attachedTabs, touchMode, closingTeamKeys, onSelectViewer, onRenameViewer, onCloseViewer, onCloseTeam, onOpenCanvas,
+  selectedViewerId, attachedTabs, touchMode, closingTeamKeys, onSelectViewer, onRenameViewer, onCloseViewer, onRenameTeam, onCloseTeam, onOpenCanvas, onNewSession, newSessionDisabledReason = null, sidebarActionText = "text-[11px]",
 }: WorkspaceBrowseSectionProps) {
   const { generals, peerWorkspaces } = usePairedWorkspaceInventory();
   const machines = new Map(generals.map(machine => [machine.peerId, machine]));
@@ -62,8 +67,8 @@ export function WorkspaceBrowseSection({
       remote_peer_name: attached.remote_peer_name } : tab;
     return <TabItem key={tab.id} tab={displayTab} index={index}
       isActive={selected === tab.id} onClick={() => onSelectViewer(tab.id)}
-      onClose={() => onCloseViewer(tab.id, tab.title, session.peerId ? undefined : workspace.id)}
-      onRename={attached ? title => onRenameViewer(attached, title) : undefined}
+      onClose={() => onCloseViewer(tab.id, tab.title, session.peerId ? (attached?.remote_workspace_id ?? tab.remote_workspace_id ?? undefined) : workspace.id)}
+      onRename={!tab.protected ? title => onRenameViewer(attached ?? { ...tab, workspace_id: workspace.id }, title) : undefined}
       canClose={!tab.protected} readOnly={!attached} workspaceId={workspace.id} hasAgent={Boolean(tab.agent_type)}
       ownerTitle={surfaceOwnerTitle(tab, rowsById)} variant={attachment ? "attachment" : undefined}
       insetPx={attachment ? attachmentInset(ownerRowInset(context, touchMode)) : undefined}
@@ -148,6 +153,10 @@ export function WorkspaceBrowseSection({
               planSidePanelStore.open({ remoteTeam, planId: planId ?? "" });
             }
           } : undefined}
+          onRenameTeam={team && teamMenu.renameTeam.visible && !teamMenu.renameTeam.disabled && onRenameTeam
+            ? (_displayId, nextName) => onRenameTeam(peerId, team.id, nextName)
+            : undefined}
+          renameTeamDisabledReason={teamMenu.renameTeam.visible && teamMenu.renameTeam.disabled ? teamMenu.renameTeam.reason : null}
           onCloseTeam={teamCloseTarget && !teamMenu.closeTeam.disabled && onCloseTeam
             ? () => onCloseTeam(teamCloseTarget)
             : undefined}
@@ -160,5 +169,23 @@ export function WorkspaceBrowseSection({
           workingTerminalCount={working(terminals)} providers={[]} />
       </Fragment>;
     })}
+    {onNewSession && !workspace.cwd_missing && (
+      <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          data-testid="sidebar-new-session"
+          onClick={newSessionDisabledReason ? undefined : onNewSession}
+          disabled={Boolean(newSessionDisabledReason)}
+          aria-disabled={Boolean(newSessionDisabledReason)}
+          title={newSessionDisabledReason
+            ? `New session unavailable: ${newSessionDisabledReason}`
+            : `New session in ${workspace.name}`}
+          className={`sidebar-new-session flex min-w-0 flex-1 items-center gap-2 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
+        >
+          <Plus size={10} strokeWidth={1.5} className="shrink-0" />
+          <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
+        </button>
+      </div>
+    )}
   </div>;
 }

@@ -92,7 +92,11 @@ macro_rules! agent_provider_runtime_defaults {
             let install_dirs = self.cli_install_dirs(super::current_platform_tag());
             self.agent_runtime()
                 .ok_or(crate::js_runtime::manifest::RuntimeManifestError::CapabilityRequired)?
-                .resolve_profile_executable_in(profile, &install_dirs)
+                .resolve_profile_executable_with_aliases_in(
+                    profile,
+                    self.cli_binary_aliases(),
+                    &install_dirs,
+                )
         }
     };
 }

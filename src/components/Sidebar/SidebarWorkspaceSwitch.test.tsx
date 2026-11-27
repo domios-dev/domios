@@ -612,11 +612,15 @@ it("keeps one workspace switcher and falls back to one visible workspace when fi
   await act(async () => actions.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   const menu = document.getElementById(actions.getAttribute("aria-controls")!)!;
   const rename = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-rename"]')!;
+  const restart = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-restart-session"]')!;
+  const reconnect = menu.querySelector<HTMLButtonElement>('[data-testid="chat-reconnect"]')!;
   const close = menu.querySelector<HTMLButtonElement>('[data-testid="tab-menu-close"]')!;
-  expect(rename.getAttribute("aria-disabled")).toBe("true");
+  expect(rename.getAttribute("aria-disabled")).toBeNull();
+  expect(restart.getAttribute("aria-disabled")).toBeNull();
   expect(close.getAttribute("aria-disabled")).toBeNull();
-  expect(document.getElementById(rename.getAttribute("aria-describedby")!)?.textContent).toBeTruthy();
-  await act(async () => rename.click());
+  expect(reconnect.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(reconnect.getAttribute("aria-describedby")!)?.textContent).toBeTruthy();
+  await act(async () => reconnect.click());
   expect(actions.getAttribute("aria-expanded")).toBe("true");
 
   expect(row(host, "local-worker")).toBeNull();
@@ -870,8 +874,8 @@ it("closes the selected online remote workspace from its accessible read-only he
     await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     const menu = document.getElementById(trigger.getAttribute("aria-controls")!)!;
     const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-    expect(items.map(item => item.textContent?.trim())).toEqual(["Close Workspace"]);
-    await act(async () => items[0].click());
+    expect(items.map(item => item.textContent?.trim())).toEqual(["New session", "New Terminal", "Rename", "Close Workspace"]);
+    await act(async () => items.find(item => item.textContent?.trim() === "Close Workspace")!.click());
   };
 
   await closeFromHeader();
@@ -939,6 +943,9 @@ it("creates a remote workspace, closes a remote Team without Save as template, a
   await act(async () => teamTrigger.click());
   const teamMenuButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="team-menu"] [role="menuitem"]')];
   expect(teamMenuButtons.some(button => button.textContent?.includes("Save as template"))).toBe(false);
+  const renameTeamButton = document.querySelector<HTMLButtonElement>('[data-testid="team-menu-rename"]')!;
+  expect(renameTeamButton).toBeTruthy();
+  expect(renameTeamButton.getAttribute("aria-disabled")).toBeNull();
   const closeTeamButton = teamMenuButtons.find(button => button.textContent?.includes("Close Team"))!;
   expect(closeTeamButton).toBeTruthy();
   expect(closeTeamButton.getAttribute("aria-disabled")).toBeNull();
@@ -1005,15 +1012,26 @@ it.each([
   const wsTrigger = host.querySelector<HTMLButtonElement>('button[aria-label="Actions for Peer home"]')!;
   await act(async () => wsTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   const wsMenu = document.getElementById(wsTrigger.getAttribute("aria-controls")!)!;
-  const closeWs = [...wsMenu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')][0]!;
+  const wsItems = [...wsMenu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+  const closeWs = wsItems.find(item => item.textContent?.includes("Close Workspace"))!;
+  expect(closeWs).toBeTruthy();
   expect(closeWs.textContent).toContain("Close Workspace");
   expect(closeWs.textContent).toContain(label);
   expect(closeWs.getAttribute("aria-disabled")).toBe("true");
   await act(async () => closeWs.click());
   expect(remoteCloseCalls.requested).toEqual([]);
+  const newSessionItem = wsItems.find(item => item.textContent?.includes("New session"))!;
+  expect(newSessionItem.getAttribute("aria-disabled")).toBe("true");
+  expect(newSessionItem.textContent).toContain(label);
+  const workspaceNewSessionButton = host.querySelector<HTMLButtonElement>('[data-testid="workspace-detail"] [data-testid="sidebar-new-session"]');
+  expect(workspaceNewSessionButton?.disabled).toBe(true);
 
   const teamTrigger = host.querySelector<HTMLButtonElement>('[data-testid="team-menu-trigger"]')!;
   await act(async () => teamTrigger.click());
+  const renameTeam = document.querySelector<HTMLButtonElement>('[data-testid="team-menu-rename"]')!;
+  expect(renameTeam.textContent).toContain("Rename");
+  expect(renameTeam.textContent).toContain(label);
+  expect(renameTeam.getAttribute("aria-disabled")).toBe("true");
   const closeTeam = document.querySelector<HTMLButtonElement>('[data-testid="team-menu-close"]')!;
   expect(closeTeam.textContent).toContain("Close Team");
   expect(closeTeam.textContent).toContain(label);

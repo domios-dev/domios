@@ -98,6 +98,7 @@ interface TeamMenuProps {
   contextMenuTargetRef: RefObject<HTMLElement | null>;
   onOpenPlan?: () => void;
   onRename?: () => void;
+  renameDisabledReason?: string | null;
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: () => void;
@@ -113,6 +114,7 @@ function TeamMenu({
   contextMenuTargetRef,
   onOpenPlan,
   onRename,
+  renameDisabledReason = null,
   addableRoles,
   onAddMember,
   onCloseTeam,
@@ -376,7 +378,25 @@ function TeamMenu({
           ) : (
             <>
               {onOpenPlan && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onOpenPlan)}><span className="ct-menu-row__icon"><ClipboardList size={14} /></span> Open Plan</button>}
-              {onRename && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onRename)}><span className="ct-menu-row__icon"><Pencil size={14} /></span> Rename</button>}
+              {(onRename || renameDisabledReason) && (
+                <button
+                  className="ct-menu-row"
+                  type="button"
+                  role="menuitem"
+                  data-testid="team-menu-rename"
+                  aria-disabled={onRename ? undefined : "true"}
+                  title={onRename ? undefined : renameDisabledReason ?? undefined}
+                  onClick={onRename ? () => run(onRename) : undefined}
+                >
+                  <span className="ct-menu-row__icon"><Pencil size={14} /></span>
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate">Rename</span>
+                    {!onRename && renameDisabledReason && (
+                      <span className="ct-menu-row__description">{renameDisabledReason}</span>
+                    )}
+                  </span>
+                </button>
+              )}
               {canSaveTemplate && teamName && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(() => setSavingTemplate(true))}><span className="ct-menu-row__icon"><PackagePlus size={14} /></span> Save as template…</button>}
               {onAddMember && (addableRoles ?? (["orchestrator", "planner", "worker"] as const)).map((role) => (
                 <button className="ct-menu-row" type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
@@ -442,6 +462,7 @@ export interface TeamUnitProps {
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
+  renameTeamDisabledReason?: string | null;
   onOpenEffort?: (target: TeamEffortTarget) => void;
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
@@ -486,6 +507,7 @@ export function TeamUnit({
   providers,
   providersLoading,
   onRenameTeam,
+  renameTeamDisabledReason = null,
   addableRoles,
   onOpenEffort: openEffort,
   onAddMember,
@@ -739,7 +761,7 @@ export function TeamUnit({
             >
               <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
             </button>}
-            {(onCloseTeam || closeTeamDisabledReason || (openEffort && (plan || onRenameTeam || !team.remote_peer_id || onAddMember))) && <TeamMenu
+            {(onCloseTeam || closeTeamDisabledReason || onRenameTeam || renameTeamDisabledReason || (openEffort && (plan || !team.remote_peer_id || onAddMember))) && <TeamMenu
               teamId={team.id}
               providers={providers}
               providersLoading={providersLoading}
@@ -750,6 +772,7 @@ export function TeamUnit({
                 setName(displayTitle);
                 setEditing(true);
               } : undefined}
+              renameDisabledReason={renameTeamDisabledReason}
               addableRoles={addableRoles}
               onAddMember={onAddMember}
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}

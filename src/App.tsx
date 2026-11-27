@@ -75,10 +75,14 @@ import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdatePanelProvider } from "./hooks/useUpdatePanel";
 import { UpdateProvider } from "./hooks/useUpdate";
 import { usePluginActivity } from "./lib/usePluginActivity";
+import { createNoticePublisher } from "./lib/notices";
+import { useWorkspaceBrowseTarget } from "./lib/workspaceBrowseTarget";
+import { resolveRemoteWorkspaceForShortcut, useRemoteWorkspaceManagement } from "./components/Sidebar/remoteWorkspaceManagement";
 import {
   MultiplexerProvider,
   useMultiplexer,
   useMuxSelector,
+  usePairedWorkspaceInventory,
 } from "./store/multiplexer";
 import { appShellStateEqual } from "./store/multiplexer/selectors";
 import type { ExtendedState } from "./store/multiplexer/tree";
@@ -279,7 +283,7 @@ function AppInner() {
       return open ? "memory" : "workspace";
     });
   }, []);
-  const [meshTabRequest, setMeshTabRequest] = useState<{ tab: MeshTab }>();
+  const [meshTabRequest, setMeshTabRequest] = useState<{ tab: MeshTab; newMachine?: boolean; seq?: number }>();
   const setMeshOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "mesh";
@@ -317,6 +321,7 @@ function AppInner() {
   const {
     createWorkspace,
     createTab,
+    attachRemoteTab,
     closeTab,
     reopenClosed,
     setFocusedTab,
@@ -331,7 +336,16 @@ function AppInner() {
     answerNotification,
     dismissToast,
     spawnClaudeTab,
+    upsertToast,
   } = useMultiplexer();
+  const browseTarget = useWorkspaceBrowseTarget();
+  const { generals: pairedGenerals, peerWorkspaces, refreshPeerInventory } = usePairedWorkspaceInventory();
+  const generalWorkspaceId = useMemo(() => state.workspaces.find((workspace) => workspace.protected)?.id ?? null, [state.workspaces]);
+  const remoteWorkspace = useRemoteWorkspaceManagement({
+    availabilityForPeer: useCallback((peerId: string) => pairedGenerals.find((peer) => peer.peerId === peerId)?.availability, [pairedGenerals]),
+    machineNameForPeer: useCallback((peerId: string) => pairedGenerals.find((peer) => peer.peerId === peerId)?.name ?? browseTarget?.name ?? "Machine", [pairedGenerals, browseTarget?.name]),
+    generalWorkspaceId, attachRemoteTab, refreshPeerInventory, notify: useMemo(() => createNoticePublisher({ upsertToast }), [upsertToast]),
+  });
   useEffect(() => {
     if (IS_WEB && !configLoading) void emitFeatureUsed(localJson, "web_ui_opened");
   }, [configLoading]);
@@ -446,12 +460,7 @@ function AppInner() {
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
-      const detail = (e as CustomEvent<{
-        panel?: string;
-        cwd?: string | null;
-        memoryState?: MemoryInitialState;
-        meshTab?: MeshTab;
-      }>).detail;
+      const detail = (e as CustomEvent<{ panel?: string; cwd?: string | null; memoryState?: MemoryInitialState; meshTab?: MeshTab; newMachine?: boolean }>).detail;
       const panel = detail?.panel;
       if (lockedRef.current) {
         if (panel === "settings:general") setFirstRunSettings(true);
@@ -469,7 +478,7 @@ function AppInner() {
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
         openSettings(panel.slice("settings:".length) as SettingsLinkId);
       } else if (panel === "mesh") {
-        setMeshTabRequest({ tab: detail?.meshTab === "network" ? "network" : "inventory" });
+        setMeshTabRequest((prev) => ({ tab: detail?.meshTab === "network" ? "network" : "inventory", newMachine: detail?.newMachine === true, seq: (prev?.seq ?? 0) + 1 }));
         setMeshOpen(true);
         closeSidebarOnMobile();
       } else if (panel === "neighbors") {
@@ -656,11 +665,16 @@ function AppInner() {
   const canvasFocusTarget = useCanvasFocusTarget();
   const handleNewTab = useCallback(() => {
     if (lockedRef.current) return;
+    if (browseTarget) {
+      const target = resolveRemoteWorkspaceForShortcut(browseTarget.id, activeTab, peerWorkspaces);
+      if (target) void remoteWorkspace.createRemoteTerminalTab(target.peerId, target.workspace.id, target.workspace.cwd);
+      return;
+    }
     if (!activeWs) return;
     const focusedTab = state.focused_tab_id ? state.tabs[state.focused_tab_id] : null;
     const cwd = focusedTab?.cwd || undefined;
     createTab(activeWs.id, cwd);
-  }, [activeWs, state.focused_tab_id, state.tabs, createTab]);
+  }, [browseTarget, activeTab, peerWorkspaces, remoteWorkspace, activeWs, state.focused_tab_id, state.tabs, createTab]);
 
   const handleCloseCurrentTab = useCallback(() => {
     if (lockedRef.current) return;
@@ -746,7 +760,8 @@ function AppInner() {
     const size = zoomedFontSize(config.font.size, action);
     if (size !== config.font.size) void updateConfig({ ...config, font: { ...config.font, size } }).catch(() => {});
   };
-  const focusedTabId = () => stateRef.current.focused_tab_id;
+  const focusedTabId = () => stateRef.current.focused_tab_id
+    ?? (stateRef.current.active_workspace_id ? stateRef.current.activeTabIds[stateRef.current.active_workspace_id] ?? null : null);
   useAppShortcuts(config.keybindings, {
     new_tab: handleNewTab,
     close_tab: handleCloseCurrentTab,

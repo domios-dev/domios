@@ -337,17 +337,6 @@ fn relay_target_route(
     }
     let installation_id = peer_installation_id(mesh, cloud_machines, &instance_id);
     if let Some(inst_id) = &installation_id {
-        if let Some(endpoint) = mesh.cloud_ingress_endpoint(inst_id) {
-            return Ok((
-                RelayTargetRoute::CloudIngress {
-                    installation_id: inst_id.clone(),
-                    endpoint: Some(endpoint),
-                },
-                instance_id,
-                name,
-                version,
-            ));
-        }
         if let Some(record) = cloud_machines
             .find_by_peer(&instance_id)
             .or_else(|| cloud_machines.find_by_peer(inst_id))
@@ -356,6 +345,17 @@ fn relay_target_route(
                 RelayTargetRoute::CloudIngress {
                     installation_id: inst_id.clone(),
                     endpoint: record.endpoint,
+                },
+                instance_id,
+                name,
+                version,
+            ));
+        }
+        if let Some(endpoint) = mesh.cloud_ingress_endpoint(inst_id) {
+            return Ok((
+                RelayTargetRoute::CloudIngress {
+                    installation_id: inst_id.clone(),
+                    endpoint: Some(endpoint),
                 },
                 instance_id,
                 name,

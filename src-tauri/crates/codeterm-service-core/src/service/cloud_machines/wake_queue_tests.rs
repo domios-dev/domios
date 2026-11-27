@@ -108,6 +108,7 @@ impl CloudProvisioningPort for StubProvisioning {
             burn_per_size: BTreeMap::new(),
             currency: Some("USD".into()),
             period_end_at: None,
+            ..Default::default()
         })
     }
 }

@@ -495,6 +495,61 @@ impl HotReloadRegistry {
         }
     }
 
+    pub fn seed_from_startup(&self, report: &[super::LoadOutcome]) {
+        let mut loaded_ids = HashSet::new();
+        {
+            let mut state = self.state.lock();
+            let mut activated = self.activated_startup.lock();
+            for outcome in report {
+                if let super::LoadOutcome::Loaded {
+                    plugin_id,
+                    manifest_path,
+                } = outcome
+                {
+                    let entry_mtime = PluginManifest::load(manifest_path)
+                        .ok()
+                        .and_then(|manifest| manifest.entry_path())
+                        .map(|entry| mtime_or_epoch(&entry))
+                        .unwrap_or(SystemTime::UNIX_EPOCH);
+                    state.insert(
+                        plugin_id.clone(),
+                        Tracked {
+                            manifest_path: manifest_path.clone(),
+                            manifest_mtime: mtime_or_epoch(manifest_path),
+                            entry_mtime,
+                            config_mtime: config_mtime_for(manifest_path, plugin_id),
+                            grants_mtime: grants_mtime_for(manifest_path),
+                        },
+                    );
+                    activated.insert(plugin_id.clone());
+                    loaded_ids.insert(plugin_id.clone());
+                }
+            }
+        }
+        for outcome in report {
+            if let super::LoadOutcome::Skipped { path, reason } = outcome {
+                if path.file_name() != Some(std::ffi::OsStr::new("plugin.json")) {
+                    continue;
+                }
+                let id = error_id_for(path);
+                if loaded_ids.contains(&id) {
+                    continue;
+                }
+                let entry_mtime = PluginManifest::load(path)
+                    .ok()
+                    .and_then(|manifest| manifest.entry_path())
+                    .map(|entry| mtime_or_epoch(&entry))
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
+                let fingerprint = LoadFingerprint {
+                    manifest_mtime: mtime_or_epoch(path),
+                    entry_mtime,
+                    config_mtime: config_mtime_for(path, &id),
+                };
+                self.record_failure(path, fingerprint, "load failed", reason.clone());
+            }
+        }
+    }
+
     pub fn pending_reload_ids(&self) -> Vec<String> {
         self.pending_reload.lock().iter().cloned().collect()
     }

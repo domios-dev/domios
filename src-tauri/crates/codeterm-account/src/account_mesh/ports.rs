@@ -54,6 +54,13 @@ pub trait MeshRegistry: Send + Sync {
     ) -> RegistryResult<super::cloud_provisioning::DeleteMachineReply> {
         Err(RegistryRefusal::Unavailable)
     }
+    async fn record_warm_bootstrap_phases(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::RecordWarmBootstrapPhasesRequest,
+    ) -> RegistryResult<super::cloud_provisioning::RecordWarmBootstrapPhasesReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     async fn renew_cloud_lease(
         &self,
         _session: &Session,
@@ -72,6 +79,20 @@ pub trait MeshRegistry: Send + Sync {
         _session: &Session,
         _request: &super::cloud_provisioning::RedeemCloudCreditPromoRequest,
     ) -> RegistryResult<super::cloud_provisioning::RedeemCloudCreditPromoReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn create_cloud_checkout(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::CreateCloudCreditPackCheckoutRequest,
+    ) -> RegistryResult<super::cloud_provisioning::CreateCloudCreditPackCheckoutReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
+    async fn resize_cloud_volume(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ResizeCloudVolumeRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ResizeCloudVolumeReply> {
         Err(RegistryRefusal::Unavailable)
     }
     fn handles_call_deadline(&self) -> bool {

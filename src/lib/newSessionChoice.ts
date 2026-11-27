@@ -8,6 +8,9 @@ export interface OpenNewSessionDetail {
   workspaceCwd: string | null;
   initialProviderId?: string;
   section?: NewSessionSection;
+  remotePeerId?: string;
+  remoteWorkspaceId?: string;
+  remoteMachineName?: string;
 }
 
 export function openNewSessionPicker(detail: OpenNewSessionDetail): void {

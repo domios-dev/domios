@@ -61,7 +61,8 @@ macro_rules! agent_provider_identity {
         /// resolver. Core reads this instead of asking a provider to self-report.
         fn observe_launch_binary(&self) -> LaunchBinaryObservation {
             let install_dirs = self.cli_install_dirs(super::current_platform_tag());
-            super::availability::observe_launch_binary_in(Some(self.binary_name()), &install_dirs)
+            let candidates = self.cli_binary_candidates(self.binary_name());
+            super::availability::observe_launch_binary_candidates_in(&candidates, &install_dirs)
         }
 
         /// Build the shell command to launch this agent.

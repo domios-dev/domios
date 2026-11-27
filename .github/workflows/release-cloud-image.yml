@@ -1,0 +1,229 @@
+name: Release cloud image
+
+# Runs after the published release archives exist: signs the headless release feed with the
+# release updater minisign key, builds docker/cloud.Dockerfile with ARCHIVE_SOURCE=signed-release
+# (verify.py verifies against packaging/docker/release.pub), pushes tagged <version> and latest
+# by digest to ghcr.io/domios-dev/domios-cloud, verifies anonymous pull and size, and publishes
+# domios-cloud-image.txt as a release asset.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+
+jobs:
+  build-and-publish:
+    name: build, verify, and publish signed-release cloud image
+    if: >-
+      !cancelled() &&
+      (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') &&
+      github.actor == 'rollacode' &&
+      github.triggering_actor == 'rollacode' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/master'
+    environment: release
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.RELEASE_LINUX_X64_RUNNER || '"ubuntu-24.04"') }}
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE_REPO: ghcr.io/domios-dev/domios-cloud
+      BUILDER_NAME: domios-cloud-rel-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+
+      - name: Setup Node.js
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+
+      - name: Setup Python
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+
+      - name: Checkout release source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+
+      - name: Setup pnpm
+        if: runner.environment == 'github-hosted'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+
+      - name: Install frozen Node dependencies for release signer
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare release updater signing material
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: python3 scripts/release-signing-material.py linux
+
+      - name: Download signed release headless archive and sign feed envelope
+        id: release_ctx
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Expected stable vX.Y.Z tag, got $TAG"; exit 1; }
+          version="${TAG#v}"
+          archive="domios-headless-${TAG}-linux-x86_64.tar.gz"
+          work="$RUNNER_TEMP/cloud-release-download"
+          ctx="$RUNNER_TEMP/cloud-release-context"
+          rm -rf "$work" "$ctx"
+          mkdir -p "$work" "$ctx"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$archive" \
+            --pattern "${archive}.sha256" \
+            --pattern "${archive}.manifest.json" \
+            --dir "$work"
+          (cd "$work" && sha256sum -c "${archive}.sha256")
+          test "$(jq -r .source_sha "$work/${archive}.manifest.json")" = "$SOURCE_SHA"
+          test "$(jq -r .version "$work/${archive}.manifest.json")" = "$version"
+          cp "$work/$archive" "$ctx/$archive"
+          node scripts/docker/sign-headless-feed.mjs \
+            --archive "$ctx/$archive" \
+            --tag "$TAG" \
+            --platform linux-x86_64 \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$ctx"
+          gh release upload "$TAG" "$ctx/domios-headless-linux-x86_64.json" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          {
+            echo "version=$version"
+            echo "context_dir=$ctx"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare runner Buildx and authenticate to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          set +x
+          docker info >/dev/null
+          docker buildx version
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          docker buildx create --use --name "$BUILDER_NAME" --driver docker-container >/dev/null
+          docker buildx inspect --bootstrap "$BUILDER_NAME" >/dev/null
+
+      - name: Build and push signed-release cloud image
+        id: image
+        shell: bash
+        env:
+          VERSION: ${{ steps.release_ctx.outputs.version }}
+          CONTEXT_DIR: ${{ steps.release_ctx.outputs.context_dir }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RUNNER_ENV: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          metadata_file="$RUNNER_TEMP/cloud-release-metadata.json"
+          cache_args=(
+            --cache-from "type=registry,ref=${IMAGE_REPO}:buildcache-amd64"
+            --cache-to "type=registry,ref=${IMAGE_REPO}:buildcache-amd64,mode=max"
+          )
+          local_cache="/tmp/domios-ci/buildx-cache/domios-cloud"
+          if [[ "$RUNNER_ENV" == "self-hosted" ]]; then
+            mkdir -p /tmp/domios-ci/buildx-cache
+            if [[ -d "$local_cache" ]]; then
+              cache_args+=(--cache-from "type=local,src=${local_cache}")
+            fi
+            cache_args+=(--cache-to "type=local,dest=${local_cache}.new,mode=max")
+          fi
+          docker buildx build \
+            --builder "$BUILDER_NAME" \
+            --platform linux/amd64 \
+            --provenance=false \
+            --build-context "release=${CONTEXT_DIR}" \
+            --build-arg "VERSION=${VERSION}" \
+            --build-arg "SOURCE_SHA=${SOURCE_SHA}" \
+            --build-arg ARCHIVE_SOURCE=signed-release \
+            --build-arg ALLOW_CI_SMOKE=0 \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --annotation "manifest:org.domios.environment=release" \
+            --annotation "manifest:org.opencontainers.image.revision=${SOURCE_SHA}" \
+            --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
+            --annotation "manifest:org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            "${cache_args[@]}" \
+            --metadata-file "$metadata_file" \
+            -f docker/cloud.Dockerfile \
+            -t "${IMAGE_REPO}:${VERSION}" \
+            -t "${IMAGE_REPO}:latest" \
+            --push \
+            .
+          if [[ "$RUNNER_ENV" == "self-hosted" && -d "${local_cache}.new" ]]; then
+            rm -rf "$local_cache"
+            mv "${local_cache}.new" "$local_cache"
+          fi
+          digest=$(jq -er '."containerimage.digest"' "$metadata_file")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Verify anonymous pull, tags, size budget, and publish digest asset
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.release_ctx.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          asset="$RUNNER_TEMP/domios-cloud-image.txt"
+          node scripts/docker/verify-cloud-image.mjs \
+            --repo "$IMAGE_REPO" \
+            --digest "$DIGEST" \
+            --expected-sha "$SOURCE_SHA" \
+            --expected-env release \
+            --tag "$VERSION" \
+            --tag latest \
+            --max-compressed-mib 1536 \
+            --write-digest-file "$asset" \
+            --summary-file "$GITHUB_STEP_SUMMARY"
+          gh release upload "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          readback=$(curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/domios-cloud-image.txt")
+          test "$readback" = "${IMAGE_REPO}@${DIGEST}"
+
+      - name: Clean up release signing material
+        if: always()
+        run: python3 scripts/release-signing-material.py cleanup
+
+      - name: Remove job Buildx builder
+        if: always()
+        shell: bash
+        run: docker buildx rm --force "$BUILDER_NAME" >/dev/null 2>&1 || true

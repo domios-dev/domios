@@ -1,4 +1,5 @@
 import { parseCompositeTabId } from "../remoteTabTransport";
+import { hydratePeerTabWorkspaceIds } from "../../components/Automation/blueprintOwnerModel";
 import { PeerTabRelayError } from "../remoteChatState";
 import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "../childTranscript";
 import { backgroundProcessesSuffix, providerBackgroundOutputSuffix, type BackgroundProcessAuthority, type ProviderBackgroundWorkTarget } from "../backgroundProcesses";
@@ -204,8 +205,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             if (response.peer?.instance_id !== peer) throw new Error("Relay answered for a different installation");
             const snapshot = hydrateMuxSnapshot(response.data);
             if (!snapshot?.tabs || typeof snapshot.tabs !== "object") throw new Error("Remote peer returned no multiplexer snapshot");
-            const tabs = Object.values(snapshot.tabs).filter(tab =>
-                !tab.id.startsWith("mesh:") && !tab.remote_peer_id && !tab.remote_tab_id);
+            const tabs = hydratePeerTabWorkspaceIds(
+                snapshot,
+                Object.values(snapshot.tabs).filter(tab =>
+                    !tab.id.startsWith("mesh:") && !tab.remote_peer_id && !tab.remote_tab_id),
+            );
             const localTabIds = new Set(tabs.map(tab => tab.id));
             return {
                 peer_id: peer,

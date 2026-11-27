@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use super::catalogue_cache::RevisionCache;
-use crate::agent::provider::{observe_launch_binary_in, ProviderDescriptor, ProviderTransport};
+use crate::agent::provider::{
+    observe_launch_binary_candidates_in, ProviderDescriptor, ProviderTransport,
+};
 use crate::agent::registry::{AgentRegistry, ProviderStartupStatus};
 use crate::chatbackend::ChatBackendRegistryHandle;
 
@@ -79,7 +81,8 @@ impl ProviderRegistry {
                         .unwrap_or_else(|| provider.binary_name());
                     let install_dirs =
                         provider.cli_install_dirs(crate::agent::provider::current_platform_tag());
-                    observe_launch_binary_in(Some(binary), &install_dirs).availability
+                    let candidates = provider.cli_binary_candidates(binary);
+                    observe_launch_binary_candidates_in(&candidates, &install_dirs).availability
                 };
                 descriptor
             })
@@ -177,6 +180,9 @@ impl ProviderRegistry {
             if let Some(cli) = provider.cli_binary() {
                 codeterm_plugin::js_runtime::forget_resolved_bin(cli);
             }
+            for alias in provider.cli_binary_aliases() {
+                codeterm_plugin::js_runtime::forget_resolved_bin(alias);
+            }
             if let Some(runtime) = provider.agent_runtime() {
                 codeterm_plugin::js_runtime::forget_resolved_bin(&runtime.command.binary);
             }
@@ -199,16 +205,27 @@ impl ProviderRegistry {
             "{}:{platform}",
             codeterm_plugin::provider_account::cache_key(id)
         );
-        let install_dirs = self
-            .agents
-            .provider_arc(id)
+        let provider = self.agents.provider_arc(id);
+        let install_dirs = provider
+            .as_ref()
             .map(|provider| provider.cli_install_dirs(platform))
             .unwrap_or_default();
         let cached = self.cli_status_cache.lock().get(&key, &revision);
         if let Some(status) = cached.filter(|status| {
             super::catalogue_cache::misses_still_hold(
                 super::catalogue_cache::unresolved_cli(status),
-                |binary| super::catalogue_cache::binary_found_in(binary, &install_dirs),
+                |binary| {
+                    let found = |candidate: &str| {
+                        super::catalogue_cache::binary_found_in(candidate, &install_dirs)
+                    };
+                    match provider.as_ref() {
+                        Some(provider) => provider
+                            .cli_binary_candidates(binary)
+                            .into_iter()
+                            .any(found),
+                        None => found(binary),
+                    }
+                },
             )
         }) {
             log::debug!(
@@ -286,13 +303,15 @@ impl ProviderRegistry {
                 let compatibility = provider.cli_compatibility();
                 let metadata_us = metadata_started.elapsed().as_micros();
                 let observe_started = std::time::Instant::now();
-                let mut status = codeterm_plugin::provider_cli::observe_cli_with_compatibility_in(
-                    binary,
-                    &install_dirs,
-                    installer,
-                    updater,
-                    compatibility.as_ref(),
-                );
+                let mut status =
+                    codeterm_plugin::provider_cli::observe_cli_with_compatibility_candidates_in(
+                        binary,
+                        provider.cli_binary_aliases(),
+                        &install_dirs,
+                        installer,
+                        updater,
+                        compatibility.as_ref(),
+                    );
                 let observe_us = observe_started.elapsed().as_micros();
                 let update_started = std::time::Instant::now();
                 status.update_summary = crate::service::provider_update::status_summary(

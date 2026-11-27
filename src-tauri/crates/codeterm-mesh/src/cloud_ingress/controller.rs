@@ -20,13 +20,37 @@ async fn read(socket: &mut ClientSocket) -> Result<Vec<u8>, IngressError> {
     }
 }
 
+/// Failure bound for initial cloud enrollment connect + Noise handshake, sized to cover a cold
+/// Fly boot (image pull, unpack, and guest startup). Pure failure bound; readiness is evidence-driven.
+pub const ENROLLMENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Failure bound for a single enrollment RPC frame (Discover / Apply / Status).
+pub const ENROLLMENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(180);
+
 pub async fn connect_enrollment(
     route: CloudRoute,
     creation_psk: &[u8; 32],
     controller_key: [u8; 32],
     sign: impl FnOnce(&ChannelProof) -> Result<[u8; 64], IngressError>,
 ) -> Result<EnrollmentClient, IngressError> {
-    tokio::time::timeout(Duration::from_secs(30), async {
+    connect_enrollment_within(
+        route,
+        creation_psk,
+        controller_key,
+        ENROLLMENT_CONNECT_TIMEOUT,
+        sign,
+    )
+    .await
+}
+
+pub(super) async fn connect_enrollment_within(
+    route: CloudRoute,
+    creation_psk: &[u8; 32],
+    controller_key: [u8; 32],
+    timeout: Duration,
+    sign: impl FnOnce(&ChannelProof) -> Result<[u8; 64], IngressError>,
+) -> Result<EnrollmentClient, IngressError> {
+    tokio::time::timeout(timeout, async {
         let mut socket = open(&route, "/cloud/enrollment/v1").await?;
         let params = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
             .parse()
@@ -115,7 +139,7 @@ impl EnrollmentClient {
             return Err(EnrollmentError::InvalidFrame);
         }
         let mut socket = self.socket.take().ok_or(EnrollmentError::Unavailable)?;
-        let reply = tokio::time::timeout(Duration::from_secs(60), async {
+        let reply = tokio::time::timeout(ENROLLMENT_REQUEST_TIMEOUT, async {
             let mut frame = vec![match op {
                 EnrollmentOperation::Discover => 1,
                 EnrollmentOperation::Apply => 2,

@@ -64,6 +64,12 @@ import { useRemoteWorkspaceClose } from "./useRemoteWorkspaceClose";
 import { remoteWorkspaceCreateErrorNotice, useRemoteWorkspaceCreate } from "./useRemoteWorkspaceCreate";
 import { useRemoteTeamClose } from "./useRemoteTeamClose";
 import {
+  findObservedTabOwnerWorkspaceId,
+  remoteWorkspaceCloseInventoryNotice,
+  remoteWorkspaceCloseOutcomeNotice,
+  useRemoteWorkspaceManagement,
+} from "./remoteWorkspaceManagement";
+import {
   remotePeerActionEligibility,
   remotePeerStatusLabel,
   remoteWorkspaceCloseAction,
@@ -148,6 +154,7 @@ export const Sidebar = memo(function Sidebar({
     reorderDisplay,
     reorderWorkspaces,
     createTab,
+    attachRemoteTab,
     closeTab,
     setActiveTab,
     renameTab,
@@ -487,7 +494,8 @@ export const Sidebar = memo(function Sidebar({
     void (async () => {
       let running: string[];
       try {
-        running = await readTabCloseBlueprints(wsId, tabId, ownerWorkspaceId);
+        const resolvedOwner = ownerWorkspaceId ?? state.tabs[tabId]?.remote_workspace_id ?? findObservedTabOwnerWorkspaceId(tabId, peerWorkspaces, generals);
+        running = await readTabCloseBlueprints(wsId, tabId, resolvedOwner);
       } catch (error) {
         createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
           workspaceId: wsId,
@@ -502,7 +510,7 @@ export const Sidebar = memo(function Sidebar({
       }
       performCloseTab(wsId, tabId);
     })();
-  }, [upsertToast, performCloseTab, state.tabs]);
+  }, [upsertToast, performCloseTab, state.tabs, peerWorkspaces, generals]);
 
   // An observed peer tab is closed on that peer, so it needs the peer online; attached rows keep the shared close path.
   const closeObservedTab = useCallback((wsId: string, tabId: string, title?: string, ownerWorkspaceId?: string) => {
@@ -647,6 +655,9 @@ export const Sidebar = memo(function Sidebar({
   }, [refreshPeerInventory]);
   const publishSidebarNotice = useMemo(() => createNoticePublisher({ upsertToast }), [upsertToast]);
   const remoteTeamClose = useRemoteTeamClose(availabilityForPeer, onRemoteTeamClosed, publishSidebarNotice);
+  const remoteWorkspace = useRemoteWorkspaceManagement({
+    availabilityForPeer, machineNameForPeer, generalWorkspaceId: generalWorkspace?.id ?? null, attachRemoteTab, refreshPeerInventory, notify: publishSidebarNotice,
+  });
   useEffect(() => {
     const pending = remoteWorkspaceClose.pending;
     if (pending && (
@@ -739,21 +750,10 @@ export const Sidebar = memo(function Sidebar({
     };
     void remoteWorkspaceClose.request(target, () => selectedWorkspaceKeyRef.current === targetKey).then(result => {
       if (result.kind === "ready" || result.kind === "stale") return;
-      const detailText = result.kind === "inventory_failed"
-        ? `${target.machineName} · ${target.workspaceName}\n${result.detail}`
-        : result.kind === "protected"
-          ? `${target.workspaceName} on ${target.machineName} is protected.`
-          : `${target.workspaceName} on ${target.machineName} cannot be inspected while the machine is offline.`;
-      const message = result.kind === "inventory_failed"
-        ? result.detail.replace(/^.*? → HTTP \d{3}: /, "").trim() || result.detail
-        : detailText;
-      createNoticePublisher({ upsertToast })({ kind: "toast", id: `workspace-close-inventory:${target.peerId}:${target.workspaceId}`,
-        tabId: null, workspaceId: target.workspaceId, title: result.kind === "offline" ? "Machine offline" : "Close inventory unavailable",
-        detail: JSON.stringify({ code: "workspace_close_refused", message, cause: `${target.workspaceName} on ${target.machineName} stays open.`, raw: detailText }),
-        severity: "Error", persistent: true, retainInNotifications: true });
+      publishSidebarNotice(remoteWorkspaceCloseInventoryNotice(target, result));
     });
   }, [selectedWorkspace, observedWorkspace, selectedWorkspaceKey, requestLocalWorkspaceClose, machineNameForPeer,
-    generalByPeerId, remoteWorkspaceClose.request, upsertToast]);
+    generalByPeerId, remoteWorkspaceClose.request, publishSidebarNotice]);
   const confirmRemoteWorkspaceClose = useCallback(async () => {
     const pending = remoteWorkspaceClose.pending;
     if (pending && sidebarWorkspaceKey(pending.peerId, pending.workspaceId) !== selectedWorkspaceKey) {
@@ -762,33 +762,32 @@ export const Sidebar = memo(function Sidebar({
     }
     const result = await remoteWorkspaceClose.confirm();
     if (result.kind === "none") return;
-    const target = result.target;
-    const targetLabel = `${target.workspaceName} on ${target.machineName}`;
-    const workspaceRefusal = (message: string, cause: string, raw: string) =>
-      JSON.stringify({ code: "workspace_close_refused", message: message.replace(/^.*? → HTTP \d{3}: /, "").trim() || message, cause, raw });
-    const notification = result.kind === "closed"
-      ? { title: "Workspace closed", detail: targetLabel, severity: "Info" as const }
-      : result.kind === "closed_with_warning"
-        ? { title: "Workspace closed with a cleanup warning", detail: workspaceRefusal(result.detail, `${targetLabel} closed with a cleanup warning.`, `${targetLabel}\n${result.detail}`), severity: "Error" as const, persistent: true, retainInNotifications: true }
-        : result.kind === "still_present"
-          ? { title: "Workspace remains open", detail: workspaceRefusal(result.detail, `${targetLabel} stays open.`, `${targetLabel}\n${result.detail}`), severity: "Error" as const, persistent: true, retainInNotifications: true }
-          : result.kind === "offline"
-            ? { title: "Workspace close not sent", detail: workspaceRefusal(`${targetLabel} is offline.`, `${targetLabel} stays open.`, `${targetLabel} is offline.`), severity: "Error" as const, persistent: true, retainInNotifications: true }
-            : { title: "Close status could not be checked", detail: workspaceRefusal(result.detail, `Refresh ${target.machineName} before starting another close.`, `${targetLabel}\n${result.detail}\nRefresh the machine before starting another close.`), severity: "Error" as const, persistent: true, retainInNotifications: true };
-    createNoticePublisher({ upsertToast })({ kind: "toast", id: `workspace-close:${target.peerId}:${target.workspaceId}`,
-      tabId: null, workspaceId: target.workspaceId, ...notification });
-  }, [remoteWorkspaceClose.pending, remoteWorkspaceClose.cancel, remoteWorkspaceClose.confirm, selectedWorkspaceKey, upsertToast]);
+    publishSidebarNotice(remoteWorkspaceCloseOutcomeNotice(result));
+  }, [remoteWorkspaceClose.pending, remoteWorkspaceClose.cancel, remoteWorkspaceClose.confirm, selectedWorkspaceKey, publishSidebarNotice]);
   const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
     activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },
     activateTab: (workspaceId, tabId) => { cancelPendingSwitch(); setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
     closeTab: animatedCloseTab,
+    closeObservedTab,
     renameTab,
-    renameWorkspace,
+    renameWorkspace: (workspaceId, name) => {
+      if (observedWorkspace && observedWorkspace.workspace.id === workspaceId) void remoteWorkspace.renameRemoteWorkspace(observedWorkspace.peerId, workspaceId, name);
+      else renameWorkspace(workspaceId, name);
+    },
     closeWorkspace: requestSelectedWorkspaceClose,
     newTerminal: (workspaceId, shell) => {
-      void createTab(workspaceId, undefined, shell).then((created) => { if (created) onNavigateToTab?.(); });
+      const created = observedWorkspace && observedWorkspace.workspace.id === workspaceId
+        ? remoteWorkspace.createRemoteTerminalTab(observedWorkspace.peerId, workspaceId, observedWorkspace.workspace.cwd, shell)
+        : createTab(workspaceId, undefined, shell);
+      void created.then((tab) => { if (tab) onNavigateToTab?.(); });
     },
-    newSession: handleNewSession,
+    newSession: (workspaceId, workspaceCwd) => {
+      if (observedWorkspace && observedWorkspace.workspace.id === workspaceId) {
+        if (firstRunActive) return;
+        openNewSessionPicker({ workspaceId: generalWorkspace?.id ?? activeWorkspaceId ?? workspaceId, workspaceCwd: observedWorkspace.workspace.cwd,
+          remotePeerId: observedWorkspace.peerId, remoteWorkspaceId: observedWorkspace.workspace.id, remoteMachineName: machineNameForPeer(observedWorkspace.peerId) });
+      } else handleNewSession(workspaceId, workspaceCwd);
+    },
     newAgent: handleAgentSpawn,
     openMap: onOpenWorkspaceMap,
     openAutomation: onOpenWorkspaceAutomation,
@@ -796,8 +795,9 @@ export const Sidebar = memo(function Sidebar({
     renameTeam: teamActions?.onRenameTeam,
     addTeamMember: teamActions?.onAddTeamMember,
     closeTeam: teamActions?.onCloseTeam ? requestTeamClose : undefined,
-  }), [setActiveWorkspace, onNavigateToTab, cancelPendingSwitch, setActiveTab, animatedCloseTab, renameTab, renameWorkspace, requestSelectedWorkspaceClose,
-    createTab, handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
+  }), [setActiveWorkspace, onNavigateToTab, cancelPendingSwitch, setActiveTab, animatedCloseTab, closeObservedTab, renameTab, renameWorkspace, observedWorkspace,
+    remoteWorkspace, requestSelectedWorkspaceClose, createTab, firstRunActive, generalWorkspace?.id, activeWorkspaceId, machineNameForPeer,
+    handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
     teamActions?.onRenameTeam, teamActions?.onAddTeamMember, teamActions?.onCloseTeam, requestTeamClose]);
   const dndHandlers = useMemo(
     () => ({
@@ -959,6 +959,8 @@ export const Sidebar = memo(function Sidebar({
                       status={selectedWorkspaceKey ? workspaceActivity[selectedWorkspaceKey]?.status ?? null : null}
                       data={workspaceDetailData}
                       actions={workspaceDetailActions}
+                      observedPeerId={observedWorkspace?.peerId ?? null}
+                      observedAvailability={observedWorkspace ? availabilityForPeer(observedWorkspace.peerId) : undefined}
                       allowObservedWorkspaceClose={Boolean(observedCloseAction?.visible && !observedCloseAction.disabled)}
                       observedWorkspaceCloseDisabledReason={observedCloseAction?.visible && observedCloseAction.disabled ? observedCloseAction.reason : null}
                       observedContent={observedWorkspace && <WorkspaceBrowseSection
@@ -967,10 +969,12 @@ export const Sidebar = memo(function Sidebar({
                         touchMode={touchMode}
                         closingTeamKeys={remoteTeamClose.closingTeamKeys}
                         onOpenCanvas={onNavigateToTab}
-                        onRenameViewer={(tab, title) => {
-                          if (tab.workspace_id) renameTab(tab.workspace_id, tab.id, title);
-                        }}
+                        onNewSession={() => workspaceDetailActions.newSession(selectedWorkspace.id, selectedWorkspace.cwd ?? null)}
+                        newSessionDisabledReason={firstRunActive ? "Finish Get started before creating another session" : remotePeerActionEligibility(availabilityForPeer(observedWorkspace.peerId)).reason}
+                        sidebarActionText={sidebarActionText}
+                        onRenameViewer={(tab, title) => renameTab(tab.workspace_id || selectedWorkspace.id, tab.id, title)}
                         onCloseViewer={(tabId, title, ownerWorkspaceId) => closeObservedTab(selectedWorkspace.id, tabId, title, ownerWorkspaceId)}
+                        onRenameTeam={remoteWorkspace.renameRemoteTeam}
                         onCloseTeam={(target) => {
                           const targetKey = selectedWorkspaceKey;
                           void remoteTeamClose.request(target, () => selectedWorkspaceKeyRef.current === targetKey);

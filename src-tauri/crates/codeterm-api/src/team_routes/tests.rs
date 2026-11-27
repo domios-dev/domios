@@ -71,10 +71,34 @@ fn team_close_errors_keep_authorization_and_cleanup_statuses() {
 }
 
 #[test]
-fn team_rename_requires_caller_tab_header() {
-    let error = require_caller_tab_id(&crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()))
-        .unwrap_err();
-    assert_eq!(error.0, StatusCode::BAD_REQUEST);
+fn team_rename_caller_accepts_headerless_owner_and_attributes_tab_callers() {
+    use codeterm_service_core::service::TeamMutationCaller;
+
+    assert_eq!(
+        rename_team_caller(&crate::auth::ActorHeaders::for_owner_test(HeaderMap::new())).unwrap(),
+        TeamMutationCaller::Human
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert("X-CodeTerm-Tab-Id", "tab-mgr".parse().unwrap());
+    assert_eq!(
+        rename_team_caller(&crate::auth::ActorHeaders::for_owner_test(headers)).unwrap(),
+        TeamMutationCaller::AgentTab("tab-mgr".into())
+    );
+    let tab_actor = crate::auth::ActorHeaders::authenticated(
+        &crate::auth::CallerIdentity::Tab(
+            codeterm_service_core::service::tab_credentials::TabCaller {
+                tab_id: "tab-agent".into(),
+                binding_nonce: "nonce".into(),
+            },
+        ),
+        crate::auth::AuthenticatedOrigin::Agent,
+        HeaderMap::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        rename_team_caller(&tab_actor).unwrap(),
+        TeamMutationCaller::AgentTab("tab-agent".into())
+    );
 }
 
 #[test]
@@ -90,13 +114,9 @@ fn http_team_rename_returns_updated_team() {
         RenameTeamBody {
             name: "Renamed".into(),
         },
-        |team_id, caller_tab_id, name| {
+        |team_id, caller, name| {
             codeterm_orchestration::team::rename_team_with_state_change(
-                &mut mux,
-                &events,
-                &team_id,
-                name,
-                &codeterm_service_core::service::TeamMutationCaller::AgentTab(caller_tab_id),
+                &mut mux, &events, &team_id, name, &caller,
             )
         },
     )
@@ -121,13 +141,9 @@ fn http_team_rename_enforces_caller_permission() {
             RenameTeamBody {
                 name: "Denied worker".into(),
             },
-            |team_id, caller_tab_id, name| {
+            |team_id, caller, name| {
                 codeterm_orchestration::team::rename_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &team_id,
-                    name,
-                    &codeterm_service_core::service::TeamMutationCaller::AgentTab(caller_tab_id),
+                    &mut mux, &events, &team_id, name, &caller,
                 )
             },
         )
@@ -144,13 +160,9 @@ fn http_team_rename_enforces_caller_permission() {
             RenameTeamBody {
                 name: "Denied foreign".into(),
             },
-            |team_id, caller_tab_id, name| {
+            |team_id, caller, name| {
                 codeterm_orchestration::team::rename_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &team_id,
-                    name,
-                    &codeterm_service_core::service::TeamMutationCaller::AgentTab(caller_tab_id),
+                    &mut mux, &events, &team_id, name, &caller,
                 )
             },
         )
@@ -171,31 +183,14 @@ fn http_team_rename_enforces_caller_permission() {
     );
     assert_eq!(
         rename_team_adapter(
-            &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
-            team_id.clone(),
-            RenameTeamBody {
-                name: "Missing caller".into(),
-            },
-            |_, _, _| unreachable!(),
-        )
-        .unwrap_err()
-        .0,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        rename_team_adapter(
             &crate::auth::ActorHeaders::for_owner_test(worker_headers.clone()),
             "team_missing".into(),
             RenameTeamBody {
                 name: "Missing team".into(),
             },
-            |team_id, caller_tab_id, name| {
+            |team_id, caller, name| {
                 codeterm_orchestration::team::rename_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &team_id,
-                    name,
-                    &codeterm_service_core::service::TeamMutationCaller::AgentTab(caller_tab_id),
+                    &mut mux, &events, &team_id, name, &caller,
                 )
             },
         )
@@ -204,6 +199,278 @@ fn http_team_rename_enforces_caller_permission() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(mux.get_team(&team_id).unwrap().name, None);
+    let renamed_by_owner = rename_team_adapter(
+        &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
+        team_id.clone(),
+        RenameTeamBody {
+            name: "Owner renamed".into(),
+        },
+        |team_id, caller, name| {
+            codeterm_orchestration::team::rename_team_with_state_change(
+                &mut mux, &events, &team_id, name, &caller,
+            )
+        },
+    )
+    .unwrap();
+    assert_eq!(renamed_by_owner.name.as_deref(), Some("Owner renamed"));
+}
+
+#[tokio::test]
+async fn http_team_rename_route_authorizes_owner_full_peer_and_agent_callers() {
+    use axum::{body::Body, http::Request};
+    use codeterm_service_core::mesh::crown::{
+        generate_peer_keypair, sign_request_with_agent, sign_request_with_origin,
+        AuthenticatedAgent, AuthenticatedOrigin,
+    };
+    use codeterm_service_core::mesh::types::{
+        AccessLevel, PairedPeer, Permission, RELAY_PROTOCOL_VERSION,
+    };
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    use tower::ServiceExt;
+
+    let (mut mux, team_id, orchestrator, worker) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let planner = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role_kind(
+        &planner,
+        AgentRole::Manager,
+        Some("planner"),
+        Some(&orchestrator),
+    )
+    .unwrap();
+    let foreign = mux.create_tab(&workspace_id).unwrap();
+    let other_ws = mux.create_workspace("Other".into(), None).id;
+    let other_orchestrator = mux.create_tab(&other_ws).unwrap();
+    mux.resolve_or_mint_team_for_parent(&other_orchestrator)
+        .unwrap();
+    for tab_id in [
+        &orchestrator,
+        &planner,
+        &worker,
+        &foreign,
+        &other_orchestrator,
+    ] {
+        mux.get_tab_mut(tab_id).unwrap().session_binding_nonce = Some(format!("nonce-{tab_id}"));
+    }
+
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("owner-secret".into());
+    state.config.lock().mesh.enabled = true;
+
+    let paired_peer = |id: &str, public_key: String, access_level: AccessLevel| PairedPeer {
+        instance_id: id.into(),
+        instance_name: id.into(),
+        addresses: Vec::new(),
+        api_port: 0,
+        public_key,
+        paired_at: "now".into(),
+        last_seen: None,
+        online: true,
+        is_primary: false,
+        access_level,
+        domios_version: None,
+        domios_build: None,
+        web_ui: None,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    };
+
+    let (full_sk, full_pk) = generate_peer_keypair();
+    let (ro_sk, ro_pk) = generate_peer_keypair();
+    let (iso_sk, iso_pk) = generate_peer_keypair();
+    let (manage_sk, manage_pk) = generate_peer_keypair();
+    let (admin_sk, admin_pk) = generate_peer_keypair();
+    {
+        let mut mesh = state.mesh.lock();
+        mesh.insert_account_peer_for_test(paired_peer("peer-full", full_pk, AccessLevel::Full));
+        mesh.insert_account_peer_for_test(paired_peer("peer-ro", ro_pk, AccessLevel::ReadOnly));
+        mesh.insert_account_peer_for_test(paired_peer(
+            "peer-iso",
+            iso_pk,
+            AccessLevel::AgentIsolated,
+        ));
+        mesh.insert_account_peer_for_test(paired_peer(
+            "peer-manage",
+            manage_pk,
+            AccessLevel::Custom(vec![Permission::ManageWorkspaces]),
+        ));
+        mesh.insert_account_peer_for_test(paired_peer(
+            "peer-admin",
+            admin_pk,
+            AccessLevel::Custom(vec![Permission::Admin]),
+        ));
+    }
+
+    let tab_token = |tab_id: &str| {
+        state
+            .svc
+            .frontend_pty_env(Some(tab_id))
+            .unwrap()
+            .remove("CODETERM_API_TOKEN")
+            .unwrap()
+    };
+    let orchestrator_token = tab_token(&orchestrator);
+    let planner_token = tab_token(&planner);
+    let worker_token = tab_token(&worker);
+    let foreign_token = tab_token(&foreign);
+    let other_orchestrator_token = tab_token(&other_orchestrator);
+
+    let app = crate::routes::create_router(state.clone());
+    let send = |token: Option<&str>, body: serde_json::Value| {
+        let app = app.clone();
+        let uri = format!("/api/teams/{team_id}/rename");
+        let token = token.map(str::to_owned);
+        async move {
+            let mut req = Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("content-type", "application/json");
+            if let Some(token) = token {
+                req = req.header("authorization", format!("Bearer {token}"));
+            }
+            app.oneshot(req.body(Body::from(body.to_string())).unwrap())
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    let current_name = || {
+        fixture
+            .service
+            .mux
+            .read()
+            .get_team(&team_id)
+            .and_then(|team| team.name.clone())
+    };
+
+    assert_eq!(
+        send(None, serde_json::json!({ "name": "No auth" })).await,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // Local owner (headerless GUI/API call) succeeds.
+    assert_eq!(
+        send(
+            Some("owner-secret"),
+            serde_json::json!({ "name": "Owner Name" })
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(current_name().as_deref(), Some("Owner Name"));
+
+    // Authenticated Full peer acting for the owner succeeds.
+    let full_owner_token =
+        sign_request_with_origin(&full_sk, "peer-full", AuthenticatedOrigin::Owner).unwrap();
+    assert_eq!(
+        send(
+            Some(&full_owner_token),
+            serde_json::json!({ "name": "Remote Owner Name" }),
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(current_name().as_deref(), Some("Remote Owner Name"));
+
+    // Full peer claiming a local tab or using Agent/Mesh origin is refused.
+    assert_eq!(
+        send(
+            Some(&full_owner_token),
+            serde_json::json!({
+                "name": "Spoofed Tab",
+                "caller_tab_id": orchestrator,
+            }),
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    let full_mesh_token =
+        sign_request_with_origin(&full_sk, "peer-full", AuthenticatedOrigin::Mesh).unwrap();
+    assert_eq!(
+        send(
+            Some(&full_mesh_token),
+            serde_json::json!({ "name": "Mesh Origin" }),
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    let full_agent_token = sign_request_with_agent(
+        &full_sk,
+        "peer-full",
+        AuthenticatedOrigin::Agent,
+        Some(&AuthenticatedAgent {
+            instance_id: "peer-full".into(),
+            tab_id: "remote-agent".into(),
+            can_spawn: true,
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        send(
+            Some(&full_agent_token),
+            serde_json::json!({ "name": "Remote Agent" }),
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+
+    // Non-Full peers acting for the owner are refused.
+    for (peer_id, sk) in [
+        ("peer-ro", &ro_sk),
+        ("peer-iso", &iso_sk),
+        ("peer-manage", &manage_sk),
+        ("peer-admin", &admin_sk),
+    ] {
+        let token = sign_request_with_origin(sk, peer_id, AuthenticatedOrigin::Owner).unwrap();
+        assert_eq!(
+            send(
+                Some(&token),
+                serde_json::json!({ "name": format!("Refused {peer_id}") }),
+            )
+            .await,
+            StatusCode::FORBIDDEN,
+            "{peer_id}"
+        );
+    }
+    assert_eq!(current_name().as_deref(), Some("Remote Owner Name"));
+
+    // Agent / Tab callers keep their exact Team authority rules.
+    assert_eq!(
+        send(
+            Some(&orchestrator_token),
+            serde_json::json!({ "name": "Orchestrator Name" }),
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(current_name().as_deref(), Some("Orchestrator Name"));
+    assert_eq!(
+        send(
+            Some(&planner_token),
+            serde_json::json!({ "name": "Planner Name" }),
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(current_name().as_deref(), Some("Planner Name"));
+    for (label, token) in [
+        ("worker", worker_token.as_str()),
+        ("foreign", foreign_token.as_str()),
+        ("other_orchestrator", other_orchestrator_token.as_str()),
+    ] {
+        assert_eq!(
+            send(
+                Some(token),
+                serde_json::json!({ "name": format!("Denied {label}") }),
+            )
+            .await,
+            StatusCode::FORBIDDEN,
+            "{label}"
+        );
+    }
+    assert_eq!(current_name().as_deref(), Some("Planner Name"));
 }
 
 #[tokio::test]

@@ -23,22 +23,52 @@ pub(super) fn presented_kind(token: &str) -> &'static str {
     "bearer"
 }
 
-pub(super) fn refusal_reason(state: &crate::routes::AppState, token: &str) -> &'static str {
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum MeshRefusal {
+    NotReady,
+    PlanLimitLocked(String),
+    Unauthorized(&'static str),
+}
+
+pub(super) fn classify_verify_error(error: &str) -> &'static str {
+    match error {
+        "Request expired" => "clock_skew_expired",
+        "Request timestamp too far in the future" => "clock_skew_future",
+        _ => "unknown_or_invalid_credential",
+    }
+}
+
+pub(super) fn classify_mesh_refusal(state: &crate::routes::AppState, token: &str) -> MeshRefusal {
     use codeterm_service_core::mesh::account_mesh::gate::{BlockReason, TrafficDecision};
-    let mesh = state.mesh.lock();
-    let Ok(peer) = codeterm_service_core::mesh::crown::verify_signed_request(
-        token,
-        &mesh.paired_identity_keys(),
-    ) else {
-        return "unknown_or_invalid_credential";
+    if token.is_empty() {
+        return MeshRefusal::Unauthorized("unknown_or_invalid_credential");
+    }
+    // Clone keys before Ed25519 verification so refusal storms never hold the mesh mutex.
+    let (account_ready, paired_keys) = {
+        let mesh = state.mesh.lock();
+        (mesh.is_account_ready(), mesh.paired_identity_keys())
     };
-    match mesh.traffic_decision(&peer) {
-        TrafficDecision::Blocked(BlockReason::LocalMembershipExpired) => "local_membership_expired",
+    if !account_ready {
+        return MeshRefusal::NotReady;
+    }
+    let peer = match codeterm_service_core::mesh::crown::verify_signed_request(token, &paired_keys)
+    {
+        Ok(peer) => peer,
+        Err(error) => return MeshRefusal::Unauthorized(classify_verify_error(&error)),
+    };
+    match state.mesh.lock().traffic_decision(&peer) {
+        TrafficDecision::Blocked(BlockReason::AccountPending) => MeshRefusal::NotReady,
+        TrafficDecision::Blocked(BlockReason::PlanLimitLocked) => {
+            MeshRefusal::PlanLimitLocked(peer)
+        }
+        TrafficDecision::Blocked(BlockReason::LocalMembershipExpired) => {
+            MeshRefusal::Unauthorized("local_membership_expired")
+        }
         TrafficDecision::Blocked(
             BlockReason::PeerMembershipExpired | BlockReason::PeerMembershipMissing,
-        ) => "peer_membership_expired",
-        TrafficDecision::Blocked(BlockReason::Revoked) => "revoked",
-        _ => "account_admission_blocked",
+        ) => MeshRefusal::Unauthorized("peer_membership_expired"),
+        TrafficDecision::Blocked(BlockReason::Revoked) => MeshRefusal::Unauthorized("revoked"),
+        _ => MeshRefusal::Unauthorized("account_admission_blocked"),
     }
 }
 

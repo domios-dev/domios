@@ -208,3 +208,36 @@ it("shares peer events between the peer facade and explicit remote tab subscript
   first();
   second();
 });
+
+it("dispatches codeterm-gateway-state only on availability transitions", async () => {
+  const events: boolean[] = [];
+  const eventTarget = new EventTarget();
+  eventTarget.addEventListener("codeterm-gateway-state", (event) => {
+    events.push((event as CustomEvent<{ available: boolean }>).detail.available);
+  });
+  vi.stubGlobal("window", {
+    location: { origin: "tauri://localhost" },
+    __TAURI_INTERNALS__: {},
+    CustomEvent,
+    dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+    addEventListener: eventTarget.addEventListener.bind(eventTarget),
+    removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+  });
+  let failNext = false;
+  vi.stubGlobal("fetch", muxMockFetch(async () => {
+    if (failNext) throw new TypeError("connection refused");
+    return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+  }));
+  const { configureDaemonTransport } = await import("./daemonBootstrap");
+  const client = configureDaemonTransport({ origin: "http://127.0.0.1:7690", token: "token" });
+  await client.localJson("GET", "/api/health");
+  await client.localJson("GET", "/api/health");
+  await client.localJson("GET", "/api/health");
+  expect(events).toEqual([true]);
+  failNext = true;
+  await expect(client.localJson("GET", "/api/health")).rejects.toThrow();
+  expect(events).toEqual([true, false]);
+  failNext = false;
+  await client.localJson("GET", "/api/health");
+  expect(events).toEqual([true, false, true]);
+});

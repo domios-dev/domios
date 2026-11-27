@@ -7,7 +7,8 @@ import { asleepDuration } from "../../lib/tabSleep";
 import type { TabActivity } from "../../lib/tabActivity";
 import { useMachineViewerTheme } from "../../lib/useMachineAppearance";
 import { useMachineChromeAppearance } from "../../lib/useMachineChromeAppearance";
-import { useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
+import { useCloudMachineForPeer, useMeshMachineIdentity, useMeshPeerName } from "../../lib/useMeshMachineIdentities";
+import { cloudMachineCardView } from "../../lib/cloudMachines/stateModel";
 import type { Tab } from "../../lib/types";
 import type { GeneralAvailability } from "../../store/multiplexer/pairedWorkspaceProjection";
 import { CursorTooltip } from "../shared/CursorTooltip";
@@ -28,18 +29,22 @@ export function useRemoteTabPresentation(tab: Tab, activity: TabActivity, observ
   const peerId = observed?.peerId ?? tab.remote_peer_id;
   const remote = useRemoteChatStatus(tab.id, peerId);
   const peerName = useMeshPeerName(peerId);
-  const identity = useMeshMachineIdentity(peerId, Boolean(peerId));
+  const cloudMachine = useCloudMachineForPeer(peerId);
+  const identity = useMeshMachineIdentity(peerId, Boolean(peerId)) ?? (cloudMachine ? { kind: "vm" as const } : undefined);
   const teamName = useRemoteTabTeamName(tab, peerId);
   const team = observed?.teamName ?? teamName ?? "No Team";
   if (!peerId) return null;
   const name = remoteMachineName(peerId, peerName, remote.peer?.name, observed?.name, tab.remote_peer_name);
   const availability = observed?.availability ?? remote.peer?.presence;
   const presence = remote.peer?.presence ?? availability;
-  const online = presence === "online";
+  const cloudView = cloudMachine ? cloudMachineCardView(cloudMachine) : null;
+  const online = cloudView ? cloudView.listOnline : presence === "online";
   const connection = online ? "online" : presence && presence !== "reconnecting" ? "offline" : "reconnecting";
   const reason = remote.state && REMOTE_CHAT_COPY[remote.state].label;
-  const availabilityLabel = availability === "signed-out" ? "signed out"
-    : availability === "update-required" ? "update required" : availability;
+  const availabilityLabel = cloudView && !cloudView.listOnline
+    ? cloudView.listStatus
+    : availability === "signed-out" ? "signed out"
+      : availability === "update-required" ? "update required" : availability;
   const unavailable = reason || (availability === "online" ? null : availabilityLabel);
   const role = namedManagerRole(tab) ?? remoteTabKindLabel(tab);
   const duration = tab.frozen ? asleepDuration(tab, Date.now()) : null;

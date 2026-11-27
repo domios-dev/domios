@@ -167,3 +167,39 @@ fn symlinked_trees_are_never_covered_by_recursive_subscriptions() {
         ]
     );
 }
+
+#[test]
+fn covering_set_excluding_partitions_root_and_skips_excluded_names() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    create(
+        root,
+        &[
+            "bitwarden/dist",
+            "git/dist",
+            "bitwarden.tmp-install/dist",
+            "bitwarden.rollback.tmp-install/dist",
+        ],
+    );
+    let planned = covering_set_excluding(root, true, |name| {
+        name.to_string_lossy().ends_with(".tmp-install")
+    })
+    .unwrap();
+    assert_eq!(
+        planned,
+        vec![
+            DirectoryWatch {
+                path: root.into(),
+                recursive: false
+            },
+            DirectoryWatch {
+                path: root.join("bitwarden"),
+                recursive: true
+            },
+            DirectoryWatch {
+                path: root.join("git"),
+                recursive: true
+            },
+        ]
+    );
+}

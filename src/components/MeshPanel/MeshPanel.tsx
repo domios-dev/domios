@@ -6,8 +6,17 @@ import { invoke, listen } from "../../lib/bridge";
 import { BusySpinner, BusyState } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
-import { MeshCanvas, type RecentPush } from "./MeshCanvas";
+import { MeshCanvas, type CanvasCloud, type RecentPush } from "./MeshCanvas";
+import { useCloudMachines } from "./useCloudMachines";
+import { cloudCreateDecision, type CloudFailurePresentation } from "../../lib/cloudMachines/stateModel";
+import type { TopUpMode } from "../../lib/cloudMachines/topUpModel";
+import type { CloudReceipt } from "../../lib/cloudMachines/types";
+import { CloudTopUpDialog, type PendingCloudTopUpCheckout } from "../billing/CloudTopUpDialog";
+import { CloudTopUpReturnDialog } from "../billing/CloudTopUpReturnDialog";
+import { useAccountPlan } from "../Settings/useAccountPlan";
+import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
 import { accountCanvasMachineCounts, accountCanvasPeers } from "./accountCanvas";
+import { countProjectedMeshMachines, deduplicateMeshInputs } from "./meshMachineListModel";
 import { useCanvasAccount } from "./useCanvasAccount";
 import { useMeshAccount } from "./useMeshAccount";
 import { useCanvasTailscale } from "./useCanvasTailscale";
@@ -47,18 +56,24 @@ interface Props {
   config: AppConfig;
   onConfigUpdate: (config: AppConfig) => Promise<void>;
   onClose: () => void;
-  tabRequest?: { tab: MeshTab };
+  tabRequest?: { tab: MeshTab; newMachine?: boolean; seq?: number };
 }
 
 export function MeshPanel({ config, onClose, tabRequest }: Props) {
   const touchUi = useTouchOptimizedUi();
   const account = useMeshAccount();
+  const accountPlan = useAccountPlan(account.presence === "signed_in" ? (account.uid ?? null) : null);
   const connecting = useMeshConnections(config.mesh.enabled);
   const goOnline = useCallback(async () => {
     await invoke("mesh_set_enabled", { enabled: true });
   }, []);
   const [activeTab, setActiveTab] = useState<MeshTab>(tabRequest?.tab ?? "inventory");
-  useLayoutEffect(() => { if (tabRequest) setActiveTab(tabRequest.tab); }, [tabRequest]);
+  const [slotOpen, setSlotOpen] = useState(Boolean(tabRequest?.newMachine));
+  useLayoutEffect(() => {
+    if (!tabRequest) return;
+    setActiveTab(tabRequest.tab);
+    if (tabRequest.newMachine) setSlotOpen(true);
+  }, [tabRequest]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
@@ -82,7 +97,6 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
   const inventoryShown = activeTab === "inventory" && !meshOff && graphReady;
   const canvasAccount = useCanvasAccount(data.peers, triggerRefresh, registryRefreshKey, account, inventoryShown);
   const canvasPeers = useMemo(() => accountCanvasPeers(canvasAccount.canvas, data.peers), [canvasAccount.canvas, data.peers]);
-  const machineCounts = useMemo(() => accountCanvasMachineCounts(canvasAccount.canvas, canvasPeers), [canvasAccount.canvas, canvasPeers]);
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -157,6 +171,148 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
 
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
   const [meshAnnouncement, setMeshAnnouncement] = useState("");
+  const [topUpDialog, setTopUpDialog] = useState<{ mode: TopUpMode; machine?: CloudReceipt; size?: string } | null>(null);
+  const [pendingCheckout, setPendingCheckout] = useState<PendingCloudTopUpCheckout | null>(null);
+  const [returnDialog, setReturnDialog] = useState<{
+    addedHours: number;
+    newBalance: number;
+    rolloverSentence: string | null;
+    wakeTarget?: { machineId: string; peerId: string; machineName: string };
+    creating?: boolean;
+  } | null>(null);
+  const cloud = useCloudMachines(
+    account.presence === "signed_in" && (inventoryShown || drawerState?.kind === "cloud"),
+    refreshAll,
+  );
+  const machineCounts = useMemo(() => {
+    const base = accountCanvasMachineCounts(canvasAccount.canvas, canvasPeers);
+    if (cloud.machines.length === 0) return base;
+    const { activeCloud, nonCloudPeers, accountNodes } = deduplicateMeshInputs(
+      canvasPeers,
+      canvasAccount.canvas,
+      cloud.machines,
+    );
+    const connectedCloud = activeCloud.filter((machine) => machine.state === "awake" || machine.state === "draining").length;
+    const connectedPeers = nonCloudPeers.filter(
+      (peer) => !peer.pending && peer.online && canvasAccount.canvas.peerFooters.get(peer.instance_id)?.row.status !== "signed_out",
+    ).length;
+    const connectedNodes = accountNodes.filter((node) => node.online === true).length;
+    return {
+      total: countProjectedMeshMachines(canvasPeers, canvasAccount.canvas, cloud.machines),
+      connected: 1 + connectedPeers + connectedCloud + connectedNodes,
+    };
+  }, [canvasAccount.canvas, canvasPeers, cloud.machines]);
+  const isFreePlan = accountPlan.plan !== null && !accountPlan.plan.fullAccess && accountPlan.plan.plan === "free";
+
+  useEffect(() => {
+    if (!pendingCheckout || !cloud.usage) return;
+    const delta = Math.round((cloud.usage.remaining - pendingCheckout.priorRemaining) * 10) / 10;
+    if (delta <= 0) return;
+    const checkout = pendingCheckout;
+    setPendingCheckout(null);
+    if (checkout.mode === "wake" && checkout.machineId) {
+      const targetMachine = cloud.machines.find((item) => item.machine_id === checkout.machineId);
+      const peerId = targetMachine?.peer_instance_id ?? targetMachine?.installation_id ?? checkout.machineId;
+      void cloud.wake(checkout.machineId);
+      setReturnDialog({
+        addedHours: delta || checkout.expectedHours || 0,
+        newBalance: cloud.usage.remaining,
+        rolloverSentence: checkout.rolloverSentence,
+        wakeTarget: { machineId: checkout.machineId, peerId, machineName: checkout.machineName ?? targetMachine?.name ?? "Machine" },
+      });
+    } else if (checkout.mode === "free" && checkout.size) {
+      setSlotOpen(false);
+      void cloud.create(checkout.size);
+      setReturnDialog({
+        addedHours: delta || checkout.expectedHours || 0,
+        newBalance: cloud.usage.remaining,
+        rolloverSentence: checkout.rolloverSentence,
+        creating: true,
+      });
+    } else {
+      setReturnDialog({
+        addedHours: delta || checkout.expectedHours || 0,
+        newBalance: cloud.usage.remaining,
+        rolloverSentence: checkout.rolloverSentence,
+      });
+    }
+  }, [pendingCheckout, cloud]);
+
+  const handleCreateCloud = useCallback((size: string) => {
+    const decision = cloudCreateDecision({
+      planId: accountPlan.plan?.plan ?? null,
+      remaining: cloud.usage ? cloud.usage.remaining : null,
+      fullAccess: accountPlan.plan?.fullAccess === true,
+    });
+    if (decision === "free_paywall") {
+      setTopUpDialog({ mode: "free", size });
+      return;
+    }
+    if (decision === "top_up") {
+      setTopUpDialog({ mode: "topup", size });
+      return;
+    }
+    setSlotOpen(false);
+    void cloud.create(size);
+  }, [accountPlan.plan, cloud]);
+
+  const handleCloudFailureAction = useCallback((action: CloudFailurePresentation["action"]) => {
+    if (action === "retry") {
+      const size = cloud.pendingCreate?.size ?? "small";
+      void cloud.create(size);
+      return;
+    }
+    if (action === "top_up") {
+      setTopUpDialog({ mode: "topup", size: cloud.pendingCreate?.size });
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
+  }, [cloud]);
+
+  const canvasCloud = useMemo<CanvasCloud | undefined>(() => {
+    if (account.presence !== "signed_in") return undefined;
+    return {
+      machines: cloud.machines,
+      usage: cloud.usage,
+      isFree: isFreePlan,
+      slotOpen,
+      pendingCreate: cloud.pendingCreate,
+      selectedMachineId: drawerState?.kind === "cloud" ? drawerState.machineId : null,
+      busyMachineId: cloud.busyMachineId,
+      onOpenSlot: () => {
+        cloud.clearPendingCreate();
+        setSlotOpen(true);
+      },
+      onCloseSlot: () => setSlotOpen(false),
+      onCreateCloud: handleCreateCloud,
+      onPairComputer: () => {
+        setSlotOpen(false);
+        setActiveTab("network");
+      },
+      onSelectMachine: (machineId) => setDrawerState({ kind: "cloud", machineId }),
+      onTopUpMachine: (machine) => setTopUpDialog({ mode: "wake", machine }),
+      onSleepMachine: cloud.sleep,
+      onWakeMachine: cloud.wake,
+      onFailureAction: handleCloudFailureAction,
+    };
+  }, [account.presence, cloud, isFreePlan, slotOpen, drawerState, handleCreateCloud, handleCloudFailureAction]);
+
+  const cloudDrawerControls = useMemo(() => ({
+    machines: cloud.machines,
+    usage: cloud.usage,
+    planId: accountPlan.plan?.plan ?? null,
+    idleSleepMinutes: config.mesh.cloud_idle_sleep_minutes || 15,
+    busyMachineId: cloud.busyMachineId,
+    actionError: cloud.actionError,
+    onTopUp: (machine: CloudReceipt, forWake: boolean) => setTopUpDialog({ mode: forWake ? "wake" : "topup", machine }),
+    onRedeem: cloud.redeem,
+    onSleep: cloud.sleep,
+    onWake: cloud.wake,
+    onDelete: async (machineId: string) => {
+      const res = await cloud.remove(machineId);
+      return res.ok;
+    },
+  }), [cloud, accountPlan.plan?.plan, config.mesh.cloud_idle_sleep_minutes]);
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
   const handlePeerClick = useCallback((id: string) => {
@@ -292,8 +448,12 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
           <div ref={mapRef} className="absolute inset-0">
             <MeshCanvas
               account={canvasAccount}
+              cloud={canvasCloud}
               touch={touchUi}
-              onRefresh={refreshAll}
+              onRefresh={() => {
+                refreshAll();
+                void cloud.refreshAll();
+              }}
               webCard={webCard}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
               thisMachine={data.thisMachine}
@@ -311,6 +471,7 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
               onOpenPeerWebUi={openPeerWebUi}
               webUiBaseUrl={displayedWebUrl(webUiTarget.link)}
               webUiToken={config.api.token}
+              selectedPeerId={drawerState?.kind === "peer" ? drawerState.id : null}
             />
           </div>
         )}
@@ -329,7 +490,42 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
           onClose={closeDrawer}
           onActionDone={() => setRefreshKey((k) => k + 1)}
           onAnnouncement={setMeshAnnouncement}
+          cloudDrawer={cloudDrawerControls}
         />
+        {topUpDialog && (
+          <CloudTopUpDialog
+            mode={topUpDialog.mode}
+            usage={cloud.usage}
+            currentPlan={accountPlan.plan?.plan ?? null}
+            machineId={topUpDialog.machine?.machine_id}
+            machineName={topUpDialog.machine?.name}
+            size={topUpDialog.size}
+            onClose={() => setTopUpDialog(null)}
+            onCheckoutStarted={(pending) => setPendingCheckout(pending)}
+          />
+        )}
+        {returnDialog && (
+          <CloudTopUpReturnDialog
+            addedHours={returnDialog.addedHours}
+            newBalance={returnDialog.newBalance}
+            rolloverSentence={returnDialog.rolloverSentence}
+            creatingMachine={returnDialog.creating}
+            wakeTarget={
+              returnDialog.wakeTarget
+                ? {
+                    machineName: returnDialog.wakeTarget.machineName,
+                    onOpen: () => {
+                      const target = returnDialog.wakeTarget!;
+                      setReturnDialog(null);
+                      setSidebarMachineFilter({ id: target.peerId, name: target.machineName });
+                      onClose();
+                    },
+                  }
+                : null
+            }
+            onClose={() => setReturnDialog(null)}
+          />
+        )}
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-panel-announcement">{meshAnnouncement}</div>
 
       </div>

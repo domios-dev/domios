@@ -123,22 +123,29 @@ pub(crate) fn provider_launch_preflight_for_platform(
     _permission_bypassed: bool,
     platform: &str,
 ) -> Result<LaunchClearance, ProviderPreflightError> {
-    let Some((display_name, launch_binary, is_runtime, install_command, install_dirs)) = registry
-        .with_provider(provider_id, |p| {
-            let runtime_binary = p
-                .agent_runtime()
-                .filter(|runtime| runtime.launch_profiles.is_none())
-                .map(|runtime| runtime.command.binary);
-            let is_runtime = runtime_binary.is_some();
-            let binary = runtime_binary.unwrap_or_else(|| p.binary_name().to_string());
-            (
-                p.display_name().to_string(),
-                binary,
-                is_runtime,
-                p.install_command(platform),
-                p.cli_install_dirs(platform),
-            )
-        })
+    let Some((
+        display_name,
+        launch_binary,
+        binary_aliases,
+        is_runtime,
+        install_command,
+        install_dirs,
+    )) = registry.with_provider(provider_id, |p| {
+        let runtime_binary = p
+            .agent_runtime()
+            .filter(|runtime| runtime.launch_profiles.is_none())
+            .map(|runtime| runtime.command.binary);
+        let is_runtime = runtime_binary.is_some();
+        let binary = runtime_binary.unwrap_or_else(|| p.binary_name().to_string());
+        (
+            p.display_name().to_string(),
+            binary,
+            p.cli_binary_aliases().to_vec(),
+            is_runtime,
+            p.install_command(platform),
+            p.cli_install_dirs(platform),
+        )
+    })
     else {
         return Err(ProviderPreflightError::UnknownProvider {
             provider_id: provider_id.to_string(),
@@ -157,7 +164,11 @@ pub(crate) fn provider_launch_preflight_for_platform(
             binary,
         });
     }
-    let probe = codeterm_plugin::js_runtime::probe_bin_with_extra_dirs(&binary, &install_dirs);
+    let candidates = codeterm_plugin::js_runtime::cli_binary_candidates(&binary, &binary_aliases);
+    let probe = codeterm_plugin::js_runtime::probe_bin_candidates_with_extra_dirs(
+        &candidates,
+        &install_dirs,
+    );
     let status = codeterm_plugin::provider_cli::status_from_probe(
         binary.clone(),
         probe,

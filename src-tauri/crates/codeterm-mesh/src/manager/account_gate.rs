@@ -53,6 +53,10 @@ impl MeshManager {
         &self.account
     }
 
+    pub fn is_account_ready(&self) -> bool {
+        self.account_ready
+    }
+
     pub fn remote_access_epoch(&self) -> Option<u64> {
         (self.account_ready && !matches!(self.account.presence, AccountPresence::SignedOut))
             .then_some(self.remote_access_epoch)
