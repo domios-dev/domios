@@ -1,7 +1,10 @@
 use codeterm_service_core::service::ServiceState;
 use std::sync::Arc;
 
-pub(crate) fn initialize(service: &ServiceState) {
+pub(crate) fn initialize(
+    service: &ServiceState,
+    cloud_readiness: Option<&super::early_api::EarlyApi>,
+) {
     let _step = super::StartupStep::logged("background service initialization");
     {
         let _step = super::StartupStep::logged("background: health scheduler");
@@ -13,6 +16,40 @@ pub(crate) fn initialize(service: &ServiceState) {
             service.ui.clone(),
         );
     }
+    if let Some(api) = cloud_readiness {
+        let service = service.clone();
+        drop(api.run_after_ready(move || start_memory_maintenance(&service)));
+    } else {
+        start_memory_maintenance(service);
+    }
+    {
+        let _step = super::StartupStep::logged("background: log store");
+        let log_store =
+            codeterm_service_core::logs::LogStore::open(&codeterm_service_core::paths::data_dir())
+                .expect("app_logs.db init");
+        log_store.attach_ui(service.ui.clone());
+        codeterm_service_core::logs::set_global(log_store.clone());
+        log_store.start_flush_loop();
+    }
+
+    {
+        let _step = super::StartupStep::logged("background: usage poller");
+        let poller = codeterm_service_core::usage::UsagePoller::new(
+            (**service).clone(),
+            service.usage_store.clone(),
+            service
+                .ext::<codeterm_service_core::usage::TabActivity>()
+                .clone(),
+        );
+        *service
+            .ext::<codeterm_service_core::usage::poller::UsagePollerSlot>()
+            .0
+            .lock() = Some(poller.clone());
+        poller.spawn();
+    }
+}
+
+fn start_memory_maintenance(service: &ServiceState) {
     {
         let _step = super::StartupStep::logged("background: librarian spawn");
         let supervisor = service
@@ -84,32 +121,6 @@ pub(crate) fn initialize(service: &ServiceState) {
             }
         },
     );
-
-    {
-        let _step = super::StartupStep::logged("background: log store");
-        let log_store =
-            codeterm_service_core::logs::LogStore::open(&codeterm_service_core::paths::data_dir())
-                .expect("app_logs.db init");
-        log_store.attach_ui(service.ui.clone());
-        codeterm_service_core::logs::set_global(log_store.clone());
-        log_store.start_flush_loop();
-    }
-
-    {
-        let _step = super::StartupStep::logged("background: usage poller");
-        let poller = codeterm_service_core::usage::UsagePoller::new(
-            (**service).clone(),
-            service.usage_store.clone(),
-            service
-                .ext::<codeterm_service_core::usage::TabActivity>()
-                .clone(),
-        );
-        *service
-            .ext::<codeterm_service_core::usage::poller::UsagePollerSlot>()
-            .0
-            .lock() = Some(poller.clone());
-        poller.spawn();
-    }
 }
 
 pub(crate) fn spawn_memory_tasks(

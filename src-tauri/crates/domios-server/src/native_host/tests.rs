@@ -238,8 +238,17 @@ fn headless_inventory_verifies_flat_server_but_never_binds_native_host() {
     manifest.server_executable = "../MacOS/domios-server".into();
     assert!(verify_component(&manifest, &ready, &root).is_err());
     manifest.server_executable = relative.into();
-    manifest.server_sha256 = "f".repeat(64);
+    let mut corrupt = *bytes;
+    corrupt[0] ^= 1;
+    fs::write(&ready.process.executable, corrupt).unwrap();
     assert!(verify_component(&manifest, &ready, &root).is_err());
+    assert!(super::verify_process_component(
+        &manifest,
+        &ready.build,
+        &ready.process.executable,
+        &root,
+    )
+    .is_err());
 }
 
 #[test]

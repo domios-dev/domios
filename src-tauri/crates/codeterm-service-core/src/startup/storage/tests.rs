@@ -83,11 +83,62 @@ fn current_db_restores_workspace_cwd_without_reading_stale_json() {
     let source = root.path().join("sessions/last.json");
     std::fs::create_dir_all(source.parent().unwrap()).unwrap();
     std::fs::write(&source, br#"{"workspaces":[{"cwd":"stale-json-cwd"}]}"#).unwrap();
-    let reopened = open_instance_storage_at(root.path());
-    let snapshot = StorageDeskAdapter::from_storage(reopened.storage().unwrap().clone())
-        .snapshot()
-        .unwrap();
+    let (reopened, snapshot) = restore_storage_at(root.path());
+    let snapshot = snapshot.unwrap();
     assert_eq!(snapshot.workspaces[0].cwd.as_deref(), Some("database-cwd"));
     assert_eq!(snapshot.workspaces[0].name, "Current project");
     close(reopened);
+}
+
+#[test]
+fn startup_restore_withholds_storage_authority_on_real_database_corruption() {
+    use std::io::{Seek, SeekFrom, Write};
+
+    let root = tempfile::tempdir().unwrap();
+    let (authority, snapshot) = restore_storage_at(root.path());
+    assert!(authority.require_ready().is_ok());
+    assert!(snapshot.unwrap().workspaces.is_empty());
+    close(authority);
+
+    let path = root.path().join("storage/state.db");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE corruption_fixture(value);
+         INSERT INTO corruption_fixture VALUES ('persisted');",
+    )
+    .unwrap();
+    let page_size: u64 = db
+        .query_row("PRAGMA page_size", [], |row| row.get(0))
+        .unwrap();
+    let root_page: u64 = db
+        .query_row(
+            "SELECT rootpage FROM sqlite_schema WHERE name = 'corruption_fixture'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.close().unwrap();
+
+    let original = std::fs::read(&path).unwrap();
+    assert!(root_page > 1);
+    let mut db = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    db.seek(SeekFrom::Start((root_page - 1) * page_size))
+        .unwrap();
+    db.write_all(&[0]).unwrap();
+    drop(db);
+    let corrupt = std::fs::read(&path).unwrap();
+    assert_eq!(corrupt.len(), original.len());
+    assert_ne!(corrupt, original);
+
+    let (authority, snapshot) = restore_storage_at(root.path());
+    assert_eq!(
+        authority.require_ready().err(),
+        Some(StorageUnavailableError)
+    );
+    assert!(snapshot.is_none());
+    assert!(authority
+        .unavailable_reason()
+        .unwrap()
+        .starts_with("storage open failed:"));
+    assert_eq!(std::fs::read(&path).unwrap(), corrupt);
 }

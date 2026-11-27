@@ -77,7 +77,11 @@ impl StorageDeskAdapter {
     }
 
     pub fn snapshot(&self) -> Result<SessionSnapshot, String> {
-        from_desk_snapshot(self.normalized_snapshot()?)
+        Self::decode_snapshot(self.normalized_snapshot()?)
+    }
+
+    pub fn decode_snapshot(snapshot: DeskSnapshot) -> Result<SessionSnapshot, String> {
+        from_desk_snapshot(snapshot)
     }
 
     pub fn normalized_snapshot(&self) -> Result<DeskSnapshot, String> {

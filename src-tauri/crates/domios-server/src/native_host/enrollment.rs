@@ -378,12 +378,30 @@ pub(crate) fn verify_component(
             "Server resource root differs from the verified ready record",
         ));
     }
+    if ready.api_version != manifest.api_version || ready.protocol != manifest.bootstrap_protocol {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Native host component record does not match the running server",
+        ));
+    }
+    verify_process_component(
+        manifest,
+        &ready.build,
+        &ready.process.executable,
+        &resource_root,
+    )
+}
+
+pub(crate) fn verify_process_component(
+    manifest: &ServerComponentManifest,
+    build: &str,
+    process_executable: &Path,
+    resource_root: &Path,
+) -> io::Result<()> {
     if manifest.schema != SERVER_COMPONENT_SCHEMA
         || manifest.api_version != API_VERSION
         || manifest.bootstrap_protocol != BOOTSTRAP_PROTOCOL
-        || manifest.server_build != ready.build
-        || ready.api_version != manifest.api_version
-        || ready.protocol != manifest.bootstrap_protocol
+        || manifest.server_build != build
         || !valid_digest(&manifest.server_sha256)
         || (!matches!(
             manifest.client_identity,
@@ -399,11 +417,11 @@ pub(crate) fn verify_component(
         ));
     }
     let executable = codeterm_process_identity::client_identity::resolve_server_executable(
-        &resource_root,
+        resource_root,
         &manifest.server_executable,
         &manifest.client_identity,
     )?;
-    let ready_executable = ready.process.executable.canonicalize()?;
+    let ready_executable = process_executable.canonicalize()?;
     if executable != ready_executable {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

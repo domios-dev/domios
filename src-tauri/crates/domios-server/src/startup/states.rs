@@ -261,6 +261,7 @@ pub(crate) fn init_config() -> ConfigState {
 pub(crate) fn init_states(
     config_state: ConfigState,
     rest_api: codeterm_service_core::startup::RestApiControlState,
+    cloud_guest: bool,
 ) -> AppStates {
     let launch_credentials =
         service::launch_credentials::Directory::reset(&codeterm_service_core::paths::data_dir())
@@ -268,7 +269,17 @@ pub(crate) fn init_states(
                 log::error!("[launch-credentials] startup cleanup failed: {error}");
                 std::process::exit(2);
             });
-    let mut storage = codeterm_service_core::startup::open_instance_storage();
+    let (mut storage, restored_desk) = {
+        let _phase = super::StartupStep::debug("durable storage open and integrity");
+        if cloud_guest {
+            codeterm_service_core::startup::open_instance_storage_for_restore()
+        } else {
+            (
+                codeterm_service_core::startup::open_instance_storage(),
+                None,
+            )
+        }
+    };
 
     let pty_state: PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));
     let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::open_persisted(
@@ -327,11 +338,13 @@ pub(crate) fn init_states(
     let ga_enabled = storage.storage().is_some() && config_state.lock().general_agent.enabled;
     let mut bound_at_shutdown = Vec::new();
     let mut agent_panes_at_shutdown = Vec::new();
-    let mut desk_snapshot = match storage.storage() {
-        Some(storage_owner) => {
+    let mut desk_snapshot = match (cloud_guest, storage.storage()) {
+        (true, _) => restored_desk,
+        (false, Some(storage_owner)) => {
             let adapter = codeterm_service_core::session::store::StorageDeskAdapter::from_storage(
                 storage_owner.clone(),
             );
+            let _phase = super::StartupStep::debug("durable desk snapshot read");
             match adapter.snapshot() {
                 Ok(snapshot) => Some(snapshot),
                 Err(error) => {
@@ -340,7 +353,7 @@ pub(crate) fn init_states(
                 }
             }
         }
-        None => None,
+        (false, None) => None,
     };
     let mut boot_resync = false;
     if let Some(snapshot) = desk_snapshot.as_mut() {
@@ -527,6 +540,7 @@ pub(crate) fn init_states(
     }
 
     if storage.storage().is_some() {
+        let _phase = super::StartupStep::debug("restored scrollback load");
         for (tab_id, reason) in codeterm_service_core::session::load_restored_scrollback_tails(
             &mut mux_state_inner,
             &session_state,

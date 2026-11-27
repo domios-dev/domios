@@ -219,6 +219,7 @@ async fn starting_refusal_never_dispatches_or_replays_a_mutation() {
 #[tokio::test]
 async fn integrity_failure_keeps_service_unavailable_and_publishes_failure() {
     let api = EarlyApi::new(None);
+    let deferred = api.run_after_ready(|| panic!("failed startup ran deferred maintenance"));
     let mut changes = api.changes.subscribe();
     complete_service(&api);
     changes.borrow_and_update();
@@ -234,6 +235,10 @@ async fn integrity_failure_keeps_service_unavailable_and_publishes_failure() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(json(response).await["error"]["code"], "startup_failed");
+    tokio::time::timeout(std::time::Duration::from_secs(2), deferred)
+        .await
+        .expect("deferred startup must settle on failure")
+        .unwrap();
 }
 
 #[tokio::test]

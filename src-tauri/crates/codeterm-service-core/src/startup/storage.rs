@@ -1,7 +1,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::storage::{Storage, StorageConfig};
+use crate::session::store::{SessionSnapshot, StorageDeskAdapter};
+use crate::storage::{DeskSnapshot, Storage, StorageConfig};
 
 const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
 pub const STORAGE_UNAVAILABLE_MESSAGE: &str =
@@ -68,34 +69,62 @@ pub fn open_instance_storage() -> StorageAuthority {
 }
 
 pub(crate) fn open_instance_storage_at(root: impl AsRef<Path>) -> StorageAuthority {
-    let root = root.as_ref();
+    open_storage_and_read_desk(root.as_ref()).0
+}
+
+pub fn open_instance_storage_for_restore() -> (StorageAuthority, Option<SessionSnapshot>) {
+    restore_storage_at(&crate::paths::data_dir())
+}
+
+fn restore_storage_at(root: &Path) -> (StorageAuthority, Option<SessionSnapshot>) {
+    let (mut authority, desk) = open_storage_and_read_desk(root);
+    let snapshot = desk.and_then(|desk| match StorageDeskAdapter::decode_snapshot(desk) {
+        Ok(snapshot) => Some(snapshot),
+        Err(error) => {
+            authority.mark_unavailable(format!("desk restore failed: {error}"));
+            None
+        }
+    });
+    (authority, snapshot)
+}
+
+fn open_storage_and_read_desk(root: &Path) -> (StorageAuthority, Option<DeskSnapshot>) {
     let storage = match Storage::open(root, StorageConfig::default()) {
         Ok(storage) => storage,
-        Err(error) => return unavailable(None, format!("storage open failed: {error}")),
+        Err(error) => {
+            return (
+                unavailable(None, format!("storage open failed: {error}")),
+                None,
+            )
+        }
     };
-    if let Err(reason) = seed_empty_desk(&storage) {
-        return unavailable(Some(storage), reason);
+    let _phase = super::StartupStep::debug("durable desk snapshot read");
+    match read_or_seed_desk(&storage) {
+        Ok(snapshot) => (StorageAuthority::Ready(storage), Some(snapshot)),
+        Err(reason) => (unavailable(Some(storage), reason), None),
     }
-    StorageAuthority::Ready(storage)
 }
 
 // A fresh database has no desk row until its first snapshot, and startup readers require one.
-fn seed_empty_desk(storage: &Storage) -> Result<(), String> {
+fn read_or_seed_desk(storage: &Storage) -> Result<DeskSnapshot, String> {
     match storage.desk().snapshot().wait(STARTUP_DEADLINE) {
-        Ok(_) => Ok(()),
-        Err(crate::storage::StorageError::NotFound { .. }) => storage
-            .desk()
-            .import(crate::storage::DeskSnapshot {
+        Ok(read) => Ok(read.value.snapshot),
+        Err(crate::storage::StorageError::NotFound { .. }) => {
+            let empty = DeskSnapshot {
                 version: "1".into(),
                 timestamp: 0,
                 active_workspace_id: None,
                 workspaces: Vec::new(),
                 teams: Vec::new(),
                 agent_session_identities: Vec::new(),
-            })
-            .wait(STARTUP_DEADLINE)
-            .map(|_| ())
-            .map_err(|error| format!("empty desk seed failed: {error}")),
+            };
+            storage
+                .desk()
+                .import(empty.clone())
+                .wait(STARTUP_DEADLINE)
+                .map_err(|error| format!("empty desk seed failed: {error}"))?;
+            Ok(empty)
+        }
         Err(error) => Err(format!("desk read failed: {error}")),
     }
 }

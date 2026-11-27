@@ -15,7 +15,17 @@ pub struct WorkerCli {
     pub path: PathBuf,
 }
 
-pub fn pin_worker_cli(shell: &dyn Shell, expected: &str) -> io::Result<WorkerCli> {
+impl WorkerCli {
+    pub(crate) fn publish(&self) {
+        std::env::set_var("CODETERM_CLI_PATH", &self.path);
+    }
+}
+
+pub(crate) fn stage_worker_cli(
+    shell: &dyn Shell,
+    expected: &str,
+    cloud_guest: bool,
+) -> io::Result<WorkerCli> {
     if expected.len() != 64 {
         return Err(io::Error::other(
             "Server has no verified worker CLI artifact identity",
@@ -24,12 +34,10 @@ pub fn pin_worker_cli(shell: &dyn Shell, expected: &str) -> io::Result<WorkerCli
     let path = codeterm_service_core::startup::resolve_bundled_cli_src(shell)
         .ok_or_else(|| io::Error::other("Server worker CLI resource unavailable"))?
         .canonicalize()?;
-    let worker = verify_worker_cli(&path, expected)?;
-    std::env::set_var("CODETERM_CLI_PATH", &worker.path);
-    Ok(worker)
+    verify_worker_cli(&path, expected, cloud_guest)
 }
 
-fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
+fn verify_worker_cli(path: &Path, expected: &str, cloud_guest: bool) -> io::Result<WorkerCli> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
@@ -38,7 +46,10 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
         options.share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ);
     }
     let mut file = options.open(path)?;
-    verify_digest(&mut file, expected)?;
+    if !cloud_guest {
+        verify_digest(&mut file, expected)?;
+        file.rewind()?;
+    }
     let lease = tempfile::Builder::new()
         .prefix("domios-worker-")
         .tempdir()?;
@@ -51,7 +62,6 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
         .write(true)
         .create_new(true)
         .open(&destination)?;
-    file.rewind()?;
     let started = std::time::Instant::now();
     let bytes = std::io::copy(&mut file, &mut copy)?;
     copy.sync_all()?;
@@ -71,15 +81,22 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
     let alias = lease
         .path()
         .join(format!("domios{}", std::env::consts::EXE_SUFFIX));
-    let started = std::time::Instant::now();
-    let bytes = std::fs::copy(&destination, &alias)?;
-    log::debug!(
-        "[boot-operation] worker CLI alias copy bytes={} elapsed_ms={}",
-        bytes,
-        started.elapsed().as_millis()
-    );
-    let mut pinned_alias = options.open(&alias)?;
-    verify_digest(&mut pinned_alias, expected)?;
+    let pinned_alias = if cloud_guest {
+        // Both names refer to the same verified private file.
+        std::fs::hard_link(&destination, &alias)?;
+        pinned.try_clone()?
+    } else {
+        let started = std::time::Instant::now();
+        let bytes = std::fs::copy(&destination, &alias)?;
+        log::debug!(
+            "[boot-operation] worker CLI alias copy bytes={} elapsed_ms={}",
+            bytes,
+            started.elapsed().as_millis()
+        );
+        let mut pinned_alias = options.open(&alias)?;
+        verify_digest(&mut pinned_alias, expected)?;
+        pinned_alias
+    };
     Ok(WorkerCli {
         _file: pinned,
         _alias: pinned_alias,

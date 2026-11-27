@@ -120,6 +120,35 @@ pub fn run(
         .enable_all()
         .build()?;
     codeterm_service_core::async_runtime::install(runtime.handle().clone());
+    let cloud_guest = crate::startup::cloud_start::enabled();
+    let staged_worker = cloud_guest.then(|| {
+        let shell = shell.clone();
+        runtime.spawn_blocking(move || {
+            crate::resources::stage_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256"), true)
+        })
+    });
+    let headless_component_check = native_inventory
+        .as_ref()
+        .filter(|manifest| {
+            cloud_guest
+                && matches!(
+                    manifest.client_identity,
+                    codeterm_types::server_bootstrap::ClientIdentity::None
+                )
+        })
+        .map(|manifest| {
+            let manifest = manifest.clone();
+            let resources = resources.clone();
+            let executable = provenance.executable.clone();
+            runtime.spawn_blocking(move || {
+                crate::native_host::verify_process_component(
+                    &manifest,
+                    codeterm_build_info::sha(),
+                    &executable,
+                    &resources,
+                )
+            })
+        });
     let wire_identity = codeterm_types::server_bootstrap::ServerIdentity {
         data: identity.data().into(),
         config: identity.config().into(),
@@ -195,7 +224,14 @@ pub fn run(
                 codeterm_types::server_bootstrap::ClientIdentity::None
             ) =>
         {
-            crate::native_host::verify_component(&manifest, &ready, &ready.resources)
+            let result = match headless_component_check {
+                Some(check) => runtime
+                    .block_on(check)
+                    .map_err(io::Error::other)
+                    .and_then(|result| result),
+                None => crate::native_host::verify_component(&manifest, &ready, &ready.resources),
+            };
+            result
                 .map(|_| None)
                 .map_err(crate::native_host::NativeHostBindError::InventoryRejected)
         }
@@ -223,16 +259,25 @@ pub fn run(
     };
     log::debug!("[bootstrap] native listener binding completed");
     let attached_once = native_server.as_ref().map(NativeServer::attached_once);
-    let worker_cli =
-        match crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256")) {
-            Ok(worker_cli) => worker_cli,
-            Err(error) => {
-                prepared.api.fail("integrity");
-                let _ = runtime.block_on(prepared.control.shutdown_and_wait());
-                runtime.shutdown_timeout(std::time::Duration::from_secs(6));
-                return Err(error);
-            }
-        };
+    let staged_worker = match staged_worker {
+        Some(check) => runtime
+            .block_on(check)
+            .map_err(io::Error::other)
+            .and_then(|result| result),
+        None => {
+            crate::resources::stage_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256"), false)
+        }
+    };
+    let worker_cli = match staged_worker {
+        Ok(worker_cli) => worker_cli,
+        Err(error) => {
+            prepared.api.fail("integrity");
+            let _ = runtime.block_on(prepared.control.shutdown_and_wait());
+            runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+            return Err(error);
+        }
+    };
+    worker_cli.publish();
     prepared.api.complete("integrity");
     if let Some(server) = &native_server {
         *native_events.write() = Some(server.endpoint());
@@ -322,6 +367,10 @@ pub fn run(
                     .0
                     .clone(),
             )?;
+            log::debug!(
+                "[boot-operation] API ready since_process_entry_ms={}",
+                boot_started.elapsed().as_millis()
+            );
             Ok::<_, String>((running, worker_cli))
         })();
         if let Err(error) = &result {
