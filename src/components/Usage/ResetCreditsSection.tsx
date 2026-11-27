@@ -5,7 +5,7 @@ import {formatUntil} from "../../lib/timeLabels";
 import type {ResetCredit, ResetCredits} from "@codeterm/plugin-sdk";
 import {ConfirmDialog} from "../Extensions/ConfirmDialog";
 import {InlineErrorNotice} from "../shared/ErrorNotice";
-import {availableResetCredits, resetCreditLabel, resetCreditsState, resetOutcomeLabels, resetBalanceLabel, type ResetCreditsModel} from "./resetCreditsModel";
+import {availableResetCredits, resetCountSummary, resetCreditLabel, resetCreditsState, resetOutcomeLabels, resetBalanceLabel, type ResetCreditsModel} from "./resetCreditsModel";
 
 function expiryLabel(expiresAt: number | null | undefined) {
   if (expiresAt == null) return "Expiry not reported";
@@ -21,17 +21,16 @@ const resetIcon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" st
 const noSubscription = () => () => {};
 const noRevision = () => 0;
 
-/** The account's session resets; without a model they are shown read-only, for a tab that cannot redeem them. */
-export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null; model:ResetCreditsModel|null}) {
+export function ResetCreditsSection({resets, model, readOnlyReason}: {resets?:ResetCredits|null; model:ResetCreditsModel|null; readOnlyReason?:string|null}) {
   const lastUse = useRef<HTMLButtonElement | null>(null);
   useSyncExternalStore(model?.subscribe ?? noSubscription, model?.snapshot ?? noRevision, model?.snapshot ?? noRevision);
   const state = resetCreditsState(resets, model?.selectedCreditId ?? null);
   const credits = availableResetCredits(resets);
   if (!state.visible || !resets) return null;
-  if (!model) return <section aria-label="Session resets" className="ct-usage-reset-credits">
-    <ResetCreditsHeading resets={resets} />
-    <ResetCreditRows resets={resets} credits={credits} />
-    {resets.availableCount > 0 && <div className="ct-usage-reset-note">Use resets from this account's own tab.</div>}
+  if (!model) return <section aria-label="Session resets" data-readonly="true" className="ct-usage-reset-credits is-readonly">
+    <ResetCreditsHeading resets={resets} readOnly />
+    <ResetCreditContent resets={resets} credits={credits} />
+    {resets.availableCount > 0 && <div className="ct-usage-reset-reason">{readOnlyReason || "Use resets from an active tab for this account."}</div>}
   </section>;
   const locked = model.busy || !!model.key || model.confirming || resets.availableCount === 0;
   const use = (creditId: string | null, button: HTMLButtonElement) => {
@@ -44,7 +43,7 @@ export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null;
   const remaining = model.beforeCount != null ? Math.max(model.beforeCount - 1, 0) : null;
   return <section aria-label="Session resets" className="ct-usage-reset-credits">
     <ResetCreditsHeading resets={resets} />
-    <ResetCreditRows resets={resets} credits={credits} action={(id, name) =>
+    <ResetCreditContent resets={resets} credits={credits} action={(id, name) =>
       <button type="button" className="ct-usage-reset-use" aria-label={`Use ${name}`} disabled={locked || state.disabled} onClick={event => use(id, event.currentTarget)}>Use</button>} />
     {model.key && !model.busy && <button type="button" className="ct-usage-reset-use" onClick={() => {void model.retry();}}>Retry reset</button>}
     {model.busy && <div role="status" className="ct-usage-reset-note">Resetting limits…</div>}
@@ -73,31 +72,39 @@ export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null;
   </section>;
 }
 
-function ResetCreditsHeading({resets}: {resets: ResetCredits}) {
+function ResetCreditsHeading({resets, readOnly = false}: {resets: ResetCredits; readOnly?: boolean}) {
   return <div className="ct-usage-reset-heading">
     <span className="ct-usage-reset-label">Session resets</span>
     <span className="ct-usage-reset-count" aria-label={`${resets.availableCount} available`}>{resets.availableCount}</span>
+    {readOnly && <span className="ct-usage-reset-badge">Read-only</span>}
   </div>;
 }
 
-function ResetCreditRows({resets, credits, action}: {resets: ResetCredits; credits: ResetCredit[]; action?: (id: string | null, name: string) => ReactNode}) {
-  const rows: {id: string | null; credit: ResetCredit | null}[] = credits.length
-    ? credits.map(credit => ({id: credit.id, credit}))
-    : resets.availableCount > 0 ? [{id: null, credit: null}] : [];
+function ResetCreditContent({resets, credits, action}: {resets: ResetCredits; credits: ResetCredit[]; action?: (id: string | null, name: string) => ReactNode}) {
+  if (!credits.length) {
+    if (resets.availableCount <= 0) return null;
+    return <div className="ct-usage-reset-summary">
+      <span className="ct-usage-reset-summary-text">
+        <span className="ct-usage-reset-count-line">{resetCountSummary(resets.availableCount)}</span>
+        {resets.nextExpiry != null && <span className="ct-usage-reset-note">{expiryLabel(resets.nextExpiry)}</span>}
+      </span>
+      {action?.(null, "Session reset")}
+    </div>;
+  }
   return <>
-    {rows.length > 0 && <ul className="ct-usage-reset-list">
-      {rows.map(({id, credit}, index) => {
-        const base = credit ? resetCreditLabel(credit) : "Session reset";
-        const name = rows.filter(row => (row.credit ? resetCreditLabel(row.credit) : "Session reset") === base).length > 1 ? `${base} ${index + 1}` : base;
-        return <li key={id ?? "next"} className="ct-usage-reset-row" title={credit?.description}>
+    <ul className="ct-usage-reset-list">
+      {credits.map((credit, index) => {
+        const base = resetCreditLabel(credit);
+        const name = credits.filter(row => resetCreditLabel(row) === base).length > 1 ? `${base} ${index + 1}` : base;
+        return <li key={credit.id} className="ct-usage-reset-row" title={credit.description}>
           <span className="ct-usage-reset-text">
             <span className="ct-usage-reset-name">{name}</span>
-            <span className="ct-usage-reset-note">{credit ? expiryLabel(credit.expiresAt) : resets.nextExpiry != null ? expiryLabel(resets.nextExpiry) : "Chosen by provider"}</span>
+            <span className="ct-usage-reset-note">{expiryLabel(credit.expiresAt)}</span>
           </span>
-          {action?.(id, name)}
+          {action?.(credit.id, name)}
         </li>;
       })}
-    </ul>}
-    {credits.length > 0 && credits.length < resets.availableCount && <div className="ct-usage-reset-note">Details for {credits.length} of {resets.availableCount} resets reported.</div>}
+    </ul>
+    {credits.length < resets.availableCount && <div className="ct-usage-reset-note">Details for {credits.length} of {resets.availableCount} resets reported.</div>}
   </>;
 }

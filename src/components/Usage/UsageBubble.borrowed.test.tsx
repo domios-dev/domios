@@ -61,11 +61,12 @@ async function main() {
   assert.equal(own.rows.resetRows.length, 2);
   assert.deepEqual(borrowed.rows, own.rows, "a borrowing tab renders the native tab's account rows for the same snapshot");
   assert.deepEqual(own.actions, ["Use Full reset 1", "Use Full reset 2"]);
-  assert.deepEqual(borrowed.actions, [], "a borrowing tab never offers the native tab's reset actions");
+  assert.deepEqual(borrowed.actions, ["Use Full reset 1", "Use Full reset 2"], "a borrowing tab wires reset actions through the owning account runtime");
   assert.ok(calls.some(call => call.command === "usage_latest" && call.args?.provider === "fixture-native"));
-  assert.equal(calls.some(call => call.command === "agent_runtime_reset_credits" && call.args?.tabId === "borrowing-tab"), false, "a borrowing tab never acts on the native tab's reset credits");
+  assert.ok(calls.some(call => call.command === "agent_runtime_reset_credits" && call.args?.tabId === "native-tab"));
+  assert.equal(calls.some(call => call.command === "agent_runtime_reset_credits" && call.args?.tabId === "borrowing-tab"), false, "a borrowing tab never acts on its own session for account reset credits");
   await act(async () => root.unmount());
-  console.log("PASS borrowed account usage: gated by the native toggle, the native tab's account rows, no reset actions");
+  console.log("PASS borrowed account usage: gated by the native toggle, account rows and resets routed through the owning runtime");
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });
