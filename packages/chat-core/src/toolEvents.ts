@@ -1,6 +1,7 @@
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree, type AgentNode } from "./agentActivity";
 import { groupCommandBatches } from "./commandBatches";
 import { groupEditRuns, isTurnDiff, reconcileTurnDiffs } from "./editRuns";
+import { groupToolRuns, type ToolRunGroup } from "./toolRuns";
 import { wellFormedFileDiffs } from "./fileDiffs";
 import { parseUnifiedDiff } from "./unifiedDiff";
 import { assignedCommand, toolCommand, unwrapShellLauncher } from "./shellComposition";
@@ -49,6 +50,8 @@ export interface ToolEvent {
   commandBatch?: ToolEvent[];
   /** Back-to-back file edits of one session, folded into one tree of files. */
   editRun?: ToolEvent[];
+  /** Consecutive calls of one normalized tool identity within an assistant turn. */
+  toolRun?: ToolRunGroup;
   /** Sub-agent activity of one session and flow, folded into one card. */
   agents?: AgentActivityTree;
 }
@@ -368,7 +371,12 @@ function groupToolStreams(
   });
 }
 
-export function reduceToolEvents(messages: NormalizedChatMessage[], cwd?: string | null, liveTools = false): TimelineItem[] {
+export function reduceToolEvents(
+  messages: NormalizedChatMessage[],
+  cwd?: string | null,
+  liveTools = false,
+  pendingPromptToolIds?: ReadonlySet<string>,
+): TimelineItem[] {
   const items: TimelineItem[] = [];
   const calls = new Map<string, { item: number; event: ToolEvent }>();
   const sourceCalls = new Map<string, Array<{ item: number; event: ToolEvent }>>();
@@ -582,5 +590,8 @@ export function reduceToolEvents(messages: NormalizedChatMessage[], cwd?: string
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }
-  return groupEditRuns(groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys, cwd, liveTools)), liveTools);
+  return groupToolRuns(
+    groupEditRuns(groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys, cwd, liveTools)), liveTools),
+    pendingPromptToolIds ? { pendingPromptToolIds } : undefined,
+  );
 }

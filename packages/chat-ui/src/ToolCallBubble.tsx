@@ -21,6 +21,7 @@ import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
 import { StreamedCommandDetail } from "./toolcard/StreamedCommandDetail";
 import { ToolActivityStream, type RenderStreamAction } from "./toolcard/ToolActivityStream";
+import { ToolRunCard } from "./toolcard/ToolRunCard";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
@@ -43,7 +44,7 @@ export function ToolCallBubble(props: ToolCallBubbleProps) {
   const event = props.event ?? (props.message ? materializeToolEvent(props.message) : null);
   const [retainCommandShell] = useState(() => event ? retainStreamedCommandShell(event) : false);
   if (!event) return null;
-  if (retainCommandShell && event.kind === "command" && !event.stream && !event.commandBatch) {
+  if (retainCommandShell && event.kind === "command" && !event.stream && !event.commandBatch && !event.toolRun) {
     const navigation = { resolveTabName: props.resolveTabName, resolvePeerName: props.resolvePeerName,
       onFocusTab: props.onFocusTab, onOpenPlan: props.onOpenPlan, resolvePlanRef: props.resolvePlanRef, fontScale: props.fontScale };
     const shape = toolCommandShape(event);
@@ -77,6 +78,7 @@ function ToolCallBubbleContent({
   );
   if (event.agents) return <AgentActivityCard event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
   if (event.stream) return <ToolActivityStream event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
+  if (event.toolRun) return <ToolRunCard event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
 
   if (event.editRun?.length) return <EditRunCard event={event} expanded={expanded} onToggle={onToggle} />;
   // A structured source diff is the truthful record of the edit, so it replaces the old/new-string card.

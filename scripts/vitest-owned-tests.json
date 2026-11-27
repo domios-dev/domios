@@ -493,5 +493,7 @@
   "src/components/MeshPanel/MeshMachineList.wiring.test.tsx",
   "src/lib/cloudBootstrap/model.test.ts",
   "src/components/CloudBootstrap/CloudBootstrapPanel.test.tsx",
-  "src/components/Usage/cloudStorageModel.test.ts"
+  "src/components/Usage/cloudStorageModel.test.ts",
+  "packages/chat-core/src/toolRuns.test.ts",
+  "packages/chat-ui/src/toolcard/ToolRunCard.test.tsx"
 ]

@@ -43,7 +43,7 @@ export function projectChatTranscriptActivity(
     const { msg, item } = rows[index];
     if (item?.kind === "tool") {
       const { event } = item;
-      const members = event.editRun ?? event.commandBatch ?? event.stream?.members ?? [event];
+      const members = event.toolRun?.members ?? event.editRun ?? event.commandBatch ?? event.stream?.members ?? [event];
       for (let memberIndex = members.length - 1; memberIndex >= 0; memberIndex -= 1) {
         const member = members[memberIndex];
         if (member.status !== "pending" || member.message.toolStatus !== "running") continue;
