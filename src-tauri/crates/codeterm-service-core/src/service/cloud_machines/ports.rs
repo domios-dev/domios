@@ -123,6 +123,13 @@ pub trait CloudProvisioningPort: Send + Sync {
         request_id: &str,
     ) -> Result<ProvisionedLease, CloudError>;
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError>;
+    /// List backend-known cloud machines for reconciling local-only and uncertain-create records.
+    async fn list_backend_machines(
+        &self,
+    ) -> Result<Vec<super::reconcile::BackendMachineEntry>, CloudError> {
+        let summary = self.usage().await?;
+        Ok(super::reconcile::backend_machines_from_usage(&summary))
+    }
     async fn redeem_promo(&self, _code: &str) -> Result<CloudPromoRedemption, CloudError> {
         Err(CloudError::ProviderUnavailable(
             "promo code redemption unavailable".into(),

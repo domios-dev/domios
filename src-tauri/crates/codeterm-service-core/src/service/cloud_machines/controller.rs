@@ -9,6 +9,7 @@ use zeroize::Zeroizing;
 use crate::mesh::crown::{AuthenticatedAgent, AuthenticatedOrigin};
 use crate::service::chat_send_transaction::ChatSendStatus;
 
+use super::controller_reconcile::require_provider_machine_id;
 use super::held_sends::{
     CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, SingleFlightWakes, WakeSlot,
     DEFAULT_WAKE_HOLD_DEADLINE_MS,
@@ -21,11 +22,7 @@ use super::ports::{
 };
 use super::state::{
     can_issue_enrollment_apply, ownership_labels, transition, DrainingReconcileIntent,
-    LifecycleEvent,
-};
-use super::storage::{
-    CloudDeleteMode, CloudStorageTier, AUX_KEY_PURGE_AT, AUX_KEY_RECOVERABLE_ARCHIVE_ID,
-    AUX_KEY_STORAGE_TIER,
+    LifecycleEvent, LABEL_CREATE_REQUEST_ID,
 };
 use super::store::{CloudMachineStore, CloudWakeQueueStore};
 use super::types::{
@@ -389,6 +386,9 @@ impl CloudMachineController {
                 if let Some(pending) = rec.pending_request.as_mut() {
                     pending.unconfirmed = false;
                 }
+                rec.ownership
+                    .labels
+                    .insert(LABEL_CREATE_REQUEST_ID.into(), req_id.clone());
                 let mid = rec.machine_id.clone();
                 let mname = rec.name.clone();
                 self.persist_locked(&machines)?;
@@ -399,13 +399,14 @@ impl CloudMachineController {
                 let short = &request_id[..8.min(request_id.len())];
                 let machine_id = format!("cloud-{short}");
                 let name = requested_name.unwrap_or_else(|| format!("cloud-{short}"));
-                let labels = ownership_labels(
+                let mut labels = ownership_labels(
                     &self.controller_id,
                     &machine_id,
                     &name,
                     &size,
                     &params.extra_labels,
                 );
+                labels.insert(LABEL_CREATE_REQUEST_ID.into(), request_id.clone());
                 let initial = CloudMachineRecord {
                     machine_id: machine_id.clone(),
                     name: name.clone(),
@@ -483,14 +484,11 @@ impl CloudMachineController {
             Err(error) => {
                 drop(binding);
                 if error.is_uncertain_provisioning_outcome() {
-                    self.mark_pending_unconfirmed(
-                        &machine_id,
-                        PendingProvisioningOp::Create,
-                        &error.to_string(),
-                    );
-                } else {
-                    self.remove_tentative_record(&machine_id);
+                    return Err(self
+                        .handle_uncertain_create_outcome(&machine_id, error, provisioning)
+                        .await);
                 }
+                self.remove_tentative_record(&machine_id);
                 return Err(error);
             }
         };
@@ -790,10 +788,14 @@ impl CloudMachineController {
                     }
                 };
 
-                let woken = match provisioning
-                    .wake(waking.backend_machine_id(), &request_id)
-                    .await
-                {
+                let provider_machine_id = match require_provider_machine_id(&waking) {
+                    Ok(id) => id.to_owned(),
+                    Err(error) => {
+                        guard.finish(Err(error.to_string()));
+                        return Err(error);
+                    }
+                };
+                let woken = match provisioning.wake(&provider_machine_id, &request_id).await {
                     Ok(machine) => machine,
                     Err(error) => {
                         if matches!(error, CloudError::CreditsExhausted) {
@@ -918,110 +920,6 @@ impl CloudMachineController {
                 Ok(awake.receipt(now_ms, None))
             }
         }
-    }
-
-    pub async fn delete(
-        &self,
-        selector: &str,
-        confirm: bool,
-        provisioning: &dyn CloudProvisioningPort,
-    ) -> Result<CloudReceipt, CloudError> {
-        self.delete_with_mode(
-            selector,
-            CloudDeleteMode::Permanent,
-            None,
-            confirm,
-            provisioning,
-        )
-        .await
-    }
-
-    pub async fn delete_with_mode(
-        &self,
-        selector: &str,
-        mode: CloudDeleteMode,
-        archive_id: Option<&str>,
-        confirm: bool,
-        provisioning: &dyn CloudProvisioningPort,
-    ) -> Result<CloudReceipt, CloudError> {
-        let record = self.find_record(selector)?;
-        if !confirm {
-            let warning = match mode {
-                CloudDeleteMode::Permanent => format!(
-                    "Deleting cloud machine '{}' ({}) permanently destroys any unpushed work and its retained archive. Re-run with --confirm to proceed.",
-                    record.name, record.machine_id
-                ),
-                CloudDeleteMode::Recoverable => format!(
-                    "Recoverably deleting cloud machine '{}' ({}) releases its live volume while retaining its verified owner-bound essentials archive until the configured purge date. Re-run with --confirm to proceed.",
-                    record.name, record.machine_id
-                ),
-            };
-            return Err(CloudError::DeleteConfirmationRequired {
-                machine_id: record.machine_id.clone(),
-                warning,
-            });
-        }
-        let request_id =
-            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Delete)?;
-        let delete_receipt = match provisioning
-            .delete_with_mode(record.backend_machine_id(), &request_id, mode, archive_id)
-            .await
-        {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                if error.is_uncertain_provisioning_outcome() {
-                    self.mark_pending_unconfirmed(
-                        &record.machine_id,
-                        PendingProvisioningOp::Delete,
-                        &error.to_string(),
-                    );
-                } else {
-                    self.clear_pending_request(&record.machine_id);
-                }
-                return Err(error);
-            }
-        };
-        let now_ms = self.clock.now_ms();
-        let updated = self.update_record(&record.machine_id, |rec| {
-            let mut next = transition(rec, LifecycleEvent::Deleted, now_ms)?;
-            next.pending_request = None;
-            next.ownership.auxiliary_resource_ids.insert(
-                AUX_KEY_STORAGE_TIER.into(),
-                delete_receipt.storage_tier.as_str().into(),
-            );
-            if let Some(arc_id) = delete_receipt.archive_id.as_ref() {
-                next.ownership
-                    .auxiliary_resource_ids
-                    .insert(AUX_KEY_RECOVERABLE_ARCHIVE_ID.into(), arc_id.clone());
-            } else {
-                next.ownership
-                    .auxiliary_resource_ids
-                    .remove(AUX_KEY_RECOVERABLE_ARCHIVE_ID);
-            }
-            if let Some(purge_at) = delete_receipt.purge_at {
-                next.ownership
-                    .auxiliary_resource_ids
-                    .insert(AUX_KEY_PURGE_AT.into(), purge_at.to_string());
-            }
-            Ok(next)
-        })?;
-        let notice = match delete_receipt.storage_tier {
-            CloudStorageTier::RecoverableDeleted => Some(format!(
-                "Live volume released; encrypted essentials archive retained ({}) for recreate.",
-                delete_receipt.archive_id.as_deref().unwrap_or("verified")
-            )),
-            _ => delete_receipt
-                .snapshot_residual
-                .as_ref()
-                .filter(|s| s.snapshots_remaining > 0)
-                .map(|s| {
-                    format!(
-                        "Archive erased; {} provider snapshot(s) remain under bounded provider retention.",
-                        s.snapshots_remaining
-                    )
-                }),
-        };
-        Ok(updated.receipt(now_ms, notice))
     }
 
     pub async fn resolve_placement(

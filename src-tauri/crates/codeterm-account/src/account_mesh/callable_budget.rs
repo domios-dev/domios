@@ -4,6 +4,29 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) enum BudgetScope {
+    AccountMesh,
+    Route(String),
+}
+
+impl BudgetScope {
+    pub(super) fn for_route(route: &str) -> Self {
+        match route {
+            super::wire::ROUTE_ADMISSION
+            | super::wire::ROUTE_CHALLENGE
+            | super::wire::ROUTE_ENROLL_KEY => Self::AccountMesh,
+            other => Self::Route(other.to_owned()),
+        }
+    }
+
+    // Account-mesh admission/challenge routes share per-uid revision ordering and outage backoff;
+    // unrelated routes serialize probes only while actively rate-limited.
+    fn always_serialize_per_uid(&self) -> bool {
+        matches!(self, Self::AccountMesh)
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Budget {
     failures: HashMap<String, u32>,
@@ -17,6 +40,10 @@ impl Budget {
             .unwrap_or_default()
     }
 
+    pub fn is_throttled(&self) -> bool {
+        self.retry_at.is_some()
+    }
+
     pub fn limited(&mut self, route: &str, now: Instant, retry_after_seconds: u64) {
         let failures = self.failures.entry(route.to_owned()).or_default();
         let backoff = (1u64 << (*failures).min(9)).min(300);
@@ -28,8 +55,15 @@ impl Budget {
         self.retry_at = Some(self.retry_at.map_or(at, |previous| previous.max(at)));
     }
 
-    pub fn success(&mut self, route: &str) {
+    pub fn success(&mut self, route: &str, now: Instant) {
         self.failures.remove(route);
+        self.clear_expired(now);
+    }
+
+    pub fn clear_expired(&mut self, now: Instant) {
+        if self.remaining(now).is_zero() {
+            self.retry_at = None;
+        }
     }
 
     pub fn unavailable(&mut self, route: &str, clock: &dyn Clock, retry_after_seconds: u64) {
@@ -42,20 +76,20 @@ impl Budget {
     }
 }
 
-struct AccountBudget {
+struct ScopeBudget {
     state: Arc<tokio::sync::Mutex<Budget>>,
     probe: Arc<tokio::sync::Semaphore>,
 }
 
-fn account_budget(uid: &str) -> Arc<AccountBudget> {
-    static ACCOUNTS: OnceLock<parking_lot::Mutex<HashMap<String, Arc<AccountBudget>>>> =
+fn scope_budget(uid: &str, scope: &BudgetScope) -> Arc<ScopeBudget> {
+    static SCOPES: OnceLock<parking_lot::Mutex<HashMap<(String, BudgetScope), Arc<ScopeBudget>>>> =
         OnceLock::new();
-    ACCOUNTS
+    SCOPES
         .get_or_init(Default::default)
         .lock()
-        .entry(uid.to_owned())
+        .entry((uid.to_owned(), scope.clone()))
         .or_insert_with(|| {
-            Arc::new(AccountBudget {
+            Arc::new(ScopeBudget {
                 state: Default::default(),
                 probe: Arc::new(tokio::sync::Semaphore::new(1)),
             })
@@ -64,8 +98,10 @@ fn account_budget(uid: &str) -> Arc<AccountBudget> {
 }
 
 #[cfg(test)]
-pub(super) fn account(uid: &str) -> Arc<tokio::sync::Mutex<Budget>> {
-    account_budget(uid).state.clone()
+pub(super) fn budget_for(uid: &str, route: &str) -> Arc<tokio::sync::Mutex<Budget>> {
+    scope_budget(uid, &BudgetScope::for_route(route))
+        .state
+        .clone()
 }
 
 #[async_trait::async_trait]
@@ -98,11 +134,12 @@ pub(super) async fn run<T: super::callable::CallableTransport + ?Sized>(
     clock: &dyn Clock,
 ) -> Result<serde_json::Value, super::callable::CallableFailure> {
     use super::callable::CallableFailure;
-    let admission = account_budget(uid);
+    let scope = BudgetScope::for_route(route);
+    let admission = scope_budget(uid, &scope);
     let budget = &admission.state;
     let _probe = if guard.closing_session() {
         None
-    } else {
+    } else if scope.always_serialize_per_uid() || budget.lock().await.is_throttled() {
         let permit = tokio::select! {
             biased;
             _ = guard.retired() => return Err(CallableFailure::Retired),
@@ -120,6 +157,8 @@ pub(super) async fn run<T: super::callable::CallableTransport + ?Sized>(
             } => {},
         }
         Some(permit)
+    } else {
+        None
     };
     if !guard.current().await {
         return Err(CallableFailure::Retired);
@@ -137,26 +176,27 @@ pub(super) async fn run<T: super::callable::CallableTransport + ?Sized>(
             clock.now(),
             failure.retry_after_seconds().unwrap_or(0),
         );
-    }
-    if matches!(
+    } else if matches!(
         route,
         super::wire::ROUTE_ADMISSION | super::wire::ROUTE_CHALLENGE
+    ) && matches!(
+        &response,
+        Err(CallableFailure::Status {
+            status: 500..=599,
+            ..
+        })
     ) {
-        if let Err(
-            failure @ CallableFailure::Status {
-                status: 500..=599, ..
-            },
-        ) = &response
-        {
+        if let Err(failure) = &response {
             budget.lock().await.unavailable(
                 route,
                 clock,
                 failure.retry_after_seconds().unwrap_or(0),
             );
         }
-    }
-    if response.is_ok() {
-        budget.lock().await.success(route);
+    } else if response.is_ok() {
+        budget.lock().await.success(route, clock.now());
+    } else if !guard.closing_session() {
+        budget.lock().await.clear_expired(clock.now());
     }
     response
 }

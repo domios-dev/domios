@@ -276,6 +276,9 @@ fn storage_usage_for(
             total_hot_monthly_cost_cents: 150,
             machines: vec![CloudMachineStorageUsage {
                 machine_id: machine_id.into(),
+                create_request_id: None,
+                name: None,
+                created_at_ms: None,
                 tier,
                 allocated_gb: 10,
                 used_bytes: Some(1_024),

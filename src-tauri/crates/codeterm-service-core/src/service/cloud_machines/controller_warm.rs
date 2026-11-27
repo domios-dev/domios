@@ -133,14 +133,19 @@ impl CloudMachineController {
         }
 
         let seed_req_id = super::controller::mint_request_id();
-        match provisioning
-            .record_warm_bootstrap_phases(
-                record.backend_machine_id(),
-                WarmBootstrapPhaseEvent::SeedStarted,
-                &seed_req_id,
-            )
-            .await
-        {
+        let seed_result = match record.provider_machine_id() {
+            Some(provider_id) => {
+                provisioning
+                    .record_warm_bootstrap_phases(
+                        provider_id,
+                        WarmBootstrapPhaseEvent::SeedStarted,
+                        &seed_req_id,
+                    )
+                    .await
+            }
+            None => Ok(None),
+        };
+        match seed_result {
             Ok(Some(backend_phases)) => {
                 self.update_warm_entry(&record.machine_id, |entry| {
                     entry.creation_generation = Some(creation_generation.to_owned());
@@ -202,23 +207,27 @@ impl CloudMachineController {
 
         // Red line: never record warm_console_ready unless target verified readable owner context.
         let backend_ready_phases = if result.readable_owner_context && result.wake_up_verified {
-            let ready_req_id = super::controller::mint_request_id();
-            match provisioning
-                .record_warm_bootstrap_phases(
-                    record.backend_machine_id(),
-                    WarmBootstrapPhaseEvent::WarmConsoleReady,
-                    &ready_req_id,
-                )
-                .await
-            {
-                Ok(phases) => phases,
-                Err(error) => {
-                    log::debug!(
-                        "[cloud] backend warm_console_ready phase write failed for {}: {error}",
-                        record.machine_id
-                    );
-                    None
+            if let Some(provider_id) = record.provider_machine_id() {
+                let ready_req_id = super::controller::mint_request_id();
+                match provisioning
+                    .record_warm_bootstrap_phases(
+                        provider_id,
+                        WarmBootstrapPhaseEvent::WarmConsoleReady,
+                        &ready_req_id,
+                    )
+                    .await
+                {
+                    Ok(phases) => phases,
+                    Err(error) => {
+                        log::debug!(
+                            "[cloud] backend warm_console_ready phase write failed for {}: {error}",
+                            record.machine_id
+                        );
+                        None
+                    }
                 }
+            } else {
+                None
             }
         } else {
             None

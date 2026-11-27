@@ -12,6 +12,7 @@ pub const LABEL_CONTROLLER: &str = "domios.controller";
 pub const LABEL_MACHINE_ID: &str = "domios.machine_id";
 pub const LABEL_NAME: &str = "domios.name";
 pub const LABEL_SIZE: &str = "domios.size";
+pub const LABEL_CREATE_REQUEST_ID: &str = "domios.create_request_id";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LifecycleEvent {
@@ -277,11 +278,11 @@ pub fn infer_backend_truth_from_usage(
     usage: &CloudUsageSummary,
 ) -> Option<BackendDrainingTruth> {
     let storage = usage.storage.as_ref()?;
-    let backend_id = record.backend_machine_id();
+    let backend_id = record.provider_machine_id()?;
     let entry = storage
         .machines
         .iter()
-        .find(|m| m.machine_id == backend_id || m.machine_id == record.machine_id)?;
+        .find(|m| m.machine_id == backend_id)?;
     let stopped = entry.stopped_at.is_some() || !matches!(entry.tier, CloudStorageTier::Hot);
     if !stopped {
         return None;

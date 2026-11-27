@@ -284,12 +284,27 @@ impl CloudMachineRecord {
         self.accumulated_awake_secs.saturating_add(live_secs)
     }
 
-    pub fn backend_machine_id(&self) -> &str {
-        if self.ownership.provider_machine_id.is_empty() {
-            &self.machine_id
-        } else {
-            &self.ownership.provider_machine_id
-        }
+    /// Confirmed backend machine id, or `None` for local-only records that have not yet received
+    /// or adopted a backend id. Never falls back to the local `machine_id`.
+    pub fn provider_machine_id(&self) -> Option<&str> {
+        let id = self.ownership.provider_machine_id.trim();
+        (!id.is_empty()).then_some(id)
+    }
+
+    /// Creation request id associated with this record, if any.
+    pub fn create_request_id(&self) -> Option<&str> {
+        self.pending_request
+            .as_ref()
+            .filter(|p| p.op == PendingProvisioningOp::Create)
+            .map(|p| p.request_id.trim())
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                self.ownership
+                    .labels
+                    .get(super::state::LABEL_CREATE_REQUEST_ID)
+                    .map(|id| id.trim())
+                    .filter(|id| !id.is_empty())
+            })
     }
 
     pub fn cost_summary(&self, now_ms: u64) -> CloudCostSummary {

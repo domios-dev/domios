@@ -83,6 +83,15 @@ fn map_storage_summary(s: WireCloudStorageUsageSummary) -> CloudStorageUsageSumm
             .into_iter()
             .map(|m| CloudMachineStorageUsage {
                 machine_id: m.machine_id,
+                create_request_id: m.create_request_id,
+                name: m.name,
+                created_at_ms: m.created_at.map(|ts| {
+                    if ts < 100_000_000_000 {
+                        ts.saturating_mul(1_000)
+                    } else {
+                        ts
+                    }
+                }),
                 tier: map_storage_tier(m.tier),
                 allocated_gb: m.allocated_gb,
                 used_bytes: m.used_bytes,
