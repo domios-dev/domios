@@ -78,6 +78,7 @@ impl CloudMachineController {
             next.lease_expires_at_ms = Some(provisioned.lease_expires_at_ms);
             next.pending_request = None;
             next.installation_id = None;
+            next.peer_instance_id = None;
             next.apply_unconfirmed = false;
             next.last_error = None;
             Ok(next)

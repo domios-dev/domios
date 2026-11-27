@@ -11,10 +11,13 @@ import { DEFAULT_THEME } from "../../lib/themeCss";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { setSidebarMachineFilter } from "../Sidebar/sidebarMachineFilter";
 import { PairedWorkspaceInventoryContext } from "../../store/multiplexer/context";
+import { usePairedWorkspaces } from "../../store/multiplexer/usePairedWorkspaces";
+import { workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { WebPeerPicker } from "./WebPeerPicker";
 
 const peersResponse = vi.fn<() => Promise<unknown>>();
 const healthResponse = vi.fn<() => Promise<unknown>>();
+const bridgeInvoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>();
 
 vi.mock("../../lib/webApi", async (original) => ({
   ...await original<typeof import("../../lib/webApi")>(),
@@ -22,6 +25,7 @@ vi.mock("../../lib/webApi", async (original) => ({
 }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
+  invoke: (cmd: string, args?: Record<string, unknown>) => bridgeInvoke(cmd, args),
   listen: async () => () => {},
 }));
 vi.mock("../../lib/chatWallpaperClient", () => ({
@@ -54,6 +58,7 @@ afterEach(() => {
   setSidebarMachineFilter("local");
   peersResponse.mockReset();
   healthResponse.mockReset();
+  bridgeInvoke.mockReset();
   vi.mocked(readMachineAppearance).mockReset();
 });
 
@@ -334,6 +339,145 @@ it("shows a visible reconnecting state when switching to a reconnecting peer", a
     await act(async () => trigger.click());
     const option = document.querySelector<HTMLButtonElement>('[data-peer-id="peer-ubunta"]')!;
     expect(option.getAttribute("aria-label")).toContain("reconnecting");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("merges an enrolled cloud machine into one online row, persists switching, loads workspaces, and degrades on detach", async () => {
+  const peerId = "3efa6b47-cbad-4243-b381-86e57930319a";
+  const instId = "e45c9e4ff42143f0bee45f1f75b11a9c";
+  const makePeersPayload = (online: boolean) => ({
+    local_instance_name: "BLACKSTAR",
+    paired: [{
+      instance_id: peerId,
+      instance_name: "quill-fly-124-go",
+      addresses: [],
+      api_port: 0,
+      public_key: "pk-cloud",
+      paired_at: "2026-01-01T00:00:00Z",
+      last_seen: null,
+      online,
+      is_primary: false,
+      access_level: "full",
+      relay_protocol_version: RELAY_PROTOCOL_VERSION,
+      consecutive_misses: 0,
+      kind: "cloud",
+      cloud: {
+        kind: "cloud",
+        machine_id: "cloud-DPGKwwYH",
+        name: "quill-fly-124-go",
+        provider: "fly_machines",
+        size: "small",
+        state: "awake",
+        sleep_mode: "stop",
+        uptime_secs: 120,
+        billing_notice: "",
+      },
+    }],
+    installations: [{
+      installation_id: instId,
+      instance_id: peerId,
+      name: "quill-fly-124-go",
+      active: true,
+      signed_out: false,
+      online,
+    }],
+    direct_ingress: {
+      [instId]: { address: "wss://domios-quill.fly.dev", stream_attached: online, inbound_only: true },
+    },
+    cloud_machines: [{
+      kind: "cloud",
+      machine_id: "cloud-DPGKwwYH",
+      name: "quill-fly-124-go",
+      provider: "fly_machines",
+      size: "small",
+      state: "awake",
+      sleep_mode: "stop",
+      uptime_secs: 120,
+      installation_id: instId,
+      peer_instance_id: peerId,
+      billing_notice: "",
+    }],
+  });
+
+  const onlinePayload = makePeersPayload(true);
+  peersResponse.mockResolvedValue(onlinePayload);
+  bridgeInvoke.mockImplementation(async (cmd) => {
+    if (cmd === "mesh_peer_mux_state") {
+      return {
+        workspaces: [
+          { id: "ws-general", name: "General", protected: true, tabs: ["tab-ga"], sort_order: 0 },
+          { id: "ws-fly", name: "Fly Project", protected: false, tabs: ["tab-work"], sort_order: 1 },
+        ],
+        tabs: {
+          "tab-ga": { id: "tab-ga", workspace_id: "ws-general", title: "General", role: "general_agent", agent_type: "claude", sort_order: 0 },
+          "tab-work": { id: "tab-work", workspace_id: "ws-fly", title: "Worker", agent_type: "claude", sort_order: 0 },
+        },
+        teams: [],
+        active_workspace_id: "ws-fly",
+        focused_tab_id: "tab-work",
+      };
+    }
+    return [];
+  });
+
+  const observed: { browse: ReturnType<typeof usePairedWorkspaces>["browse"] } = { browse: null };
+  function Harness({ payload, revision }: { payload: ReturnType<typeof makePeersPayload>; revision: number }) {
+    const inventory = usePairedWorkspaces({ peers: payload as never, revision }, true, null);
+    observed.browse = inventory.browse;
+    return (
+      <PairedWorkspaceInventoryContext.Provider value={{
+        generals: inventory.generals,
+        browse: inventory.browse,
+        peerWorkspaces: inventory.peerWorkspaces,
+        refreshPeerInventory: inventory.refreshPeerInventory,
+      }}>
+        <WebPeerPicker compact />
+      </PairedWorkspaceInventoryContext.Provider>
+    );
+  }
+
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Harness payload={onlinePayload} revision={1} />));
+    const trigger = host.querySelector<HTMLButtonElement>('[data-testid="peer-picker-button"]')!;
+    await act(async () => trigger.click());
+
+    // Exactly one remote row — never a duplicate paired + unpaired cloud pair.
+    const remoteItems = document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]');
+    expect(remoteItems).toHaveLength(1);
+    expect(remoteItems[0].getAttribute("data-peer-id")).toBe(peerId);
+    expect(remoteItems[0].getAttribute("aria-label")).toBe("quill-fly-124-go, virtual machine, online");
+
+    // Switching selects the paired instance_id, persists across roster updates, and loads remote workspaces.
+    await act(async () => remoteItems[0].click());
+    expect(workspaceBrowseTarget()).toEqual({ id: peerId, name: "quill-fly-124-go" });
+    expect(trigger.getAttribute("aria-label")).toBe("Machine: quill-fly-124-go");
+    expect(observed.browse?.availability).toBe("online");
+    expect(observed.browse?.workspaces.map((ws) => ws.workspace.name)).toEqual(["Fly Project"]);
+    expect(observed.browse?.workspaces[0].tabs.map((t) => t.tab.id)).toEqual(["tab-work"]);
+
+    // Roster refresh keeps the browse target selected (no bounce back to local).
+    await act(async () => root.render(<Harness payload={onlinePayload} revision={2} />));
+    expect(workspaceBrowseTarget()?.id).toBe(peerId);
+    expect(observed.browse?.availability).toBe("online");
+
+    // Detaching the ingress stream degrades the row to offline instead of staying falsely online.
+    const detachedPayload = makePeersPayload(false);
+    peersResponse.mockResolvedValue(detachedPayload);
+    await act(async () => {
+      notifyMeshPeersLoaded();
+      root.render(<Harness payload={detachedPayload} revision={3} />);
+    });
+    await act(async () => trigger.click());
+    const detachedItem = document.querySelector<HTMLButtonElement>(`[data-peer-id="${peerId}"]`)!;
+    expect(detachedItem.getAttribute("aria-label")).toBe("quill-fly-124-go, virtual machine, offline");
+    expect(observed.browse?.availability).toBe("offline");
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -49,7 +49,7 @@ pub struct CloudMachineController {
     store: CloudMachineStore,
     wake_queue_store: CloudWakeQueueStore,
     pub(super) warm_ledger_store: super::warm_bootstrap::CloudWarmLedgerStore,
-    machines: Mutex<Vec<CloudMachineRecord>>,
+    pub(super) machines: Mutex<Vec<CloudMachineRecord>>,
     wake_queue: Mutex<CloudWakeQueue>,
     pub(super) warm_ledger:
         Mutex<BTreeMap<String, super::warm_bootstrap::MachineWarmBootstrapEntry>>,
@@ -105,7 +105,7 @@ impl CloudMachineController {
         self.lifecycle_tx.subscribe()
     }
 
-    fn notify_lifecycle(&self) {
+    pub(super) fn notify_lifecycle(&self) {
         self.lifecycle_tx
             .send_modify(|rev| *rev = rev.wrapping_add(1));
     }
@@ -127,7 +127,7 @@ impl CloudMachineController {
         )
     }
 
-    fn persist_locked(&self, machines: &[CloudMachineRecord]) -> Result<(), CloudError> {
+    pub(super) fn persist_locked(&self, machines: &[CloudMachineRecord]) -> Result<(), CloudError> {
         self.store
             .save(machines)
             .map_err(|error| CloudError::Internal(format!("persist cloud machines: {error}")))

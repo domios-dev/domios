@@ -273,11 +273,7 @@ pub(crate) async fn receive<S: ChannelIo>(
     let id = channel.peer.remote_membership().installation_id.clone();
     let binding = channel.stream.binding;
     let _presence = StreamPresence(channel.mesh.clone(), id.clone(), binding);
-    {
-        let mut manager = channel.mesh.lock();
-        manager.reverse_streams.insert(id, binding);
-        manager.bump_gate();
-    }
+    channel.mesh.lock().attach_reverse_stream(id, binding);
     loop {
         let Delivery {
             frame,
@@ -334,10 +330,6 @@ pub(crate) async fn receive<S: ChannelIo>(
 struct StreamPresence(crate::MeshState, String, [u8; 32]);
 impl Drop for StreamPresence {
     fn drop(&mut self) {
-        let mut manager = self.0.lock();
-        if manager.reverse_streams.get(&self.1) == Some(&self.2) {
-            manager.reverse_streams.remove(&self.1);
-            manager.bump_gate();
-        }
+        self.0.lock().detach_reverse_stream(&self.1, &self.2);
     }
 }

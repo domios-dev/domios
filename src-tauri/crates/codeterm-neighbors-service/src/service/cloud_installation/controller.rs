@@ -54,6 +54,12 @@ pub enum ControllerError {
     ApplyUnconfirmed { installation_id: String },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnrolledCloudInstallation {
+    pub installation_id: String,
+    pub mesh_instance_id: String,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Applied {
@@ -67,7 +73,7 @@ pub async fn enroll(
     binding: &CreationBinding,
     provider: &str,
     size: &str,
-) -> Result<String, ControllerError> {
+) -> Result<EnrolledCloudInstallation, ControllerError> {
     let mesh = service
         .account_mesh()
         .await
@@ -155,14 +161,24 @@ pub async fn enroll(
                 .await
                 .map_err(|_| uncertain())?;
             channel.peer_membership().map_err(|_| uncertain())?;
-            return Ok(local.cloud_installation_id);
+            let mesh_instance_id = channel
+                .peer_instance_id()
+                .map(str::to_owned)
+                .unwrap_or_else(|_| local.mesh_instance_id.clone());
+            return Ok(EnrolledCloudInstallation {
+                installation_id: local.cloud_installation_id,
+                mesh_instance_id,
+            });
         }
     };
     let ack: Applied = serde_json::from_slice(&result).map_err(|_| uncertain())?;
     if !ack.signed_in || ack.installation_id != local.cloud_installation_id {
         return Err(uncertain());
     }
-    Ok(ack.installation_id)
+    Ok(EnrolledCloudInstallation {
+        installation_id: ack.installation_id,
+        mesh_instance_id: local.mesh_instance_id,
+    })
 }
 
 async fn enrolled_channel(

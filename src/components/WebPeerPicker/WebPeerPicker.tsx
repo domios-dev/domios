@@ -12,7 +12,7 @@ import { cleanMachineName, desaturateMachineColor, machineGlyphColor, machineLab
 import { rankPeersByLastActive } from "../../lib/peerRanking";
 import { tabActivity } from "../../lib/tabActivity";
 import { isLightColor } from "../../lib/themeCss";
-import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
+import type { MeshPeersResponse } from "../../lib/types";
 import { useMachineViewerTheme, useWallpaperAsset } from "../../lib/useMachineAppearance";
 import { useMachineChromeAppearance } from "../../lib/useMachineChromeAppearance";
 import { useAccountMachineNames } from "../../lib/useMeshMachineIdentities";
@@ -26,6 +26,7 @@ import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { MachineGlyph } from "../shared/MachineGlyph";
 import { MachineThisBadge } from "../shared/MachineRow";
 import { menuKeyAction } from "./menuKeyboard";
+import { peerStatus, resolvedPeerName, unpairedCloudMachines } from "./peerPickerModel";
 import "./machineSwitcher.css";
 
 const neutralTone = "var(--ct-muted-fg)";
@@ -56,47 +57,12 @@ function MachineDot({ peerId, online }: { peerId?: string; online: boolean }) {
   return <i data-offline={!online || undefined} style={{ backgroundColor: accent }} />;
 }
 
-const offlineClock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
-
-function peerStatus(
-  peer: EnrichedPairedPeer,
-  availability?: string,
-): { text: string; icon: CloudListIcon; online: boolean; cloud: boolean } {
-  if (peer.kind === "cloud" && peer.cloud) {
-    const view = cloudMachineCardView(peer.cloud);
-    if (view.listOnline && availability === "reconnecting") {
-      return { text: "reconnecting", icon: "dots", online: false, cloud: true };
-    }
-    return { text: view.listStatus, icon: view.listIcon, online: view.listOnline, cloud: true };
-  }
-  if (availability === "reconnecting") {
-    return { text: "reconnecting", icon: "dots", online: false, cloud: false };
-  }
-  if (availability === "unreachable") {
-    return { text: "unreachable", icon: "dot", online: false, cloud: false };
-  }
-  if (peer.online) {
-    return {
-      text: peer.relay_protocol_version === RELAY_PROTOCOL_VERSION ? "online" : "update required",
-      icon: "dot",
-      online: true,
-      cloud: false,
-    };
-  }
-  const seen = peer.last_seen ? Date.parse(peer.last_seen) : NaN;
-  return {
-    text: Number.isFinite(seen) ? `offline since ${offlineClock.format(seen)}` : "offline",
-    icon: "dot",
-    online: false,
-    cloud: false,
-  };
-}
-
 const noWorking = () => 0;
 const noSubscription = () => () => {};
 
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<EnrichedPairedPeer[]>([]);
+  const [installations, setInstallations] = useState<MeshPeersResponse["installations"]>(undefined);
   const [cloudMachines, setCloudMachines] = useState<CloudReceipt[]>([]);
   const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
@@ -121,6 +87,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       const paired = res.paired ?? [];
       setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));
+      setInstallations(res.installations);
       setCloudMachines((res.cloud_machines ?? []).filter((machine) => machine.state !== "deleted"));
       setIdentities({ local_machine_identity: res.local_machine_identity, machine_identities: res.machine_identities });
     } catch (error) {
@@ -209,15 +176,11 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     else items[action.index]?.focus();
   };
 
-  const peerName = (peer: EnrichedPairedPeer) => accountNames.peers.get(peer.instance_id)
-    ?? cleanMachineName(peer.instance_name, peer.instance_id) ?? "Machine";
-  const unpairedCloud = useMemo(() => {
-    const pairedIds = new Set(peers.map((peer) => peer.instance_id));
-    return cloudMachines.filter((machine) => {
-      const peerId = machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id;
-      return !pairedIds.has(peerId);
-    });
-  }, [cloudMachines, peers]);
+  const peerName = (peer: EnrichedPairedPeer) => resolvedPeerName(peer, accountNames.peers.get(peer.instance_id));
+  const unpairedCloud = useMemo(
+    () => unpairedCloudMachines(peers, cloudMachines, installations),
+    [cloudMachines, installations, peers],
+  );
   const selectedPeer = peers.find(peer => peer.instance_id === target?.id);
   const selectedCloud = !selectedPeer
     ? unpairedCloud.find((machine) => (machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id) === target?.id)

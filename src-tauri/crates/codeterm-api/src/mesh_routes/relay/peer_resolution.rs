@@ -341,13 +341,18 @@ fn relay_target_route(
             .find_by_peer(&instance_id)
             .or_else(|| cloud_machines.find_by_peer(inst_id))
         {
+            let resolved_name = if record.name.trim().is_empty() {
+                name
+            } else {
+                record.name
+            };
             return Ok((
                 RelayTargetRoute::CloudIngress {
                     installation_id: inst_id.clone(),
                     endpoint: record.endpoint,
                 },
                 instance_id,
-                name,
+                resolved_name,
                 version,
             ));
         }

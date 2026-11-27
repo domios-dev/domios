@@ -1,8 +1,13 @@
 mod account_admission;
 mod account_gate;
+mod cloud_liveness;
 mod connection_lifecycle;
 mod connection_observer;
 mod machine_identity;
+pub use cloud_liveness::{
+    evaluate_inbound_cloud_liveness, InboundCloudEvidence, InboundCloudLiveness,
+    CLOUD_RELAY_EVIDENCE_TTL_SECS,
+};
 pub use connection_lifecycle::{ConnectionPhase, PeerConnection};
 pub use machine_identity::set_machine_identity;
 use std::collections::HashMap;
@@ -23,6 +28,7 @@ pub use announce::PeerAnnounceChange;
 pub struct MeshManager {
     pub(crate) inbound_only: bool,
     pub(crate) reverse_streams: HashMap<String, [u8; 32]>,
+    pub(crate) cloud_relay_ok_at: HashMap<String, u64>,
     pub ident: identity::IdentityManager,
     machine_identity: crate::machine_identity::Revision,
     peer_machine_identities: HashMap<String, crate::machine_identity::Revision>,
@@ -160,6 +166,7 @@ impl MeshManager {
             signed_registry: None,
             inbound_only: false,
             reverse_streams: HashMap::new(),
+            cloud_relay_ok_at: HashMap::new(),
             endpoint_records: Default::default(),
             clock: Arc::new(account_gate::system_now),
             gate_generation: tokio::sync::watch::channel(0).0,
@@ -292,9 +299,7 @@ impl MeshManager {
             })
             .map(|peer| {
                 let mut peer = peer.clone();
-                peer.online = peer.online
-                    && self.traffic_open(&peer.instance_id)
-                    && !self.peer_auth_refused(&peer.instance_id);
+                peer.online = self.effective_peer_online(&peer);
                 peer
             })
             .collect();
@@ -411,6 +416,7 @@ impl MeshManager {
     }
 
     pub fn remove_account_installation(&mut self, installation_id: &str) {
+        self.cloud_relay_ok_at.remove(installation_id);
         let matching: Vec<String> = self
             .links
             .links

@@ -236,6 +236,14 @@ impl MeshManager {
         } else if self.endpoint_records.records.len() >= MAX_ENDPOINT_RECORDS {
             return Err(AdmissionRefusal::AuthRefused);
         }
+        let is_cloud_endpoint = record
+            .claim
+            .endpoint
+            .as_ref()
+            .is_some_and(|endpoint| endpoint.cloud_endpoint().is_some());
+        if !is_cloud_endpoint && record.claim.endpoint.is_none() {
+            self.cloud_relay_ok_at.remove(id);
+        }
         let peers: Vec<_> = self
             .paired_peers
             .keys()
@@ -245,8 +253,11 @@ impl MeshManager {
             })
             .cloned()
             .collect();
-        for peer in peers {
-            if let Some(peer) = self.paired_peers.get_mut(&peer) {
+        for peer_id in peers {
+            let next_cloud_online = is_cloud_endpoint
+                && self.inbound_cloud_liveness_for_installation(&peer_id, id)
+                    == crate::manager::InboundCloudLiveness::Online;
+            if let Some(peer) = self.paired_peers.get_mut(&peer_id) {
                 if let Some((ip, port)) = record
                     .claim
                     .endpoint
@@ -257,7 +268,7 @@ impl MeshManager {
                     peer.api_port = port;
                 } else {
                     peer.addresses.clear();
-                    peer.online = false;
+                    peer.online = next_cloud_online;
                 }
             }
         }

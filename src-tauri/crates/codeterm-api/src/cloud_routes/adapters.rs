@@ -583,9 +583,9 @@ impl CloudEnrollmentPort for BakerEnrollmentAdapter {
             .downcast_ref::<CreationBinding>()
             .ok_or_else(|| CloudError::EnrollmentFailed("invalid creation binding".into()))?;
         match baker_enroll(&self.svc, route.clone(), creation, provider, size).await {
-            Ok(installation_id) => Ok(EnrollmentOutcome::Enrolled {
-                installation_id,
-                peer_instance_id: None,
+            Ok(enrolled) => Ok(EnrollmentOutcome::Enrolled {
+                installation_id: enrolled.installation_id,
+                peer_instance_id: Some(enrolled.mesh_instance_id),
             }),
             Err(ControllerError::ApplyUnconfirmed { installation_id }) => {
                 Ok(EnrollmentOutcome::ApplyUnconfirmed { installation_id })
