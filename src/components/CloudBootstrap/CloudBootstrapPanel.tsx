@@ -51,12 +51,13 @@ export function CloudBootstrapPanel({
   }, [machineId, onRefresh]);
 
   useEffect(() => {
-    if (initialSnapshot) {
-      setSnapshot(initialSnapshot);
-      return;
-    }
-    void refresh();
-  }, [initialSnapshot, refresh]);
+    if (initialSnapshot) setSnapshot(initialSnapshot);
+  }, [initialSnapshot]);
+
+  const hasInitialSnapshot = initialSnapshot !== null;
+  useEffect(() => {
+    if (!hasInitialSnapshot) void refresh();
+  }, [hasInitialSnapshot, refresh]);
 
   const handlePrepare = useCallback(
     async (providerId: string, profileId?: string | null) => {
