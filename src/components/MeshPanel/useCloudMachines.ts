@@ -61,10 +61,20 @@ export function useCloudUsage(enabled = true) {
     void refresh();
     const onFocus = () => { if (active) void refresh(); };
     window.addEventListener("focus", onFocus);
-    for (const event of ["mesh-state-changed", "entitlement-changed", "account-changed", "cloud-hours-changed"]) {
-      void listen(event, () => { if (active) void refresh(); })
+    const register = (subscription: Promise<() => void>) => {
+      void subscription
         .then((unlisten) => { if (active) unlisteners.push(unlisten); else unlisten(); })
         .catch(() => undefined);
+    };
+    register(listen<CloudUsagePayload>("cloud-hours-changed", ({ payload }) => {
+      if (!active || !payload) return;
+      requestId.current++;
+      setUsage(payload);
+      setError(null);
+      setLoading(false);
+    }));
+    for (const event of ["mesh-state-changed", "entitlement-changed", "account-changed"]) {
+      register(listen(event, () => { if (active) void refresh(); }));
     }
     return () => {
       active = false;

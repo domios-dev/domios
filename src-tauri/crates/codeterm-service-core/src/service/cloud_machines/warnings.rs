@@ -66,11 +66,7 @@ fn claim_warnings(
 ) -> io::Result<Vec<(Threshold, u64)>> {
     static CLAIM_LOCK: Mutex<()> = Mutex::new(());
     let _guard = CLAIM_LOCK.lock();
-    let mut accounts: BTreeMap<String, WireCloudCreditWarnings> = match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => BTreeMap::new(),
-        Err(error) => return Err(error),
-    };
+    let mut accounts = load_warnings(path)?;
     let previous = accounts.entry(account.to_owned()).or_default();
     let before = *previous;
     let crossed = newly_observed(previous, warnings);
@@ -80,15 +76,35 @@ fn claim_warnings(
     Ok(crossed)
 }
 
+fn load_warnings(path: &Path) -> io::Result<BTreeMap<String, WireCloudCreditWarnings>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(error) => Err(error),
+    }
+}
+
 impl ServiceContext {
+    pub fn has_unseen_cloud_hours(&self, account: &str, warnings: WireCloudCreditWarnings) -> bool {
+        let mut previous = load_warnings(&self.cloud_hours_warning_path())
+            .ok()
+            .and_then(|mut accounts| accounts.remove(account))
+            .unwrap_or_default();
+        !newly_observed(&mut previous, warnings).is_empty()
+    }
+
+    fn cloud_hours_warning_path(&self) -> std::path::PathBuf {
+        self.agent_pad_data_dir.join("cloud-hour-warnings.json")
+    }
+
     pub fn observe_cloud_hours(
         &self,
         account: &str,
-        remaining: f64,
+        remaining: Option<f64>,
         warnings: WireCloudCreditWarnings,
         backend_machines: Option<Vec<(String, Option<String>)>>,
     ) {
-        let path = codeterm_paths::data_dir().join("cloud-hour-warnings.json");
+        let path = self.cloud_hours_warning_path();
         let crossed = match claim_warnings(&path, account, warnings) {
             Ok(crossed) => crossed,
             Err(error) => {
@@ -126,14 +142,14 @@ impl ServiceContext {
                 .map(|machine| machine.name.as_str())
                 .collect(),
         };
-        let remaining = remaining.max(0.0);
+        let balance = remaining.map_or_else(
+            || "Cloud hours remaining are temporarily unavailable.".into(),
+            |remaining| format!("{:.2} cloud hours left.", remaining.max(0.0)),
+        );
         let body = if names.is_empty() {
-            format!("{remaining:.2} cloud hours left across your cloud machines.")
+            balance
         } else {
-            format!(
-                "{remaining:.2} cloud hours left. Affected machines: {}.",
-                names.join(", ")
-            )
+            format!("{balance} Affected machines: {}.", names.join(", "))
         };
         for (threshold, stamp) in crossed {
             let (title, severity, level) = match threshold {
@@ -175,7 +191,6 @@ impl ServiceContext {
                 None,
             );
         }
-        self.ui.emit("cloud-hours-changed", serde_json::Value::Null);
     }
 
     pub fn show_cloud_hours_exhausted_in_tabs(&self, lease_expires_at_ms: u64) {

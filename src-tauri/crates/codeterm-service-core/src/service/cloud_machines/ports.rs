@@ -132,6 +132,7 @@ pub trait CloudProvisioningPort: Send + Sync {
         request_id: &str,
     ) -> Result<ProvisionedLease, CloudError>;
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError>;
+    fn observe_wake_failure(&self, _error: &CloudError) {}
     /// List backend-known cloud machines for reconciling local-only and uncertain-create records.
     async fn list_backend_machines(
         &self,

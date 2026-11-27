@@ -351,7 +351,8 @@ pub(crate) async fn wake_machine_for_use(
                 &peer_ctrl,
                 DEFAULT_WAKE_HOLD_DEADLINE_MS,
             )
-            .await;
+            .await
+            .inspect_err(|error| provisioning.observe_wake_failure(error));
     }
     ctrl.wake(
         &record.machine_id,
@@ -535,6 +536,7 @@ async fn recreate_machine(
             DEFAULT_WAKE_HOLD_DEADLINE_MS,
         )
         .await
+        .inspect_err(|error| provisioning.observe_wake_failure(error))
         .map_err(error_response)?;
     Ok(Json(serde_json::to_value(receipt).unwrap_or_default()))
 }
