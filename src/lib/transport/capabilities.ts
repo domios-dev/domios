@@ -38,6 +38,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       }),
     account_mesh_session_revoke: (a) => localJson("POST", "/api/account/mesh/session-revoke", { installation_id: a.installationId ?? null }),
     account_mesh_revoke: (a) => localJson("POST", "/api/account/mesh/revoke", { target: a.target }),
+    account_mesh_remove_stale: (a) => localJson("POST", "/api/account/mesh/remove-stale", {
+      ...(a.installationIds ? { installation_ids: a.installationIds } : {}),
+      ...(a.olderThanDays != null ? { older_than_days: a.olderThanDays } : {}),
+      ...(a.dryRun ? { dry_run: true } : {}),
+    }),
     account_mesh_acknowledge_limit: (a) =>
       localJson("POST", "/api/account/mesh/limit-notice/ack", { request_id: s(a, "requestId") }),
     answer_notification: (a) =>

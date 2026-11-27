@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import type { RegistryMachineName } from "../../lib/registryMachineNames";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import type { RemoveStaleResult } from "./staleMachinesModel";
 
 /** Exact registry slot identity the server checks before revoke or link. */
 export type MeshTarget = import("../../../gen/MeshTarget").MeshTarget;
@@ -18,7 +19,7 @@ export type LocalPairFact = Omit<import("../../../gen/AccountMeshPair").AccountM
 
 export type AccountMeshFailure = import("../../../gen/AccountMeshRefusal").AccountMeshRefusal | {reason: "peer-unreachable" | "auth-refused" | "peer-needs-update" | "handshake-failed"};
 
-export type AccountMeshOutcome = (Omit<Extract<import("../../../gen/AccountMeshOutcome").AccountMeshOutcome<{display_name: string; metadata_revision: number}>, {result: unknown}>, "ok" | "result"> & {ok: true; result?: {display_name: string; metadata_revision: number}}) | (Omit<Extract<import("../../../gen/AccountMeshOutcome").AccountMeshOutcome<unknown>, {failure: unknown}>, "ok" | "failure" | "request_id"> & {ok: false; failure: AccountMeshFailure; request_id?: string | null});
+export type AccountMeshOutcome<T = {display_name: string; metadata_revision: number}> = (Omit<Extract<import("../../../gen/AccountMeshOutcome").AccountMeshOutcome<T>, {result: unknown}>, "ok" | "result"> & {ok: true; result?: T}) | (Omit<Extract<import("../../../gen/AccountMeshOutcome").AccountMeshOutcome<unknown>, {failure: unknown}>, "ok" | "failure" | "request_id"> & {ok: false; failure: AccountMeshFailure; request_id?: string | null});
 
 /** A genuine free machine-slot refusal from automatic enrollment, held until acknowledged. */
 export type AccountMeshLimitNotice = Omit<import("../../../gen/AccountMeshLimitNotice").AccountMeshLimitNotice, "refusal"> & {refusal: unknown};
@@ -34,6 +35,7 @@ export interface AccountMeshClient {
   renamePeer?(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   revokeSession(installationId?: string): Promise<AccountMeshOutcome>;
   revoke(target: MeshTarget): Promise<AccountMeshOutcome>;
+  removeStale?(installationIds: string[]): Promise<AccountMeshOutcome<RemoveStaleResult>>;
   acknowledgeLimit(requestId: string): Promise<void>;
 }
 
@@ -43,6 +45,7 @@ const COMMANDS = {
   list: "account_mesh_list",
   renameSelf: "account_mesh_rename_self",
   revoke: "account_mesh_revoke",
+  removeStale: "account_mesh_remove_stale",
   acknowledgeLimit: "account_mesh_acknowledge_limit",
 } as const;
 const CHANGE_EVENTS = ["account-changed", "account-mesh-changed", "mesh-state-changed"] as const;
@@ -73,6 +76,7 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
   }),
   revokeSession: (installationId) => invoke<AccountMeshOutcome>("account_mesh_session_revoke", { installationId }),
   revoke: (target) => invoke<AccountMeshOutcome>(COMMANDS.revoke, { target }),
+  removeStale: (installationIds) => invoke<AccountMeshOutcome<RemoveStaleResult>>(COMMANDS.removeStale, { installationIds }),
   acknowledgeLimit: async (requestId) => { await invoke(COMMANDS.acknowledgeLimit, { requestId }); },
 };
 

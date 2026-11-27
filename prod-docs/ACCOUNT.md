@@ -169,6 +169,7 @@ Local callers only.
 | POST | `/api/account/mesh/session-revoke` | `{installation_id?: string | null}` | Revoke a machine's account sessions; omitted installation selects this machine; retains the installation key and pairings |
 | POST | `/api/account/mesh/revoke` | `{target}` | Release another machine's account slot (refuses this machine); local unpair stays `/api/mesh/peers/disconnect` |
 | POST | `/api/account/mesh/remove` | `{machine}` | Resolve and remove another machine from the account mesh (signs out an online machine first; refuses this machine) |
+| POST | `/api/account/mesh/remove-stale` | `{installation_ids?, older_than_days?, dry_run?}` | List and batch-remove expired, signed-out, and long-unreachable machines in one audited call (never this machine, never online) |
 | POST | `/api/account/mesh/limit-notice/ack` | `{request_id}` | Mark a `mesh.machines` notice as shown |
 
 Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not. A machine refused that way reports `traffic: "plan_limit_locked"` in the snapshot: its Mesh edges stay blocked, its rows stay listed, and a plan change re-enrolls it live.

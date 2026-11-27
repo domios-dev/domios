@@ -16,10 +16,12 @@ pub const PROOF_SCHEMA_VERSION: u8 = 1;
 pub const MESH_SCHEMA_VERSION: u8 = 1;
 pub const MACHINE_LIMIT_REASON: &str = "mesh.machines";
 
-/// Server callable names (`ACCOUNT_MESH_ROUTES`).
+/// Server callable names (`ACCOUNT_MESH_ROUTES` plus batch cleanup).
 pub const ROUTE_CHALLENGE: &str = "accountMeshChallenge";
 pub const ROUTE_ENROLL_KEY: &str = "accountMeshEnrollKey";
 pub const ROUTE_ADMISSION: &str = "accountMeshAdmission";
+pub const ROUTE_BATCH_REMOVE: &str = "removeStaleAccountInstallations";
+pub const BATCH_REMOVE_MAX_ITEMS: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ProofEndpoint {
@@ -288,6 +290,45 @@ pub struct RevokedResult {
     pub previous_slot_revision: u64,
     pub slot_revision: u64,
     pub registry_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct BatchRemoveRequest {
+    pub schema_version: u8,
+    pub installation_id: String,
+    pub request_id: String,
+    pub installation_ids: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchRemoveRowStatus {
+    Removed,
+    AlreadyRemoved,
+    RefusedSelf,
+    RefusedOnline,
+    NotFound,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchRemoveRowResult {
+    pub installation_id: String,
+    pub status: BatchRemoveRowStatus,
+    pub slot_revision: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchRemoveResult {
+    pub schema_version: u8,
+    pub registry_revision: u64,
+    pub removed_count: u32,
+    pub already_removed_count: u32,
+    pub skipped_count: u32,
+    pub results: Vec<BatchRemoveRowResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

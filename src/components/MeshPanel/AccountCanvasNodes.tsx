@@ -13,6 +13,7 @@ import { plansAction } from "../billing/purchaseSwitch";
 import { EMPTY_ACCOUNT_COPY, type AccountCanvasCard, type AccountMachineNode, type MachineCallout, type MachineTone, type PeerAccountFooter } from "./accountCanvas";
 import { MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import type { MeshTarget } from "./accountMeshClient";
+import type { RemoveStaleResult } from "./staleMachinesModel";
 import type { MachineRowView } from "./accountMachines";
 import { REAUTH_REQUIRED_COPY } from "./accountMachines";
 import { DuplicateMachineNameHint } from "./DuplicateMachineNameHint";
@@ -48,6 +49,7 @@ export function MachineReauthentication({ signingIn, onSignIn, onCancel }: { sig
 export interface MachineNodeActions {
   onSignOut?: (row: MachineRowView) => Promise<boolean>;
   onRemove?: (row: MachineRowView, target: MeshTarget, alsoSignOut?: boolean) => Promise<boolean>;
+  onRemoveStale?: (installationIds: string[]) => Promise<RemoveStaleResult | null>;
   onRename?: (row: MachineRowView, name: string) => Promise<boolean>;
   onPlans: (key: string) => void;
   onDismiss: (key: string) => void;

@@ -9117,17 +9117,47 @@
         },
         {
           "name": "remove",
-          "about": "Remove another machine from the account mesh. Signs out an online machine first. Refuses to remove the current machine. Local-only",
+          "about": "Remove another machine from the account mesh, or batch-remove stale machines. Single removal signs out an online machine first. Never removes the current machine. Local-only",
           "aliases": [],
           "args": [
             {
+              "name": "dry-run",
+              "positional": false,
+              "required": false,
+              "value_name": "DRY_RUN",
+              "possible_values": [],
+              "default": null,
+              "help": "Preview which stale machines would be removed without removing them (with --stale)",
+              "aliases": []
+            },
+            {
               "name": "machine",
               "positional": true,
-              "required": true,
+              "required": false,
               "value_name": "MACHINE",
               "possible_values": [],
               "default": null,
               "help": "Target machine (installation ID, display name, or disambiguated label)",
+              "aliases": []
+            },
+            {
+              "name": "older-than",
+              "positional": false,
+              "required": false,
+              "value_name": "DAYS",
+              "possible_values": [],
+              "default": null,
+              "help": "Only include stale machines inactive for at least this many days (with --stale)",
+              "aliases": []
+            },
+            {
+              "name": "stale",
+              "positional": false,
+              "required": false,
+              "value_name": "STALE",
+              "possible_values": [],
+              "default": null,
+              "help": "Batch-remove expired, signed-out, and long-unreachable machines",
               "aliases": []
             }
           ],
