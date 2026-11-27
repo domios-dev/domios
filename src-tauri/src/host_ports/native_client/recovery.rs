@@ -182,7 +182,14 @@ pub(super) async fn disconnected(slot: &NativeHostClientSlot, client: &Arc<Nativ
     }
 }
 
-pub(super) async fn reattach_live_server(app: AppHandle) -> Result<ReattachOutcome, String> {
+// A named boxed Send future breaks the initialize -> disconnect -> reattach -> initialize opaque-type cycle.
+pub(super) fn reattach_live_server(
+    app: AppHandle,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ReattachOutcome, String>> + Send>> {
+    Box::pin(reattach_live_server_inner(app))
+}
+
+async fn reattach_live_server_inner(app: AppHandle) -> Result<ReattachOutcome, String> {
     let Some(gate) = app
         .try_state::<NativeClientInitializationGate>()
         .map(|state| state.inner().clone())
@@ -193,18 +200,9 @@ pub(super) async fn reattach_live_server(app: AppHandle) -> Result<ReattachOutco
         return Ok(ReattachOutcome::AlreadyInProgress);
     };
     let inputs = retry_inputs(gate.inputs.as_ref().clone()).await?;
-    // Boxing as Send breaks the initialize -> disconnect -> reattach -> initialize cycle for Send inference.
-    let reattach: std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Result<
-                        super::NativeClientInitialization,
-                        super::bootstrap::ClientStartupFailure,
-                    >,
-                > + Send,
-        >,
-    > = Box::pin(initialize_client_once(app, Arc::new(inputs), false));
-    let initialized = reattach.await.map_err(|error| error.message().to_owned())?;
+    let initialized = initialize_client_once(app, Arc::new(inputs), false)
+        .await
+        .map_err(|error| error.message().to_owned())?;
     match initialized.native {
         NativeClientStatus::Attached => {
             gate.attached_once

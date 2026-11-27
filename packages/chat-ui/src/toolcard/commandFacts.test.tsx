@@ -100,8 +100,9 @@ const cases: Array<[string, () => Promise<void>]> = [
       call("stale-b", { toolId: undefined, toolCallSourceId: "assistant-b" }),
       result("stale-result", { toolId: undefined, toolCallSourceId: "assistant-old", toolPairing: "exact" }),
     ]);
-    if (stale.length !== 2 || stale.some((item) => item.kind !== "tool" && item.message.type !== "tool_result")) throw new Error("stale source identity borrowed a neighbor");
-    if (stale.some((item) => item.kind === "tool" && item.event.result)) throw new Error("stale source identity attached a result");
+    const staleCalls = stale.flatMap((item) => (item.kind === "tool" ? (item.event.toolRun?.members ?? [item.event]) : []));
+    if (staleCalls.length !== 2 || stale.some((item) => item.kind !== "tool" && item.message.type !== "tool_result")) throw new Error("stale source identity borrowed a neighbor");
+    if (staleCalls.some((event) => event.result)) throw new Error("stale source identity attached a result");
 
     const exactResultFirst = reduceToolEvents([
       result("exact-result-first", { toolId: undefined, toolCallSourceId: "assistant-late", toolPairing: "exact" }),
