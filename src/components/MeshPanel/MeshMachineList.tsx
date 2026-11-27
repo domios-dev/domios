@@ -9,6 +9,8 @@ import { CloudMachineCard } from "./CloudMachineCard";
 import { CloudMachineSlot } from "./CloudMachineSlot";
 import type { CanvasAccount, CanvasCloud } from "./MeshCanvas";
 import { MeshMachineListRow } from "./MeshMachineListRow";
+import { StaleCleanupConfirm } from "./StaleCleanupConfirm";
+import { selectStaleMachineRows, staleCleanupActionLabel } from "./staleMachinesModel";
 import {
   collapsedGroupSummary,
   FILTER_VISIBLE_THRESHOLD,
@@ -91,6 +93,24 @@ export function MeshMachineList({
   webUiToken = null,
 }: MeshMachineListProps) {
   const [filterQuery, setFilterQuery] = useState("");
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const accountNodes = account?.canvas.nodes;
+  const staleMachines = useMemo(
+    () => selectStaleMachineRows((accountNodes ?? []).map((node) => node.row)),
+    [accountNodes],
+  );
+  const onRemoveStale = account?.actions.onRemoveStale;
+  const confirmCleanup = useCallback(async () => {
+    if (!onRemoveStale) return;
+    setCleanupBusy(true);
+    setCleanupError(null);
+    const result = await onRemoveStale(staleMachines.map((machine) => machine.installationId));
+    setCleanupBusy(false);
+    if (result) setCleanupOpen(false);
+    else setCleanupError("Some machines could not be removed. Try again.");
+  }, [onRemoveStale, staleMachines]);
   const rowElementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const now = account?.now ?? Date.now();
   const narrow = width > 0 && width < 600;
@@ -275,6 +295,28 @@ export function MeshMachineList({
                     <span className="ct-mesh-group__aside">{cloudHoursLabel}</span>
                   )}
                 </button>
+                {isAttention && onRemoveStale && staleMachines.length > 0 && !cleanupOpen && (
+                  <button
+                    type="button"
+                    data-testid="mesh-stale-cleanup"
+                    onClick={() => {
+                      setCleanupError(null);
+                      setCleanupOpen(true);
+                    }}
+                    className="ct-mesh-fold__show"
+                  >
+                    {staleCleanupActionLabel(staleMachines.length)}
+                  </button>
+                )}
+                {isAttention && cleanupOpen && (
+                  <StaleCleanupConfirm
+                    machines={staleMachines}
+                    busy={cleanupBusy}
+                    error={cleanupError}
+                    onConfirm={confirmCleanup}
+                    onCancel={() => setCleanupOpen(false)}
+                  />
+                )}
 
                 {collapsed ? (
                   <div
