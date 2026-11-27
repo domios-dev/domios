@@ -2,8 +2,9 @@ import {hasExpiringCredits} from "./creditExpiry";
 import {uid} from "../../lib/uid";
 import {invoke} from "../../lib/bridge";
 import {DEV_BUILD} from "../../lib/devBuild";
-import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
+import {providerSupportsResetCredits, resetCreditsForTab, resolveResetCreditsTarget, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
+import {useAgentDescriptor} from "../../lib/useAgentDescriptor";
 import { accountRuntimeUsage, accountUsageSnapshot, ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
@@ -110,13 +111,26 @@ export function UsageBubble({
     };
   }, []);
   const tokenSession = runtime && (runtime.billing_mode === "api" || (runtime.token_usage != null && !hasQuota(active))) ? runtime : null;
-  const resetModel = tabId && !peerId ? resetCreditsForTab(tabId, uid, async (key, creditId) => {
-    const result = await invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key,...(creditId ? {creditId} : {})}});
+  const accountDescriptor = useAgentDescriptor(provider);
+  const resetTarget = resolveResetCreditsTarget({
+    tabId,
+    threadId,
+    peerId,
+    borrowedAccount,
+    accountReading,
+    providerSupportsResets: providerSupportsResetCredits(accountDescriptor),
+  });
+  const resetModel = resetTarget.tabId ? resetCreditsForTab(resetTarget.tabId, uid, async (key, creditId) => {
+    const targetTabId = resetTarget.tabId!;
+    const result = await invoke<ResetResponse>("agent_runtime_reset_credits", {tabId: targetTabId, request: {action: "redeem", confirmed: true, idempotencyKey: key, ...(creditId ? {creditId} : {})}});
     try {
-      await invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}});
-      const updated = await invoke<UsageSnapshot|null>("usage_latest", {provider,accountId:accountId ?? undefined, ...scopedUsageArgs(peerId)});
+      await invoke("agent_runtime_reset_credits", {tabId: targetTabId, request: {action: "read"}});
+      const updated = await invoke<UsageSnapshot|null>("usage_latest", {provider, accountId: accountId ?? undefined, ...scopedUsageArgs(peerId)});
       await refetch();
-      return {...result,remainingCount:ownRuntimeUsage(updated,tabId,threadId)?.resets?.availableCount ?? null};
+      const remaining = ownRuntimeUsage(updated, targetTabId, resetTarget.threadId)?.resets?.availableCount
+        ?? (borrowedAccount ? accountRuntimeUsage(updated)?.resets?.availableCount : null)
+        ?? null;
+      return {...result, remainingCount: remaining};
     } catch {
       return result;
     }
@@ -177,9 +191,8 @@ export function UsageBubble({
         ? "warn"
         : "neutral";
 
-  // A borrowing tab shows the account's resets read-only: redeeming acts on the native tab's runtime.
-  const resetSection = tabId && accountReading
-    ? <ResetCreditsSection resets={active.resets} model={borrowedAccount ? null : resetModel} />
+  const resetSection = tabId && (accountReading || active.resets)
+    ? <ResetCreditsSection resets={active.resets} model={resetModel} readOnlyReason={resetTarget.readOnlyReason} />
     : undefined;
 
   const refreshUsage = async () => {
@@ -223,8 +236,8 @@ export function UsageBubble({
         title={tokenSession ? runtimeTokenBreakdown(tokenSession) : undefined}
         onClick={(e) => {
           e.stopPropagation();
-          if (!open && runtime && tabId && !peerId) {
-            void invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}}).then(() => refetch()).catch((error: unknown) => {
+          if (!open && accountReading && resetTarget.tabId) {
+            void invoke("agent_runtime_reset_credits", {tabId: resetTarget.tabId, request: {action: "read"}}).then(() => refetch()).catch((error: unknown) => {
               if (DEV_BUILD) console.debug("Background reset credits refresh failed", error);
             });
           }

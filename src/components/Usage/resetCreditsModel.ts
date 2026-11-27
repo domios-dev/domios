@@ -1,6 +1,14 @@
 import type {ResetCredits, ResetCreditOutcome, ResetCredit} from "@codeterm/plugin-sdk";
+import type {ProviderDescriptor} from "../../lib/types";
+import type {RuntimeUsageProjection} from "../../types/usage";
 
 export interface ResetResponse {outcome: ResetCreditOutcome; remainingCount?: number|null}
+export interface ResetCreditsTarget {
+  tabId: string | null;
+  threadId: string | null;
+  readOnlyReason: string | null;
+}
+
 export class ResetCreditsModel {
   selectedCreditId: string | null = null;
   pendingCredit: ResetCredit | null = null;
@@ -21,6 +29,10 @@ export class ResetCreditsModel {
   private changed() {this.revision++; for (const listener of this.listeners) listener();}
 
   constructor(private uuid: () => string, private consume: (key: string, creditId?: string) => Promise<ResetResponse>) {}
+
+  setConsume(consume: (key: string, creditId?: string) => Promise<ResetResponse>): void {
+    if (!this.inFlight) this.consume = consume;
+  }
 
   select(resets: ResetCredits, creditId: string | null): void {
     if (this.busy || this.key || this.confirming || resetCreditsState(resets, creditId).disabled) return;
@@ -126,11 +138,48 @@ export const resetOutcomeLabels: Record<ResetCreditOutcome, string> = {
 
 const tabResets = new Map<string, ResetCreditsModel>();
 
+export function resetCountSummary(count: number): string {
+  return `${count} ${count === 1 ? "reset" : "resets"} available · the provider picks which one is used`;
+}
+
+export function providerSupportsResetCredits(descriptor: Pick<ProviderDescriptor, "agent_runtime"> | undefined): boolean {
+  return descriptor ? Boolean(descriptor.agent_runtime?.resetCreditsMinVersion) : true;
+}
+
+export function resolveResetCreditsTarget(params: {
+  tabId?: string;
+  threadId?: string | null;
+  peerId?: string | null;
+  borrowedAccount: boolean;
+  accountReading: RuntimeUsageProjection | null;
+  providerSupportsResets: boolean;
+}): ResetCreditsTarget {
+  if (params.peerId) {
+    return {tabId: null, threadId: null, readOnlyReason: "Use resets on the machine running this account."};
+  }
+  if (!params.providerSupportsResets) {
+    return {tabId: null, threadId: null, readOnlyReason: "This provider doesn’t support redeeming resets here."};
+  }
+  if (params.borrowedAccount) {
+    const ownerTabId = params.accountReading?.tab_id || null;
+    if (!ownerTabId) {
+      return {tabId: null, threadId: null, readOnlyReason: "Open a tab for this account to use resets."};
+    }
+    return {tabId: ownerTabId, threadId: params.accountReading?.thread_id ?? null, readOnlyReason: null};
+  }
+  if (!params.tabId) {
+    return {tabId: null, threadId: null, readOnlyReason: "Resets aren’t available from this view."};
+  }
+  return {tabId: params.tabId, threadId: params.threadId ?? null, readOnlyReason: null};
+}
+
 export function resetCreditsForTab(tabId: string, uuid: () => string, consume: (key: string, creditId?: string) => Promise<ResetResponse>): ResetCreditsModel {
   let entry = tabResets.get(tabId);
   if (!entry) {
     entry = new ResetCreditsModel(uuid, consume);
     tabResets.set(tabId, entry);
+  } else {
+    entry.setConsume(consume);
   }
   return entry;
 }

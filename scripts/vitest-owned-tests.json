@@ -501,5 +501,6 @@
   "src/components/WebPeerPicker/peerPickerModel.test.ts",
   "src/store/multiplexer/pairedWorkspaceProjection.test.ts",
   "packages/chat-core/src/toolRuns.test.ts",
-  "packages/chat-ui/src/toolcard/ToolRunCard.test.tsx"
+  "packages/chat-ui/src/toolcard/ToolRunCard.test.tsx",
+  "src/components/Usage/ResetCreditsSection.borrowed.test.tsx"
 ]

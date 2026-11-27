@@ -1012,7 +1012,7 @@
 
 .ct-usage-reset-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
 }
 .ct-usage-reset-label { font-size: 12px; font-weight: 600; color: var(--ct-fg); }
@@ -1021,6 +1021,34 @@
   font-family: var(--u-font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
+}
+.ct-usage-reset-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 99px;
+  border: 1px solid var(--u-overlay-2);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ct-muted-fg);
+  letter-spacing: 0.01em;
+}
+
+.ct-usage-reset-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ct-usage-reset-summary-text {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ct-usage-reset-count-line {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
 }
 
 .ct-usage-reset-list {
@@ -1059,6 +1087,29 @@
   color: var(--ct-muted-fg);
   font-family: var(--u-font-ui);
   font-size: 11px;
+}
+
+.ct-usage-reset-reason {
+  color: var(--ct-muted-fg);
+  font-family: var(--u-font-ui);
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+.ct-usage-reset-credits.is-readonly .ct-usage-reset-label {
+  color: var(--ct-muted-fg);
+}
+.ct-usage-reset-credits.is-readonly .ct-usage-reset-count {
+  opacity: 0.8;
+}
+.ct-usage-reset-credits.is-readonly .ct-usage-reset-row {
+  background: transparent;
+  border: 1px dashed var(--u-overlay-2);
+}
+.ct-usage-reset-credits.is-readonly .ct-usage-reset-name {
+  color: var(--ct-muted-fg);
+  font-weight: 500;
 }
 
 .ct-usage-reset-use {
