@@ -901,3 +901,157 @@ async fn discard_refuses_non_beforeunload_dialogs_non_owner_and_owner_take_contr
     assert!(activity.contains("https://dirty.test"), "{activity}");
     assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
 }
+
+#[tokio::test]
+async fn take_control_survives_interactive_reconnect_and_remount_without_claiming_size() {
+    use crate::surface::runtime::{AgentCloseMode, SurfaceRuntime};
+    use codeterm_browser::viewport::ViewportRequest;
+
+    let (root, runtime, _page, conn) = runtime_with_fake_page(DialogBehavior::Clean).await;
+    let runtime = std::sync::Arc::new(runtime);
+    let mut dialogs = runtime.shared.subscribe_dialogs();
+    conn.emit(
+        "Page.javascriptDialogOpening",
+        Some("ST1"),
+        json!({ "type": "beforeunload", "message": "Draft", "url": "https://dirty.test/reply" }),
+    );
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        dialogs.wait_for(|snapshot| snapshot.dialog.is_some()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let owner_ctx = call_ctx(root.path(), Some("tab-id"), Some("tab-id"), None);
+
+    // An unjoined viewer cannot record Take control.
+    let early = runtime
+        .view_call(
+            &owner_ctx,
+            "control.claim",
+            json!({ "viewer": "unjoined-viewer" }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(early.result["claimed"], false);
+    assert!(!runtime.owner_holds_control());
+
+    // First viewer establishes fixed viewport size without Take control.
+    runtime
+        .viewport
+        .lock()
+        .await
+        .join(
+            "desktop".into(),
+            ViewportRequest {
+                width: 1200.0,
+                height: 800.0,
+                dpr: 1.0,
+            },
+            false,
+        )
+        .unwrap();
+
+    // Remount while interactive opens the stream with interactive=true: claims control, not size.
+    let remount_stream = runtime
+        .clone()
+        .connect(
+            Some(ViewportRequest {
+                width: 640.0,
+                height: 480.0,
+                dpr: 1.0,
+            }),
+            Some("remount-viewer".into()),
+            None,
+            true,
+        )
+        .await;
+    assert_eq!(
+        runtime.viewport.lock().await.owner().as_deref(),
+        Some("desktop")
+    );
+    assert!(runtime.owner_holds_control());
+    match runtime
+        .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+        .await
+        .unwrap_err()
+    {
+        SurfaceError::Blocked(detail) => assert!(detail.contains("Take control"), "{detail}"),
+        other => panic!("expected Take control refusal on interactive remount, got {other:?}"),
+    }
+
+    // Stream drop clears the dropped generation; reconnect re-asserts control via size-less control.claim.
+    drop(remount_stream);
+    assert!(!runtime.owner_holds_control());
+
+    let reconnect_stream = runtime
+        .clone()
+        .connect(
+            Some(ViewportRequest {
+                width: 640.0,
+                height: 480.0,
+                dpr: 1.0,
+            }),
+            Some("remount-viewer".into()),
+            None,
+            false,
+        )
+        .await;
+    let reclaimed = runtime
+        .view_call(
+            &owner_ctx,
+            "control.claim",
+            json!({ "viewer": "remount-viewer" }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reclaimed.result["claimed"], true);
+    assert_eq!(
+        runtime.viewport.lock().await.owner().as_deref(),
+        Some("desktop")
+    );
+    assert!(runtime.owner_holds_control());
+    match runtime
+        .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+        .await
+        .unwrap_err()
+    {
+        SurfaceError::Blocked(detail) => assert!(detail.contains("Take control"), "{detail}"),
+        other => panic!("expected Take control refusal after reconnect, got {other:?}"),
+    }
+
+    drop(reconnect_stream);
+    assert!(!runtime.owner_holds_control());
+    let activity = runtime
+        .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+        .await
+        .unwrap()
+        .expect("discard succeeds once all interactive streams disconnect");
+    assert!(activity.contains("https://dirty.test"), "{activity}");
+    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+}
+
+#[tokio::test]
+async fn discard_without_open_dialog_still_records_owner_and_origin_activity() {
+    use crate::surface::runtime::{AgentCloseMode, SurfaceRuntime};
+
+    let (root, runtime, _page, conn) = runtime_with_fake_page(DialogBehavior::Clean).await;
+    runtime
+        .shared
+        .update(|state| state.url = "https://draft.test/editor?tab=1#hash".into());
+    let mut notices = runtime.shared.subscribe_notices();
+
+    let owner_ctx = call_ctx(root.path(), Some("tab-id"), Some("tab-id"), None);
+    let activity = runtime
+        .agent_close(&owner_ctx, AgentCloseMode::DiscardUnsaved)
+        .await
+        .unwrap()
+        .expect("discard must always record an activity line");
+    assert!(activity.contains("Orla"), "{activity}");
+    assert!(activity.contains("https://draft.test"), "{activity}");
+    assert!(!activity.contains("tab=1"), "{activity}");
+    assert_eq!(notices.try_recv().unwrap().text, activity);
+    assert_eq!(runtime.shared.state().activity, activity);
+    assert_eq!(conn.count("Page.handleJavaScriptDialog"), 0);
+}

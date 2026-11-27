@@ -47,7 +47,7 @@ Rules:
 
 Stop when `status` reports `needs human` other than `none`: captcha, login, consent, file picker, permission prompt or JS dialog. Agents never answer page dialogs (`alert`, `confirm`, `prompt`, `beforeunload`). Any open dialog fails verbs with `dialog: <type>`, sets `needs human: dialog`, and blocks `close` / profile switches; ask the user to resolve it via *Take control*, then re-snapshot.
 
-To abandon unsaved state when `beforeunload` blocks your own session, run `domios plugin browser close --discard-unsaved` — it tears down the session without answering any dialog and logs owner, origin and abandoned `beforeunload`. It refuses during *Take control*, with `--of`, or for `alert`/`confirm`/`prompt`/`auth` dialogs.
+To abandon unsaved state when `beforeunload` blocks your own session, run `domios plugin browser close --discard-unsaved` — it tears down the session without answering any dialog and logs owner and origin. It refuses during *Take control*, with `--of`, when siblings share the profile, or for `alert`/`confirm`/`prompt`/`auth` dialogs.
 
 ## User annotations
 

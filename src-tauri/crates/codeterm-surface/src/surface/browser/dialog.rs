@@ -283,28 +283,34 @@ impl BrowserRuntime {
         Self::check_discard_owner(ctx)?;
         self.check_discard_take_control()?;
         let abandoned = self.check_discard_dialog()?;
-        let activity = abandoned.map(|dialog| {
-            let state = self.shared.state();
-            let who = if state.owner.trim().is_empty() {
-                "agent"
-            } else {
-                state.owner.trim()
-            };
-            let origin = page_origin(&dialog.url, &state.url);
-            let line = format!(
-                "{who} discarded unsaved browser session on {origin} (abandoned beforeunload dialog)"
-            );
-            self.shared.set_activity(&line, None);
-            self.shared.notice(SurfaceNotice::info(&line));
-            log::debug!("[browser] {line}");
-            line
-        });
+        let state = self.shared.state();
+        let who = if state.owner.trim().is_empty() {
+            "agent"
+        } else {
+            state.owner.trim()
+        };
+        let origin = match &abandoned {
+            Some(dialog) => page_origin(&dialog.url, &state.url),
+            None => page_origin("", &state.url),
+        };
+        let detail = if abandoned.is_some() {
+            "abandoned beforeunload dialog"
+        } else {
+            "explicit discard; no active beforeunload dialog"
+        };
+        let line = format!("{who} discarded unsaved browser session on {origin} ({detail})");
+        let outcome = self
+            .host
+            .close_without_dialog_answer()
+            .await
+            .map_err(SurfaceError::Blocked)?;
+        codeterm_browser::process::termination::close_result(outcome)
+            .map_err(SurfaceError::TerminationFailed)?;
+        self.shared.set_activity(&line, None);
+        self.shared.notice(SurfaceNotice::info(&line));
+        log::debug!("[browser] {line}");
         self.shared.unbind();
-        codeterm_browser::process::termination::close_result(
-            self.host.close_without_dialog_answer().await,
-        )
-        .map_err(SurfaceError::TerminationFailed)?;
-        Ok(activity)
+        Ok(Some(line))
     }
 }
 

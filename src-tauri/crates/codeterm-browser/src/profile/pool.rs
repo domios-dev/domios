@@ -30,37 +30,17 @@ impl SharedBrowser {
     }
 
     async fn stop(&self, deadline: Duration, generation: u64) -> Option<CloseOutcome> {
-        self.stop_with(deadline, generation, false).await
-    }
-
-    async fn stop_with(
-        &self,
-        deadline: Duration,
-        generation: u64,
-        force_kill: bool,
-    ) -> Option<CloseOutcome> {
-        let outcome = if force_kill {
-            match &self.process {
-                Some(process) => Some(process.force_close().await),
-                None => None,
-            }
-        } else {
-            let close = async {
-                let _ = self.client.send("Browser.close", json!({})).await;
-            };
-            match &self.process {
-                Some(process) => Some(process.close_with(close, deadline).await),
-                None => {
-                    let _ = tokio::time::timeout(deadline, close).await;
-                    None
-                }
+        let close = async {
+            let _ = self.client.send("Browser.close", json!({})).await;
+        };
+        let outcome = match &self.process {
+            Some(process) => Some(process.close_with(close, deadline).await),
+            None => {
+                let _ = tokio::time::timeout(deadline, close).await;
+                None
             }
         };
-        self.client.close(if force_kill {
-            "shared browser discarded"
-        } else {
-            "shared browser stopped"
-        });
+        self.client.close("shared browser stopped");
         let confirmed_exit =
             self.process.is_none() || outcome.is_some_and(CloseOutcome::confirms_exit);
         if !self.profile.is_persistent() || super::instance::is_ephemeral(&self.dir).await {
@@ -225,22 +205,62 @@ impl ProfileLease {
     }
 
     pub(crate) async fn release(mut self, deadline: Duration) -> Option<CloseOutcome> {
-        let task = self.release_task(deadline, TargetClosePolicy::AllowBeforeUnloadAccept)?;
+        let task = self.release_task(deadline)?;
         task.await.ok().flatten()
     }
 
     pub(crate) async fn release_without_dialog_answer(
         mut self,
         deadline: Duration,
-    ) -> Option<CloseOutcome> {
-        let task = self.release_task(deadline, TargetClosePolicy::NeverAnswerDialog)?;
-        task.await.ok().flatten()
+    ) -> Result<Option<CloseOutcome>, (Self, String)> {
+        let Some(slot) = self.slot.clone() else {
+            return Ok(None);
+        };
+        let id = self.id;
+        let browser = self.browser.clone();
+        let mut model = slot.lock().await;
+        let same_browser = model
+            .handle()
+            .is_some_and(|current| Arc::ptr_eq(&current, &browser));
+        if same_browser && !browser.is_alive() {
+            let outcome = match model.retire() {
+                Some(retired) => retired.stop(deadline, model.generation()).await,
+                None => None,
+            };
+            self.slot = None;
+            self.target_id = None;
+            self.session_id = None;
+            return Ok(outcome);
+        }
+        if same_browser {
+            if let Some(target_id) = self.target_id.as_deref() {
+                if let Err(error) = discard_owned_target(
+                    &browser.client,
+                    target_id,
+                    self.session_id.as_deref(),
+                    model.has_other_leases(id),
+                    deadline,
+                )
+                .await
+                {
+                    drop(model);
+                    return Err((self, error));
+                }
+            }
+        }
+        let outcome = match model.release(id) {
+            Some(last) => last.stop(deadline, model.generation()).await,
+            None => None,
+        };
+        self.slot = None;
+        self.target_id = None;
+        self.session_id = None;
+        Ok(outcome)
     }
 
     fn release_task(
         &mut self,
         deadline: Duration,
-        policy: TargetClosePolicy,
     ) -> Option<tokio::task::JoinHandle<Option<CloseOutcome>>> {
         self.slot.as_ref()?;
         let executor = match tokio::runtime::Handle::try_current() {
@@ -269,47 +289,23 @@ impl ProfileLease {
                     return retired.stop(deadline, model.generation()).await;
                 }
             }
-            let mut force_process_teardown = false;
             if same_browser {
                 if let Some(target_id) = target_id {
-                    match policy {
-                        TargetClosePolicy::AllowBeforeUnloadAccept => {
-                            close_owned_target(
-                                &browser.client,
-                                &target_id,
-                                session_id.as_deref(),
-                                deadline,
-                            )
-                            .await;
-                        }
-                        TargetClosePolicy::NeverAnswerDialog => {
-                            force_process_teardown = discard_owned_target(
-                                &browser.client,
-                                &target_id,
-                                session_id.as_deref(),
-                                model.has_other_leases(id),
-                                deadline,
-                            )
-                            .await;
-                        }
-                    }
+                    close_owned_target(
+                        &browser.client,
+                        &target_id,
+                        session_id.as_deref(),
+                        deadline,
+                    )
+                    .await;
                 }
             }
             match model.release(id) {
-                Some(last) => {
-                    last.stop_with(deadline, model.generation(), force_process_teardown)
-                        .await
-                }
+                Some(last) => last.stop(deadline, model.generation()).await,
                 None => None,
             }
         }))
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TargetClosePolicy {
-    AllowBeforeUnloadAccept,
-    NeverAnswerDialog,
 }
 
 async fn target_still_open(client: &CdpClient, target_id: &str, deadline: Duration) -> bool {
@@ -380,7 +376,7 @@ async fn discard_owned_target(
     session_id: Option<&str>,
     has_siblings: bool,
     deadline: Duration,
-) -> bool {
+) -> Result<(), String> {
     if let Err(error) = client
         .send_to(
             None,
@@ -393,36 +389,48 @@ async fn discard_owned_target(
         log::debug!("[browser] discard target {target_id}: {error}");
     }
     if !target_still_open(client, target_id, deadline).await {
-        return false;
+        return Ok(());
     }
-    if !has_siblings {
-        return true;
+    // Page.crash terminates the whole renderer, which same-site siblings in a shared profile may share.
+    if has_siblings {
+        return Err(
+            "blocked: cannot discard beforeunload in a shared browser profile while sibling tabs are open; close other tabs using this profile or ask the user to use Take control"
+                .into(),
+        );
     }
-    // Shared profile: tear down only this page's renderer, never answering its dialog.
-    if let Some(session_id) = session_id {
-        if let Err(error) = client
-            .send_to(Some(session_id), "Page.crash", json!({}), deadline)
-            .await
-        {
-            log::debug!("[browser] crash discarded target {target_id}: {error}");
-        }
-        if let Err(error) = client
-            .send_to(
-                None,
-                "Target.closeTarget",
-                json!({ "targetId": target_id }),
-                deadline,
-            )
-            .await
-        {
-            log::debug!("[browser] retry discard target {target_id}: {error}");
-        }
+    let Some(session_id) = session_id else {
+        return Err(
+            "discard_failed: page target remained open and has no CDP session to tear down".into(),
+        );
+    };
+    if let Err(error) = client
+        .send_to(Some(session_id), "Page.crash", json!({}), deadline)
+        .await
+    {
+        log::debug!("[browser] crash discarded target {target_id}: {error}");
     }
-    false
+    if let Err(error) = client
+        .send_to(
+            None,
+            "Target.closeTarget",
+            json!({ "targetId": target_id }),
+            deadline,
+        )
+        .await
+    {
+        log::debug!("[browser] retry discard target {target_id}: {error}");
+    }
+    if target_still_open(client, target_id, deadline).await {
+        return Err(
+            "discard_failed: page target remained open after renderer crash without answering dialog"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 impl Drop for ProfileLease {
     fn drop(&mut self) {
-        self.release_task(CLOSE_DEADLINE, TargetClosePolicy::AllowBeforeUnloadAccept);
+        self.release_task(CLOSE_DEADLINE);
     }
 }

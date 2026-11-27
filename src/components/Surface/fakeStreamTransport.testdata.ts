@@ -12,6 +12,7 @@ type Responder = (args: Record<string, unknown>) => unknown;
 export interface FakeStreamTransport {
   transport: SurfaceStreamTransport;
   connections: StreamViewport[];
+  interactiveConnections: boolean[];
   calls: FakeCall[];
   disconnects(): number;
   connected(): boolean;
@@ -26,6 +27,7 @@ export interface FakeStreamTransport {
 
 export function createFakeStreamTransport(): FakeStreamTransport {
   const connections: StreamViewport[] = [];
+  const interactiveConnections: boolean[] = [];
   const calls: FakeCall[] = [];
   const responders = new Map<string, Responder>();
   let handlers: StreamHandlers | null = null;
@@ -38,9 +40,10 @@ export function createFakeStreamTransport(): FakeStreamTransport {
   };
 
   const transport: SurfaceStreamTransport = {
-    connect(params, next, identity) {
+    connect(params, next, identity, _viewerTarget, interactive) {
       viewer = identity;
       connections.push(params);
+      interactiveConnections.push(Boolean(interactive));
       handlers = next;
       return () => {
         if (handlers === next) handlers = null;
@@ -57,6 +60,7 @@ export function createFakeStreamTransport(): FakeStreamTransport {
   return {
     transport,
     connections,
+    interactiveConnections,
     viewer: () => viewer,
     calls,
     disconnects: () => disconnects,

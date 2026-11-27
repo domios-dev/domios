@@ -124,6 +124,7 @@ pub trait SurfaceRuntime: Send + Sync {
         viewport: Option<ViewportRequest>,
         viewer: Option<String>,
         viewer_target: Option<String>,
+        interactive: bool,
     ) -> SurfaceEvents;
     async fn call(
         &self,

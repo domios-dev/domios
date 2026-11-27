@@ -483,7 +483,7 @@ pub(super) async fn stop(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
 }
 
 #[cfg(test)]
-pub(super) async fn stop_discard(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
+pub(super) async fn stop_discard(runtime: &Arc<Runtime>) -> Result<Option<CloseOutcome>, String> {
     stop_without_dialog_answer(runtime, CLOSE_DEADLINE).await
 }
 
@@ -504,19 +504,25 @@ pub(super) async fn stop_within(runtime: Arc<Runtime>, deadline: Duration) -> Op
 }
 
 pub(super) async fn stop_without_dialog_answer(
-    runtime: Arc<Runtime>,
+    runtime: &Arc<Runtime>,
     deadline: Duration,
-) -> Option<CloseOutcome> {
+) -> Result<Option<CloseOutcome>, String> {
     let lease = runtime.lease.lock().take();
     match lease {
-        Some(lease) => lease.release_without_dialog_answer(deadline).await,
+        Some(lease) => match lease.release_without_dialog_answer(deadline).await {
+            Ok(outcome) => Ok(outcome),
+            Err((lease, error)) => {
+                *runtime.lease.lock() = Some(lease);
+                Err(error)
+            }
+        },
         None => {
             if matches!(runtime.mode, BrowserMode::Attached { .. }) {
                 runtime
                     .client
                     .close("attached browser disconnected by host");
             }
-            None
+            Ok(None)
         }
     }
 }

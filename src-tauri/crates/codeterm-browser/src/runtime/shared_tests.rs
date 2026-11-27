@@ -861,16 +861,18 @@ async fn discarding_beforeunload_target_tears_down_without_answering_dialog() {
         .beforeunload_targets
         .insert(only.page.target_id().to_string());
 
-    stop_discard(only).await;
+    stop_discard(&only).await.unwrap();
     assert_eq!(connection.count("Page.handleJavaScriptDialog"), 0);
-    assert_eq!(connection.count("Target.closeTarget"), 1);
+    assert_eq!(connection.count("Page.crash"), 1);
+    assert_eq!(connection.count("Target.closeTarget"), 2);
+    assert_eq!(connection.count("Browser.close"), 1);
+    assert!(connection.state.lock().targets.is_empty());
     assert!(connection.closed.borrow().is_some());
     assert!(!ProfileLease::leased_dirs().contains(&dir));
 }
 
 #[tokio::test]
-async fn discarding_shared_beforeunload_target_tears_down_page_without_dialog_answer_and_preserves_sibling()
-{
+async fn discarding_shared_beforeunload_target_refuses_without_crashing_sibling_or_dropping_lease() {
     let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
     let connection = FakeConnection::new();
     let launches = Arc::new(AtomicUsize::new(0));
@@ -890,16 +892,56 @@ async fn discarding_shared_beforeunload_target_tears_down_page_without_dialog_an
         .beforeunload_targets
         .insert(first.page.target_id().to_string());
 
-    stop_discard(first).await;
+    let error = stop_discard(&first).await.unwrap_err();
+    assert!(error.contains("shared browser profile"), "{error}");
     assert_eq!(connection.count("Page.handleJavaScriptDialog"), 0);
-    assert_eq!(connection.count("Page.crash"), 1);
+    assert_eq!(connection.count("Page.crash"), 0);
     assert_eq!(
         connection.state.lock().targets,
-        HashSet::from(["T2".to_string()])
+        HashSet::from(["T1".to_string(), "T2".to_string()])
     );
+    assert!(first.is_alive());
     assert!(second.is_alive());
+    assert!(ProfileLease::leased_dirs().contains(&dir));
 
     stop(second).await;
+    assert_eq!(
+        connection.state.lock().targets,
+        HashSet::from(["T1".to_string()])
+    );
+    // Once siblings close, the remaining sole lease can discard cleanly via Page.crash + Browser.close.
+    stop_discard(&first).await.unwrap();
+    assert_eq!(connection.count("Page.handleJavaScriptDialog"), 0);
+    assert_eq!(connection.count("Page.crash"), 1);
+    assert_eq!(connection.count("Browser.close"), 1);
     assert!(connection.state.lock().targets.is_empty());
+    assert!(!ProfileLease::leased_dirs().contains(&dir));
+}
+
+#[tokio::test]
+async fn discarding_target_that_stays_open_keeps_lease_and_returns_error() {
+    let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
+    let connection = FakeConnection::new();
+    let launches = Arc::new(AtomicUsize::new(0));
+
+    let only = acquire(dir.clone(), connection.clone(), launches).await;
+    let only = Arc::new(from_lease(only, Viewport::default(), hub()).await.unwrap());
+    connection
+        .state
+        .lock()
+        .beforeunload_targets
+        .insert(only.page.target_id().to_string());
+    // Dropping the lease's session_id simulates a target that cannot be crashed.
+    only.lease.lock().as_mut().unwrap().session_id = None;
+
+    let error = stop_discard(&only).await.unwrap_err();
+    assert!(error.contains("discard_failed"), "{error}");
+    assert_eq!(connection.count("Page.handleJavaScriptDialog"), 0);
+    assert_eq!(connection.count("Browser.close"), 0);
+    assert!(only.lease.lock().is_some());
+    assert!(ProfileLease::leased_dirs().contains(&dir));
+
+    // Clean teardown restores everything.
+    stop(only).await;
     assert!(!ProfileLease::leased_dirs().contains(&dir));
 }

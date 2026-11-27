@@ -113,6 +113,17 @@ impl BrowserRuntime {
                 }
                 json!({ "owner": model.owner() })
             }
+            "control.claim" => {
+                let viewer: ViewerArgs = parse(method, args)?;
+                let model = self.viewport.lock().await;
+                let claimed = if let Some(generation) = model.viewer_generation(&viewer.viewer) {
+                    self.claim_control(&viewer.viewer, generation);
+                    true
+                } else {
+                    false
+                };
+                json!({ "claimed": claimed })
+            }
             "control.release" => {
                 let viewer: ViewerArgs = parse(method, args)?;
                 self.release_control(&viewer.viewer);

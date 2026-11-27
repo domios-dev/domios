@@ -634,6 +634,37 @@ suite.test("remounting an interactive viewer does not claim size", async () => {
   await resizeStages(640, 480);
   await act(async () => fake.emitOpen());
   assert.deepEqual(fake.callsTo("viewport.claim"), []);
+  assert.deepEqual(fake.interactiveConnections, [true]);
+  assert.deepEqual(fake.callsTo("control.claim").map(call => call.args), [{ viewer: fake.viewer() }]);
+  await unmount();
+  surfaceControlStore.set(SURFACE_TAB, false);
+});
+
+suite.test("stream reconnect and tab return re-assert Take control without claiming size", async () => {
+  const fake = createFakeStreamTransport();
+  const props = { transport: fake.transport, chrome: BROWSER_SURFACE_CHROME, surfaceTitle: BROWSER_SURFACE_TITLE, initialState: state, surfaceTabId: SURFACE_TAB, decode };
+  const { host, root, unmount } = await render(<StreamSurfaceView {...props} visible />);
+  await resizeStages(640, 480);
+  await act(async () => fake.emitOpen());
+  assert.deepEqual(fake.callsTo("control.claim"), []);
+
+  await act(async () => getByRole(host, "button", "Take control").click());
+  assert.equal(fake.callsTo("viewport.claim").length, 1);
+
+  // Stream blip reconnects and fires open again while interactive.
+  await act(async () => fake.emitOpen());
+  assert.equal(fake.callsTo("viewport.claim").length, 1);
+  assert.deepEqual(fake.callsTo("control.claim").map(call => call.args), [{ viewer: fake.viewer() }]);
+
+  // Hiding and re-showing reconnects with interactive=true and re-asserts control.claim on open.
+  await act(async () => root.render(<StreamSurfaceView {...props} visible={false} />));
+  await act(async () => root.render(<StreamSurfaceView {...props} visible />));
+  await resizeStages(640, 480);
+  await act(async () => fake.emitOpen());
+  assert.equal(fake.callsTo("viewport.claim").length, 1);
+  assert.deepEqual(fake.interactiveConnections, [false, true]);
+  assert.equal(fake.callsTo("control.claim").length, 2);
+
   await unmount();
   surfaceControlStore.set(SURFACE_TAB, false);
 });

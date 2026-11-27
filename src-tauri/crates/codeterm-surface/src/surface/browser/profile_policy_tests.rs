@@ -20,6 +20,7 @@ async fn agent_browser_defaults_to_temporary_and_rejects_missing_profiles() {
             "profiles.create",
             "profiles.delete",
             "viewport.claim",
+            "control.claim",
             "control.release"
         ]
     );

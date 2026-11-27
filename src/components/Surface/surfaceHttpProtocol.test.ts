@@ -111,3 +111,6 @@ assert.deepEqual(ownedState, { type: "state", state: { owner: "agent", viewportO
 const viewerUrl = surfaceStreamUrl("http://localhost:7797", "surface", { w: 640, h: 480, dpr: 1 }, "peer", "viewer-1", "page-1");
 assert.ok(new URL(viewerUrl).searchParams.get("path")?.includes("viewer=viewer-1"), "relayed streams retain the viewer identity");
 assert.ok(new URL(viewerUrl).searchParams.get("path")?.includes("viewer_target=page-1"), "the page context reaches the host through the relay");
+assert.ok(!new URL(viewerUrl).searchParams.get("path")?.includes("interactive="), "watch-only streams omit interactive");
+const interactiveUrl = surfaceStreamUrl("http://localhost:7797", "surface", { w: 640, h: 480, dpr: 1 }, undefined, "viewer-1", undefined, true);
+assert.equal(new URL(interactiveUrl).searchParams.get("interactive"), "true", "interactive streams assert Take control on open");

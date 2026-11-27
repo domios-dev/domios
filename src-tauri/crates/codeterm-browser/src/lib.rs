@@ -167,18 +167,10 @@ impl BrowserHost {
     }
 
     async fn stop_current(&self) -> Option<CloseOutcome> {
-        self.stop_current_with(CLOSE_DEADLINE, false).await
+        self.stop_current_within(CLOSE_DEADLINE).await
     }
 
     async fn stop_current_within(&self, graceful: Duration) -> Option<CloseOutcome> {
-        self.stop_current_with(graceful, false).await
-    }
-
-    async fn stop_current_with(
-        &self,
-        graceful: Duration,
-        without_dialog_answer: bool,
-    ) -> Option<CloseOutcome> {
         let pending = self.pending_termination.lock().clone();
         if let Some(process) = pending {
             return match process.exit_status() {
@@ -193,11 +185,7 @@ impl BrowserHost {
         match previous {
             Some(runtime) => {
                 let process = runtime.process.clone();
-                let outcome = if without_dialog_answer {
-                    runtime::stop_without_dialog_answer(runtime, graceful).await
-                } else {
-                    runtime::stop_within(runtime, graceful).await
-                };
+                let outcome = runtime::stop_within(runtime, graceful).await;
                 if outcome == Some(CloseOutcome::Killed(None)) {
                     *self.pending_termination.lock() = process;
                 }
@@ -296,10 +284,37 @@ impl BrowserHost {
     }
 
     /// Agent discard teardown: closes the target or process without ever answering a JS dialog.
-    pub async fn close_without_dialog_answer(&self) -> Option<CloseOutcome> {
+    pub async fn close_without_dialog_answer(&self) -> Result<Option<CloseOutcome>, String> {
         let _lifecycle = self.lifecycle.lock().await;
         self.launch_error.lock().take();
-        self.stop_current_with(CLOSE_DEADLINE, true).await
+        let pending = self.pending_termination.lock().clone();
+        if let Some(process) = pending {
+            return Ok(match process.exit_status() {
+                Some(exit) => {
+                    self.pending_termination.lock().take();
+                    Some(CloseOutcome::AlreadyExited(exit))
+                }
+                None => Some(CloseOutcome::Killed(None)),
+            });
+        }
+        let Some(runtime) = self.current() else {
+            return Ok(None);
+        };
+        let process = runtime.process.clone();
+        let outcome = runtime::stop_without_dialog_answer(&runtime, CLOSE_DEADLINE).await?;
+        {
+            let mut slot = self.runtime.lock();
+            if slot
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &runtime))
+            {
+                slot.take();
+            }
+        }
+        if outcome == Some(CloseOutcome::Killed(None)) {
+            *self.pending_termination.lock() = process;
+        }
+        Ok(outcome)
     }
 
     /// Owner or Team teardown: close the browser and end every frame subscription.

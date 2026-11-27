@@ -79,10 +79,10 @@ const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable='true']";
 type ProfilesResult = import("../../../gen/ProfilesResult").ProfilesResult;
 
 export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, openExternal = openInNewTab, clipboard }: StreamSurfaceViewProps) {
-  const stream = useSurfaceStream(transport, initialState, visible);
+  const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
+  const stream = useSurfaceStream(transport, initialState, visible, interactive);
   const { notice, setNotice } = stream;
   const state = withOwner(stream.state, ownerName);
-  const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
   const [inputFailure, setInputFailure] = useState<string | null>(null);
   const wasInteractive = useRef(interactive);
   useEffect(() => {

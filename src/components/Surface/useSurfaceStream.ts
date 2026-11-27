@@ -28,13 +28,15 @@ interface Connection {
   latest: StreamViewport | null;
 }
 
-export function useSurfaceStream(transport: SurfaceStreamTransport, initialState: SurfaceState, visible = true): SurfaceStream {
+export function useSurfaceStream(transport: SurfaceStreamTransport, initialState: SurfaceState, visible = true, interactive = false): SurfaceStream {
   const [state, setState] = useState<SurfaceState>(initialState);
   const [notice, setNotice] = useState<SurfaceNotice | null>(null);
   const [paused, setPaused] = useState<SurfaceNotice | null>(null);
   const [unavailable, setUnavailable] = useState<SurfaceNotice | null>(null);
   const unavailableRef = useRef(false);
   const pausedRef = useRef(false);
+  const interactiveRef = useRef(interactive);
+  interactiveRef.current = interactive;
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null });
   const [viewer] = useState(() => crypto.randomUUID());
   const [feed] = useState(() => createFrameFeed());
@@ -81,8 +83,12 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
         pausedRef.current = true;
         setPaused(next);
       },
-      open: () => undefined,
-    }, viewer, browserViewerTarget());
+      open: () => {
+        if (interactiveRef.current) {
+          void transport.invoke("control.claim", { viewer }).catch(() => undefined);
+        }
+      },
+    }, viewer, browserViewerTarget(), interactiveRef.current);
   }, [transport, feed, viewer]);
 
   useEffect(() => {

@@ -530,6 +530,7 @@ impl SurfaceRuntime for BrowserRuntime {
             "profiles.create",
             "profiles.delete",
             "viewport.claim",
+            "control.claim",
             "control.release",
         ]
     }
@@ -548,8 +549,9 @@ impl SurfaceRuntime for BrowserRuntime {
         viewport: Option<ViewportRequest>,
         viewer: Option<String>,
         viewer_target: Option<String>,
+        interactive: bool,
     ) -> SurfaceEvents {
-        stream::connect(self, viewport, viewer, viewer_target).await
+        stream::connect(self, viewport, viewer, viewer_target, interactive).await
     }
 
     async fn call(

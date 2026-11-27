@@ -126,6 +126,8 @@ pub(crate) struct StreamQuery {
     h: Option<f64>,
     #[serde(default)]
     dpr: Option<f64>,
+    #[serde(default)]
+    interactive: bool,
 }
 
 /// The viewer's CSS size and DPR; absent when the viewer sent no size.
@@ -151,6 +153,7 @@ pub(crate) async fn stream(
         stream_viewport(&query),
         query.viewer,
         query.viewer_target,
+        query.interactive,
     )
     .await
     .map_err(surface_refusal)?;

@@ -29,7 +29,7 @@ export interface StreamHandlers {
 export type Disconnect = () => void;
 
 export interface SurfaceStreamTransport {
-  connect(params: StreamViewport, handlers: StreamHandlers, viewer?: string, viewerTarget?: string): Disconnect;
+  connect(params: StreamViewport, handlers: StreamHandlers, viewer?: string, viewerTarget?: string, interactive?: boolean): Disconnect;
   invoke<T = unknown>(method: string, args?: Record<string, unknown>): Promise<T>;
 }
 
