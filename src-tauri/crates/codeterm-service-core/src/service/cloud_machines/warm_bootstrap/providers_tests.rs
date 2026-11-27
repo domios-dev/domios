@@ -250,3 +250,132 @@ module.exports = {
     assert!(bad_binding.is_err());
     drop(_guard);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prepare_stop_prepare_reuses_single_dedicated_signin_tab() {
+    const PROVIDER: &str = "opaque-runtime-stop-fixture";
+    const SOURCE: &str = r#"
+module.exports = {
+  runtimePlan(ctx, op) {
+    return { action: { kind: 'request', call: { method: 'opaque/init', params: op } }, state: null };
+  },
+  runtimeResponse(ctx, op, state, reply) {
+    return { kind: 'complete', result: { kind: 'done' } };
+  },
+  runtimeReduce(ctx, state, frames) { return { state: null, events: [] }; }
+};
+"#;
+
+    let (mux, _initial) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let manifest = PluginManifest::from_json_str(
+        &serde_json::json!({
+            "id": PROVIDER,
+            "version": "1.0.0",
+            "displayName": "Opaque Stop Fixture",
+            "capabilities": {
+                "agentProvider": true,
+                "chatBackend": { "spawnable": true, "sessionConfig": true, "agentTasks": true },
+                "agentRuntime": {
+                    "runtime": "stdio-jsonrpc",
+                    "command": { "binary": "opaque-cli", "args": [] },
+                    "login": { "methods": ["browser", "device"] },
+                    "requestMethods": {
+                        "control": ["opaque/control"],
+                        "initialize": ["opaque/init"],
+                        "openThread": ["opaque/open"],
+                        "resumeThread": ["opaque/resume"],
+                        "submitTurn": ["opaque/submit"]
+                    },
+                    "notificationMethods": []
+                }
+            },
+            "permissions": { "subprocess": { "allow": ["opaque-cli"] } }
+        })
+        .to_string(),
+    )
+    .expect("manifest");
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(PROVIDER, SOURCE.into()).expect("vm")),
+        )));
+
+    let request = PrepareProviderSignInRequest {
+        provider_id: Some(PROVIDER.into()),
+        profile_id: None,
+    };
+    let first = prepare_provider_signin_tabs(
+        &fixture.service,
+        &[PROVIDER.into()],
+        &[],
+        &request,
+        Some("peer-cloud-1"),
+    );
+    let tab_id_1 = first.providers[0].tab_id.clone().expect("first tab_id");
+    let tab_1 = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id_1)
+        .expect("first tab")
+        .clone();
+    let nonce_1 = tab_1.session_binding_nonce.clone().expect("first nonce");
+    assert!(runtime_authority::verifies(
+        &fixture.service,
+        &tab_id_1,
+        PROVIDER,
+        &nonce_1
+    ));
+
+    // Attach a live runtime and then stop it so authority is revoked.
+    let adapter = fixture
+        .service
+        .agent_registry
+        .provider_arc(PROVIDER)
+        .expect("adapter");
+    let (_peer, _guard) = signed_out_runtime(&tab_1, adapter);
+    crate::service::agent_runtime::engine::stop(&fixture.service, &tab_id_1)
+        .await
+        .expect("stop runtime");
+    assert!(!runtime_authority::verifies(
+        &fixture.service,
+        &tab_id_1,
+        PROVIDER,
+        &nonce_1
+    ));
+
+    // Re-preparing must reuse the single dedicated sign-in tab with a rotated nonce and fresh authority.
+    let second = prepare_provider_signin_tabs(
+        &fixture.service,
+        &[PROVIDER.into()],
+        &[],
+        &request,
+        Some("peer-cloud-1"),
+    );
+    let tab_id_2 = second.providers[0].tab_id.clone().expect("second tab_id");
+    assert_eq!(tab_id_2, tab_id_1);
+
+    let (dedicated_count, nonce_2) = {
+        let mux = fixture.service.mux.read();
+        let count = mux
+            .all_tabs()
+            .filter(|tab| tab.description.as_deref() == Some("domios:cloud-provider-sign-in"))
+            .count();
+        let nonce = mux
+            .get_tab(&tab_id_2)
+            .and_then(|tab| tab.session_binding_nonce.clone())
+            .expect("rotated nonce");
+        (count, nonce)
+    };
+    assert_eq!(dedicated_count, 1);
+    assert_ne!(nonce_2, nonce_1);
+    assert!(runtime_authority::verifies(
+        &fixture.service,
+        &tab_id_2,
+        PROVIDER,
+        &nonce_2
+    ));
+}

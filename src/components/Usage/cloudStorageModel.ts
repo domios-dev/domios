@@ -132,6 +132,19 @@ export function validateOwnerVolumeUpgrade(
   return { ok: true, newSizeGb: requestedGb };
 }
 
+export function findMachineStorageEntry(
+  entries: readonly CloudMachineStorageUsageWire[] | null | undefined,
+  machine: { machine_id: string; name: string },
+): CloudMachineStorageUsageWire | undefined {
+  if (!entries?.length) return undefined;
+  const byId = entries.find((item) => item.machine_id === machine.machine_id);
+  if (byId) return byId;
+  const name = machine.name.trim();
+  if (!name) return undefined;
+  const byName = entries.filter((item) => item.name?.trim() === name);
+  return byName.length === 1 ? byName[0] : undefined;
+}
+
 export function projectCloudStorageMeter(
   summary: CloudStorageUsageSummaryWire,
   currency = "USD",

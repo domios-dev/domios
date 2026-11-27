@@ -15,6 +15,7 @@ import type { MeshTarget } from "./accountMeshClient";
 import { ACCESS_LABELS } from "./MachineFooter";
 import type { CanvasAccount } from "./MeshCanvas";
 import type { MeshCollapsedGroupOverrides } from "./meshViewModeModel";
+import { findMachineStorageEntry } from "../Usage/cloudStorageModel";
 import { privateNetworkLabel, type TailscaleState } from "./tailscaleSetup";
 import type { PeerStatus } from "./useMeshData";
 
@@ -345,11 +346,7 @@ export function projectMeshMachineRows({
     const view = cloudMachineCardView(machine, cloudUsage);
     const sizeOption = sizeCatalog.find((entry) => entry.id === machine.size);
     const preparing = view.state === "creating" || view.state === "enrolling";
-    const machineStorage = cloudUsage?.storage?.machines.find(
-      (entry) =>
-        entry.machine_id === machine.machine_id ||
-        (entry.name != null && entry.name.trim() === machine.name),
-    );
+    const machineStorage = findMachineStorageEntry(cloudUsage?.storage?.machines, machine);
     // Cloud rows must use the cloud machine's own activity/creation timestamps, never the owner's account auth_time.
     const seenCandidates = [
       lastSeenMs(matchedPeer?.last_seen),

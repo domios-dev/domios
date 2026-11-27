@@ -48,6 +48,40 @@ it("pins selection and hides API tabs without changing their ids or workspace me
   expect(firstRunSelection(true, { ...state, tabs: { api } }).focused_tab_id).toBeNull();
 });
 
+it("excludes remote first-run Main viewers from local firstRunSelection and firstRunSidebarTabs", () => {
+  const remoteFirstRun: Tab = {
+    ...home,
+    id: "mesh:peer-cloud-1/main",
+    title: "Main",
+    remote_peer_id: "peer-cloud-1",
+    remote_tab_id: "main",
+  };
+  const wsWithRemoteFirst: Workspace = {
+    ...workspace,
+    tabs: [remoteFirstRun.id, home.id],
+    active_tab_id: remoteFirstRun.id,
+  };
+  const state = {
+    workspaces: [wsWithRemoteFirst],
+    tabs: { [remoteFirstRun.id]: remoteFirstRun, [home.id]: home },
+    active_workspace_id: wsWithRemoteFirst.id,
+    activeTabIds: { general: remoteFirstRun.id },
+    focused_tab_id: remoteFirstRun.id,
+  };
+  const pinned = firstRunSelection(true, state);
+  expect(pinned.focused_tab_id).toBe(home.id);
+  expect(Object.keys(firstRunSidebarTabs(true, state.tabs))).toEqual([home.id]);
+
+  // When only a remote first-run viewer is present, it must never become the local picker home tab.
+  const remoteOnly = firstRunSelection(true, {
+    ...state,
+    workspaces: [{ ...workspace, tabs: [remoteFirstRun.id], active_tab_id: remoteFirstRun.id }],
+    tabs: { [remoteFirstRun.id]: remoteFirstRun },
+  });
+  expect(remoteOnly.focused_tab_id).toBeNull();
+  expect(Object.keys(firstRunSidebarTabs(true, { [remoteFirstRun.id]: remoteFirstRun }))).toEqual([]);
+});
+
 it("places only the first-run tab and actual General role in the General card", () => {
   expect(isGeneralSectionTab(home)).toBe(true);
   expect(isGeneralSectionTab(api)).toBe(false);

@@ -239,4 +239,69 @@ describe("meshMachineListModel", () => {
     expect(cloudRow?.lastSeenMs).toBe(sixHoursAgoMs);
     expect(cloudRow?.lastSeenMs).not.toBe(sevenDaysAgoSec * 1000);
   });
+
+  it("matches storage timestamps by machine_id and does not swap when two cloud machines share a name", () => {
+    const olderStoppedSec = NOW - 5 * 3600;
+    const newerStoppedSec = NOW - 1 * 3600;
+    const rows = projectMeshMachineRows({
+      thisMachine: { name: "Studio", ip: "127.0.0.1" },
+      peers: [],
+      cloudMachines: [
+        makeCloud("cm-dup-a", "fly-dup", "asleep"),
+        makeCloud("cm-dup-b", "fly-dup", "asleep"),
+        makeCloud("cm-dup-unmatched", "fly-dup", "asleep"),
+      ],
+      cloudUsage: {
+        used: 1,
+        allowance: 10,
+        purchased: 0,
+        remaining: 9,
+        cap: 10,
+        burn_per_size: { small: 1 },
+        storage: {
+          hot_gb_month_rate_cents: 30,
+          hot_days: 1,
+          purge_days: 90,
+          purge_warning_days: [7, 1],
+          cold_archive_included: true,
+          total_allocated_gb: 20,
+          total_used_bytes: 0,
+          total_hot_monthly_cost_cents: 600,
+          machines: [
+            {
+              machine_id: "cm-dup-a",
+              name: "fly-dup",
+              tier: "hot",
+              allocated_gb: 10,
+              hot_monthly_cost_cents: 300,
+              hot_accrued_cents: 0,
+              cold_included: true,
+              stopped_at: olderStoppedSec,
+              archive_generation: 1,
+              disk_full: false,
+              volume_upgrade_max_gb: 500,
+            },
+            {
+              machine_id: "cm-dup-b",
+              name: "fly-dup",
+              tier: "hot",
+              allocated_gb: 10,
+              hot_monthly_cost_cents: 300,
+              hot_accrued_cents: 0,
+              cold_included: true,
+              stopped_at: newerStoppedSec,
+              archive_generation: 1,
+              disk_full: false,
+              volume_upgrade_max_gb: 500,
+            },
+          ],
+        },
+      },
+      localVersion: "1.24.0",
+    });
+
+    expect(rows.find((r) => r.id === "cloud:cm-dup-a")?.lastSeenMs).toBe(olderStoppedSec * 1000);
+    expect(rows.find((r) => r.id === "cloud:cm-dup-b")?.lastSeenMs).toBe(newerStoppedSec * 1000);
+    expect(rows.find((r) => r.id === "cloud:cm-dup-unmatched")?.lastSeenMs).toBeNull();
+  });
 });

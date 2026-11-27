@@ -10,7 +10,7 @@ import type {
   CloudReceipt,
   CloudUsagePayload,
 } from "../../lib/cloudMachines/types";
-import { formatAutoArchiveLabel, storageTierLabel } from "../Usage/cloudStorageModel";
+import { findMachineStorageEntry, formatAutoArchiveLabel, storageTierLabel } from "../Usage/cloudStorageModel";
 import { BusyState } from "../shared/BusyState";
 import { Button } from "../shared/Button";
 import { UI_PANEL } from "../shared/design";
@@ -72,11 +72,7 @@ export function CloudMachineDrawer({
   const isAsleep = view.state === "asleep";
   const isOutOfCredits = view.state === "out_of_credits";
   const isWaking = view.state === "waking" || view.state === "creating" || view.state === "enrolling";
-  const machineStorage = usage?.storage?.machines.find(
-    (item) =>
-      item.machine_id === machine.machine_id ||
-      (item.name != null && item.name.trim() === machine.name),
-  );
+  const machineStorage = findMachineStorageEntry(usage?.storage?.machines, machine);
   const rawStorageTier = machineStorage?.tier ?? machine.storage_tier ?? "hot";
   const isArchived = rawStorageTier === "cold" || rawStorageTier === "recoverable_deleted";
   const isEvicting = rawStorageTier === "evicting";

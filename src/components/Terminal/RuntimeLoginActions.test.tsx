@@ -1,8 +1,9 @@
-import {act} from "react";
+import {act, useState} from "react";
 import {createRoot} from "react-dom/client";
 import {expect,it,vi} from "vitest";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import {RuntimeLoginActions} from "./RuntimeLoginActions";
+import {mergeRemoteRuntimeLoginReply} from "../../lib/cloudBootstrap/model";
 import {runtimeStateFromSnapshot} from "../../lib/agentRuntimeState";
 import type {AgentRuntimeState} from "../../lib/agentRuntimeState";
 const bridge=vi.hoisted(()=>({invoke:vi.fn(),openUrl:vi.fn()}));
@@ -368,6 +369,97 @@ it("shows uncertain status on remote code submission uncertainty and prevents re
     expect(host.querySelector('form[aria-label="Sign-in code"]')).toBeNull();
     expect(bridge.invoke).toHaveBeenCalledTimes(1);
     expect(host.textContent).not.toContain("secret-uncertain-code");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("preserves uncertain and refused code reasons when a remote card merges updated loginBinding and epoch", async () => {
+  const remoteTabId = "mesh:opaque-peer/tab-remote-code";
+  function StatefulRemoteCard({ initial }: { initial: AgentRuntimeState }) {
+    const [state, setState] = useState(initial);
+    return (
+      <RuntimeLoginActions
+        tabId={remoteTabId}
+        providerId="opaque-provider"
+        state={state}
+        onLoginReply={(reply) => setState((prev) => mergeRemoteRuntimeLoginReply(prev, reply))}
+      />
+    );
+  }
+  const baseState: AgentRuntimeState = {
+    state: "loginPending",
+    epoch: 1,
+    auth: "signedOut",
+    loginCodeInput: true,
+    loginProviderName: "Opaque Provider",
+    loginBinding: {
+      installationId: "opaque-peer",
+      tabId: "tab-remote-code",
+      providerId: "opaque-provider",
+      nonce: "nonce-1",
+      epoch: 1,
+    },
+    login: {
+      status: "pending",
+      loginId: "opaque-flow-20",
+      method: "browser",
+      url: "https://example.invalid/opaque-login",
+    },
+  };
+
+  // 1. Uncertain outcome with changed nonce/epoch keeps uncertain status + reason and locks replay.
+  bridge.invoke.mockReset();
+  bridge.invoke.mockResolvedValue({
+    outcome: "uncertain",
+    reason: "Flush unconfirmed",
+    login: baseState.login,
+    loginBinding: { ...baseState.loginBinding, nonce: "nonce-2", epoch: 2 },
+  });
+  let host = document.createElement("div");
+  let root = createRoot(host);
+  try {
+    await act(async () => root.render(<StatefulRemoteCard initial={baseState} />));
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Sign-in code"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "opaque-secret-1");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      host.querySelector('form[aria-label="Sign-in code"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
+    const status = host.querySelector('output[aria-label="Sign-in status"]');
+    expect(status?.getAttribute("data-login-status")).toBe("uncertain");
+    expect(status?.textContent).toContain("Flush unconfirmed");
+    expect(host.querySelector('form[aria-label="Sign-in code"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+
+  // 2. Refused outcome with changed nonce/epoch keeps refused reason visible.
+  bridge.invoke.mockReset();
+  bridge.invoke.mockResolvedValue({
+    outcome: "refused",
+    reason: "Invalid verification code",
+    login: baseState.login,
+    loginBinding: { ...baseState.loginBinding, nonce: "nonce-3", epoch: 3 },
+  });
+  host = document.createElement("div");
+  root = createRoot(host);
+  try {
+    await act(async () => root.render(<StatefulRemoteCard initial={baseState} />));
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Sign-in code"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "opaque-secret-2");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      host.querySelector('form[aria-label="Sign-in code"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
+    const status = host.querySelector('output[aria-label="Sign-in status"]');
+    expect(status?.getAttribute("data-login-status")).toBe("pending");
+    expect(host.textContent).toContain("Invalid verification code");
+    expect(host.querySelector('form[aria-label="Sign-in code"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

@@ -99,7 +99,6 @@ export function useRuntimeLogin(
       const result=await invoke<RuntimeLoginReply>("agent_runtime_login",{tabId,request:{...request,...(providerId ? {providerId} : {}),
         ...(binding ? {binding} : {}),
         ...(request.action && loginId ? {loginId} : {})}});
-      if (owns()) onResult?.(result);
       if (owns() && isCode && loginId) {
         const secret = request.code;
         const sanitize = (text?: string) => text && secret ? text.replaceAll(secret, "<redacted>") : text;
@@ -112,11 +111,13 @@ export function useRuntimeLogin(
           submittedLoginIds.current.delete(loginId);
           setCodeState({ loginId, status: "refused", reason });
           setError(reason);
+          onResult?.(result);
           return false;
         } else {
           setCodeState({ loginId, status: "accepted" });
         }
       }
+      if (owns()) onResult?.(result);
       if (owns() && !request.action && (request.method === "browser" || request.methodId) && result.login?.url && !tabId.startsWith("mesh:")) await nativeBridge.openUrl(result.login.url);
       return owns();
     } catch (failure) {if(owns()) {

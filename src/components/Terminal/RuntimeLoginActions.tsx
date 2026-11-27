@@ -53,7 +53,12 @@ interface RuntimeLoginActionsProps {
 
 export function RuntimeLoginActions(props: RuntimeLoginActionsProps) {
   if (runtimeSignedIn(props.state)) return null;
-  return <RuntimeLoginContext key={JSON.stringify([props.tabId,props.providerId,props.state.loginBinding?.nonce,props.state.epoch])} {...props} />;
+  const remote = props.tabId.startsWith("mesh:");
+  // Detached remote cards merge live loginBinding/epoch replies in place; keep those out of the key so codeState survives.
+  const contextKey = remote
+    ? JSON.stringify([props.tabId, props.providerId])
+    : JSON.stringify([props.tabId, props.providerId, props.state.loginBinding?.nonce, props.state.epoch]);
+  return <RuntimeLoginContext key={contextKey} {...props} />;
 }
 
 function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, variant = "inline", title: customTitle, hint: customHint,actions:customActions,onCancel,onLoginReply }: RuntimeLoginActionsProps) {
