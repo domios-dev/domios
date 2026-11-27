@@ -14,7 +14,26 @@ use crate::service::agent_runtime::{
 use crate::service::test_fixture::ServiceFixture;
 
 use super::providers::prepare_provider_signin_tabs;
-use super::types::{PrepareProviderSignInRequest, ProviderSignInState};
+use super::types::{
+    PrepareProviderSignInRequest, PrepareProviderSignInResponse, ProviderSignInState,
+};
+
+// Production calls prepare from spawn_blocking; tests leave the async worker the same way.
+fn prepare_signin_blocking(
+    service: &crate::service::ServiceContext,
+    provider: &str,
+    request: &PrepareProviderSignInRequest,
+) -> PrepareProviderSignInResponse {
+    tokio::task::block_in_place(|| {
+        prepare_provider_signin_tabs(
+            service,
+            &[provider.into()],
+            &[],
+            request,
+            Some("peer-cloud-1"),
+        )
+    })
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prepare_provider_signin_tabs_binds_runtime_tab_for_opaque_provider_and_accepts_login() {
@@ -100,13 +119,7 @@ module.exports = {
         provider_id: Some(PROVIDER.into()),
         profile_id: None,
     };
-    let prepared = prepare_provider_signin_tabs(
-        &fixture.service,
-        &[PROVIDER.into()],
-        &[],
-        &request,
-        Some("peer-cloud-1"),
-    );
+    let prepared = prepare_signin_blocking(&fixture.service, PROVIDER, &request);
     assert_eq!(prepared.providers.len(), 1);
     let item = &prepared.providers[0];
     assert!(item.card_ready);
@@ -148,13 +161,7 @@ module.exports = {
     assert!(!prepared_json.contains(&nonce));
 
     // Repeat call reuses the exact same bound runtime tab.
-    let repeat = prepare_provider_signin_tabs(
-        &fixture.service,
-        &[PROVIDER.into()],
-        &[],
-        &request,
-        Some("peer-cloud-1"),
-    );
+    let repeat = prepare_signin_blocking(&fixture.service, PROVIDER, &request);
     assert_eq!(repeat.providers[0].tab_id.as_deref(), Some(tab_id.as_str()));
 
     let adapter = fixture
@@ -307,13 +314,7 @@ module.exports = {
         provider_id: Some(PROVIDER.into()),
         profile_id: None,
     };
-    let first = prepare_provider_signin_tabs(
-        &fixture.service,
-        &[PROVIDER.into()],
-        &[],
-        &request,
-        Some("peer-cloud-1"),
-    );
+    let first = prepare_signin_blocking(&fixture.service, PROVIDER, &request);
     let tab_id_1 = first.providers[0].tab_id.clone().expect("first tab_id");
     let tab_1 = fixture
         .service
@@ -348,13 +349,7 @@ module.exports = {
     ));
 
     // Re-preparing must reuse the single dedicated sign-in tab with a rotated nonce and fresh authority.
-    let second = prepare_provider_signin_tabs(
-        &fixture.service,
-        &[PROVIDER.into()],
-        &[],
-        &request,
-        Some("peer-cloud-1"),
-    );
+    let second = prepare_signin_blocking(&fixture.service, PROVIDER, &request);
     let tab_id_2 = second.providers[0].tab_id.clone().expect("second tab_id");
     assert_eq!(tab_id_2, tab_id_1);
 
