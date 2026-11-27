@@ -83,6 +83,10 @@ export function sleepCloudMachine(id: string, signal?: AbortSignal): Promise<Clo
   return cloudRequest<CloudReceipt>("POST", `/api/mesh/cloud/${encodeURIComponent(id)}/sleep`, {}, signal);
 }
 
+export function archiveCloudMachine(id: string, signal?: AbortSignal): Promise<CloudReceipt> {
+  return cloudRequest<CloudReceipt>("POST", `/api/mesh/cloud/${encodeURIComponent(id)}/archive`, {}, signal);
+}
+
 export function wakeCloudMachine(id: string, signal?: AbortSignal): Promise<CloudReceipt> {
   return cloudRequest<CloudReceipt>("POST", `/api/mesh/cloud/${encodeURIComponent(id)}/wake`, {}, signal);
 }

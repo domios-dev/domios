@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Moon, Play, X } from "lucide-react";
+import { Archive, Moon, Play, X } from "lucide-react";
 import {
   cloudMachineCardView,
   cloudSizeOptions,
@@ -10,6 +10,7 @@ import type {
   CloudReceipt,
   CloudUsagePayload,
 } from "../../lib/cloudMachines/types";
+import { formatAutoArchiveLabel, storageTierLabel } from "../Usage/cloudStorageModel";
 import { BusyState } from "../shared/BusyState";
 import { Button } from "../shared/Button";
 import { UI_PANEL } from "../shared/design";
@@ -32,6 +33,7 @@ export interface CloudMachineDrawerProps {
   onTopUp: (forWake: boolean) => void;
   onRedeem: (code: string) => Promise<CloudPromoRedemption>;
   onSleep: () => Promise<unknown>;
+  onArchive?: () => Promise<unknown>;
   onWake: () => Promise<unknown>;
   onDelete: () => Promise<boolean>;
 }
@@ -48,11 +50,13 @@ export function CloudMachineDrawer({
   onTopUp,
   onRedeem,
   onSleep,
+  onArchive,
   onWake,
   onDelete,
 }: CloudMachineDrawerProps) {
   useEscapeDismissal(onClose);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -66,6 +70,13 @@ export function CloudMachineDrawer({
   const isAsleep = view.state === "asleep";
   const isOutOfCredits = view.state === "out_of_credits";
   const isWaking = view.state === "waking" || view.state === "creating" || view.state === "enrolling";
+  const machineStorage = usage?.storage?.machines.find((item) => item.machine_id === machine.machine_id);
+  const rawStorageTier = machineStorage?.tier ?? machine.storage_tier ?? "hot";
+  const isArchived = rawStorageTier === "cold" || rawStorageTier === "recoverable_deleted";
+  const isEvicting = rawStorageTier === "evicting";
+  const tierLabel = storageTierLabel(rawStorageTier);
+  const autoArchiveLabel = formatAutoArchiveLabel(usage?.storage?.hot_days ?? 1);
+  const canArchiveNow = Boolean(onArchive) && !isArchived && !isEvicting && (isAsleep || isOutOfCredits || view.state === "awake");
 
   return (
     <>
@@ -164,6 +175,20 @@ export function CloudMachineDrawer({
             </dd>
           </div>
 
+          <div className="flex items-start gap-2.5">
+            <dt className="w-[88px] shrink-0 text-[var(--ct-muted-fg)]">Storage</dt>
+            <dd className="m-0 min-w-0 flex-1">
+              <div className="text-[var(--ct-fg)]" data-testid="cloud-machine-storage-tier">
+                {tierLabel}
+              </div>
+              <div className="mt-0.5 text-[11px] text-[var(--ct-muted-fg)]">
+                {isArchived
+                  ? `Free of charge · ${autoArchiveLabel}`
+                  : `Wakes in seconds · ${autoArchiveLabel}`}
+              </div>
+            </dd>
+          </div>
+
           {machine.uptime_secs > 0 && (
             <div className="flex items-start gap-2.5">
               <dt className="w-[88px] shrink-0 text-[var(--ct-muted-fg)]">Uptime</dt>
@@ -181,7 +206,36 @@ export function CloudMachineDrawer({
         {actionError && <InlineErrorNotice role="alert" description={{ title: actionError, cause: "", actions: [], raw: "" }} />}
 
         <div className="mt-auto flex flex-col gap-2.5 pt-3">
-          {confirmDelete ? (
+          {confirmArchive ? (
+            <div
+              role="group"
+              aria-label={`Archive ${machine.name}`}
+              className="flex flex-col gap-2 rounded-[10px] border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-fg)_2%,var(--ct-bg))] p-3"
+            >
+              <p className="m-0 text-xs leading-[1.45] text-[var(--ct-fg)]">
+                Free its disk now; only your sessions, settings, memory and repo state are kept, free of charge. Repos re-clone on the next wake. Archived - wakes in ~2 min (new volume, restore, and re-clone) versus seconds from hot.
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmArchive(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  disabled={busy}
+                  loading={busy}
+                  onClick={async () => {
+                    if (!onArchive) return;
+                    await onArchive();
+                    setConfirmArchive(false);
+                  }}
+                >
+                  Archive now
+                </Button>
+              </div>
+            </div>
+          ) : confirmDelete ? (
             <div
               role="group"
               aria-label={`Delete ${machine.name}`}
@@ -211,43 +265,63 @@ export function CloudMachineDrawer({
             </div>
           ) : (
             <div className="flex items-center justify-between gap-2">
-              {isAwake && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  loading={busy}
-                  onClick={() => void onSleep()}
-                >
-                  <Moon size={12} aria-hidden="true" />
-                  Sleep now
-                </Button>
-              )}
-              {isAsleep && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="primary"
-                  disabled={busy}
-                  loading={busy}
-                  onClick={() => void onWake()}
-                >
-                  <Play size={12} aria-hidden="true" />
-                  Wake
-                </Button>
-              )}
-              {isOutOfCredits && (
-                <Button type="button" size="sm" variant="primary" onClick={() => onTopUp(true)}>
-                  Top up to wake
-                </Button>
-              )}
-              {!isAwake && !isAsleep && !isOutOfCredits && <span />}
+              <div className="flex items-center gap-1.5">
+                {isAwake && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    loading={busy}
+                    onClick={() => void onSleep()}
+                  >
+                    <Moon size={12} aria-hidden="true" />
+                    Sleep now
+                  </Button>
+                )}
+                {isAsleep && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    disabled={busy}
+                    loading={busy}
+                    onClick={() => void onWake()}
+                  >
+                    <Play size={12} aria-hidden="true" />
+                    Wake
+                  </Button>
+                )}
+                {isOutOfCredits && (
+                  <Button type="button" size="sm" variant="primary" onClick={() => onTopUp(true)}>
+                    Top up to wake
+                  </Button>
+                )}
+                {canArchiveNow && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setConfirmDelete(false);
+                      setConfirmArchive(true);
+                    }}
+                  >
+                    <Archive size={12} aria-hidden="true" />
+                    Archive now
+                  </Button>
+                )}
+                {!isAwake && !isAsleep && !isOutOfCredits && !canArchiveNow && <span />}
+              </div>
 
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => setConfirmDelete(true)}
+                onClick={() => {
+                  setConfirmArchive(false);
+                  setConfirmDelete(true);
+                }}
                 className="border-0 bg-transparent p-0 text-xs text-[var(--ct-red)] cursor-pointer hover:underline disabled:opacity-50"
               >
                 Delete machine

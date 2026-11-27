@@ -95,6 +95,8 @@ pub enum AccountMeshRefusal {
     Forbidden,
     #[serde(rename = "conflict")]
     Conflict,
+    #[serde(rename = "machine_busy")]
+    MachineBusy,
     #[serde(rename = "key_conflict")]
     KeyConflict,
     #[serde(rename = "generation_mismatch")]
@@ -181,6 +183,7 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::AppCheck => Self::AppCheck,
             RegistryRefusal::Forbidden => Self::Forbidden,
             RegistryRefusal::Conflict => Self::Conflict,
+            RegistryRefusal::MachineBusy => Self::MachineBusy,
             RegistryRefusal::Replay => Self::Replay,
             RegistryRefusal::NonceReused => Self::NonceReused,
             RegistryRefusal::ApplyTooLarge => Self::ApplyTooLarge,

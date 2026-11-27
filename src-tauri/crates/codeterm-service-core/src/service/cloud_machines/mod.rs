@@ -54,11 +54,12 @@ pub use state::{
     ReconcileOutcome, LABEL_CREATE_REQUEST_ID,
 };
 pub use storage::{
-    is_local_disk_full, validate_volume_upgrade_gb, CloudColdWakeParams, CloudDeleteMode,
-    CloudDeleteReceipt, CloudMachineStorageUsage, CloudStorageTier, CloudStorageUsageSummary,
-    CloudVolumeResizeReply, ProviderSnapshotResidual, AUX_KEY_ALLOCATED_GB, AUX_KEY_PURGE_AT,
-    AUX_KEY_RECOVERABLE_ARCHIVE_ID, AUX_KEY_STORAGE_TIER, DEFAULT_COLD_PURGE_DAYS,
-    DEFAULT_HOT_GB_MONTH_RATE_CENTS, DEFAULT_HOT_RETENTION_DAYS, MAX_VOLUME_SIZE_GB,
+    is_local_disk_full, validate_volume_upgrade_gb, CloudArchiveReceipt, CloudColdWakeParams,
+    CloudDeleteMode, CloudDeleteReceipt, CloudMachineStorageUsage, CloudStorageTier,
+    CloudStorageUsageSummary, CloudVolumeResizeReply, ProviderSnapshotResidual,
+    AUX_KEY_ALLOCATED_GB, AUX_KEY_PURGE_AT, AUX_KEY_RECOVERABLE_ARCHIVE_ID, AUX_KEY_STORAGE_TIER,
+    DEFAULT_COLD_PURGE_DAYS, DEFAULT_HOT_GB_MONTH_RATE_CENTS, DEFAULT_HOT_RETENTION_DAYS,
+    MAX_VOLUME_SIZE_GB,
 };
 pub use store::{CloudMachineStore, CloudWakeQueueStore};
 pub use types::{

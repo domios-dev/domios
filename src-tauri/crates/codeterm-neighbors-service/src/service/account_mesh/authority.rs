@@ -99,6 +99,7 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::InstallationUnverified
         | AccountMeshRefusal::CutoffAfterCurrentSession
         | AccountMeshRefusal::Conflict
+        | AccountMeshRefusal::MachineBusy
         | AccountMeshRefusal::Replay
         | AccountMeshRefusal::NonceReused
         | AccountMeshRefusal::ApplyTooLarge

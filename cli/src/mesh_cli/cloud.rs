@@ -21,6 +21,11 @@ pub enum MeshCloudAction {
         /// Cloud machine ID, name, or peer ID
         machine: String,
     },
+    /// Archive an asleep or idle cloud machine's disk now (keeps sessions, settings, memory, and repo state free of charge)
+    Archive {
+        /// Cloud machine ID, name, or peer ID
+        machine: String,
+    },
     /// Wake a sleeping cloud machine (concurrent wakes join one wake)
     Wake {
         /// Cloud machine ID, name, or peer ID
@@ -186,16 +191,29 @@ pub(crate) fn format_usage_human(val: &Value) -> String {
         let monthly_cents = storage["total_hot_monthly_cost_cents"]
             .as_u64()
             .unwrap_or(0);
-        let rate_cents = storage["hot_gb_month_rate_cents"].as_u64().unwrap_or(15);
+        let rate_cents = storage["hot_gb_month_rate_cents"].as_u64().unwrap_or(30);
+        let hot_days = storage["hot_days"].as_f64().unwrap_or(1.0);
+        let auto_archive_label = if (hot_days - 1.0).abs() < f64::EPSILON {
+            "auto-archives after 1 day asleep".to_owned()
+        } else if hot_days.fract() == 0.0 {
+            format!("auto-archives after {} days asleep", hot_days as u64)
+        } else {
+            format!("auto-archives after {hot_days} days asleep")
+        };
         lines.push(format!(
-            "Cloud storage: allocated={alloc} GB hot_monthly=${:.2} (rate=${:.2}/GB-mo, cold archival included)",
+            "Cloud storage: allocated={alloc} GB hot_monthly=${:.2} (rate=${:.2}/GB-mo, {auto_archive_label}, cold archival included)",
             (monthly_cents as f64) / 100.0,
             (rate_cents as f64) / 100.0
         ));
         if let Some(machines) = storage["machines"].as_array() {
             for m in machines {
                 let mid = m["machine_id"].as_str().unwrap_or("?");
-                let tier = m["tier"].as_str().unwrap_or("hot");
+                let tier = match m["tier"].as_str().unwrap_or("hot") {
+                    "cold" | "recoverable_deleted" => "Archived - wakes in ~2 min",
+                    "evicting" => "Archiving",
+                    "purged" => "Purged",
+                    _ => "Hot",
+                };
                 let mgb = m["allocated_gb"].as_u64().unwrap_or(0);
                 let used = m["used_gb"]
                     .as_f64()
@@ -334,6 +352,14 @@ pub fn handle_cloud(
         MeshCloudAction::Sleep { machine } => http
             .post(format!(
                 "{base}/api/mesh/cloud/{}/sleep",
+                urlencoding::encode(&machine)
+            ))
+            .header("Authorization", auth_header(token))
+            .json(&serde_json::json!({}))
+            .send(),
+        MeshCloudAction::Archive { machine } => http
+            .post(format!(
+                "{base}/api/mesh/cloud/{}/archive",
                 urlencoding::encode(&machine)
             ))
             .header("Authorization", auth_header(token))

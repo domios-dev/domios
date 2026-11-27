@@ -7,8 +7,8 @@ use zeroize::Zeroizing;
 use super::held_sends::{FlushWriteOutcome, HeldCloudSend};
 use super::idle_drain::{DrainToken, PeerBusySnapshot};
 use super::storage::{
-    CloudColdWakeParams, CloudDeleteMode, CloudDeleteReceipt, CloudStorageTier,
-    CloudVolumeResizeReply,
+    CloudArchiveReceipt, CloudColdWakeParams, CloudDeleteMode, CloudDeleteReceipt,
+    CloudStorageTier, CloudVolumeResizeReply,
 };
 use super::types::{
     CloudCheckoutSession, CloudEndpoint, CloudError, CloudMachineRecord, CloudPromoRedemption,
@@ -72,6 +72,15 @@ pub trait CloudProvisioningPort: Send + Sync {
     ) -> Result<ProvisionedMachine, CloudError>;
     async fn sleep(&self, machine_id: &str, request_id: &str)
         -> Result<CloudSleepMode, CloudError>;
+    async fn archive_now(
+        &self,
+        _machine_id: &str,
+        _request_id: &str,
+    ) -> Result<CloudArchiveReceipt, CloudError> {
+        Err(CloudError::ProviderUnavailable(
+            "cloud machine archival is unavailable".into(),
+        ))
+    }
     async fn delete(&self, machine_id: &str, request_id: &str) -> Result<(), CloudError>;
     async fn delete_with_mode(
         &self,

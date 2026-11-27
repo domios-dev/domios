@@ -47,6 +47,13 @@ pub trait MeshRegistry: Send + Sync {
     ) -> RegistryResult<super::cloud_provisioning::SleepMachineReply> {
         Err(RegistryRefusal::Unavailable)
     }
+    async fn archive_cloud_machine(
+        &self,
+        _session: &Session,
+        _request: &super::cloud_provisioning::ManagedCloudMachineActionRequest,
+    ) -> RegistryResult<super::cloud_provisioning::ArchiveMachineReply> {
+        Err(RegistryRefusal::Unavailable)
+    }
     async fn delete_cloud_machine(
         &self,
         _session: &Session,

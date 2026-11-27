@@ -16,9 +16,10 @@ use crate::account_mesh::{
         CreateCloudMachineRequest, DeleteMachineReply, ManagedCloudMachineActionRequest,
         ProvisionedMachineReply, SleepMachineReply, WireCloudEndpoint, WireCloudPlanAllowances,
         WireCloudSleepMode, WireCloudUsagePack, WireCloudUsageSize, CLOUD_INGRESS_PORT,
-        DOMAIN_CLOUD_CREATE, DOMAIN_CLOUD_DELETE, DOMAIN_CLOUD_SLEEP, DOMAIN_CLOUD_WAKE,
-        PROVIDER_PROXY_PORT, ROUTE_CLOUD_CHECKOUT, ROUTE_CLOUD_CREATE, ROUTE_CLOUD_DELETE,
-        ROUTE_CLOUD_SLEEP, ROUTE_CLOUD_USAGE, ROUTE_CLOUD_WAKE,
+        DOMAIN_CLOUD_ARCHIVE, DOMAIN_CLOUD_CREATE, DOMAIN_CLOUD_DELETE, DOMAIN_CLOUD_SLEEP,
+        DOMAIN_CLOUD_WAKE, PROVIDER_PROXY_PORT, ROUTE_CLOUD_ARCHIVE, ROUTE_CLOUD_CHECKOUT,
+        ROUTE_CLOUD_CREATE, ROUTE_CLOUD_DELETE, ROUTE_CLOUD_SLEEP, ROUTE_CLOUD_USAGE,
+        ROUTE_CLOUD_WAKE,
     },
     delegated_renewal::{RenewalReply, RenewalRequest},
     wire::RegistryRefusal,
@@ -94,6 +95,7 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
     assert_eq!(fixtures.routes["create"], ROUTE_CLOUD_CREATE);
     assert_eq!(fixtures.routes["wake"], ROUTE_CLOUD_WAKE);
     assert_eq!(fixtures.routes["sleep"], ROUTE_CLOUD_SLEEP);
+    assert_eq!(fixtures.routes["archiveNow"], ROUTE_CLOUD_ARCHIVE);
     assert_eq!(fixtures.routes["delete"], ROUTE_CLOUD_DELETE);
     assert_eq!(fixtures.routes["usage"], ROUTE_CLOUD_USAGE);
     assert_eq!(
@@ -104,6 +106,7 @@ fn decodes_and_verifies_all_ledger_cloud_provisioning_request_and_reply_fixtures
     assert_eq!(fixtures.domains["create"], DOMAIN_CLOUD_CREATE);
     assert_eq!(fixtures.domains["wake"], DOMAIN_CLOUD_WAKE);
     assert_eq!(fixtures.domains["sleep"], DOMAIN_CLOUD_SLEEP);
+    assert_eq!(fixtures.domains["archive"], DOMAIN_CLOUD_ARCHIVE);
     assert_eq!(fixtures.domains["delete"], DOMAIN_CLOUD_DELETE);
 
     let key_bytes = fixed_bytes::<32>(&fixtures.test_context.controller_key).unwrap();

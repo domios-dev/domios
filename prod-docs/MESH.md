@@ -190,6 +190,7 @@ Cloud machines are provisioned through the Domios backend and cost credits while
 - `domios mesh cloud create` provisions and enrolls a new managed cloud machine through the Domios backend, enforcing account plan limits (`limit_reached` when full) and prepaid credit leases (`lease_required` / `credits_exhausted`). Every provisioning call persists a request id before calling the backend and reuses it on retry.
 - `domios mesh cloud list` shows each cloud machine with provider, size, hourly rate, lifecycle state, and period uptime.
 - `domios mesh cloud sleep` drains an idle cloud machine and puts it to sleep through the backend; active agent turns, running background jobs, held sends, or attached viewers refuse sleep (`machine_busy`).
+- `domios mesh cloud archive <machine>` archives an asleep or idle cloud machine immediately into free cold storage (draining and sleeping it first if awake and idle, refusing with `machine_busy` while work runs) and frees its hot volume after archive verification; repos re-clone on the next wake (~2 min vs seconds from hot). Sleeping machines auto-archive after 1 day asleep by default.
 - `domios mesh cloud wake` wakes a sleeping cloud machine (concurrent wakes join one wake), updates the machine's IPv4 endpoint when recreated from an image (`delete_recreate`), and flushes held sends once ready.
 - `domios mesh cloud delete` warns about unpushed work unless `--confirm` is passed.
 - `domios mesh cloud usage` reports managed credit usage (`used`, `allowance`, `purchased`, `remaining`, `cap`, and `burn_per_size`).
@@ -200,4 +201,4 @@ Idle sleep, lease renewal, and wake-on-use: after the idle window (`mesh.cloud_i
 
 Cost visibility: `domios mesh peers`, `domios tab list`, and cloud spawn/dispatch receipts surface `kind=cloud`, provider, size, rate per hour, state, uptime, and a cost notice.
 
-<!-- revision: 89 -->
+<!-- revision: 90 -->

@@ -575,6 +575,8 @@ pub enum RegistryRefusal {
     Forbidden,
     #[serde(rename = "conflict")]
     Conflict,
+    #[serde(rename = "machine_busy")]
+    MachineBusy,
     #[serde(rename = "key_conflict")]
     KeyConflict,
     #[serde(rename = "generation_mismatch")]

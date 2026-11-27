@@ -310,6 +310,7 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
     onTopUp: (machine: CloudReceipt, forWake: boolean) => setTopUpDialog({ mode: forWake ? "wake" : "topup", machine }),
     onRedeem: cloud.redeem,
     onSleep: cloud.sleep,
+    onArchive: cloud.archive,
     onWake: cloud.wake,
     onDelete: async (machineId: string) => {
       const res = await cloud.remove(machineId);

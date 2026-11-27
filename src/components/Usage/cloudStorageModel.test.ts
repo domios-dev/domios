@@ -8,7 +8,7 @@ import {
 describe("cloudStorageModel", () => {
   const sampleSummary: CloudStorageUsageSummaryWire = {
     hot_gb_month_rate_cents: 30,
-    hot_days: 14,
+    hot_days: 1,
     purge_days: 90,
     purge_warning_days: [7, 1],
     cold_archive_included: true,
@@ -18,6 +18,7 @@ describe("cloudStorageModel", () => {
     machines: [
       {
         machine_id: "cm_hot_1",
+        name: "Scratch",
         tier: "hot",
         allocated_gb: 10,
         used_bytes: Math.round(9.9 * 1024 ** 3),
@@ -26,7 +27,7 @@ describe("cloudStorageModel", () => {
         hot_accrued_cents: 140,
         cold_included: true,
         stopped_at: 1_795_700_000,
-        hot_until_at: 1_795_700_000 + 14 * 86_400,
+        hot_until_at: 1_795_700_000 + 86_400,
         cold_since_at: null,
         purge_at: null,
         archive_id: null,
@@ -73,11 +74,12 @@ describe("cloudStorageModel", () => {
     expect(view.totalAllocatedGb).toBe(10);
     expect(view.totalHotMonthlyCostLabel).toBe("$3.00/mo");
     expect(view.hotRateLabel).toBe("$0.30/GB-month");
-    expect(view.coldPolicyLabel).toBe("14d hot -> 90d cold (included)");
+    expect(view.coldPolicyLabel).toBe("1d hot -> 90d cold (included)");
+    expect(view.autoArchiveLabel).toBe("auto-archives after 1 day asleep");
     expect(view.anyMachineDiskFull).toBe(true);
 
     const hotRow = view.rows.find(r => r.machineId === "cm_hot_1")!;
-    expect(hotRow.tierLabel).toBe("Hot volume");
+    expect(hotRow.tierLabel).toBe("Hot");
     expect(hotRow.usedLabel).toBe("9.90 GB / 10 GB");
     expect(hotRow.utilizationPct).toBe(99);
     expect(hotRow.hotMonthlyCostLabel).toBe("$3.00/mo");
@@ -86,7 +88,7 @@ describe("cloudStorageModel", () => {
     expect(hotRow.retentionDeadlineLabel).toBe("Moves to cold archive");
 
     const coldRow = view.rows.find(r => r.machineId === "cm_cold_2")!;
-    expect(coldRow.tierLabel).toBe("Cold archive");
+    expect(coldRow.tierLabel).toBe("Archived - wakes in ~2 min");
     expect(coldRow.hotMonthlyCostLabel).toBe("Included ($0.00)");
     expect(coldRow.diskFullLocal).toBe(false);
     expect(coldRow.canUpgradeVolume).toBe(false);
