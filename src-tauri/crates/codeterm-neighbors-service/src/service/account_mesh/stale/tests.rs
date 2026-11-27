@@ -378,3 +378,54 @@ fn stale_selection_excludes_live_cloud_machines_across_states_on_shared_fixture(
         fixture.expected_excluded_cloud_ids
     );
 }
+
+#[test]
+fn batch_remove_skipped_cloud_machine_decodes_and_maps_to_refused_cloud() {
+    let raw = r#"{
+        "schema_version": 1,
+        "registry_revision": 7,
+        "removed_count": 1,
+        "already_removed_count": 0,
+        "skipped_count": 1,
+        "results": [
+            {
+                "installation_id": "880cbbeedc6f433f8f332c9af20bc8c8",
+                "status": "skipped",
+                "slot_revision": 2,
+                "reason": "cloud_machine"
+            },
+            {
+                "installation_id": "inst-ordinary-stale",
+                "status": "removed",
+                "slot_revision": 4
+            }
+        ]
+    }"#;
+    let decoded: codeterm_account::account_mesh::wire::BatchRemoveResult =
+        serde_json::from_str(raw).expect("decode BatchRemoveResult with skipped cloud_machine");
+    assert_eq!(decoded.results.len(), 2);
+
+    let cloud_row = &decoded.results[0];
+    assert_eq!(cloud_row.status, BatchRemoveRowStatus::Skipped);
+    assert_eq!(cloud_row.reason.as_deref(), Some("cloud_machine"));
+    let mapped_cloud =
+        RemoveStaleRowStatus::from_batch_row(cloud_row.status, cloud_row.reason.as_deref());
+    assert_eq!(mapped_cloud, RemoveStaleRowStatus::RefusedCloud);
+    assert_eq!(
+        serde_json::to_value(mapped_cloud).unwrap(),
+        serde_json::json!("refused_cloud")
+    );
+
+    let removed_row = &decoded.results[1];
+    assert_eq!(removed_row.status, BatchRemoveRowStatus::Removed);
+    assert_eq!(removed_row.reason, None);
+    assert_eq!(
+        RemoveStaleRowStatus::from_batch_row(removed_row.status, removed_row.reason.as_deref()),
+        RemoveStaleRowStatus::Removed
+    );
+
+    assert_eq!(
+        RemoveStaleRowStatus::from_batch_row(BatchRemoveRowStatus::Skipped, Some("other_guard")),
+        RemoveStaleRowStatus::Skipped
+    );
+}

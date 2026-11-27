@@ -481,6 +481,7 @@ fn stale_status_label(status: &str) -> &'static str {
         "refused_self" => "skipped (this machine)",
         "refused_online" => "skipped (online)",
         "refused_cloud" => "skipped (cloud machine)",
+        "skipped" => "skipped",
         "not_found" => "not found",
         _ => "unknown",
     }

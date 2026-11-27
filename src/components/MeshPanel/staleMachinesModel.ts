@@ -46,6 +46,7 @@ export type RemoveStaleRowStatus =
   | "refused_self"
   | "refused_online"
   | "refused_cloud"
+  | "skipped"
   | "not_found";
 
 export interface RemoveStaleRowResult {

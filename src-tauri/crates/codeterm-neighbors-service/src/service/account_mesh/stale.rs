@@ -45,18 +45,27 @@ pub enum RemoveStaleRowStatus {
     RefusedSelf,
     RefusedOnline,
     RefusedCloud,
+    Skipped,
     NotFound,
+}
+
+impl RemoveStaleRowStatus {
+    pub fn from_batch_row(status: BatchRemoveRowStatus, reason: Option<&str>) -> Self {
+        match (status, reason) {
+            (BatchRemoveRowStatus::Removed, _) => Self::Removed,
+            (BatchRemoveRowStatus::AlreadyRemoved, _) => Self::AlreadyRemoved,
+            (BatchRemoveRowStatus::RefusedSelf, _) => Self::RefusedSelf,
+            (BatchRemoveRowStatus::RefusedOnline, _) => Self::RefusedOnline,
+            (BatchRemoveRowStatus::Skipped, Some("cloud_machine") | None) => Self::RefusedCloud,
+            (BatchRemoveRowStatus::Skipped, Some(_)) => Self::Skipped,
+            (BatchRemoveRowStatus::NotFound, _) => Self::NotFound,
+        }
+    }
 }
 
 impl From<BatchRemoveRowStatus> for RemoveStaleRowStatus {
     fn from(status: BatchRemoveRowStatus) -> Self {
-        match status {
-            BatchRemoveRowStatus::Removed => Self::Removed,
-            BatchRemoveRowStatus::AlreadyRemoved => Self::AlreadyRemoved,
-            BatchRemoveRowStatus::RefusedSelf => Self::RefusedSelf,
-            BatchRemoveRowStatus::RefusedOnline => Self::RefusedOnline,
-            BatchRemoveRowStatus::NotFound => Self::NotFound,
-        }
+        Self::from_batch_row(status, None)
     }
 }
 

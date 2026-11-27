@@ -961,6 +961,11 @@ impl NeighborsExt for ServiceContext {
                             .remove_account_installation(&row.installation_id);
                     }
                 }
+                let status =
+                    RemoveStaleRowStatus::from_batch_row(row.status, row.reason.as_deref());
+                if status == RemoveStaleRowStatus::RefusedCloud {
+                    excluded_cloud_count += 1;
+                }
                 let (display_name, reason) = meta_by_id
                     .get(&row.installation_id)
                     .cloned()
@@ -968,8 +973,12 @@ impl NeighborsExt for ServiceContext {
                 out_rows.push(RemoveStaleRowView {
                     installation_id: row.installation_id,
                     display_name,
-                    reason,
-                    status: row.status.into(),
+                    reason: if status == RemoveStaleRowStatus::RefusedCloud {
+                        None
+                    } else {
+                        reason
+                    },
+                    status,
                     slot_revision: row.slot_revision,
                 });
             }
