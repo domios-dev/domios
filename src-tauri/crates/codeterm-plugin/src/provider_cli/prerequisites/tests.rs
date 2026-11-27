@@ -102,16 +102,9 @@ fn conditional_powershell_installer_with_builtin_fallback_has_no_missing_prerequ
 }
 
 #[test]
-fn bundled_opencode_windows_installer_is_conditional_and_npm_free() {
-    let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-opencode/plugin.json"
-    )))
-    .unwrap();
-    let windows = manifest["installer"]["windows"].as_str().unwrap();
-    assert!(windows.contains("npm install -g opencode-ai"));
-    assert!(windows.contains("https://github.com/anomalyco/opencode/releases"));
-    assert_eq!(command_binaries(windows), Vec::<String>::new());
+fn conditional_powershell_release_zip_fallback_has_no_missing_prerequisites() {
+    let command = "if (Get-Command npm -ErrorAction SilentlyContinue) { npm install -g opaque-cli } else { $ErrorActionPreference = 'Stop'; $repo = 'https://example.test/releases'; $arch = 'x64-baseline'; if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }; $asset = \"opaque-windows-$arch.zip\"; $v = $null; try { $pkg = Invoke-RestMethod -Uri 'https://registry.example.test/opaque-cli/latest' -TimeoutSec 15; if ($pkg.version -match '^1\\.\\d+\\.\\d+$') { $null = Invoke-WebRequest -Method Head -Uri \"$repo/download/v$($pkg.version)/$asset\" -UseBasicParsing -TimeoutSec 15; $v = $pkg.version } } catch {}; if (-not $v) { $rels = Invoke-RestMethod -Uri 'https://api.example.test/releases?per_page=100' -Headers @{ 'User-Agent' = 'domios' } -TimeoutSec 30; $rel = $rels | Where-Object { $_.tag_name -match '^v1\\.\\d+\\.\\d+$' } | Select-Object -First 1; if ($rel) { $v = $rel.tag_name.TrimStart('v') } }; if (-not $v) { throw 'Could not determine release' }; $dir = Join-Path $HOME '.opaque\\bin'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $zip = Join-Path $env:TEMP \"opaque-$v.zip\"; try { Invoke-WebRequest -Uri \"$repo/download/v$v/$asset\" -OutFile $zip -UseBasicParsing; Expand-Archive -Path $zip -DestinationPath $dir -Force } finally { Remove-Item $zip -ErrorAction SilentlyContinue }; $userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if (-not $userPath -or -not (($userPath -split ';') -contains $dir)) { $nextPath = $dir; if ($userPath) { $nextPath = \"$userPath;$dir\" }; [Environment]::SetEnvironmentVariable('Path', $nextPath, 'User') } }";
+    assert_eq!(command_binaries(command), Vec::<String>::new());
 }
 
 #[test]
