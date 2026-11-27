@@ -1,7 +1,9 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{header, Request};
 use codeterm_mesh::account_mesh::BoxFuture;
-use codeterm_mesh::cloud_ingress::{connect_enrolled, CloudRoute, IngressError, ReverseDispatcher};
+use codeterm_mesh::cloud_ingress::{
+    connect_enrolled, connect_enrolled_with_timeout, CloudRoute, IngressError, ReverseDispatcher,
+};
 use codeterm_mesh::cloud_outbox::{
     DedupeLimits, DrainAuthorizationPolicy, DrainPolicyDecision, OutboundOperation, OutboxFrame,
     OuterWireRequest, ReceiverDedupe, OUTER_RELAY_ROUTE,
@@ -10,14 +12,15 @@ use codeterm_mesh::crown::AuthenticatedOrigin;
 use codeterm_mesh::MeshState;
 use codeterm_service_core::{
     ports::rest::LocalApiRouter,
-    service::{ServiceContext, ServiceState},
+    service::{cloud_machines::CloudLifecycleState, ServiceContext, ServiceState},
 };
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
     sync::{Arc, Weak},
     time::Duration,
 };
-use tokio::task::JoinHandle;
+use tokio::{sync::watch, task::JoinHandle};
 use tower::ServiceExt;
 
 struct Dispatcher(Weak<ServiceContext>);
@@ -225,10 +228,12 @@ async fn maintain(
     route: CloudRoute,
     dedupe: Arc<ReceiverDedupe>,
     dispatcher: Arc<Dispatcher>,
+    connect_timeout: Duration,
 ) -> Result<(), IngressError> {
+    let mut channel =
+        connect_enrolled_with_timeout(mesh.clone(), route.clone(), &id, connect_timeout).await?;
     let mut previous_expiry = None;
     loop {
-        let channel = connect_enrolled(mesh.clone(), route.clone(), &id).await?;
         let member = channel.peer_membership()?;
         let expiry = member.expires_at;
         if previous_expiry.is_some_and(|prior| expiry <= prior) {
@@ -249,15 +254,60 @@ async fn maintain(
             .publish_endpoint(&route)
             .await?;
         previous_expiry = Some(expiry);
+        channel = connect_enrolled(mesh.clone(), route.clone(), &id).await?;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RouteLifecycle {
+    Unmanaged,
+    Waking { deadline_ms: u64 },
+    Awake { since_ms: Option<u64> },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RouteAttempt {
+    sequence: u64,
+    lifecycle: RouteLifecycle,
+}
+
+async fn run_route_attempts(
+    mut attempts: watch::Receiver<RouteAttempt>,
+    mut run: impl AsyncFnMut(RouteAttempt),
+) {
+    loop {
+        let attempt = *attempts.borrow_and_update();
+        run(attempt).await;
+        if attempts.changed().await.is_err() {
+            return;
+        }
     }
 }
 
 struct RouteTask {
     route: CloudRoute,
     epoch: u64,
-    sequence: u64,
+    attempts: watch::Sender<RouteAttempt>,
     task: JoinHandle<()>,
 }
+
+impl RouteTask {
+    fn update_attempt(&self, attempt: RouteAttempt) {
+        self.attempts.send_if_modified(|current| {
+            if *current == attempt {
+                return false;
+            }
+            *current = attempt;
+            true
+        });
+    }
+
+    async fn stop(mut self) {
+        self.task.abort();
+        let _ = (&mut self.task).await;
+    }
+}
+
 impl Drop for RouteTask {
     fn drop(&mut self) {
         self.task.abort();
@@ -265,64 +315,113 @@ impl Drop for RouteTask {
 }
 
 pub fn start(service: &ServiceState, mesh: MeshState) {
+    struct Started;
     if service
         .try_ext::<codeterm_mesh::cloud_ingress::CloudIngressHandle>()
         .is_some()
+        || service.set_ext(Started).is_err()
     {
         return;
     }
+    let dispatcher = Arc::new(Dispatcher(Arc::downgrade(service)));
+    let dedupe = Arc::new(tokio::sync::OnceCell::new());
+    let route_mesh = mesh.clone();
+    start_routes(service, mesh, move |target, route, timeout| {
+        let mesh = route_mesh.clone();
+        let dispatcher = Arc::clone(&dispatcher);
+        let dedupe = Arc::clone(&dedupe);
+        async move {
+            let deadline = tokio::time::Instant::now() + timeout;
+            let store = dedupe
+                .get_or_try_init(|| async {
+                    ReceiverDedupe::open_with_system_clock(
+                        codeterm_service_core::paths::data_dir().join("mesh/cloud-receipts"),
+                        DedupeLimits::default(),
+                    )
+                    .await
+                    .map(Arc::new)
+                })
+                .await;
+            let result = match store {
+                Ok(store) => {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    log::debug!("[cloud] connecting reverse route for {target}");
+                    maintain(
+                        mesh,
+                        target.clone(),
+                        route,
+                        store.clone(),
+                        dispatcher,
+                        remaining,
+                    )
+                    .await
+                }
+                Err(_) => Err(IngressError::Unavailable),
+            };
+            if let Err(error) = result {
+                log::debug!("[cloud] reverse route ended for {target}: {}", error.code());
+            }
+        }
+    });
+}
+
+pub(crate) fn start_routes<Fut>(
+    service: &ServiceState,
+    mesh: MeshState,
+    run: impl Fn(String, CloudRoute, Duration) -> Fut + Send + Sync + 'static,
+) -> JoinHandle<()>
+where
+    Fut: Future<Output = ()> + Send + 'static,
+{
     let service = Arc::downgrade(service);
+    let run = Arc::new(run);
     tokio::spawn(async move {
-        let dispatcher = Arc::new(Dispatcher(service.clone()));
         let mut tasks = HashMap::<String, RouteTask>::new();
         let mut prev_attached = HashSet::<String>::new();
-        let mut prev_linked = HashMap::<String, Option<String>>::new();
         let mut gate = mesh.lock().gate_watch();
         let mut cloud_lifecycle = service
             .upgrade()
             .map(|owner| owner.cloud_machines().subscribe_lifecycle());
-        let mut last_lifecycle_rev = cloud_lifecycle
-            .as_ref()
-            .map(|rx| *rx.borrow())
-            .unwrap_or(0);
-        let dedupe = tokio::sync::OnceCell::new();
         loop {
             let Some(owner) = service.upgrade() else {
                 return;
             };
-            let lifecycle_rev = cloud_lifecycle
-                .as_mut()
-                .map(|rx| *rx.borrow_and_update())
-                .unwrap_or(last_lifecycle_rev);
-            let lifecycle_changed = lifecycle_rev != last_lifecycle_rev;
-            last_lifecycle_rev = lifecycle_rev;
+            if let Some(lifecycle) = cloud_lifecycle.as_mut() {
+                lifecycle.borrow_and_update();
+            }
             let enabled = owner.configuration().mesh.enabled;
-            let managed_records = owner.cloud_machines().list_records();
-            let active_managed_installations: HashSet<String> = managed_records
-                .iter()
-                .filter(|record| {
-                    matches!(
-                        record.state,
-                        codeterm_service_core::service::cloud_machines::CloudLifecycleState::Waking
-                            | codeterm_service_core::service::cloud_machines::CloudLifecycleState::Awake
-                    )
-                })
-                .filter_map(|record| record.installation_id.clone())
-                .collect();
+            let controller = owner.cloud_machines();
+            let managed_records = controller.list_records();
             let mut managed_endpoints = HashMap::new();
-            let (routes, bindings, attached, current_linked) = {
+            let (routes, bindings, attached) = {
                 let mut manager = mesh.lock();
                 for record in managed_records {
                     let Some(inst_id) = record.installation_id else {
                         continue;
                     };
-                    if record.state
-                        == codeterm_service_core::service::cloud_machines::CloudLifecycleState::Deleted
-                    {
+                    if record.state == CloudLifecycleState::Deleted {
                         manager.unpin_managed_cloud_endpoint(&inst_id);
                     } else if let Some(endpoint) = record.endpoint {
                         manager.pin_managed_cloud_endpoint(inst_id.clone(), endpoint.clone());
-                        managed_endpoints.insert(inst_id, endpoint);
+                        let lifecycle = if matches!(endpoint, CloudRoute::ProviderProxy { .. }) {
+                            match record.state {
+                                CloudLifecycleState::Waking => controller
+                                    .confirmed_wake_route_deadline(&record.machine_id)
+                                    .map(|deadline_ms| RouteLifecycle::Waking { deadline_ms }),
+                                CloudLifecycleState::Awake | CloudLifecycleState::Draining => {
+                                    Some(RouteLifecycle::Awake {
+                                        since_ms: record.last_awake_at_ms,
+                                    })
+                                }
+                                CloudLifecycleState::Asleep | CloudLifecycleState::OutOfCredits => {
+                                    None
+                                }
+                                _ => Some(RouteLifecycle::Unmanaged),
+                            }
+                        } else {
+                            Some(RouteLifecycle::Unmanaged)
+                        };
+                        managed_endpoints.insert(inst_id, (endpoint, lifecycle));
                     }
                 }
                 let epoch = manager.remote_access_epoch();
@@ -333,35 +432,25 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                         if !enabled {
                             return None;
                         }
-                        let route = managed_endpoints
-                            .get(&r.claim.installation_id)
-                            .cloned()
-                            .or_else(|| r.claim.endpoint.and_then(|e| e.cloud_endpoint()))?;
-                        Some((r.claim.installation_id, (epoch?, r.claim.sequence, route)))
+                        let (route, lifecycle) =
+                            match managed_endpoints.get(&r.claim.installation_id) {
+                                Some((route, lifecycle)) => (route.clone(), (*lifecycle)?),
+                                None => (
+                                    r.claim.endpoint.and_then(|e| e.cloud_endpoint())?,
+                                    RouteLifecycle::Unmanaged,
+                                ),
+                            };
+                        let attempt = RouteAttempt {
+                            sequence: r.claim.sequence,
+                            lifecycle,
+                        };
+                        Some((r.claim.installation_id, (epoch?, route, attempt)))
                     })
                     .collect::<HashMap<_, _>>();
                 let bindings = manager.installation_instance_bindings();
                 let attached = manager.attached_reverse_streams();
-                let current_linked = bindings
-                    .iter()
-                    .filter_map(|(inst_id, peer_id)| {
-                        let peer = manager.paired_peers.get(peer_id)?;
-                        (peer.online && manager.traffic_open(peer_id)).then(|| {
-                            let nonce = manager
-                                .link_record(peer_id)
-                                .and_then(|link| link.link_nonce.clone());
-                            (inst_id.clone(), nonce)
-                        })
-                    })
-                    .collect::<HashMap<_, _>>();
-                (routes, bindings, attached, current_linked)
+                (routes, bindings, attached)
             };
-            let newly_linked: HashSet<String> = current_linked
-                .iter()
-                .filter(|(inst_id, nonce)| prev_linked.get(*inst_id) != Some(*nonce))
-                .map(|(inst_id, _)| inst_id.clone())
-                .collect();
-            prev_linked = current_linked;
             let backfilled = owner.cloud_machines().observe_peer_instance_ids(
                 bindings
                     .iter()
@@ -372,48 +461,53 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                 owner.ui.emit("mesh-state-changed", serde_json::Value::Null);
             }
             drop(owner);
-            tasks.retain(|id, task| {
-                routes.get(id).is_some_and(|(epoch, sequence, route)| {
-                    let retry_after_wake = task.task.is_finished()
-                        && ((lifecycle_changed && active_managed_installations.contains(id))
-                            || newly_linked.contains(id));
-                    !retry_after_wake
-                        && task.epoch == *epoch
-                        && task.route == *route
-                        && (task.sequence == *sequence || !task.task.is_finished())
+            let obsolete = tasks
+                .iter()
+                .filter(|(id, task)| {
+                    !routes.get(*id).is_some_and(|(epoch, route, _)| {
+                        task.epoch == *epoch && task.route == *route && !task.task.is_finished()
+                    })
                 })
-            });
-            for (id, (epoch, sequence, route)) in routes {
-                if tasks.contains_key(&id) {
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            for id in obsolete {
+                if let Some(task) = tasks.remove(&id) {
+                    task.stop().await;
+                }
+            }
+            for (id, (epoch, route, attempt)) in routes {
+                if let Some(task) = tasks.get(&id) {
+                    task.update_attempt(attempt);
                     continue;
                 }
-                let Ok(store) = dedupe
-                    .get_or_try_init(|| async {
-                        ReceiverDedupe::open_with_system_clock(
-                            codeterm_service_core::paths::data_dir().join("mesh/cloud-receipts"),
-                            DedupeLimits::default(),
-                        )
-                        .await
-                        .map(Arc::new)
-                    })
-                    .await
-                else {
-                    return;
-                };
-                let mesh = mesh.clone();
                 let target = id.clone();
-                let store = Arc::clone(store);
-                let dispatcher = Arc::clone(&dispatcher);
+                let run = Arc::clone(&run);
+                let service = service.clone();
                 let task_route = route.clone();
+                let (attempts, changes) = watch::channel(attempt);
                 let task = tokio::spawn(async move {
-                    let _ = maintain(mesh, target, task_route, store, dispatcher).await;
+                    run_route_attempts(changes, async |attempt| {
+                        let timeout = match attempt.lifecycle {
+                            RouteLifecycle::Waking { deadline_ms } => {
+                                let Some(owner) = service.upgrade() else {
+                                    return;
+                                };
+                                Duration::from_millis(
+                                    deadline_ms.saturating_sub(owner.cloud_machines().now_ms()),
+                                )
+                            }
+                            _ => Duration::from_secs(30),
+                        };
+                        run(target.clone(), task_route.clone(), timeout).await;
+                    })
+                    .await;
                 });
                 tasks.insert(
                     id,
                     RouteTask {
                         route,
                         epoch,
-                        sequence,
+                        attempts,
                         task,
                     },
                 );
@@ -440,5 +534,8 @@ pub fn start(service: &ServiceState, mesh: MeshState) {
                 }
             }
         }
-    });
+    })
 }
+
+#[cfg(test)]
+mod tests;

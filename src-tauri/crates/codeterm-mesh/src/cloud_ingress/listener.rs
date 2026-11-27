@@ -3,14 +3,10 @@ use super::{
     IngressReady, MAX_ENROLLMENT_FRAME_BYTES,
 };
 use futures_util::{SinkExt, StreamExt};
-use std::{
-    net::SocketAddr,
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::oneshot,
+    sync::{oneshot, watch},
     task::{JoinHandle, JoinSet},
 };
 use tokio_tungstenite::{
@@ -29,7 +25,10 @@ const MAX_NOISE_MESSAGE: usize = u16::MAX as usize;
 /// Failure bound for a guest bootstrap enrollment session (covers lifecycle wait + delegation + Apply).
 pub const BOOTSTRAP_SESSION_TIMEOUT: Duration = Duration::from_secs(240);
 
-pub struct CloudIngressHandle(JoinHandle<()>, Arc<OnceLock<super::enrolled::Runtime>>);
+type Runtime = super::enrolled::Runtime;
+type RuntimeWatch = watch::Receiver<Option<Arc<Runtime>>>;
+
+pub struct CloudIngressHandle(JoinHandle<()>, watch::Sender<Option<Arc<Runtime>>>);
 
 impl CloudIngressHandle {
     pub fn bind_enrolled(
@@ -39,8 +38,11 @@ impl CloudIngressHandle {
         dispatcher: Arc<dyn super::ReverseDispatcher>,
     ) -> bool {
         mesh.lock().inbound_only = true;
-        self.1
-            .set(super::enrolled::Runtime {
+        self.1.send_if_modified(|current| {
+            if current.is_some() {
+                return false;
+            }
+            *current = Some(Arc::new(Runtime {
                 mesh,
                 renewals,
                 dispatcher: dispatcher.clone(),
@@ -49,23 +51,28 @@ impl CloudIngressHandle {
                     caller: Default::default(),
                     dispatcher,
                 }),
-            })
-            .is_ok()
+            }));
+            true
+        })
     }
 
     pub async fn outbox(&self) -> Result<Arc<crate::cloud_outbox::CloudOutbox>, IngressError> {
-        self.1
-            .get()
-            .ok_or(IngressError::Unavailable)?
-            .outbox()
-            .await
+        let runtime = self.1.borrow().clone().ok_or(IngressError::Unavailable)?;
+        runtime.outbox().await
+    }
+
+    pub fn enrolled_readiness(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), IngressError>> + Send + 'static {
+        let runtime = self.1.subscribe();
+        async move { ready_runtime(runtime).await.map(|_| ()) }
     }
 
     pub fn bind_drain_policy(
         &self,
         policy: Arc<dyn crate::cloud_outbox::DrainAuthorizationPolicy>,
     ) -> Result<(), IngressError> {
-        let runtime = self.1.get().ok_or(IngressError::Unavailable)?;
+        let runtime = self.1.borrow().clone().ok_or(IngressError::Unavailable)?;
         runtime
             .policy
             .caller
@@ -77,6 +84,42 @@ impl CloudIngressHandle {
         }
         Ok(())
     }
+}
+
+async fn ready_runtime(mut bound: RuntimeWatch) -> Result<Arc<Runtime>, IngressError> {
+    tokio::time::timeout(BOOTSTRAP_SESSION_TIMEOUT, async {
+        let runtime = bound
+            .wait_for(Option::is_some)
+            .await
+            .map_err(|_| IngressError::Unavailable)?
+            .clone()
+            .ok_or(IngressError::Unavailable)?;
+        if !runtime.renewals.enrolled() || !runtime.dispatcher.enabled() {
+            return Err(IngressError::Rejected);
+        }
+        let mut gate = runtime.mesh.lock().gate_watch();
+        loop {
+            {
+                let mesh = runtime.mesh.lock();
+                if mesh.admission_context().is_ok() {
+                    break;
+                }
+                let account = mesh.account_state();
+                if account.membership.is_some()
+                    || account.plan_limit_locked
+                    || account.presence == crate::account_mesh::AccountPresence::SignedOut
+                {
+                    return Err(IngressError::Rejected);
+                }
+            }
+            gate.changed()
+                .await
+                .map_err(|_| IngressError::Unavailable)?;
+        }
+        Ok(runtime)
+    })
+    .await
+    .map_err(|_| IngressError::Unavailable)?
 }
 
 impl Drop for CloudIngressHandle {
@@ -129,8 +172,7 @@ pub fn start_with_proxy_host(
         .filter(|host| super::provider_proxy_host_allowed(host))
         .map(Arc::<str>::from);
     let (ready, receiver) = oneshot::channel();
-    let runtime = Arc::new(OnceLock::new());
-    let serving = Arc::clone(&runtime);
+    let (runtime, serving) = watch::channel(None);
     let task = tokio::spawn(async move {
         if !bind.ip().is_loopback() && (!bind.is_ipv4() || bind.port() != 7687) {
             return;
@@ -244,7 +286,7 @@ async fn connection(
     authoritative_proxy_host: Option<Arc<str>>,
     enrollment: Arc<dyn EnrollmentHandler>,
     authority: Arc<dyn CloudIngressAuthority>,
-    runtime: Arc<OnceLock<super::enrolled::Runtime>>,
+    runtime: RuntimeWatch,
 ) -> Result<(), IngressError> {
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_ENROLLMENT_FRAME_BYTES))
@@ -264,7 +306,7 @@ async fn connection(
     .map_err(|_| IngressError::Unavailable)?
     .map_err(|_| IngressError::Rejected)?;
     if matches!(route, Route::Recovery) {
-        let rt = runtime.get().ok_or(IngressError::Rejected)?;
+        let rt = runtime.borrow().clone().ok_or(IngressError::Rejected)?;
         if !rt.renewals.enrolled() || !rt.dispatcher.enabled() {
             return Err(IngressError::Rejected);
         }
@@ -278,10 +320,11 @@ async fn connection(
         .map_err(|_| IngressError::Unavailable)?;
     }
     if matches!(route, Route::Enrolled) {
+        let runtime = ready_runtime(runtime).await?;
         return super::enrolled::serve(
             socket,
             authoritative_proxy_host.map(|host| host.to_string()),
-            runtime.get().ok_or(IngressError::Rejected)?,
+            &runtime,
         )
         .await;
     }

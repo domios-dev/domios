@@ -16,7 +16,9 @@ pub use dial::CloudRoute;
 pub(crate) use dial::{direct_address_allowed, provider_proxy_host_allowed};
 #[cfg(test)]
 pub(crate) use enrolled::{accept as accept_test_channel, initiate as initiate_test_channel};
-pub use enrolled::{connect_enrolled, EnrolledChannel, RenewalReceiver};
+pub use enrolled::{
+    connect_enrolled, connect_enrolled_with_timeout, EnrolledChannel, RenewalReceiver,
+};
 pub use renewal_recovery::recover_expired_cloud;
 pub use reverse::ReverseDispatcher;
 #[cfg(test)]

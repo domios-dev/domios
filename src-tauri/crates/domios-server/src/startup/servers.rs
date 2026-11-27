@@ -534,6 +534,8 @@ pub(crate) fn start_servers(
         }
     }
     service_state.start_account_mesh_transport();
+    #[cfg(target_os = "linux")]
+    super::cloud_start::report_ingress_ready(service_state);
     codeterm_api::cloud_mesh_runtime::start(service_state, states.mesh.clone());
     if let Some(driver) = codeterm_api::cloud_routes::start_idle_driver(cloud_driver_state) {
         std::mem::forget(driver);

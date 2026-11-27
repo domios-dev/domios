@@ -729,3 +729,106 @@ async fn persisted_endpoint_is_not_ready_and_watcher_flushes_once_when_guest_lin
     );
     watcher.abort();
 }
+
+#[tokio::test]
+async fn confirmed_hot_wake_reattaches_finished_route_and_flushes_held_send_once() {
+    crate::register_api_extensions();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let endpoint = CloudEndpoint::ProviderProxy {
+        host: "cloud-rearm.fly.dev".into(),
+    };
+    let (home, _, _dir, controller, provisioning, channel) =
+        setup_sleeping_cloud_peer(&fixture, "home-route-wake", endpoint.clone());
+    let machine_id = "cloud-sleeper-1";
+    let installation_id = "cloud-inst-wake";
+    let held = controller
+        .hold_send_for_wake(
+            machine_id,
+            "cloud-tab-1",
+            "deliv-wake-route".into(),
+            "POST".into(),
+            "/api/tabs/cloud-tab-1/send".into(),
+            json!({ "text": "held through ingress startup" }),
+            AuthenticatedOrigin::Owner,
+            None,
+            60_000,
+        )
+        .unwrap();
+
+    let (guest_ready, readiness) = tokio::sync::watch::channel(false);
+    let (dialed, mut attempts) = tokio::sync::mpsc::unbounded_channel();
+    let dials = Arc::new(AtomicUsize::new(0));
+    let route_runtime = crate::cloud_mesh_runtime::start_routes(&home.svc, home.mesh.clone(), {
+        let mesh = home.mesh.clone();
+        let dials = Arc::clone(&dials);
+        move |id, route, deadline| {
+            let mut readiness = readiness.clone();
+            let mesh = mesh.clone();
+            let attempt = dials.fetch_add(1, Ordering::SeqCst);
+            let dialed = dialed.clone();
+            async move {
+                dialed.send((id.clone(), route, deadline)).unwrap();
+                if attempt == 0 {
+                    return;
+                }
+                readiness.wait_for(|ready| *ready).await.unwrap();
+                mesh.lock().attach_reverse_stream_for_test(id, [12; 32]);
+                std::future::pending::<()>().await;
+            }
+        }
+    });
+    let watcher = crate::cloud_routes::spawn_wake_delivery_watcher(home.clone());
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let first = attempts.recv().await.unwrap();
+        assert_eq!(first.0, installation_id);
+        assert_eq!(first.1, endpoint);
+        assert_eq!(first.2, Duration::from_secs(30));
+        assert!(!home
+            .mesh
+            .lock()
+            .attached_reverse_streams()
+            .contains(installation_id));
+
+        let wake = tokio::spawn({
+            let home = home.clone();
+            async move { wake_machine_for_use(&home, machine_id).await }
+        });
+        provisioning.release_wake();
+        let confirmed = attempts.recv().await.unwrap();
+        assert_eq!(confirmed.0, installation_id);
+        assert_eq!(confirmed.1, endpoint);
+        assert!(confirmed.2 > Duration::from_secs(30));
+        assert!(channel.recorded().is_empty());
+        assert_eq!(
+            controller.inspect_held_send(&held.send_id).unwrap().state,
+            ChatSendState::Pending
+        );
+
+        guest_ready.send(true).unwrap();
+        assert_eq!(
+            wake.await.unwrap().unwrap().state,
+            CloudLifecycleState::Awake
+        );
+        assert!(home
+            .mesh
+            .lock()
+            .attached_reverse_streams()
+            .contains(installation_id));
+        assert_eq!(
+            controller.inspect_held_send(&held.send_id).unwrap().state,
+            ChatSendState::Sent
+        );
+        let calls = channel.recorded();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].command.delivery_id.as_deref(),
+            Some("deliv-wake-route")
+        );
+        assert_eq!(dials.load(Ordering::SeqCst), 2);
+    })
+    .await
+    .expect("hot wake should attach and settle within the fixture deadline");
+    route_runtime.abort();
+    watcher.abort();
+}

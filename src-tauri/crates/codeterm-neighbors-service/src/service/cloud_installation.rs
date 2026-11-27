@@ -1,5 +1,7 @@
 pub mod controller;
 mod creation;
+#[cfg(target_os = "linux")]
+mod ingress_ready;
 mod renewal;
 #[cfg(test)]
 mod tests;

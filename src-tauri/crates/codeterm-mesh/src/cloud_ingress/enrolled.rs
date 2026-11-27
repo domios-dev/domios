@@ -265,7 +265,16 @@ pub async fn connect_enrolled(
     route: CloudRoute,
     installation_id: &str,
 ) -> Result<EnrolledChannel, IngressError> {
-    tokio::time::timeout(Duration::from_secs(30), async {
+    connect_enrolled_with_timeout(mesh, route, installation_id, Duration::from_secs(30)).await
+}
+
+pub async fn connect_enrolled_with_timeout(
+    mesh: MeshState,
+    route: CloudRoute,
+    installation_id: &str,
+    timeout: Duration,
+) -> Result<EnrolledChannel, IngressError> {
+    tokio::time::timeout(timeout, async {
         initiate(mesh, open(&route, PATH).await?, installation_id).await
     })
     .await

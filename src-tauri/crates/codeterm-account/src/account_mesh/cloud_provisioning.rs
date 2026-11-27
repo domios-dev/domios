@@ -298,6 +298,8 @@ pub struct ProvisionedMachineReply {
     pub lease_id: String,
     pub lease_expires_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingress_ready_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_restore: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_id: Option<String>,
@@ -314,6 +316,7 @@ impl ProvisionedMachineReply {
             || self.provider.trim().is_empty()
             || self.size.trim().is_empty()
             || self.lease_id.trim().is_empty()
+            || self.ingress_ready_at == Some(0)
             || !self.rate.is_valid()
         {
             return None;

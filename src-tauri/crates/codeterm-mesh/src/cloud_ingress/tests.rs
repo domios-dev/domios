@@ -604,14 +604,8 @@ async fn provider_proxy_wss_runs_bootstrap_enrolled_publication_renewal_and_enfo
         }));
     enroll_all(&[&home, &cloud]);
     home.sign_in(1, ACCOUNT, START + 4 * MEMBERSHIP_TTL);
-    cloud.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
-    link_installation_with(
-        &home.mesh,
-        &Loopback::new(&[&home, &cloud]),
-        &cloud.installation_id,
-    )
-    .await
-    .unwrap();
+    let mut readiness = std::pin::pin!(handle.enrolled_readiness());
+    assert!(futures_util::poll!(readiness.as_mut()).is_pending());
     let receiver = Arc::new(TestRenewalReceiver {
         cloud: cloud.mesh.clone(),
         authority: Arc::clone(&cloud.authority),
@@ -623,6 +617,16 @@ async fn provider_proxy_wss_runs_bootstrap_enrolled_publication_renewal_and_enfo
         receiver.clone(),
         Arc::new(TestDispatcher)
     ));
+    assert!(futures_util::poll!(readiness.as_mut()).is_pending());
+    cloud.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    readiness.await.unwrap();
+    link_installation_with(
+        &home.mesh,
+        &Loopback::new(&[&home, &cloud]),
+        &cloud.installation_id,
+    )
+    .await
+    .unwrap();
 
     let trusted_override = super::dial::TestTlsOverride {
         target: trusted_proxy,

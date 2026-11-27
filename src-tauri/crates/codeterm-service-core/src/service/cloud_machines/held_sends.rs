@@ -517,6 +517,7 @@ impl CloudWakeQueue {
 pub struct InFlightWake {
     notify: Notify,
     result: Mutex<Option<Result<(), CloudError>>>,
+    route_deadline_ms: Mutex<Option<u64>>,
 }
 
 impl InFlightWake {
@@ -552,6 +553,12 @@ pub struct WakeLeaderGuard {
 }
 
 impl WakeLeaderGuard {
+    pub(super) fn confirm_route(&self, deadline_ms: u64) {
+        if let Some(entry) = &self.entry {
+            *entry.wake.route_deadline_ms.lock() = Some(deadline_ms);
+        }
+    }
+
     pub fn finish(mut self, outcome: Result<(), CloudError>) {
         if let Some(entry) = self.entry.take() {
             *entry.wake.result.lock() = Some(outcome);
@@ -576,6 +583,13 @@ impl Drop for WakeLeaderGuard {
 }
 
 impl SingleFlightWakes {
+    pub(super) fn confirmed_route_deadline(&self, machine_id: &str) -> Option<u64> {
+        self.in_flight
+            .lock()
+            .get(machine_id)
+            .and_then(|wake| *wake.route_deadline_ms.lock())
+    }
+
     pub fn acquire(self: &Arc<Self>, machine_id: &str) -> WakeSlot {
         let mut map = self.in_flight.lock();
         if let Some(existing) = map.get(machine_id) {
@@ -584,6 +598,7 @@ impl SingleFlightWakes {
         let wake = Arc::new(InFlightWake {
             notify: Notify::new(),
             result: Mutex::new(None),
+            route_deadline_ms: Mutex::new(None),
         });
         map.insert(machine_id.to_owned(), Arc::clone(&wake));
         WakeSlot::Leader(WakeLeaderGuard {
