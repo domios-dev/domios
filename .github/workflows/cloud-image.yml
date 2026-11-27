@@ -207,10 +207,18 @@ jobs:
           DOMIOS_QA_FIREBASE_APP_ID: ${{ secrets.DOMIOS_QA_FIREBASE_APP_ID }}
         run: bash scripts/docker/build-cloud-candidate-inputs.sh
 
+      - name: Upload separate QA debug symbols artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cloud-qa-debug-symbols-${{ steps.source.outputs.sha12 }}
+          path: target/cloud-qa/debug-symbols
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Free hosted Cargo build outputs before Docker build
         if: runner.environment == 'github-hosted'
         shell: bash
-        run: rm -rf src-tauri/target cli/target target/cloud-qa/stage
+        run: rm -rf src-tauri/target cli/target target/cloud-qa/stage target/cloud-qa/stripped target/cloud-qa/debug-symbols
 
       - name: Prepare runner Buildx and authenticate to GHCR
         shell: bash

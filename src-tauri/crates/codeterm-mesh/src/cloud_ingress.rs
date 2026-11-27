@@ -9,7 +9,9 @@ mod enrolled;
 mod enrolled_wire;
 mod renewal_recovery;
 mod reverse;
-pub use controller::{connect_enrollment, EnrollmentClient};
+pub use controller::{
+    connect_enrollment, EnrollmentClient, ENROLLMENT_CONNECT_TIMEOUT, ENROLLMENT_REQUEST_TIMEOUT,
+};
 pub use dial::CloudRoute;
 pub(crate) use dial::{direct_address_allowed, provider_proxy_host_allowed};
 #[cfg(test)]
@@ -23,7 +25,7 @@ mod listener;
 pub use authentication::{
     BootstrapResponder, ChannelProof, CloudIngressAuthority, IngressError, IngressReady,
 };
-pub use listener::{start, start_with_proxy_host, CloudIngressHandle};
+pub use listener::{start, start_with_proxy_host, CloudIngressHandle, BOOTSTRAP_SESSION_TIMEOUT};
 
 pub const MAX_ENROLLMENT_FRAME_BYTES: usize = 64 * 1024;
 

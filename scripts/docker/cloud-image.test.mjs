@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign as edSign } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { readHeadlessArchive } from '../headless-release-package.mjs';
+import { packageCloudQa, prepareQaCliDigest } from './package-cloud-qa.mjs';
 import {
   buildHeadlessFeedManifest,
   signHeadlessFeed,
@@ -224,4 +226,176 @@ test('verifyCloudImage checks anonymous pull, tag digest equality, annotations, 
     }),
     /resolved to/,
   );
+});
+
+test('packageCloudQa strips debug info before packaging, hashes shipped stripped bytes, and retains debug symbols', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'domios-cloud-qa-strip-'));
+  const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+  try {
+    const target = 'x86_64-unknown-linux-gnu';
+    const sourceSha = 'e'.repeat(40);
+    const version = '1.24.0';
+    const repoRoot = path.join(root, 'repo');
+    const logs = path.join(root, 'logs');
+    const built = path.join(root, 'built');
+    for (const dir of [
+      path.join(repoRoot, 'cli', 'src'),
+      path.join(repoRoot, 'src-tauri', 'crates', 'domios-server', 'src'),
+      path.join(repoRoot, 'dist', 'assets'),
+      path.join(repoRoot, 'skills', 'demo'),
+      logs,
+      built,
+    ]) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const cliSrc = path.join(repoRoot, 'cli', 'src', 'main.rs');
+    const serverSrc = path.join(repoRoot, 'src-tauri', 'crates', 'domios-server', 'src', 'main.rs');
+    writeFileSync(cliSrc, 'fn main() {}');
+    writeFileSync(serverSrc, 'fn main() {}');
+    writeFileSync(path.join(repoRoot, 'src-tauri', 'tauri.conf.json'), JSON.stringify({ version }));
+    writeFileSync(path.join(repoRoot, 'dist', 'index.html'), '<html><script src="/assets/app.js"></script></html>');
+    writeFileSync(path.join(repoRoot, 'dist', 'assets', 'app.js'), 'console.log("ok");');
+    writeFileSync(path.join(repoRoot, 'skills', 'demo', 'SKILL.md'), '# demo\n');
+    writeFileSync(path.join(repoRoot, 'LICENSE'), 'AGPL\n');
+    writeFileSync(path.join(repoRoot, 'NOTICE'), 'Domios\n');
+
+    const debugMarker = Buffer.from('::DEBUG_SYMBOLS::');
+    const strippedCliBytes = Buffer.from('ELF-CLI-CODE');
+    const unstrippedCliBytes = Buffer.concat([strippedCliBytes, debugMarker, Buffer.alloc(2048, 0xdd)]);
+    const strippedServerBytes = Buffer.from('ELF-SERVER-CODE');
+    const unstrippedServerBytes = Buffer.concat([strippedServerBytes, debugMarker, Buffer.alloc(4096, 0xee)]);
+    const rawCliPath = path.join(built, 'codeterm');
+    const rawServerPath = path.join(built, 'domios-server');
+    writeFileSync(rawCliPath, unstrippedCliBytes);
+    writeFileSync(rawServerPath, unstrippedServerBytes);
+
+    const cliLog = path.join(logs, 'cli.jsonl');
+    writeFileSync(
+      cliLog,
+      [
+        JSON.stringify({
+          reason: 'compiler-artifact',
+          target: { name: 'codeterm', kind: ['bin'], src_path: cliSrc },
+          profile: { debug_assertions: true, test: false },
+          executable: rawCliPath,
+        }),
+        JSON.stringify({ reason: 'build-finished', success: true }),
+      ].join('\n') + '\n',
+    );
+    writeFileSync(path.join(logs, 'closure.txt'), 'domios-server 0.0.0\n');
+
+    const objcopyCalls = [];
+    const fakeObjcopy = (cmd, args) => {
+      objcopyCalls.push([cmd, ...args]);
+      const input = readFileSync(args[args.length - 2]);
+      const output = args[args.length - 1];
+      const splitAt = input.indexOf(debugMarker);
+      assert.notEqual(splitAt, -1, 'fixture binary must contain synthetic debug section');
+      if (args.includes('--only-keep-debug')) {
+        writeFileSync(output, input.subarray(splitAt));
+      } else if (args.includes('--strip-debug')) {
+        writeFileSync(output, input.subarray(0, splitAt));
+      } else {
+        throw new Error(`Unexpected objcopy args: ${args.join(' ')}`);
+      }
+    };
+
+    const strippedRoot = path.join(root, 'stripped');
+    const debugSymbolsRoot = path.join(root, 'debug-symbols');
+    const cliPrepared = await prepareQaCliDigest({
+      cliLog,
+      target,
+      repoRoot,
+      strippedRoot,
+      debugSymbolsRoot,
+      objcopy: 'fake-objcopy',
+      run: fakeObjcopy,
+    });
+    assert.equal(cliPrepared.sha256, sha256(strippedCliBytes));
+    assert.notEqual(cliPrepared.sha256, sha256(unstrippedCliBytes));
+    assert.equal(cliPrepared.strippedBytes, strippedCliBytes.length);
+    assert.equal(cliPrepared.originalBytes, unstrippedCliBytes.length);
+
+    const writeServerLog = cliDigestEnv => {
+      writeFileSync(
+        path.join(logs, 'server.jsonl'),
+        [
+          JSON.stringify({
+            reason: 'build-script-executed',
+            package_id: 'domios-server 0.0.0',
+            env: [
+              ['BUILD_SHA', sourceSha],
+              ['SERVER_CLI_SHA256', cliDigestEnv],
+            ],
+          }),
+          JSON.stringify({
+            reason: 'compiler-artifact',
+            target: { name: 'domios-server', kind: ['bin'], src_path: serverSrc },
+            profile: { debug_assertions: true, test: false },
+            features: ['embeddings', 'mem-postgres'],
+            executable: rawServerPath,
+          }),
+          JSON.stringify({ reason: 'build-finished', success: true }),
+        ].join('\n') + '\n',
+      );
+    };
+
+    // Unstripped CLI digest embedded in domios-server must be refused.
+    writeServerLog(sha256(unstrippedCliBytes));
+    await assert.rejects(
+      packageCloudQa({
+        target,
+        logs,
+        repoRoot,
+        stageRoot: path.join(root, 'stage-bad'),
+        outputDir: path.join(root, 'archives-bad'),
+        strippedRoot,
+        debugSymbolsRoot,
+        sourceSha,
+        version,
+        objcopy: 'fake-objcopy',
+        run: fakeObjcopy,
+      }),
+      /CLI digest mismatch/,
+    );
+
+    // Stripped CLI digest succeeds and packages stripped binaries with matching manifests and retained debug symbols.
+    writeServerLog(cliPrepared.sha256);
+    const summary = await packageCloudQa({
+      target,
+      logs,
+      repoRoot,
+      stageRoot: path.join(root, 'stage-ok'),
+      outputDir: path.join(root, 'archives-ok'),
+      strippedRoot,
+      debugSymbolsRoot,
+      sourceSha,
+      version,
+      objcopy: 'fake-objcopy',
+      run: fakeObjcopy,
+    });
+
+    assert.equal(summary.server_sha256, sha256(strippedServerBytes));
+    assert.notEqual(summary.server_sha256, sha256(unstrippedServerBytes));
+    assert.equal(summary.cli_sha256, sha256(strippedCliBytes));
+    assert.equal(summary.server_bytes, strippedServerBytes.length);
+    assert.equal(summary.server_unstripped_bytes, unstrippedServerBytes.length);
+    assert.equal(summary.cli_bytes, strippedCliBytes.length);
+    assert.equal(summary.cli_unstripped_bytes, unstrippedCliBytes.length);
+
+    const archiveFiles = readHeadlessArchive(readFileSync(summary.archive));
+    assert.deepEqual(archiveFiles.get('domios-server/domios-server').bytes, strippedServerBytes);
+    assert.deepEqual(archiveFiles.get('cli/codeterm').bytes, strippedCliBytes);
+    assert.deepEqual(archiveFiles.get('cli/domios').bytes, strippedCliBytes);
+    const componentManifest = JSON.parse(archiveFiles.get('server-component.json').bytes.toString('utf8'));
+    assert.equal(componentManifest.server_sha256, sha256(strippedServerBytes));
+
+    // Separate debug symbol files remain intact for CI artifact upload.
+    assert.equal(readFileSync(summary.debug_symbols.server).indexOf(debugMarker), 0);
+    assert.equal(readFileSync(summary.debug_symbols.cli).indexOf(debugMarker), 0);
+    assert.ok(objcopyCalls.some(call => call.includes('--only-keep-debug')));
+    assert.ok(objcopyCalls.some(call => call.includes('--strip-debug')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -305,3 +305,46 @@ fn resupplied_malformed_binding_is_dropped_unread_after_record_exists() {
         Stored::Enrolled { .. }
     ));
 }
+
+#[tokio::test(start_paused = true)]
+async fn enrollment_lifecycle_wait_bound_covers_cold_boot_and_times_out_at_bound() {
+    assert!(
+        ENROLLMENT_LIFECYCLE_WAIT_TIMEOUT >= std::time::Duration::from_secs(180),
+        "guest lifecycle wait failure bound must be at least 180 s"
+    );
+    let root = tempfile::tempdir().unwrap();
+    let controller_key = InstallationKey::generate().public_bytes();
+    let nonce = URL_SAFE_NO_PAD.encode([11; 32]);
+    let bound = CloudInstallation::restore(
+        root.path(),
+        "mesh".into(),
+        [4; 32],
+        Some((
+            URL_SAFE_NO_PAD.encode(controller_key),
+            Zeroizing::new(nonce),
+        )),
+    )
+    .unwrap();
+    let mut lifecycle = bound.0.lifecycle.subscribe();
+    let wait = tokio::time::timeout(
+        ENROLLMENT_LIFECYCLE_WAIT_TIMEOUT,
+        lifecycle.wait_for(Option::is_some),
+    );
+    tokio::pin!(wait);
+
+    // Must still be pending well past the old 30 s bound (e.g. at 90 s of a cold boot).
+    tokio::time::advance(std::time::Duration::from_secs(90)).await;
+    tokio::task::yield_now().await;
+    assert!(
+        tokio::select! {
+            biased;
+            _ = &mut wait => false,
+            _ = std::future::ready(()) => true,
+        },
+        "lifecycle wait must not time out at 90 s"
+    );
+
+    // Must expire cleanly once the full failure bound elapses without lifecycle readiness.
+    tokio::time::advance(ENROLLMENT_LIFECYCLE_WAIT_TIMEOUT).await;
+    assert!(wait.await.is_err());
+}

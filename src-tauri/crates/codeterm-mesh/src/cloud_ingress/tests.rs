@@ -994,3 +994,61 @@ async fn provider_proxy_dial_refuses_private_loopback_and_mixed_resolved_ips() {
     .unwrap();
     assert_eq!(vetted.len(), 2);
 }
+
+#[tokio::test]
+async fn enrollment_wait_bounds_cover_cold_fly_boot_and_fail_when_stalled() {
+    use ed25519_dalek::{Signer, SigningKey};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    assert!(
+        super::ENROLLMENT_CONNECT_TIMEOUT >= Duration::from_secs(180),
+        "enrollment connect failure bound must cover cold Fly boot (>= 180 s)"
+    );
+    assert!(
+        super::ENROLLMENT_REQUEST_TIMEOUT >= Duration::from_secs(180),
+        "enrollment request failure bound must cover guest startup wait (>= 180 s)"
+    );
+    assert!(
+        super::BOOTSTRAP_SESSION_TIMEOUT >= super::ENROLLMENT_CONNECT_TIMEOUT,
+        "guest bootstrap session bound must not expire before the controller connect bound"
+    );
+
+    // A silent remote that accepts TLS/TCP without completing the WebSocket/Noise handshake
+    // must fail cleanly with IngressError::Unavailable at the configured failure bound.
+    const HOST: &str = "stalled-boot.example.test";
+    let pki = test_pki::issue([51; 32], [52; 32], "domios-test-stall-ca", HOST);
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add(pki.ca_cert).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stalled_addr = listener.local_addr().unwrap();
+    let stall_task = tokio::spawn(async move {
+        if let Ok((stream, _)) = listener.accept().await {
+            let _hold = stream;
+            std::future::pending::<()>().await;
+        }
+    });
+
+    let controller_key = SigningKey::from_bytes(&[53; 32]);
+    let route = super::CloudRoute::ProviderProxy {
+        host: HOST.to_owned(),
+    };
+    let tls_override = super::dial::TestTlsOverride {
+        target: stalled_addr,
+        roots: Arc::new(root_store),
+    };
+    let outcome = super::dial::TEST_TLS_OVERRIDE
+        .scope(
+            tls_override,
+            super::controller::connect_enrollment_within(
+                route,
+                &[7u8; 32],
+                controller_key.verifying_key().to_bytes(),
+                Duration::from_millis(50),
+                |proof| Ok(controller_key.sign(proof.as_bytes()).to_bytes()),
+            ),
+        )
+        .await;
+    assert_eq!(outcome.err(), Some(super::IngressError::Unavailable));
+    stall_task.abort();
+}
