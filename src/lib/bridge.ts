@@ -6,6 +6,7 @@ import { DEV_BUILD } from "./devBuild";
 import {
   currentToken,
   IS_WEB,
+  relayTarget,
   WebApiError,
 } from "./webApi";
 import { webListen } from "./webEvents";
@@ -13,7 +14,7 @@ import { WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { ipcLogArgs } from "./ipcLogArgs";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import { classifyTabTarget, hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
-import { subscribeRemoteTabEvent } from "./remoteTabEvents";
+import { hasLiveRemoteTabEventStream, onRemoteTabEventSignal, subscribeRemoteTabEvent } from "./remoteTabEvents";
 import { createPreviewPreparation, type PreviewPreparation } from "./previewPreparation";
 import { EVENT_STREAM_READY } from "./eventStreamReady";
 
@@ -25,7 +26,16 @@ const preparePreviews = createPreviewPreparation({
     }) : selectedDaemonTransport.json<PreviewPreparation>("POST", `/api/tabs/${encodeURIComponent(tabId)}/preview/prepare`, {});
   },
   listen: (tabId, handler) => listen<PreviewPreparation>(`preview-index-state-${tabId}`, event => handler(event.payload)),
-  reconnect: handler => {
+  canReceiveEvents: tabId => {
+    if (relayTarget()) return false;
+    return classifyTabTarget(tabId).kind === "local" || hasLiveRemoteTabEventStream(tabId);
+  },
+  reconnect: (handler, tabId) => {
+    if (classifyTabTarget(tabId).kind === "remote") {
+      return onRemoteTabEventSignal(`tab-chat-msg-${tabId}`, signal => {
+        if (signal === "resync") handler();
+      });
+    }
     window.addEventListener(EVENT_STREAM_READY, handler);
     return () => window.removeEventListener(EVENT_STREAM_READY, handler);
   },

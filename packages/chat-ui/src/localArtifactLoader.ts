@@ -29,10 +29,19 @@ export async function loadLocalArtifact(
 }
 
 let opener: ((path: string) => Promise<unknown>) | null = null;
-export function configureLocalArtifactOpener(next: typeof opener) { opener = next; }
+let canOpenOpener: ((tabId?: string) => boolean) | null = null;
+export function configureLocalArtifactOpener(
+  next: typeof opener,
+  canOpen?: ((tabId?: string) => boolean) | null,
+) {
+  opener = next;
+  canOpenOpener = next ? (canOpen ?? null) : null;
+}
 export async function openLocalArtifact(path: string) {
   if (!opener) throw new Error("Opening local files is unavailable");
   await opener(path);
 }
 
-export function localArtifactOpeningAvailable(): boolean { return opener !== null; }
+export function localArtifactOpeningAvailable(tabId?: string): boolean {
+  return opener !== null && (canOpenOpener ? canOpenOpener(tabId) : true);
+}

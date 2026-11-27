@@ -30,7 +30,7 @@ export function DocumentDetail({ tabId, document, home, onBack }: { tabId: strin
     <IconAction label={`Fullscreen ${document.name}`} title="Fullscreen" icon={Maximize2} onClick={() => setFullscreenRequest((value) => value + 1)} />
     <ChatAction label={`Ask about ${document.name}`} text="Ask" onClick={() => insertIntoComposer(tabId, { kind: "document", path: document.path })} />
     <FileActionsMenu items={[
-      { label: `Reveal ${document.name}`, icon: <FolderOpen size={14} />, title: localArtifactOpeningAvailable() ? "Reveal in file manager" : "Revealing files is available only in the desktop app", disabled: !localArtifactOpeningAvailable(), onClick: () => void openLocalArtifact(document.path).then(() => setError(null), fail) },
+      { label: `Reveal ${document.name}`, icon: <FolderOpen size={14} />, title: localArtifactOpeningAvailable(tabId) ? "Reveal in file manager" : "Revealing files is available only in the desktop app", disabled: !localArtifactOpeningAvailable(tabId), onClick: () => void openLocalArtifact(document.path).then(() => setError(null), fail) },
       { label: "Copy path", icon: <Link2 size={14} />, onClick: () => void copyText(document.path).catch(() => {}) },
       { label: "Copy content", icon: <ClipboardCopy size={14} />, disabled: !text, onClick: () => void copyText(text ?? "").catch(() => {}) },
     ]} />

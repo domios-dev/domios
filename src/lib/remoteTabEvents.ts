@@ -244,6 +244,10 @@ export function resumeRemoteTabEvents(peerId?: string): void {
         }
     }
 }
+export function hasLiveRemoteTabEventStream(ordinaryTabId: string): boolean {
+    const record = subscriptions.get(`tab-chat-msg-${ordinaryTabId}`);
+    return Boolean(record && !record.disposed && record.ready);
+}
 export function remoteTabEventSubscriptionSnapshot(event: string): {
     cursor: string | null;
     generation: number;

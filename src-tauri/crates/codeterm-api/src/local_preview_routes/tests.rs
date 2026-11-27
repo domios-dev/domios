@@ -988,3 +988,88 @@ async fn canvas_write_and_watch_refuse_tab_credentials_and_serve_only_the_local_
         .await;
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn remote_agent_cannot_prepare_read_or_check_previews_while_peer_owner_can() {
+    let fixture = Fixture::new();
+    let (private, public) = codeterm_service_core::mesh::crown::generate_peer_keypair();
+    fixture.state.config.lock().mesh.enabled = true;
+    fixture.state.mesh.lock().insert_account_peer_for_test(
+        codeterm_service_core::mesh::types::PairedPeer {
+            instance_id: "remote-peer".into(),
+            instance_name: "Remote".into(),
+            addresses: Vec::new(),
+            api_port: 0,
+            public_key: public,
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
+            domios_version: None,
+            domios_build: None,
+            web_ui: None,
+            relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        },
+    );
+    let page = fixture.write("remote-view.html", "<main>owner peer page</main>");
+    fixture.reference(&fixture.owner, &page);
+
+    let agent_auth = format!(
+        "Bearer {}",
+        codeterm_service_core::mesh::crown::sign_request_with_agent(
+            &private,
+            "remote-peer",
+            codeterm_service_core::mesh::crown::AuthenticatedOrigin::Agent,
+            Some(&codeterm_service_core::mesh::crown::AuthenticatedAgent {
+                instance_id: "remote-peer".into(),
+                tab_id: "remote-agent-tab".into(),
+                can_spawn: false,
+            }),
+        )
+        .unwrap()
+    );
+    for (suffix, body) in [
+        ("prepare", serde_json::json!({})),
+        ("read", serde_json::json!({"path": page, "kind": "page"})),
+        ("check", serde_json::json!({"paths": [page]})),
+    ] {
+        let response = fixture
+            .post(&fixture.owner, suffix, body, Some(&agent_auth))
+            .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{suffix}");
+        assert_headers(&response);
+    }
+
+    let owner_auth = format!(
+        "Bearer {}",
+        codeterm_service_core::mesh::crown::sign_request_with_origin(
+            &private,
+            "remote-peer",
+            codeterm_service_core::mesh::crown::AuthenticatedOrigin::Owner,
+        )
+        .unwrap()
+    );
+    let prepared = fixture
+        .post(
+            &fixture.owner,
+            "prepare",
+            serde_json::json!({}),
+            Some(&owner_auth),
+        )
+        .await;
+    assert_eq!(prepared.status(), StatusCode::OK);
+    assert_eq!(json(prepared).await["state"], "ready");
+    let read = fixture
+        .post(
+            &fixture.owner,
+            "read",
+            serde_json::json!({"path": page, "kind": "page"}),
+            Some(&owner_auth),
+        )
+        .await;
+    assert_eq!(read.status(), StatusCode::OK);
+    assert_eq!(json(read).await["data"], "<main>owner peer page</main>");
+}

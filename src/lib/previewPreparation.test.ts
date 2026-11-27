@@ -40,3 +40,19 @@ test("completion before prepare response is retained and failures release subscr
   await assert.rejects(failure("tab"), /indexing failed/);
   assert.equal(removed, 2);
 });
+
+test("without an event stream, continues waiting through bounded prepare calls until ready", async () => {
+  let prepareCalls = 0;
+  let removed = 0;
+  const prepare = createPreviewPreparation({
+    prepare: async () => {
+      prepareCalls++;
+      return { state: prepareCalls < 3 ? "indexing" : "ready", index_id: "remote-index" };
+    },
+    listen: async () => () => { removed++; },
+    canReceiveEvents: () => false,
+  });
+  await Promise.all([prepare("mesh:peer-a/tab-1"), prepare("mesh:peer-a/tab-1")]);
+  assert.equal(prepareCalls, 3);
+  assert.equal(removed, 1);
+});

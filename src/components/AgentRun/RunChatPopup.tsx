@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MessageBubble } from "@codeterm/chat-ui";
+import { LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
 import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import type { EnrichmentCache } from "../Terminal/chatEnrichment";
 import { conversationEntries } from "../Terminal/chatPagingModel";
@@ -43,6 +43,9 @@ export function RunChatPopup({
 }: Props) {
   const [detachedSession, setDetachedSession] = useState<string | null>(null);
   const watching = Boolean(live && tabId && detachedSession !== sessionId);
+  const artifactTabId = tabId
+    ? (!tabId.startsWith("mesh:") && ownerInstanceId ? `mesh:${ownerInstanceId}/${tabId}` : tabId)
+    : undefined;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const enrichmentCache = useRef<EnrichmentCache>(new WeakMap());
   const entries = useMemo(() => conversationEntries(messages, enrichmentCache.current, cwd), [messages, cwd]);
@@ -145,7 +148,13 @@ export function RunChatPopup({
           {loaded && !error && entries.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
           )}
-          {entries.map(({ msg, item, origin }) => (
+          {artifactTabId ? (
+            <LocalArtifactScope tabId={artifactTabId}>
+              {entries.map(({ msg, item, origin }) => (
+                <MessageBubble key={msg.id} message={msg} origin={origin} item={item.kind === "tool" ? item : undefined} />
+              ))}
+            </LocalArtifactScope>
+          ) : entries.map(({ msg, item, origin }) => (
             <MessageBubble key={msg.id} message={msg} origin={origin} item={item.kind === "tool" ? item : undefined} />
           ))}
         </div>

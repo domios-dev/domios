@@ -9,6 +9,7 @@ import { documentsFromTranscript } from "./chatDocuments";
 import { composerInsertionStore } from "./composerInsertion";
 import { TabSidePanel } from "./tabPanel/TabSidePanel";
 import { tabPanelNavigationStore } from "./tabPanel/tabPanelNavigation";
+import { pinnedBlocksStore } from "./pinnedBlocks";
 
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn() }));
 import { invoke } from "../../lib/bridge";
@@ -46,7 +47,7 @@ const panel = (tabId: string, onClose = () => {}, state: "open" | "closing" | "e
   <TabSidePanel tabId={tabId} view="documents" panelRef={{ current: null }} state={state} onClose={onClose} />;
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove();
-  planSidePanelStore.close(); planSidePanelStore.resetDocuments(); chatDocumentsStore.clear(); tabPanelNavigationStore.clear(); composerInsertionStore.clear(); vi.clearAllMocks();
+  planSidePanelStore.close(); planSidePanelStore.resetDocuments(); chatDocumentsStore.clear(); tabPanelNavigationStore.clear(); composerInsertionStore.clear(); pinnedBlocksStore.resetForTest(); vi.clearAllMocks();
   configureHtmlFileLoader(null); configureLocalArtifactLoader(null); configureLocalArtifactOpener(null);
   document.documentElement.removeAttribute("style");
 });
@@ -265,4 +266,13 @@ it("loads file-backed HTML using the reader's tab scope", async () => {
   expect(load).toHaveBeenCalledWith("/work/view.html", "page-owner");
   const preview = host.querySelector('iframe[title="HTML preview"]');
   expect(preview?.getAttribute("srcdoc")).toContain("Owned HTML");
+});
+
+it("passes tab scope to pinned page blocks inside the documents side panel", async () => {
+  const load = vi.fn(async () => "<main>Pinned remote HTML</main>");
+  configureHtmlFileLoader(load);
+  pinnedBlocksStore.toggle("mesh:peer-a/pinned-tab", '<ds-page src="/remote/pinned.html" />');
+  await render(panel("mesh:peer-a/pinned-tab"));
+  expect(load).toHaveBeenCalledWith("/remote/pinned.html", "mesh:peer-a/pinned-tab");
+  expect(host.querySelector('iframe[title="HTML preview"]')?.getAttribute("srcdoc")).toContain("Pinned remote HTML");
 });

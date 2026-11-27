@@ -273,3 +273,82 @@ fn empty_check_never_reads_transcript_or_allocates_an_index() {
         .lock()
         .is_empty());
 }
+
+#[tokio::test]
+async fn prepare_waitable_settles_to_ready_directly_and_read_catches_up_on_appended_page() {
+    let (fixture, tab, reads) = fixture();
+    let artifacts = tempfile::tempdir().unwrap();
+    let root = codeterm_local_preview::html_preview::preview_test_root(artifacts.path());
+    let first_page = root.join("first.html");
+    let second_page = root.join("second.html");
+    std::fs::write(&first_page, "<main>first</main>").unwrap();
+    std::fs::write(&second_page, "<main>second</main>").unwrap();
+    let transcript = fixture.temp.path().join("own.jsonl");
+    append(
+        &transcript,
+        &codeterm_local_preview::artifact_directive::serialize_artifact(
+            "page",
+            &[first_page.to_string_lossy().into_owned()],
+        )
+        .unwrap(),
+    );
+
+    let prepared = prepare_waitable(&fixture.service, &tab).unwrap();
+    let settled = prepared
+        .wait_bounded(std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert_eq!(settled.state, "ready");
+    assert_eq!(
+        super::super::read(
+            &fixture.service,
+            &tab,
+            &[],
+            first_page.to_str().unwrap(),
+            "page",
+        )
+        .unwrap()
+        .data,
+        "<main>first</main>"
+    );
+
+    let parsed_after_first = reads.lock().len();
+    assert_eq!(
+        super::super::read(
+            &fixture.service,
+            &tab,
+            &[],
+            first_page.to_str().unwrap(),
+            "page",
+        )
+        .unwrap()
+        .data,
+        "<main>first</main>"
+    );
+    assert_eq!(
+        reads.lock().len(),
+        parsed_after_first,
+        "warm read of indexed page must not re-parse transcript"
+    );
+
+    append(
+        &transcript,
+        &codeterm_local_preview::artifact_directive::serialize_artifact(
+            "page",
+            &[second_page.to_string_lossy().into_owned()],
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        super::super::read(
+            &fixture.service,
+            &tab,
+            &[],
+            second_page.to_str().unwrap(),
+            "page",
+        )
+        .unwrap()
+        .data,
+        "<main>second</main>"
+    );
+}

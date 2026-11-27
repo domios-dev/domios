@@ -2,13 +2,13 @@ import { type DaemonFake, muxMockFetch, settleDaemon } from "./muxMockFetch.test
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AttachmentCapsule, configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, LocalArtifactScope, MessageBubble, RichMarkdown } from "@codeterm/chat-ui";
+import { AttachmentCapsule, configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, localArtifactOpeningAvailable, LocalArtifactBlock, LocalArtifactScope, MessageBubble, RichMarkdown } from "@codeterm/chat-ui";
 import { formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { ChangeFileView } from "../components/Terminal/tabPanel/ChangeFileView";
 import { DocumentDetail } from "../components/Terminal/tabPanel/DocumentDetail";
-import { configureLocalPreviews } from "./configureLocalPreviews";
+import { configureLocalPreviews, previewFailureMessage } from "./configureLocalPreviews";
 import { invoke, IS_WEB, __setListenForTest } from "./bridge";
-import { selfHost, setTokenFor } from "./webApi";
+import { clearRelayTarget, selfHost, setRelayTarget, setTokenFor } from "./webApi";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -247,4 +247,85 @@ it("loads a sent surface snip in the system transcript through the owning tab pr
     path: "/api/tabs/snip-owner/preview/read",
     body: { path, kind: "image" },
   }]);
+});
+
+it("opens page, document, image and canvas through web relayTarget even when prepare indexes without SSE", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 320));
+  setRelayTarget("peer-b", "Peer B");
+  let prepareCount = 0;
+  fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+    expect(new URL(input).pathname).toBe("/api/mesh/relay-to");
+    const envelope = JSON.parse(String(init?.body)) as { target_instance_id?: string; path: string; body?: { path?: string; kind?: string } };
+    expect(envelope.target_instance_id).toBe("peer-b");
+    if (envelope.path === "/api/tabs/relayed-tab/preview/prepare") {
+      prepareCount += 1;
+      return Response.json({
+        ok: true,
+        status: 200,
+        data: { state: prepareCount === 1 ? "indexing" : "ready", index_id: "relay-idx" },
+      });
+    }
+    expect(envelope.path).toBe("/api/tabs/relayed-tab/preview/read");
+    const kind = envelope.body?.kind;
+    const data = kind === "page" ? { data: "<main>Web relayed page</main>", media_type: "text/html" }
+      : kind === "document" ? { data: "# Web relayed doc", media_type: "text/markdown" }
+      : kind === "canvas" ? { data: JSON.stringify({ format: "domios.canvas/1", title: "Web board", items: [{ id: "n1", kind: "note", markdown: "Note", x: 0, y: 0, w: 200, h: 120 }] }), media_type: "application/json" }
+      : { data: previewImage, media_type: "image/jpeg" };
+    return Response.json({ ok: true, status: 200, data });
+  });
+  try {
+    await act(async () => root?.render(
+      <LocalArtifactScope tabId="relayed-tab">
+        <RichMarkdown text={'<ds-page src="/remote/demo.html" />\n\n<ds-document src="/remote/doc.md" />\n\n<ds-image src="/remote/pic.png" />\n\n<ds-canvas src="/remote/board.canvas.json" />'} />
+      </LocalArtifactScope>,
+    ));
+    await act(settleDaemon);
+    expect(prepareCount).toBe(2);
+    expect(host.querySelector('iframe[title="HTML preview"]')?.getAttribute("srcdoc")).toContain("Web relayed page");
+    expect(host.querySelector("h1")?.textContent).toBe("Web relayed doc");
+    expect(host.querySelector('img[alt="pic.png"]')?.getAttribute("src")).toBe(previewImage);
+    expect(host.textContent).toContain("Web board");
+  } finally {
+    clearRelayTarget();
+  }
+});
+
+it("shows a clear offline or asleep owning-machine state for remote blocks while keeping inline ds-html working", async () => {
+  fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+    expect(new URL(input).pathname).toBe("/api/mesh/relay-to");
+    const envelope = JSON.parse(String(init?.body)) as { target_instance_id?: string };
+    if (envelope.target_instance_id === "cloud-asleep") {
+      return Response.json({ error: { code: "machine_sleeping", message: "Cloud machine is asleep" } }, { status: 402 });
+    }
+    return Response.json({ error: { code: "peer_unroutable", message: "Peer offline" } }, { status: 503 });
+  });
+
+  await act(async () => root?.render(
+    <LocalArtifactScope tabId="mesh:offline-host/remote-tab">
+      <RichMarkdown text={'<ds-page src="/remote/page.html" />\n\n<ds-document src="/remote/doc.md" />\n\n<ds-image src="/remote/pic.png" />\n\n<ds-canvas src="/remote/board.canvas.json" />\n\n<ds-html><p>Inline still renders</p></ds-html>'} />
+    </LocalArtifactScope>,
+  ));
+  await act(settleDaemon);
+
+  const alerts = Array.from(host.querySelectorAll('[role="alert"]')).map(el => el.textContent ?? "");
+  expect(alerts.filter(text => text.includes("The machine that has this file is offline.")).length).toBeGreaterThanOrEqual(3);
+  expect(alerts.every(text => !text.includes("HTTP"))).toBe(true);
+  expect(host.querySelector('[data-testid="chat-ds-canvas"]')?.textContent).toContain("The machine that has this file is offline.");
+  const frames = Array.from(host.querySelectorAll('iframe[title="HTML preview"]'));
+  expect(frames.some(frame => frame.getAttribute("srcdoc")?.includes("Inline still renders"))).toBe(true);
+
+  await act(async () => root?.render(
+    <LocalArtifactScope tabId="mesh:cloud-asleep/cloud-tab">
+      <RichMarkdown text={'<ds-page src="/cloud/page.html" />'} />
+    </LocalArtifactScope>,
+  ));
+  await act(settleDaemon);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("The machine that has this file is asleep or offline.");
+
+  expect(previewFailureMessage(new Error("/api/tabs/x/preview/read → HTTP 404: Preview unavailable"), "mesh:host/tab", false))
+    .toBe("This file cannot be previewed. It may be missing or access is restricted.");
+
+  configureLocalArtifactOpener(async () => {}, (tabId) => !tabId?.startsWith("mesh:"));
+  expect(localArtifactOpeningAvailable("local-tab")).toBe(true);
+  expect(localArtifactOpeningAvailable("mesh:offline-host/remote-tab")).toBe(false);
 });
