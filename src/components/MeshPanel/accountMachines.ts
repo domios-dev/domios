@@ -28,6 +28,7 @@ export interface MachineRowView {
   controls: MachineControls;
   pairInstanceId: string | null;
   lastSeenAt: number | null;
+  admittedAt?: number | null;
 }
 export interface SelfRowView {
   readOnly?: boolean;
@@ -98,7 +99,7 @@ function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: num
   const name = label ?? cleanMachineName(row.display_name) ?? "Unnamed machine";
   const target: MeshTarget = { installation_id: row.installation_id, key_id: row.key_id, key_generation: row.key_generation, slot_revision: row.slot_revision };
   const base = { key: row.installation_id, name, displayName: row.display_name, transport: row.endpoint?.transport, online: pair?.online ?? null,
-    target: usable ? target : null, pairInstanceId: pair?.instance_id ?? null, lastSeenAt: row.authenticated_at,
+    target: usable ? target : null, pairInstanceId: pair?.instance_id ?? null, lastSeenAt: row.authenticated_at, admittedAt: row.admitted_at,
     canSignOut: usable && row.presence !== "signed_out", controls: { revoke: usable && row.active ? target : null } };
   if (!row.active || row.eligibility === "revoked") return { ...base, status: "revoked", detail: "Removed from your mesh", online: false };
   if (row.presence === "signed_out") return { ...base, status: "signed_out", detail: `Sign in on ${name}`, online: false };

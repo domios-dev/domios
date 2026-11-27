@@ -57,6 +57,8 @@ export interface CloudReceipt {
   endpoint?: CloudEndpoint | null;
   lease_expires_at_ms?: number | null;
   storage_tier?: CloudStorageTier | null;
+  created_at_ms?: number | null;
+  last_seen_at_ms?: number | null;
   billing_notice: string;
   warning?: string | null;
 }

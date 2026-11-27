@@ -15,6 +15,7 @@ import type { MeshTarget } from "./accountMeshClient";
 import { ACCESS_LABELS } from "./MachineFooter";
 import type { CanvasAccount } from "./MeshCanvas";
 import type { MeshCollapsedGroupOverrides } from "./meshViewModeModel";
+import { findMachineStorageEntry } from "../Usage/cloudStorageModel";
 import { privateNetworkLabel, type TailscaleState } from "./tailscaleSetup";
 import type { PeerStatus } from "./useMeshData";
 
@@ -345,7 +346,17 @@ export function projectMeshMachineRows({
     const view = cloudMachineCardView(machine, cloudUsage);
     const sizeOption = sizeCatalog.find((entry) => entry.id === machine.size);
     const preparing = view.state === "creating" || view.state === "enrolling";
-    const seen = lastSeenMs(matchedPeer?.last_seen) ?? lastSeenMs(row?.lastSeenAt);
+    const machineStorage = findMachineStorageEntry(cloudUsage?.storage?.machines, machine);
+    // Cloud rows must use the cloud machine's own activity/creation timestamps, never the owner's account auth_time.
+    const seenCandidates = [
+      lastSeenMs(matchedPeer?.last_seen),
+      lastSeenMs(machine.last_seen_at_ms),
+      lastSeenMs(machineStorage?.stopped_at),
+      lastSeenMs(machine.created_at_ms),
+      lastSeenMs(machineStorage?.created_at_ms),
+      lastSeenMs(row?.admittedAt),
+    ].filter((value): value is number => value !== null);
+    const seen = seenCandidates.length > 0 ? Math.max(...seenCandidates) : null;
     const canRename = Boolean(row?.target && matchedPeer?.online && account?.actions.onRename);
     const renameUnavailable = !row || !row.target || !matchedPeer?.online;
     const statusLabel =

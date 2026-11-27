@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect,useRef,useState, type ReactNode } from "react";
 import { Check, Copy, KeyRound, Monitor, SquareTerminal } from "lucide-react";
-import { useRuntimeLogin } from "./useRuntimeLogin";
+import { useRuntimeLogin, type RuntimeLoginReply } from "./useRuntimeLogin";
 import { nativeBridge } from "../../lib/nativeBridge";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { spawnAiHelper, withAiHelperContext } from "../../lib/aiHelperSpawn";
@@ -48,21 +48,27 @@ interface RuntimeLoginActionsProps {
   hint?: string;
   actions?: ReactNode;
   onCancel?:()=>void;
+  onLoginReply?: (reply: RuntimeLoginReply) => void;
 }
 
 export function RuntimeLoginActions(props: RuntimeLoginActionsProps) {
   if (runtimeSignedIn(props.state)) return null;
-  return <RuntimeLoginContext key={JSON.stringify([props.tabId,props.providerId,props.state.loginBinding?.nonce,props.state.epoch])} {...props} />;
+  const remote = props.tabId.startsWith("mesh:");
+  // Detached remote cards merge live loginBinding/epoch replies in place; keep those out of the key so codeState survives.
+  const contextKey = remote
+    ? JSON.stringify([props.tabId, props.providerId])
+    : JSON.stringify([props.tabId, props.providerId, props.state.loginBinding?.nonce, props.state.epoch]);
+  return <RuntimeLoginContext key={contextKey} {...props} />;
 }
 
-function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, variant = "inline", title: customTitle, hint: customHint,actions:customActions,onCancel }: RuntimeLoginActionsProps) {
+function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, variant = "inline", title: customTitle, hint: customHint,actions:customActions,onCancel,onLoginReply }: RuntimeLoginActionsProps) {
   const [keyEntry, setKeyEntry] = useState(false);
   const [keyMethod, setKeyMethod] = useState<string | undefined>();
   const [code, setCode] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [copied, setCopied] = useState(false);
   const [sentLogin, setSentLogin] = useState<string | undefined>();
-  const { busy, error, codeState, operate } = useRuntimeLogin(tabId, providerId, state);
+  const { busy, error, codeState, operate } = useRuntimeLogin(tabId, providerId, state, onLoginReply);
   const helper = useAiHelperLaunch("sign-in-help-failure");
   const remote = tabId.startsWith("mesh:");
   const expired = state.login?.status === "pending" && state.login.expiresAtMs != null && state.login.expiresAtMs <= Date.now();

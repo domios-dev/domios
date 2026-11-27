@@ -554,6 +554,7 @@ struct WarmPhaseProvisioning {
     clock: Arc<StepClock>,
     backend_phases: Mutex<BackendCreatePhases>,
     recorded_events: Mutex<Vec<(String, WarmBootstrapPhaseEvent)>>,
+    storage_usage: Mutex<Option<crate::service::cloud_machines::CloudStorageUsageSummary>>,
 }
 
 impl WarmPhaseProvisioning {
@@ -572,6 +573,7 @@ impl WarmPhaseProvisioning {
                 warm_bootstrap_delta_secs: None,
             }),
             recorded_events: Mutex::new(Vec::new()),
+            storage_usage: Mutex::new(None),
         }
     }
 }
@@ -644,7 +646,10 @@ impl CloudProvisioningPort for WarmPhaseProvisioning {
     }
 
     async fn usage(&self) -> Result<CloudUsageSummary, CloudError> {
-        Ok(CloudUsageSummary::default())
+        Ok(CloudUsageSummary {
+            storage: self.storage_usage.lock().clone(),
+            ..CloudUsageSummary::default()
+        })
     }
 
     async fn record_warm_bootstrap_phases(
@@ -927,4 +932,83 @@ async fn controller_never_marks_warm_console_ready_when_owner_context_unreadable
     let summary = receipt.warm_bootstrap.expect("summary");
     assert!(!summary.readable_owner_context);
     assert_eq!(summary.status, WarmBootstrapStatus::Failed);
+}
+
+#[tokio::test]
+async fn cloud_receipt_exposes_machine_timestamps_and_usage_enriches_storage_names() {
+    use crate::service::cloud_machines::{
+        CloudMachineStorageUsage, CloudStorageTier, CloudStorageUsageSummary,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let clock = StepClock::new(1_700_000_000_000);
+    let controller = CloudMachineController::new(
+        CloudMachineStore::new(dir.path().join("cloud_machines.json")),
+        "ctrl-home".into(),
+        clock.clone(),
+    );
+    let prov = WarmPhaseProvisioning::new(clock.clone());
+    let enroll = WarmEnrollment(clock.clone());
+    let peer_ctrl = WarmPeerControl {
+        clock: clock.clone(),
+        warm_calls: AtomicUsize::new(0),
+        readable_context: true,
+    };
+
+    let receipt = controller
+        .create(
+            CreateCloudMachineParams {
+                size: "small".into(),
+                name: Some("quill-fresh-box".into()),
+                ..Default::default()
+            },
+            &prov,
+            &enroll,
+            &peer_ctrl,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(receipt.created_at_ms, Some(1_700_000_000_000));
+    assert!(receipt
+        .last_seen_at_ms
+        .is_some_and(|ts| ts >= 1_700_000_000_000));
+
+    *prov.storage_usage.lock() = Some(CloudStorageUsageSummary {
+        hot_gb_month_rate_cents: 15,
+        hot_days: 1.0,
+        purge_days: 30.0,
+        purge_warning_days: [7.0, 1.0],
+        cold_archive_included: true,
+        total_allocated_gb: 20,
+        total_used_bytes: 1_073_741_824,
+        total_hot_monthly_cost_cents: 300,
+        machines: vec![CloudMachineStorageUsage {
+            machine_id: "cm-warm-1".into(),
+            create_request_id: None,
+            name: None,
+            created_at_ms: Some(1_700_000_000_000),
+            tier: CloudStorageTier::Hot,
+            allocated_gb: 20,
+            used_bytes: Some(1_073_741_824),
+            used_gb: Some(1.0),
+            hot_monthly_cost_cents: 300,
+            hot_accrued_cents: 5.0,
+            cold_included: true,
+            stopped_at: None,
+            hot_until_at: None,
+            cold_since_at: None,
+            purge_at: None,
+            archive_id: None,
+            archive_bytes: None,
+            archive_generation: 0,
+            disk_full: false,
+            volume_upgrade_max_gb: 100,
+            snapshot_residual: None,
+        }],
+    });
+
+    let usage = controller.usage(&prov).await.unwrap();
+    let entry = &usage.storage.expect("storage summary").machines[0];
+    assert_eq!(entry.name.as_deref(), Some("quill-fresh-box"));
 }

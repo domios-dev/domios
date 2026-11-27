@@ -8,14 +8,18 @@ export function firstRunLocked(general: Partial<Pick<GeneralAgentConfig, "first_
   return general?.first_run_complete !== true;
 }
 
+function isLocalFirstRunGeneralTab(tab: Tab | undefined): boolean {
+  return Boolean(tab && !tab.remote_peer_id && isFirstRunGeneralTab(tab));
+}
+
 export function firstRunSelection<T extends PageSelection & { workspaces: readonly Workspace[]; tabs: Record<string, Tab> }>(locked: boolean, state: T): T {
   if (!locked) return state;
-  const workspace = state.workspaces.find((ws) => ws.tabs.some((id) => isFirstRunGeneralTab(state.tabs[id])));
-  const tabId = workspace?.tabs.find((id) => isFirstRunGeneralTab(state.tabs[id])) ?? null;
+  const workspace = state.workspaces.find((ws) => ws.tabs.some((id) => isLocalFirstRunGeneralTab(state.tabs[id])));
+  const tabId = workspace?.tabs.find((id) => isLocalFirstRunGeneralTab(state.tabs[id])) ?? null;
   return { ...state, active_workspace_id: workspace?.id ?? null, focused_tab_id: tabId,
     activeTabIds: workspace && tabId ? { ...state.activeTabIds, [workspace.id]: tabId } : state.activeTabIds };
 }
 
 export function firstRunSidebarTabs(locked: boolean, tabs: Record<string, Tab>): Record<string, Tab> {
-  return locked ? Object.fromEntries(Object.entries(tabs).filter(([, tab]) => isFirstRunGeneralTab(tab))) : tabs;
+  return locked ? Object.fromEntries(Object.entries(tabs).filter(([, tab]) => isLocalFirstRunGeneralTab(tab))) : tabs;
 }

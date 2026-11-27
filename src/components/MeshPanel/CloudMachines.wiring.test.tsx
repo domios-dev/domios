@@ -434,3 +434,194 @@ it("CloudMachineDrawer wires Archive now with confirmation, displays Hot/Archive
     await act(async () => root.unmount());
   }
 });
+
+it("CloudMachineDrawer resolves machine names in Storage when backend storage rows omit name", async () => {
+  const usageWithoutNames: CloudUsagePayload = {
+    ...USAGE,
+    storage: {
+      hot_gb_month_rate_cents: 30,
+      hot_days: 1,
+      purge_days: 90,
+      purge_warning_days: [7, 1],
+      cold_archive_included: true,
+      total_allocated_gb: 20,
+      total_used_bytes: 0,
+      total_hot_monthly_cost_cents: 600,
+      machines: [
+        {
+          machine_id: "cm_1",
+          name: null,
+          tier: "hot",
+          allocated_gb: 10,
+          used_bytes: 0,
+          used_gb: 0,
+          hot_monthly_cost_cents: 300,
+          hot_accrued_cents: 0,
+          cold_included: true,
+          archive_generation: 1,
+          disk_full: false,
+          volume_upgrade_max_gb: 500,
+        },
+        {
+          machine_id: "cm_2",
+          name: "cm_2",
+          tier: "cold",
+          allocated_gb: 10,
+          used_bytes: 0,
+          used_gb: 0,
+          hot_monthly_cost_cents: 0,
+          hot_accrued_cents: 0,
+          cold_included: true,
+          archive_generation: 1,
+          disk_full: false,
+          volume_upgrade_max_gb: 500,
+        },
+      ],
+    },
+  };
+  const { host, root } = createHost();
+  try {
+    await act(async () =>
+      root.render(
+        <CloudMachineDrawer
+          machine={MACHINE}
+          machines={[
+            MACHINE,
+            { ...MACHINE, machine_id: "cm_2", name: "VaultBox", state: "asleep" },
+          ]}
+          usage={usageWithoutNames}
+          planId="pro"
+          idleSleepMinutes={15}
+          onClose={() => {}}
+          onTopUp={() => {}}
+          onRedeem={async () => ({
+            schema_version: 1,
+            status: "redeemed",
+            already_redeemed: false,
+            hours: 1,
+            expires_at: null,
+            remaining: 39.8,
+            purchased: 36,
+          })}
+          onSleep={async () => {}}
+          onWake={async () => {}}
+          onDelete={async () => false}
+        />,
+      ),
+    );
+    const first = host.querySelector('[data-testid="cloud-storage-tier-cm_1"]')?.textContent ?? "";
+    const second = host.querySelector('[data-testid="cloud-storage-tier-cm_2"]')?.textContent ?? "";
+    expect(first).toContain("Scratch");
+    expect(first).not.toContain("cm_1");
+    expect(second).toContain("VaultBox");
+    expect(second).not.toContain("cm_2");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("CloudMachineDrawer matches storage tier by machine_id when two machines share the same name", async () => {
+  const sharedNameUsage: CloudUsagePayload = {
+    ...USAGE,
+    storage: {
+      hot_gb_month_rate_cents: 30,
+      hot_days: 1,
+      purge_days: 90,
+      purge_warning_days: [7, 1],
+      cold_archive_included: true,
+      total_allocated_gb: 20,
+      total_used_bytes: 0,
+      total_hot_monthly_cost_cents: 300,
+      machines: [
+        {
+          machine_id: "cm_dup_a",
+          name: "SharedBox",
+          tier: "hot",
+          allocated_gb: 10,
+          used_bytes: 0,
+          used_gb: 0,
+          hot_monthly_cost_cents: 300,
+          hot_accrued_cents: 0,
+          cold_included: true,
+          archive_generation: 1,
+          disk_full: false,
+          volume_upgrade_max_gb: 500,
+        },
+        {
+          machine_id: "cm_dup_b",
+          name: "SharedBox",
+          tier: "cold",
+          allocated_gb: 10,
+          used_bytes: 0,
+          used_gb: 0,
+          hot_monthly_cost_cents: 0,
+          hot_accrued_cents: 0,
+          cold_included: true,
+          archive_generation: 1,
+          disk_full: false,
+          volume_upgrade_max_gb: 500,
+        },
+      ],
+    },
+  };
+  const machineA: CloudReceipt = { ...MACHINE, machine_id: "cm_dup_a", name: "SharedBox", state: "asleep", storage_tier: "hot" };
+  const machineB: CloudReceipt = { ...MACHINE, machine_id: "cm_dup_b", name: "SharedBox", state: "asleep", storage_tier: "cold" };
+  const { host, root } = createHost();
+  try {
+    await act(async () =>
+      root.render(
+        <CloudMachineDrawer
+          machine={machineB}
+          machines={[machineA, machineB]}
+          usage={sharedNameUsage}
+          planId="pro"
+          idleSleepMinutes={15}
+          onClose={() => {}}
+          onTopUp={() => {}}
+          onRedeem={async () => ({
+            schema_version: 1,
+            status: "redeemed",
+            already_redeemed: false,
+            hours: 1,
+            expires_at: null,
+            remaining: 39.8,
+            purchased: 36,
+          })}
+          onSleep={async () => {}}
+          onWake={async () => {}}
+          onDelete={async () => false}
+        />,
+      ),
+    );
+    expect(host.querySelector('[data-testid="cloud-machine-storage-tier"]')?.textContent).toBe("Archived - wakes in ~2 min");
+
+    await act(async () =>
+      root.render(
+        <CloudMachineDrawer
+          machine={machineA}
+          machines={[machineA, machineB]}
+          usage={sharedNameUsage}
+          planId="pro"
+          idleSleepMinutes={15}
+          onClose={() => {}}
+          onTopUp={() => {}}
+          onRedeem={async () => ({
+            schema_version: 1,
+            status: "redeemed",
+            already_redeemed: false,
+            hours: 1,
+            expires_at: null,
+            remaining: 39.8,
+            purchased: 36,
+          })}
+          onSleep={async () => {}}
+          onWake={async () => {}}
+          onDelete={async () => false}
+        />,
+      ),
+    );
+    expect(host.querySelector('[data-testid="cloud-machine-storage-tier"]')?.textContent).toBe("Hot");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

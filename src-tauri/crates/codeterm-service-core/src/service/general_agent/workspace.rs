@@ -163,6 +163,13 @@ fn ensure_general_workspace_inner(
                 tab.protected = true;
                 tab.team_id = None;
                 super::identity::apply_general_agent_kind(tab);
+                if tab.description.as_deref() == Some(super::FIRST_RUN_TAB_MARKER) {
+                    tab.description = None;
+                    tab.skip_snapshot = false;
+                }
+                if tab.tab_type == crate::multiplexer::types::TabType::Choice {
+                    tab.tab_type = crate::multiplexer::types::TabType::Terminal;
+                }
                 tab.cwd = Some(general_cwd.clone());
                 tab.provisioned_cwd = Some(general_cwd);
                 tab.hidden = false;
@@ -407,5 +414,33 @@ mod tests {
             &registry,
             "community-terminal"
         ));
+    }
+
+    #[test]
+    fn general_workspace_reclaim_clears_first_run_marker_and_choice_type() {
+        let mut mux = MultiplexerState::empty();
+        let ws = mux.create_workspace("Welcome".to_string(), None);
+        mux.set_workspace_protected(&ws.id, true);
+        let first_run = mux.create_tab(&ws.id).expect("first-run Tab");
+        if let Some(tab) = mux.get_tab_mut(&first_run) {
+            tab.protected = true;
+            tab.tab_type = crate::multiplexer::types::TabType::Choice;
+            tab.description = Some(crate::service::general_agent::FIRST_RUN_TAB_MARKER.into());
+            tab.skip_snapshot = true;
+        }
+
+        super::ensure_general_workspace(&mut mux, true);
+
+        let general = mux
+            .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+            .expect("General alias");
+        assert_eq!(general, first_run);
+        let tab = mux.get_tab(&general).expect("reclaimed General Tab");
+        assert_eq!(tab.title, GENERAL_TAB_TITLE);
+        assert_eq!(tab.tab_type, crate::multiplexer::types::TabType::Terminal);
+        assert!(tab.description.is_none());
+        assert!(!tab.skip_snapshot);
+        assert!(tab.protected);
+        assert!(crate::service::general_agent::identity::is_general_agent(tab));
     }
 }

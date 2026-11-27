@@ -73,7 +73,14 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
     uiFontScale: data.uiFontScale,
   }), [data, appearingTabIds]);
 
-  if (typeof machineFilter === "object" && !viewers.some(({ peer }) => peer.peerId === machineFilter.peerId)
+  const selectedPeer = typeof machineFilter === "object"
+    ? pairedGenerals.find((peer) => peer.peerId === machineFilter.peerId)
+    : undefined;
+  const selectedPeerReachable = selectedPeer?.availability === "online";
+
+  if (typeof machineFilter === "object"
+    && !selectedPeerReachable
+    && !viewers.some(({ peer }) => peer.peerId === machineFilter.peerId)
     && !sessionTabs.some(tab => tab.remote_peer_id === machineFilter.peerId && isSidebarTabVisible(tab))) return null;
 
   const closeObserved = actions.closeObservedTab ?? actions.closeTab;

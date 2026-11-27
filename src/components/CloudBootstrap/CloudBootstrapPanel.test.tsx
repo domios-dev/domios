@@ -13,13 +13,45 @@ vi.mock("../../lib/cloudBootstrap/client", () => ({
 }));
 
 vi.mock("../Terminal/RuntimeLoginActions", () => ({
-  RuntimeLoginActions: (props: { tabId: string; providerId?: string; state: { loginProviderName?: string } }) => (
+  RuntimeLoginActions: (props: {
+    tabId: string;
+    providerId?: string;
+    state: {
+      loginProviderName?: string;
+      login?: { status?: string; userCode?: string; url?: string };
+      loginBinding?: { nonce?: string; epoch?: number };
+    };
+    onLoginReply?: (reply: unknown) => void;
+  }) => (
     <div
       data-testid="runtime-login-card"
       data-tab-id={props.tabId}
       data-provider-id={props.providerId}
+      data-user-code={props.state.login?.userCode ?? ""}
+      data-binding-nonce={props.state.loginBinding?.nonce ?? ""}
     >
       LoginCard:{props.state.loginProviderName}
+      {props.state.login?.userCode ? `:${props.state.login.userCode}` : ""}
+      {props.onLoginReply && (
+        <button
+          type="button"
+          data-testid={`mock-reply-${props.providerId}`}
+          onClick={() =>
+            props.onLoginReply?.({
+              login: {
+                status: "pending",
+                method: "device",
+                loginId: "opaque-flow-1",
+                userCode: "OPAQ-7741",
+                url: "https://example.invalid/opaque-device",
+              },
+              loginBinding: { nonce: "opaque-nonce-1", epoch: 1 },
+            })
+          }
+        >
+          Mint opaque code
+        </button>
+      )}
     </div>
   ),
 }));
@@ -198,5 +230,80 @@ describe("CloudBootstrapPanel", () => {
 
     const readiness = container.querySelector('[aria-label="First console readiness"]');
     expect(readiness?.getAttribute("data-warm-ready")).toBe("false");
+  });
+
+  it("merges live runtime login replies into the detached remote sign-in card for an opaque provider", async () => {
+    const snapshot: CloudBootstrapSnapshot = {
+      machine_id: "cloud-3",
+      name: "opaque-box",
+      state: "awake",
+      peer_id: "peer-cloud-3",
+      warm_bootstrap: {
+        schema_version: 1,
+        status: "applied",
+        creation_generation: "cloud-3:req-1",
+        readable_owner_context: true,
+        wake_up_verified: true,
+        applied_counts: {
+          identity_fields: 1,
+          wake_up_items: 1,
+          rules: 0,
+          skills: 0,
+          preference_fields: 1,
+        },
+        excluded: [],
+        warnings: [],
+        providers: [
+          {
+            provider_id: "opaque-provider",
+            display_name: "Opaque Provider",
+            state: "sign_in_required",
+            supported_methods: ["browser", "device"],
+            code_input: false,
+            requires_owner_input: true,
+          },
+        ],
+      },
+    };
+    prepareMock.mockResolvedValueOnce({
+      providers: [
+        {
+          provider_id: "opaque-provider",
+          display_name: "Opaque Provider",
+          state: "sign_in_required",
+          supported_methods: ["browser", "device"],
+          code_input: false,
+          tab_id: "tab-opaque",
+          remote_tab_id: "mesh:peer-cloud-3/tab-opaque",
+          card_ready: true,
+          requires_owner_input: true,
+        },
+      ],
+    });
+
+    await act(async () => {
+      root.render(<CloudBootstrapPanel machineId="cloud-3" initialSnapshot={snapshot} />);
+    });
+
+    const signInGroup = container.querySelector('[role="group"][aria-label="Sign in to Opaque Provider"]');
+    expect(signInGroup).not.toBeNull();
+    const prepareButton = signInGroup?.querySelector<HTMLButtonElement>("button");
+    expect(prepareButton?.textContent).toBe("Sign in to Opaque Provider");
+
+    await act(async () => {
+      prepareButton!.click();
+    });
+
+    const card = container.querySelector('[data-provider-id="opaque-provider"]');
+    expect(card?.getAttribute("data-tab-id")).toBe("mesh:peer-cloud-3/tab-opaque");
+    expect(card?.getAttribute("data-user-code")).toBe("");
+
+    const mintBtn = container.querySelector<HTMLButtonElement>('[data-testid="mock-reply-opaque-provider"]');
+    await act(async () => {
+      mintBtn!.click();
+    });
+
+    expect(card?.getAttribute("data-user-code")).toBe("OPAQ-7741");
+    expect(card?.getAttribute("data-binding-nonce")).toBe("opaque-nonce-1");
   });
 });

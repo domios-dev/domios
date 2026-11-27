@@ -11,6 +11,17 @@ export type CodeSubmissionUiState = {
   reason?: string;
 };
 
+export type RuntimeLoginReply = {
+  login?: AgentRuntimeState["login"];
+  state?: Partial<AgentRuntimeState>;
+  authentication?: AgentRuntimeState["authentication"];
+  apiKeyMethods?: AgentRuntimeState["apiKeyMethods"];
+  loginBinding?: AgentRuntimeState["loginBinding"];
+  codeSubmission?: AgentRuntimeState["codeSubmission"];
+  outcome?: "accepted" | "completed" | "refused" | "uncertain";
+  reason?: string;
+};
+
 const UNCERTAIN_CODE_REASON = "Sign-in code delivery is uncertain and was not replayed. Wait for sign-in to complete or cancel and start a new sign-in.";
 
 function isProvenPreWriteRefusal(failure: unknown): boolean {
@@ -43,7 +54,12 @@ function buildCodeBinding(tabId: string, providerId: string | undefined, state: 
   };
 }
 
-export function useRuntimeLogin(tabId:string, providerId?:string, state?:AgentRuntimeState) {
+export function useRuntimeLogin(
+  tabId:string,
+  providerId?:string,
+  state?:AgentRuntimeState,
+  onResult?:(reply:RuntimeLoginReply)=>void,
+) {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [codeState,setCodeState]=useState<CodeSubmissionUiState|null>(null);
@@ -80,11 +96,7 @@ export function useRuntimeLogin(tabId:string, providerId?:string, state?:AgentRu
     }
     try {
       const binding = isCode ? buildCodeBinding(tabId, providerId, state) : state?.loginBinding;
-      const result=await invoke<{
-        login?:AgentRuntimeState["login"];
-        outcome?:"accepted"|"completed"|"refused"|"uncertain";
-        reason?:string;
-      }>("agent_runtime_login",{tabId,request:{...request,...(providerId ? {providerId} : {}),
+      const result=await invoke<RuntimeLoginReply>("agent_runtime_login",{tabId,request:{...request,...(providerId ? {providerId} : {}),
         ...(binding ? {binding} : {}),
         ...(request.action && loginId ? {loginId} : {})}});
       if (owns() && isCode && loginId) {
@@ -99,11 +111,13 @@ export function useRuntimeLogin(tabId:string, providerId?:string, state?:AgentRu
           submittedLoginIds.current.delete(loginId);
           setCodeState({ loginId, status: "refused", reason });
           setError(reason);
+          onResult?.(result);
           return false;
         } else {
           setCodeState({ loginId, status: "accepted" });
         }
       }
+      if (owns()) onResult?.(result);
       if (owns() && !request.action && (request.method === "browser" || request.methodId) && result.login?.url && !tabId.startsWith("mesh:")) await nativeBridge.openUrl(result.login.url);
       return owns();
     } catch (failure) {if(owns()) {

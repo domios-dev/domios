@@ -159,7 +159,7 @@ fn key(svc: &ServiceContext, tab: &str) -> LaunchKey {
     }
 }
 
-pub(super) fn record_spawn(
+pub(crate) fn record_spawn(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,

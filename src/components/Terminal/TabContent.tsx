@@ -124,7 +124,8 @@ export function TabContent({
   const restoreInline = restoreOwnsBody && bodyPainted;
   const restorePanel = <RestoreStatePanel view={initialBody.current.waiting && restore.phase === "ready" ? transcriptLoadingStageView(tab) : restore} />;
 
-  if (isFirstRunGeneralTab(tab)) {
+  // Never mount the local first-run picker for a remote peer's protected Main tab.
+  if (isFirstRunGeneralTab(tab) && !tab.remote_peer_id) {
     return (
       <TabWrapper tabId={tab.id} isVisible={isVisible}>
         <FirstRunGeneralPicker providers={providers} providersLoading={loading} providersError={providersError} home={workspaceId ? { workspaceId, tabId: tab.id } : undefined} />

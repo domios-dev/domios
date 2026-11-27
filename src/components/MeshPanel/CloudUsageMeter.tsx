@@ -7,7 +7,7 @@ import {
   promoRefusalMessage,
 } from "../../lib/cloudMachines/promoModel";
 import { cloudUsageMeterView } from "../../lib/cloudMachines/usageModel";
-import type { CloudPromoRedemption, CloudUsagePayload } from "../../lib/cloudMachines/types";
+import type { CloudPromoRedemption, CloudReceipt, CloudUsagePayload } from "../../lib/cloudMachines/types";
 import { projectCloudStorageMeter } from "../Usage/cloudStorageModel";
 import { Button } from "../shared/Button";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -15,6 +15,7 @@ import "./cloudMachines.css";
 
 interface CloudUsageMeterProps {
   usage: CloudUsagePayload;
+  machines?: readonly Pick<CloudReceipt, "machine_id" | "name">[];
   planId?: string | null;
   onTopUp: () => void;
   onRedeem?: (code: string) => Promise<CloudPromoRedemption>;
@@ -24,6 +25,7 @@ interface CloudUsageMeterProps {
 
 export function CloudUsageMeter({
   usage,
+  machines,
   planId,
   onTopUp,
   onRedeem,
@@ -31,8 +33,11 @@ export function CloudUsageMeter({
   className = "",
 }: CloudUsageMeterProps) {
   const view = cloudUsageMeterView(usage, { planId });
+  const machineNamesById = machines?.length
+    ? new Map(machines.filter((m) => m.name.trim()).map((m) => [m.machine_id, m.name]))
+    : undefined;
   const storageView = usage.storage
-    ? projectCloudStorageMeter(usage.storage, usage.currency ?? "USD")
+    ? projectCloudStorageMeter(usage.storage, usage.currency ?? "USD", machineNamesById)
     : null;
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [code, setCode] = useState("");

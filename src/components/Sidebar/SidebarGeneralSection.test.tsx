@@ -335,14 +335,57 @@ it("filters General in place and preserves its selected row", async () => {
   } finally { await view.close(); }
 });
 
-it("hides General when the selected peer has no sessions and shows it when the filter clears", async () => {
-  const peer: PairedGeneral = { peerId: "empty-peer", name: "Desk", availability: "online", sessions: [] };
+it("keeps General and New session visible for a reachable peer with zero sessions, and hides for an offline empty peer", async () => {
+  const onlineEmpty: PairedGeneral = { peerId: "empty-peer", name: "CloudBox", availability: "online", sessions: [] };
+  const offlineEmpty: PairedGeneral = { peerId: "offline-peer", name: "OfflineBox", availability: "offline", sessions: [] };
+  const view = await mount({}, [onlineEmpty, offlineEmpty]);
+  try {
+    await act(async () => setSidebarMachineFilter({ id: onlineEmpty.peerId, name: onlineEmpty.name }));
+    expect(view.host.querySelector('[data-testid="general-section"]')).not.toBeNull();
+    const newSessionBtn = view.host.querySelector<HTMLButtonElement>('[data-testid="sidebar-new-session"]');
+    expect(newSessionBtn).not.toBeNull();
+    expect(newSessionBtn?.disabled).toBe(false);
+    expect(newSessionBtn?.getAttribute("title")).toBe("New session on CloudBox");
+
+    await act(async () => setSidebarMachineFilter({ id: offlineEmpty.peerId, name: offlineEmpty.name }));
+    expect(view.host.querySelector('[data-testid="general-section"]')).toBeNull();
+
+    await act(async () => setSidebarMachineFilter("all"));
+    expect(view.host.querySelector('[data-testid="general-section"]')).not.toBeNull();
+  } finally { await view.close(); }
+});
+
+it("renders General with Main and New session when a fresh remote projection has only a first-run Main tab", async () => {
+  const firstRunMain: Tab = {
+    id: "main-first-run",
+    pty_id: null,
+    tab_type: "Choice",
+    title: "Main",
+    description: "codeterm:first-run-general-agent",
+    cwd: "/home/user/.domios/general",
+    agent_type: null,
+    agent_session_id: null,
+    workspace_id: "remote-general",
+    protected: true,
+  };
+  const peer: PairedGeneral = {
+    peerId: "fresh-cloud",
+    name: "FreshCloud",
+    availability: "online",
+    sessions: [{ viewerId: "mesh:fresh-cloud/main-first-run", tab: firstRunMain, status: "Idle" }],
+  };
   const view = await mount({}, [peer]);
   try {
     await act(async () => setSidebarMachineFilter({ id: peer.peerId, name: peer.name }));
-    expect(view.host.querySelector('[data-testid="general-section"]')).toBeNull();
-    await act(async () => setSidebarMachineFilter("all"));
     expect(view.host.querySelector('[data-testid="general-section"]')).not.toBeNull();
+    const remoteRow = view.host.querySelector<HTMLElement>('[data-tab-id="mesh:fresh-cloud/main-first-run"]');
+    expect(remoteRow).not.toBeNull();
+    expect(remoteRow?.hidden).toBe(false);
+    expect(remoteRow?.textContent).not.toContain("Choose your General Agent");
+    const newSessionBtn = view.host.querySelector<HTMLButtonElement>('[data-testid="sidebar-new-session"]');
+    expect(newSessionBtn).not.toBeNull();
+    expect(newSessionBtn?.disabled).toBe(false);
+    expect(newSessionBtn?.getAttribute("title")).toBe("New session on FreshCloud");
   } finally { await view.close(); }
 });
 
