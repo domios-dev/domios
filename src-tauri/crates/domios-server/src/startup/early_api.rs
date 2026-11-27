@@ -70,7 +70,8 @@ impl PreparedStartup {
         let config = super::init_config();
         let control = Arc::new(RestApiControl::new());
         let api_config = config.lock().api.clone();
-        if std::env::var_os("DOMIOS_CLOUD_MACHINE").is_some() && api_config.enabled {
+        let cloud_guest = super::cloud_start::enabled();
+        if cloud_guest && api_config.enabled {
             return Err(
                 "Cloud installations require the normal HTTP listener to be disabled".into(),
             );
@@ -78,7 +79,7 @@ impl PreparedStartup {
         let mut api = EarlyApi::new(api_config.token.clone());
         api.diagnostics_port = diagnostics_port;
         api.frontend_identity = frontend_identity;
-        if std::env::var_os("DOMIOS_CLOUD_MACHINE").is_some() {
+        if cloud_guest {
             let installation = super::cloud_start::installation()?;
             let authority = Arc::new(installation.clone());
             let (handle, ready) = crate::cloud_ingress::start(
@@ -322,6 +323,29 @@ impl EarlyApi {
         gate.readiness.state = PhaseState::Ready;
         self.publish(&gate.readiness, "ready");
         Ok(())
+    }
+
+    pub(crate) fn run_after_ready(
+        &self,
+        work: impl FnOnce() + Send + 'static,
+    ) -> tokio::task::JoinHandle<()> {
+        let mut changes = self.changes.subscribe();
+        codeterm_service_core::async_runtime::spawn(async move {
+            loop {
+                let state = changes.borrow_and_update().state;
+                match state {
+                    PhaseState::Ready => {
+                        work();
+                        return;
+                    }
+                    PhaseState::Failed => return,
+                    PhaseState::Starting => {}
+                }
+                if changes.changed().await.is_err() {
+                    return;
+                }
+            }
+        })
     }
 }
 

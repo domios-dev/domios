@@ -44,6 +44,7 @@ pub(crate) fn compose_observed(
     prepared: startup::early_api::PreparedStartup,
 ) -> Result<ComposedService, String> {
     let api = prepared.api;
+    let cloud_readiness = prepared.cloud.is_some().then_some(&api);
     let plan_store = Arc::new(service::plan::PlanStore::new().map_err(|error| error.to_string())?);
     if let Some(resources) = &resource_dir {
         startup::setup_conpty_host(resources)?;
@@ -52,7 +53,7 @@ pub(crate) fn compose_observed(
     pty::shell_integration::ensure_scripts();
 
     let phase = startup::StartupStep::debug("desk restore");
-    let states = startup::init_states(prepared.config, prepared.control);
+    let states = startup::init_states(prepared.config, prepared.control, cloud_readiness.is_some());
     drop(phase);
     api.complete("states");
     let local_account = codeterm_neighbors_service::service::account::startup::load(
@@ -585,9 +586,17 @@ pub(crate) fn compose_observed(
         }
     });
     let search_seed_store = std::sync::Arc::clone(&service_state.plan_store);
-    codeterm_service_core::async_runtime::spawn_blocking(move || {
-        search_seed_store.seed_missing_search_indexes();
-    });
+    let seed_search = move || {
+        codeterm_service_core::async_runtime::spawn_blocking(move || {
+            let _step = startup::StartupStep::debug("plan search index seed");
+            search_seed_store.seed_missing_search_indexes();
+        });
+    };
+    if let Some(api) = cloud_readiness {
+        drop(api.run_after_ready(seed_search));
+    } else {
+        seed_search();
+    }
     codeterm_service_core::delayed_send::start_scheduler(service_state.clone());
     codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());
     drop(startup_step);
@@ -604,7 +613,7 @@ pub(crate) fn compose_observed(
     api.complete("plans");
     api.complete_subsystem("plans");
 
-    startup::background_init::initialize(&service_state);
+    startup::background_init::initialize(&service_state, cloud_readiness);
 
     api.complete("background");
     let platform_started = std::time::Instant::now();

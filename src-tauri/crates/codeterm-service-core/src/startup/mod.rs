@@ -47,7 +47,7 @@ pub use frontend_bundles::open as frontend_bundles_open;
 
 pub use progress::Boundary;
 pub use rest_api::listeners::additional_bind as rest_api_additional_bind;
-pub use storage::open_instance_storage;
+pub use storage::{open_instance_storage, open_instance_storage_for_restore};
 
 #[cfg(debug_assertions)]
 pub mod runtime_diagnostics;

@@ -11,4 +11,4 @@ pub use transport::{NativeHostBindError, NativeHostEndpoint, NativeHostServer};
 #[cfg(test)]
 mod tests;
 
-pub(crate) use enrollment::verify_component;
+pub(crate) use enrollment::{verify_component, verify_process_component};
