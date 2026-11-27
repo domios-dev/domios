@@ -217,7 +217,7 @@ impl MeshPeerControlAdapter {
 
     fn resolve_linked_peer<'a>(
         mesh: &'a codeterm_service_core::mesh::MeshManager,
-        record: &CloudMachineRecord,
+        record: &'a CloudMachineRecord,
     ) -> Option<(
         &'a codeterm_service_core::mesh::types::PairedPeer,
         Option<&'a str>,
@@ -255,9 +255,9 @@ impl MeshPeerControlAdapter {
         let link_nonce = mesh
             .link_record(&peer.instance_id)
             .and_then(|link| link.link_nonce.clone());
-        let has_persisted_endpoint =
-            installation_id.is_some_and(|id| mesh.cloud_ingress_endpoint(id).is_some())
-                || record.endpoint.is_some();
+        let has_persisted_endpoint = installation_id
+            .is_some_and(|id| mesh.cloud_ingress_endpoint(id).is_some())
+            || record.endpoint.is_some();
         evaluate_guest_link_readiness(&GuestLinkReadinessInput {
             traffic_open: mesh.traffic_open(&peer.instance_id),
             auth_refused: mesh.peer_auth_refused(&peer.instance_id),
