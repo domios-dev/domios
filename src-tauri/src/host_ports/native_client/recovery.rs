@@ -193,9 +193,18 @@ pub(super) async fn reattach_live_server(app: AppHandle) -> Result<ReattachOutco
         return Ok(ReattachOutcome::AlreadyInProgress);
     };
     let inputs = retry_inputs(gate.inputs.as_ref().clone()).await?;
-    let initialized = initialize_client_once(app, Arc::new(inputs), false)
-        .await
-        .map_err(|error| error.message().to_owned())?;
+    // Boxing as Send breaks the initialize -> disconnect -> reattach -> initialize cycle for Send inference.
+    let reattach: std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        super::NativeClientInitialization,
+                        super::bootstrap::ClientStartupFailure,
+                    >,
+                > + Send,
+        >,
+    > = Box::pin(initialize_client_once(app, Arc::new(inputs), false));
+    let initialized = reattach.await.map_err(|error| error.message().to_owned())?;
     match initialized.native {
         NativeClientStatus::Attached => {
             gate.attached_once
