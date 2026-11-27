@@ -17,7 +17,7 @@ pub(super) fn installation() -> Result<CloudInstallation, String> {
 #[cfg(target_os = "linux")]
 pub(super) fn report_ingress_ready(
     service: &codeterm_service_core::service::ServiceState,
-    mesh: &codeterm_mesh::MeshState,
+    mesh: &codeterm_service_core::MeshStateHandle,
 ) {
     if std::env::var("DOMIOS_CLOUD_PLATFORM").as_deref() != Ok("fly_machines") {
         return;
