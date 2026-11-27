@@ -273,6 +273,10 @@ impl CloudPeerControlPort for DriverPeerControl {
 
     async fn enter_drain(&self, _record: &CloudMachineRecord) -> Result<DrainToken, CloudError> {
         self.drain_calls.fetch_add(1, Ordering::SeqCst);
+        // A real drain awaits the peer; yield so the supervisor observes Draining mid-sleep.
+        for _ in 0..3 {
+            tokio::task::yield_now().await;
+        }
         Ok(DrainToken {
             token: "drain-tok".into(),
             entered_at_ms: 0,

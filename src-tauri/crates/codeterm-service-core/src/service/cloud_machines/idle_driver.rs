@@ -137,17 +137,26 @@ pub fn spawn_cloud_idle_driver(
             if *shutdown_rx.borrow() {
                 break;
             }
-            let awake_ids: HashSet<String> = controller
-                .list_records()
-                .into_iter()
+            let records = controller.list_records();
+            let awake_ids: HashSet<String> = records
+                .iter()
                 .filter(|rec| rec.state == CloudLifecycleState::Awake)
-                .map(|rec| rec.machine_id)
+                .map(|rec| rec.machine_id.clone())
+                .collect();
+            // A draining machine is mid-sleep inside its own loop; cancelling it would abandon the drain.
+            let draining_ids: HashSet<String> = records
+                .iter()
+                .filter(|rec| rec.state == CloudLifecycleState::Draining)
+                .map(|rec| rec.machine_id.clone())
                 .collect();
 
             // Event-cancel any machine that slept, ran out of credits, or was deleted.
             let stale_ids: Vec<String> = tasks
                 .iter()
-                .filter(|(id, entry)| !awake_ids.contains(*id) || entry.task.is_finished())
+                .filter(|(id, entry)| {
+                    (!awake_ids.contains(*id) && !draining_ids.contains(*id))
+                        || entry.task.is_finished()
+                })
                 .map(|(id, _)| id.clone())
                 .collect();
             for id in stale_ids {
