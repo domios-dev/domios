@@ -537,6 +537,129 @@ impl ReadyOutboundTransport {
     }
 }
 
+/// Sends an owner-submitted secure input delivery directly over enrolled Noise
+/// (`CloudIngress`) or signed Ed25519 HTTP — never via the cloud outbox.
+/// Enforces `(Local, Owner)` authority and zeroizes the payload JSON body immediately after send.
+pub(crate) async fn send_owner_secure_delivery(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    target_peer_id: &str,
+    request_id: &str,
+    body: &mut serde_json::Value,
+) -> Result<RelayResponse, RelayResponse> {
+    if !matches!(
+        crate::auth::authenticated_request(state, headers),
+        Ok((
+            crate::auth::CallerIdentity::Local,
+            AuthenticatedOrigin::Owner
+        ))
+    ) {
+        codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(body);
+        return Err(relay_failure(
+            StatusCode::FORBIDDEN.as_u16(),
+            codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
+            Some(false),
+            "Only the local human owner may send a secure input delivery".to_owned(),
+        ));
+    }
+    let (request_origin, transport, peer_id, peer_name, _peer_version) =
+        match resolve_outbound_transport(
+            state,
+            headers,
+            &(Some(target_peer_id.to_owned()), None),
+            false,
+        ) {
+            Ok(resolved) => resolved,
+            Err((status, message)) => {
+                codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(body);
+                return Err(relay_failure(
+                    status.as_u16(),
+                    codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
+                    Some(false),
+                    message,
+                ));
+            }
+        };
+    if request_origin != AuthenticatedOrigin::Owner {
+        codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(body);
+        return Err(relay_failure(
+            StatusCode::FORBIDDEN.as_u16(),
+            codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
+            Some(false),
+            "Outbound secure input delivery requires Owner origin".to_owned(),
+        ));
+    }
+    let ready = match ReadyOutboundTransport::prepare(state, &peer_id, &peer_name, transport) {
+        Ok(ready) => ready,
+        Err((status, message)) => {
+            codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(body);
+            return Err(relay_failure(
+                status.as_u16(),
+                codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
+                Some(false),
+                message,
+            ));
+        }
+    };
+    let mut cmd = RelayCommand {
+        method: "POST".to_owned(),
+        path: "/api/secure-input/deliver".to_owned(),
+        body: std::mem::take(body),
+        delivery_id: Some(request_id.to_owned()),
+    };
+    let outcome = ready.send_relay(state, &cmd).await;
+    cmd.zeroize_sensitive_body();
+    outcome
+}
+
+/// Resolves a paired peer for secure input requests using the shared relay/cloud-machine
+/// resolution fallback while strictly requiring `AccessLevel::Full` and active traffic.
+pub(crate) fn resolve_secure_input_peer(
+    state: &AppState,
+    selector: &str,
+) -> Result<(String, String), (StatusCode, String)> {
+    let cloud_machines = state.svc.cloud_machines();
+    let mesh = state.mesh.lock();
+    let (_, peer_id, peer_name, _) =
+        resolve_relay_target_route(&mesh, &cloud_machines, false, selector).map_err(
+            |(status, message)| {
+                if status == StatusCode::CONFLICT {
+                    (status, message)
+                } else {
+                    (
+                StatusCode::FORBIDDEN,
+                format!("Target machine '{selector}' is not an authorized online peer: {message}"),
+            )
+                }
+            },
+        )?;
+    let Some(peer) = mesh.paired_peers.get(&peer_id) else {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!("Target machine '{selector}' is no longer paired"),
+        ));
+    };
+    if peer.access_level != codeterm_service_core::mesh::types::AccessLevel::Full {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Target machine '{}' does not grant Full access for secure input delivery",
+                peer.instance_name
+            ),
+        ));
+    }
+    if !mesh.traffic_open(&peer.instance_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Target machine '{}' is currently unavailable or revoked",
+                peer.instance_name
+            ),
+        ));
+    }
+    Ok((peer_id, peer_name))
+}
+
 pub(super) struct CloudOutboxTarget {
     pub account_id: String,
     pub source_installation_id: String,

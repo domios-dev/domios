@@ -79,6 +79,14 @@ pub(super) fn visible(
     event: &SystemEvent,
 ) -> bool {
     use PeerOperation::ReadHost;
+    if matches!(
+        event,
+        SystemEvent::Generic { event_type, .. }
+            if event_type
+                == codeterm_service_core::service::secure_input::SECURE_INPUT_CHANGED_EVENT
+    ) {
+        return matches!(caller, Some(CallerIdentity::Local));
+    }
     let scope = match scope {
         Some(PeerEventScope::Peer) => topic_scope(event),
         Some(PeerEventScope::Tab) => tab.and_then(|tab| tab_topic(event, tab)),

@@ -89,6 +89,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Mcp { .. } => pre_socket_unsupported("MCP stdio is local-only"),
         Commands::App { .. } => pre_socket_unsupported("app lifecycle is local-only; run on the owning machine"),
         Commands::Account { .. } => pre_socket_unsupported("account is local-only; run on the owning machine"),
+        Commands::Secret { .. } => pre_socket_unsupported(
+            "secret requests are created on the owner's local daemon; pass --machine <peer> instead of --mesh",
+        ),
         Commands::Analytics { .. } => pre_socket_unsupported("analytics is local-only; run on the owning machine"),
         Commands::Trace { .. } => pre_socket_unsupported("trace files are local-only; run on the owning instance"),
         Commands::Identify => socket_rest(),

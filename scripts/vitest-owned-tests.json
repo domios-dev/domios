@@ -1,4 +1,5 @@
 [
+  "src/components/SecureInput/SecureInputRequestCard.test.tsx",
   "src/components/Settings/SettingsPanel.remoteTarget.test.tsx",
   "src/components/Settings/SettingsPanel.secrets.test.tsx",
   "src/hooks/useAccountSelectors.test.tsx",

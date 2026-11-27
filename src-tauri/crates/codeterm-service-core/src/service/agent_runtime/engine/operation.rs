@@ -129,6 +129,16 @@ pub(crate) async fn run_submit(
     (result, handed_off.load(Ordering::Acquire))
 }
 
+struct OperationZeroizeGuard(RuntimeOperation);
+
+impl Drop for OperationZeroizeGuard {
+    fn drop(&mut self) {
+        if let RuntimeOperation::Control { value, .. } = &mut self.0 {
+            crate::service::secure_input::zeroize_secure_input_json_value(value);
+        }
+    }
+}
+
 async fn run_tracked(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -136,11 +146,12 @@ async fn run_tracked(
     operation: RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
+    let mut guard = OperationZeroizeGuard(operation);
     let invocation = session.invocation.lock().clone();
     let result = codeterm_plugin::provider_account::scope(invocation, async {
         tokio::time::timeout(
             std::time::Duration::from_secs(60),
-            run_inner(svc, session, process, operation, handed_off),
+            run_inner(svc, session, process, &mut guard.0, handed_off),
         )
         .await
         .map_err(|_| RuntimeFailure::Deadline)?
@@ -154,23 +165,23 @@ async fn run_inner(
     svc: &ServiceContext,
     session: &Arc<Session>,
     process: &Arc<Process>,
-    mut operation: RuntimeOperation,
+    operation: &mut RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let tab_id = session.context.lock().tab_id.clone();
-    let transcript_handoff = match &operation {
+    let transcript_handoff = match &*operation {
         RuntimeOperation::SubmitTurn { send_id, .. } => {
             svc.require_transcript_handoff(&tab_id, send_id)?
         }
         _ => None,
     };
-    let external_transcript_handoff = match &operation {
+    let external_transcript_handoff = match &*operation {
         RuntimeOperation::SubmitTurn { send_id, .. } => {
             crate::service::live_transcript::external_handoff(svc, &tab_id, send_id)?
         }
         _ => None,
     };
-    let switch_authority = match &operation {
+    let switch_authority = match &*operation {
         RuntimeOperation::SubmitTurn { send_id, .. } => {
             crate::service::messenger::switch_handoff::for_send(svc, send_id)
         }
@@ -219,7 +230,7 @@ async fn run_inner(
         }) as rpc::PrewriteGuard
     });
     let mut context = session.context.lock().clone();
-    let turn_starts = matches!(&operation, RuntimeOperation::SubmitTurn { .. })
+    let turn_starts = matches!(operation, RuntimeOperation::SubmitTurn { .. })
         .then(|| svc.runtime_turn_starts(&context.tab_id, &context.binding_nonce, context.epoch));
     let before_turn_start = turn_starts.as_ref().map(|starts| starts.sequence());
     let before_completion = turn_starts
@@ -230,7 +241,7 @@ async fn run_inner(
     let submit_stages = {
         let mut started = std::time::Instant::now();
         let tab = context.tab_id.clone();
-        let send_id = match &operation {
+        let send_id = match &*operation {
             RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
             _ => None,
         };
@@ -252,14 +263,14 @@ async fn run_inner(
     #[cfg(debug_assertions)]
     submit_stages("cli_validation");
     cli_validation?;
-    let declined = super::super::permission_policy::declined(session, &operation);
+    let declined = super::super::permission_policy::declined(session, operation);
     crate::service::execution_sandbox::validate_runtime_operation(
         svc,
         &context,
-        declined.as_ref().unwrap_or(&operation),
+        declined.as_ref().unwrap_or(&*operation),
     )
     .map_err(RuntimeFailure::Refused)?;
-    super::model::validate_operation_thread(&context, &operation)?;
+    super::model::validate_operation_thread(&context, operation)?;
     if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
         crate::service::provider_accounts::invalidate_boundary(svc, &context.tab_id);
     }
@@ -270,7 +281,7 @@ async fn run_inner(
             "Context restoration pending or failed; sends held".into(),
         ));
     }
-    if let RuntimeOperation::Answer { request_id, answer } = &operation {
+    if let RuntimeOperation::Answer { request_id, answer } = &*operation {
         let requests = session.prompts.lock();
         let pending = requests.get(request_id).ok_or(RuntimeFailure::Superseded)?;
         let prompt = pending.prompt.as_ref().ok_or(RuntimeFailure::Superseded)?;
@@ -278,7 +289,7 @@ async fn run_inner(
         context.pending_request = Some(pending.request.clone());
     }
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
-        && !super::super::turn_requests::submit_joins_turn(session, &operation)
+        && !super::super::turn_requests::submit_joins_turn(session, operation)
     {
         session.prompts_cancelled.store(false, Ordering::Release);
         super::super::client_bridge::begin_turn(&context);
@@ -293,14 +304,14 @@ async fn run_inner(
         .clone()
         .ok_or(RuntimeFailure::Superseded)?;
     let capability = adapter.agent_runtime().ok_or(RuntimeFailure::Superseded)?;
-    validate_runtime_operation(&context, &operation)
+    validate_runtime_operation(&context, operation)
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-    let next = plan(session, &context, &operation).await;
+    let next = plan(session, &context, operation).await;
     #[cfg(debug_assertions)]
     submit_stages("runtime_plan");
     let mut next = next?;
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
-        || matches!(&operation, RuntimeOperation::Control { action, .. } if matches!(action.as_str(), "restoreContext" | "compact"))
+        || matches!(operation, RuntimeOperation::Control { action, .. } if matches!(action.as_str(), "restoreContext" | "compact"))
     {
         let fenced = super::resume::before_turn(svc, session).await;
         #[cfg(debug_assertions)]
@@ -318,14 +329,14 @@ async fn run_inner(
         if session.context.lock().epoch != context.epoch {
             return Err(RuntimeFailure::Superseded);
         }
-        if matches!(&operation, RuntimeOperation::Answer { .. })
+        if matches!(operation, RuntimeOperation::Answer { .. })
             && !matches!(&next.action, RuntimeAction::Reply { .. })
         {
             return Err(RuntimeFailure::Refused(
                 "Answer requires an own request reply".into(),
             ));
         }
-        validate_runtime_plan(&capability, &context, &operation, &next)
+        validate_runtime_plan(&capability, &context, operation, &next)
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
         let reply = match &next.action {
             RuntimeAction::Local => Ok(Value::Null),
@@ -351,7 +362,7 @@ async fn run_inner(
                         "Repeated history request".into(),
                     ));
                 }
-                if !super::model::permits(&capability, &operation, &call.method) {
+                if !super::model::permits(&capability, operation, &call.method) {
                     return Err(RuntimeFailure::Refused(
                         "RPC method outside declared contract".into(),
                     ));
@@ -359,7 +370,7 @@ async fn run_inner(
                 let owner = svc.clone();
                 let runtime = session.clone();
                 let epoch = context.epoch;
-                let captured_send = match &operation {
+                let captured_send = match &*operation {
                     RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
                     _ => None,
                 };
@@ -375,7 +386,7 @@ async fn run_inner(
                 });
                 let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
                     .then(|| operation.clone());
-                let captured_login = super::super::login::declared_operation_witness(&operation);
+                let captured_login = super::super::login::declared_operation_witness(operation);
                 let captured_switch = switch_guard.clone();
                 let captured_claim = switch_authority.clone();
                 let fallback_witness = fallback_settings.as_ref().and(turn_starts.clone());
@@ -460,7 +471,7 @@ async fn run_inner(
                 handed_off.store(true, Ordering::Release);
                 #[cfg(debug_assertions)]
                 submit_stages(&format!("rpc_dispatch:{}", call.method));
-                if !super::super::turn_requests::call_joins_turn(&operation, call)
+                if !super::super::turn_requests::call_joins_turn(operation, call)
                     && capability
                         .turn_scoped_requests
                         .iter()
@@ -483,7 +494,7 @@ async fn run_inner(
                 reply?
             }
             RuntimeAction::Notification { notification } => {
-                if !super::model::permits(&capability, &operation, &notification.method) {
+                if !super::model::permits(&capability, operation, &notification.method) {
                     return Err(RuntimeFailure::Refused(
                         "Notification outside declared contract".into(),
                     ));
@@ -496,7 +507,7 @@ async fn run_inner(
                 Ok(Value::Null)
             }
             RuntimeAction::Reply { request_id, result } => {
-                if !matches!(&operation,RuntimeOperation::Answer{request_id:expected,..} if expected==request_id)
+                if !matches!(&*operation,RuntimeOperation::Answer{request_id:expected,..} if expected==request_id)
                     || !session.prompts.lock().contains_key(request_id)
                 {
                     return Err(RuntimeFailure::Refused(
@@ -509,7 +520,7 @@ async fn run_inner(
                 };
                 let approval = super::super::client_bridge::approvals::approved_reply(
                     &context,
-                    &operation,
+                    operation,
                     reply.as_ref().ok(),
                 )
                 .await;
@@ -547,7 +558,7 @@ async fn run_inner(
         }
         let step = tokio::time::timeout(
             RUNTIME_HOOK_DEADLINE,
-            adapter.runtime_response(&context, &operation, &next.state, &reply),
+            adapter.runtime_response(&context, operation, &next.state, &reply),
         )
         .await
         .map_err(|_| RuntimeFailure::Deadline)?
@@ -558,7 +569,7 @@ async fn run_inner(
                 RuntimeFailure::HookFailed(reason.to_string())
             }
         })?;
-        validate_runtime_step(&capability, &context, &operation, &reply, &step)
+        validate_runtime_step(&capability, &context, operation, &reply, &step)
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
         validate_binding(svc, session)?;
         if session.context.lock().epoch != context.epoch {
@@ -595,8 +606,8 @@ async fn run_inner(
             } => {
                 if reason.code == RuntimeFailureCode::ModelUnavailable {
                     use super::super::model_unavailable as unavailable;
-                    if let Some(model) = unavailable::settings(&mut operation)
-                        .and_then(|settings| settings.model.clone())
+                    if let Some(model) =
+                        unavailable::settings(operation).and_then(|settings| settings.model.clone())
                     {
                         unavailable::remember(svc, session, process, &model).await;
                         let no_turn_observed = || {
@@ -614,21 +625,21 @@ async fn run_inner(
                             svc,
                             session,
                             &context,
-                            &operation,
+                            operation,
                             &model,
                             replay_safe,
                         )
                         .await
                         {
                             if no_turn_observed() {
-                                let settings = unavailable::settings(&mut operation)
+                                let settings = unavailable::settings(operation)
                                     .ok_or(RuntimeFailure::Superseded)?;
                                 let candidate_id = candidate.id.clone();
                                 unavailable::replace_model(settings, candidate);
                                 fallback_settings = Some(settings.clone());
                                 unavailable::publish(svc, session, &context, "model_rerouted",
                                     format!("Model {model} is unavailable for this account. Trying {candidate_id}."), &candidate_id);
-                                next = plan(session, &context, &operation).await?;
+                                next = plan(session, &context, operation).await?;
                                 continue;
                             }
                         }
@@ -656,7 +667,7 @@ async fn run_inner(
                 }
                 // Declined input never entered the turn, so it stays held for the next prompt.
                 if before_acceptance
-                    && super::super::turn_requests::submit_joins_turn(session, &operation)
+                    && super::super::turn_requests::submit_joins_turn(session, operation)
                 {
                     if reason.code == RuntimeFailureCode::AuthenticationRequired {
                         super::super::declared_controls::require_authentication(svc, session);
@@ -702,7 +713,7 @@ async fn run_inner(
                 events,
             } => {
                 if let Some(notification) = notification {
-                    if !super::model::permits(&capability, &operation, &notification.method) {
+                    if !super::model::permits(&capability, operation, &notification.method) {
                         return Err(RuntimeFailure::Refused(
                             "Notification outside declared contract".into(),
                         ));
@@ -726,7 +737,7 @@ async fn run_inner(
                                     thread_id: notice_thread,
                                     message,
                                 },
-                            ) = (&operation, &result, event)
+                            ) = (&*operation, &result, event)
                             {
                                 if thread_id == notice_thread {
                                     session.state.lock().pending_load_notice =
@@ -734,7 +745,7 @@ async fn run_inner(
                                     return false;
                                 }
                             }
-                            model::reply_may_report_turn(&operation, event)
+                            model::reply_may_report_turn(operation, event)
                                 && model::accepts_response_event(&context, &current, event)
                         })
                         .collect();
@@ -757,7 +768,7 @@ async fn run_inner(
                     }
                     return Ok(result);
                 }
-                owned_context::record(svc, session, &context, &operation, &result)?;
+                owned_context::record(svc, session, &context, operation, &result)?;
                 if let (RuntimeResult::TurnAccepted { .. }, Some(settings)) =
                     (&result, fallback_settings.as_ref())
                 {
@@ -771,7 +782,7 @@ async fn run_inner(
                     RuntimeOperation::OpenThread { .. },
                     RuntimeResult::ThreadLoaded { .. },
                     Some(settings),
-                ) = (&operation, &result, fallback_settings)
+                ) = (&*operation, &result, fallback_settings)
                 {
                     session.context.lock().settings = settings;
                 }

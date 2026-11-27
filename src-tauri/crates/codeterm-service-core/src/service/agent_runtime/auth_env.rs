@@ -168,18 +168,34 @@ pub(super) async fn sign_in_with_key(
         }),
     )
     .await
-    .map_err(|_| "Saving the API key timed out")?
-    .map_err(|_| "The API key could not be saved in the secret store")?;
+    .map_err(|_| "Saving the API key timed out; delivery outcome is uncertain")?
+    .map_err(|err| match err {
+        crate::secrets::SecretError::WriteUncertain { .. } => {
+            "Saving the API key outcome was uncertain; verify before retrying"
+        }
+        _ => "The API key could not be saved in the secret store",
+    })?;
     let owner = svc.clone();
     let tab_id = tab.to_owned();
     crate::async_runtime::spawn_blocking(move || {
         owner.lifecycle_port().agent_restart(&tab_id, false, 0)
     })
     .await
-    .map_err(|_| "Runtime restart failed")?
-    .map_err(restart_reason)?;
-    let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
-    super::declared_controls::authenticate(svc, tab, &session, method, None).await
+    .map_err(|_| "API key was saved but post-save runtime restart failed (uncertain)".to_owned())?
+    .map_err(|err| {
+        format!(
+            "API key was saved but post-save runtime restart failed (uncertain): {}",
+            restart_reason(err)
+        )
+    })?;
+    let session = engine::for_tab(tab).ok_or_else(|| {
+        "API key was saved but post-save runtime binding is unavailable (uncertain)".to_owned()
+    })?;
+    super::declared_controls::authenticate(svc, tab, &session, method, None)
+        .await
+        .map_err(|reason| {
+            format!("API key was saved but post-save authentication failed (uncertain): {reason}")
+        })
 }
 
 fn restart_reason(error: crate::service::agent_lifecycle::AgentRestartError) -> String {

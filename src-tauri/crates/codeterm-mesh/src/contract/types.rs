@@ -260,7 +260,7 @@ pub struct MeshSyncPayload {
 // ── Relay ───────────────────────────────────────────────────────────
 
 /// Generic relay — proxy any API call to a mesh peer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RelayCommand {
     /// API method: GET, POST, PUT, DELETE, PATCH.
     #[serde(default = "default_method")]
@@ -275,6 +275,59 @@ pub struct RelayCommand {
     /// Absent for commands that opt out of at-most-once (reads, management).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery_id: Option<String>,
+}
+
+impl std::fmt::Debug for RelayCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelayCommand")
+            .field("method", &self.method)
+            .field("path", &self.path)
+            .field("body", &"<redacted>")
+            .field("delivery_id", &self.delivery_id)
+            .finish()
+    }
+}
+
+impl RelayCommand {
+    /// Overwrites sensitive string fields in `self.body` using volatile writes before drop.
+    pub fn zeroize_sensitive_body(&mut self) {
+        zeroize_sensitive_json(&mut self.body);
+    }
+}
+
+/// Recursively overwrites string values under secret-bearing JSON keys with zero bytes.
+pub fn zeroize_sensitive_json(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map.iter_mut() {
+                if matches!(
+                    k.as_str(),
+                    "value" | "code" | "apiKey" | "api_key" | "secret" | "token" | "password"
+                ) {
+                    if let serde_json::Value::String(secret) = v {
+                        zeroize_string(secret);
+                    }
+                } else {
+                    zeroize_sensitive_json(v);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items.iter_mut() {
+                zeroize_sensitive_json(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn zeroize_string(s: &mut String) {
+    let mut bytes = std::mem::take(s).into_bytes();
+    for byte in &mut bytes {
+        // SAFETY: `byte` is a valid mutable reference to an initialized `u8`.
+        unsafe { std::ptr::write_volatile(byte, 0) };
+    }
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
 }
 
 fn default_method() -> String {

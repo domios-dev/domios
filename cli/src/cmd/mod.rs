@@ -80,6 +80,7 @@ pub mod report_lane;
 pub mod resolved_text;
 pub mod rest_api;
 pub mod role;
+pub mod secret;
 pub mod send_text;
 pub mod service;
 pub mod sessions;

@@ -286,22 +286,51 @@ pub struct ValueResponse {
     pub notes: Option<String>,
 }
 
+fn is_local_owner(state: &AppState, headers: &HeaderMap) -> bool {
+    matches!(
+        crate::auth::authenticated_request(state, headers),
+        Ok((
+            crate::auth::CallerIdentity::Local,
+            crate::auth::AuthenticatedOrigin::Owner
+        ))
+    )
+}
+
 /// Reveal the secret value. POST (not GET) so the name stays out of URL
 /// access logs and so we can require a body in the future without breaking
-/// clients.
+/// clients. Protected/reserved vault slots use a strict `(Local, Owner)` allowlist.
 pub async fn reveal_value(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<ValueResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let store = state.svc.secrets.read().await;
+    let owner = is_local_owner(&state, &headers);
+    if !owner && state.svc.secure_input().is_protected_vault_slot(&name) {
+        return Err(protected_secret_forbidden());
+    }
+    let store = state.svc.secrets.read().await.clone();
     let v = store.get(&name).await.map_err(map_error)?;
+    if !owner && state.svc.secure_input().is_protected_vault_slot(&v.name) {
+        return Err(protected_secret_forbidden());
+    }
     Ok(Json(ValueResponse {
         item_id: v.item_id,
         name: v.name,
         value: v.value.expose_secret().to_string(),
         notes: v.notes,
     }))
+}
+
+fn protected_secret_forbidden() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({
+            "error": {
+                "kind": "forbidden",
+                "message": "Owner-protected secrets require local owner authority; reference them by name",
+            }
+        })),
+    )
 }
 
 #[derive(Deserialize)]
@@ -322,10 +351,24 @@ pub struct SaveBody {
 
 pub async fn save_item(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<SaveBody>,
 ) -> Result<Json<SecretRef>, (StatusCode, Json<serde_json::Value>)> {
-    let store = state.svc.secrets.read().await;
+    let owner = is_local_owner(&state, &headers);
+    if !owner && state.svc.secure_input().is_protected_vault_slot(&body.name) {
+        return Err(protected_secret_forbidden());
+    }
+    let notes = if owner {
+        body.notes
+    } else {
+        body.notes.map(|n| {
+            n.replace(
+                codeterm_service_core::service::secure_input::PROTECTED_VAULT_NOTE_MARKER,
+                "",
+            )
+        })
+    };
+    let store = state.svc.secrets.read().await.clone();
 
     // "personal vault" — leave it as None so the backend doesn't try to attach to a non-existent org.
     let cfg = codeterm_service_core::config::load_config();
@@ -337,7 +380,7 @@ pub async fn save_item(
     let req = SaveRequest {
         name: body.name,
         value: SecretString::from(body.value),
-        notes: body.notes,
+        notes,
         folder: body.folder,
         organization,
         collection,
@@ -357,10 +400,25 @@ fn some_if_nonempty(s: &str) -> Option<String> {
 
 pub async fn delete_item(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let store = state.svc.secrets.read().await;
+    let owner = is_local_owner(&state, &headers);
+    if !owner && state.svc.secure_input().is_protected_vault_slot(&name) {
+        return Err(protected_secret_forbidden());
+    }
+    let store = state.svc.secrets.read().await.clone();
+    if !owner {
+        if let Ok(existing) = store.get(&name).await {
+            if state
+                .svc
+                .secure_input()
+                .is_protected_vault_slot(&existing.name)
+            {
+                return Err(protected_secret_forbidden());
+            }
+        }
+    }
     store.delete(&name).await.map_err(map_error)?;
     Ok(Json(serde_json::json!({"ok": true, "name": name})))
 }

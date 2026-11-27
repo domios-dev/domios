@@ -109,18 +109,30 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> EnrolledCha
         self.admit().map_err(|_| {
             TransportError::new(TransportErrorKind::NothingSent, "cloud admission closed")
         })?;
+        let mut req = Request::Relay {
+            command,
+            signed_token,
+        };
         let result = tokio::time::timeout(Duration::from_secs(120), async {
-            self.stream
-                .write(&Request::Relay {
-                    command,
-                    signed_token,
-                })
-                .await?;
+            let write_res = self.stream.write(&req).await;
+            if let Request::Relay {
+                ref mut command, ..
+            } = req
+            {
+                command.zeroize_sensitive_body();
+            }
+            write_res?;
             let reply = self.stream.read().await?;
             self.admit()?;
             Ok::<_, IngressError>(reply)
         })
         .await;
+        if let Request::Relay {
+            ref mut command, ..
+        } = req
+        {
+            command.zeroize_sensitive_body();
+        }
         match result {
             Ok(Ok(reply)) => Ok(reply),
             _ => Err(TransportError::new(
@@ -373,18 +385,23 @@ pub(super) async fn serve(
     channel.admit()?;
     match request {
         Request::Relay {
-            command,
+            mut command,
             signed_token,
         } => {
             let sender = channel
                 .peer
                 .peer_for_dispatch(&channel.mesh.lock(), &channel.stream.binding)?;
             let keys = [(sender.instance_id.clone(), sender.mesh_public_key.clone())].into();
-            crate::crown::verify_request_claims(&signed_token, &keys)
-                .map_err(|_| IngressError::Rejected)?;
+            if crate::crown::verify_request_claims(&signed_token, &keys).is_err() {
+                command.zeroize_sensitive_body();
+                return Err(IngressError::Rejected);
+            }
+            let body = serde_json::to_value(&command);
+            command.zeroize_sensitive_body();
+            let body = body.map_err(|_| IngressError::InvalidFrame)?;
             let request = crate::cloud_outbox::OuterWireRequest {
                 route: crate::cloud_outbox::OUTER_RELAY_ROUTE,
-                body: serde_json::to_value(command).map_err(|_| IngressError::InvalidFrame)?,
+                body,
             };
             channel.admit()?;
             let bytes = runtime

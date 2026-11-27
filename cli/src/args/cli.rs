@@ -28,6 +28,7 @@ use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::radar::RadarAction;
 use super::role::RoleAction;
+use super::secret::SecretAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
@@ -95,6 +96,11 @@ pub enum Commands {
     Account {
         #[command(subcommand)]
         action: super::account::AccountAction,
+    },
+    /// Request owner-submitted masked secrets for local or Full-access mesh machines
+    Secret {
+        #[command(subcommand)]
+        action: SecretAction,
     },
     /// Manage local product analytics (on by default)
     Analytics {

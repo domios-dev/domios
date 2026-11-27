@@ -317,3 +317,39 @@ async fn peer_provider_cli_topics_follow_read_host_and_strip_status_bodies() {
         serde_json::json!({ "provider": "fixture" })
     );
 }
+
+#[test]
+fn secure_input_changed_event_is_visible_only_to_local_owner() {
+    let (mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let event = SystemEvent::Generic {
+        event_type: codeterm_service_core::service::secure_input::SECURE_INPUT_CHANGED_EVENT.into(),
+        data: serde_json::json!({}),
+    };
+    let tab_caller =
+        CallerIdentity::Tab(codeterm_service_core::service::tab_credentials::TabCaller {
+            tab_id: tab,
+            binding_nonce: "nonce".into(),
+        });
+    assert!(visible(
+        &state,
+        Some(&CallerIdentity::Local),
+        None,
+        None,
+        &event,
+    ));
+    assert!(!visible(&state, Some(&tab_caller), None, None, &event));
+    assert!(!visible(&state, None, None, None, &event));
+    assert!(!visible(
+        &state,
+        Some(&CallerIdentity::Peer {
+            instance_id: "peer-1".into(),
+            access_level: AccessLevel::Full,
+            relay_protocol_version: 2,
+        }),
+        Some(PeerEventScope::Peer),
+        None,
+        &event,
+    ));
+}
