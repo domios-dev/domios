@@ -149,7 +149,9 @@ describe("Claude tool activity", () => {
   it("keeps described calls without a shared flow as rows that show the description instead of the command", async () => {
     const view = await render([
       claudeCall("solo-1", "git status --short", { toolDescription: "Check worktree", toolFlowId: "msg_a" }),
+      { id: "solo-gap-1", type: "assistant", content: "Next." },
       claudeCall("solo-2", "git log -1", { toolDescription: "Show last commit", toolFlowId: "msg_b" }),
+      { id: "solo-gap-2", type: "assistant", content: "Finally." },
       claudeCall("solo-3", "pwd", { toolDescription: "Print directory" }),
     ]);
     expect(streams(view)).toHaveLength(0);
@@ -282,7 +284,10 @@ describe("Codex tool activity", () => {
   });
 
   it("leaves calls without a proven turn as individual rows", async () => {
-    const view = await render([codexCall("loose-1", "npm test"), codexCall("loose-2", "git status")]);
+    const view = await render([
+      codexCall("loose-1", "npm test"),
+      codexCall("loose-2", "git status", { toolName: "shell_command" }),
+    ]);
     expect(streams(view)).toHaveLength(0);
     expect(view.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(2);
   });

@@ -330,6 +330,7 @@ function numberUnnamedSubagents(items: ComposerBackgroundWorkItem[]): ComposerBa
 function unwrapToolEvents(event: ToolEvent): ToolEvent[] {
   if (event.stream?.members.length) return event.stream.members.flatMap(unwrapToolEvents);
   if (event.commandBatch?.length) return event.commandBatch.flatMap(unwrapToolEvents);
+  if (event.toolRun?.members.length) return event.toolRun.members.flatMap(unwrapToolEvents);
   return [event];
 }
 

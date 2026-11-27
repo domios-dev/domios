@@ -9,12 +9,17 @@ export function toolPresentationKey(message: NormalizedChatMessage, item?: Timel
   if (item?.kind !== "tool") return message.id;
   const session = message.sourceSessionId ?? "";
   if (item.event.stream) return `stream:${session}:${item.event.stream.flowId}`;
+  if (item.event.toolRun) {
+    const first = item.event.toolRun.members[0];
+    const anchor = first?.toolId?.trim() || first?.id || message.id;
+    return `run:${session}:${anchor}`;
+  }
   const toolId = item.event.toolId?.trim();
   return toolId ? `tool:${session}:${toolId}` : message.id;
 }
 
 export function retainStreamedCommandShell(event: ToolEvent): boolean {
-  if (event.kind !== "command" || event.stream || event.commandBatch || event.agents) return false;
+  if (event.kind !== "command" || event.stream || event.commandBatch || event.agents || event.toolRun) return false;
   const key = toolPresentationKey(event.message, { kind: "tool", event });
   if (!retainedCommands.has(key)) {
     if (toolCommandShape(event).kind === "group") return false;

@@ -175,6 +175,15 @@ export {
   type ToolEvent,
 } from "./toolEvents";
 export {
+  groupToolRuns,
+  hasPendingToolPrompt,
+  normalizedToolIdentity,
+  toolCallSummaryLine,
+  type GroupToolRunsOptions,
+  type ToolRunGroup,
+  type ToolRunIdentity,
+} from "./toolRuns";
+export {
   assignedCommand,
   commandArgvStart,
   commandBasename,

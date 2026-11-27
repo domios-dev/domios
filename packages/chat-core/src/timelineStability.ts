@@ -50,6 +50,24 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
   if (!messagesEquivalent(a.message, b.message)) return false;
   if (!agentTreesEquivalent(a.agents, b.agents)) return false;
   if (!membersEquivalent(a.editRun, b.editRun) || !membersEquivalent(a.commandBatch, b.commandBatch)) return false;
+  const runA = a.toolRun;
+  const runB = b.toolRun;
+  if (runA || runB) {
+    if (
+      !runA ||
+      !runB ||
+      runA.toolName !== runB.toolName ||
+      runA.kind !== runB.kind ||
+      runA.runningCount !== runB.runningCount ||
+      runA.failedCount !== runB.failedCount ||
+      runA.latestStatus !== runB.latestStatus ||
+      runA.entries.length !== runB.entries.length ||
+      !membersEquivalent(runA.members, runB.members) ||
+      !runA.entries.every((entry, index) => entriesEquivalent(entry, runB.entries[index]))
+    ) {
+      return false;
+    }
+  }
   const streamA = a.stream;
   const streamB = b.stream;
   if (!streamA || !streamB) return streamA === streamB;
