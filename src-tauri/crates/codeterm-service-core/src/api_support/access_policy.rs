@@ -180,6 +180,7 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
             &Method::POST,
             "/api/mesh/cloud/peer/drain"
             | "/api/mesh/cloud/peer/reopen"
+            | "/api/mesh/cloud/peer/hours-exhausted"
             | "/api/mesh/cloud/peer/warm-bootstrap"
             | "/api/mesh/cloud/peer/provider-signin/prepare",
         ) => PeerScope::new(FullAccess, Host),

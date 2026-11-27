@@ -82,4 +82,27 @@ it("Neighbor section links route only validated friend ids and fixed sections", 
   }
 });
 
+it("cloud hours actions open inventory and the existing top-up flow", async () => {
+  const prior = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const requests: unknown[] = [];
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {
+    dispatchEvent: (event: CustomEvent) => {
+      if (event.type === "codeterm:open-panel") requests.push(event.detail);
+      return true;
+    },
+    open: () => { throw new Error("Unexpected external navigation"); },
+  } });
+  try {
+    await runNotificationAction({ type: "url", label: "Top up", value: "domios://cloud/top-up" });
+    await runNotificationAction({ type: "url", label: "Open cloud machines", value: "domios://cloud/machines" });
+    assert.deepEqual(requests, [
+      { panel: "mesh", meshTab: "inventory", cloudTopUp: true },
+      { panel: "mesh", meshTab: "inventory", cloudTopUp: false },
+    ]);
+  } finally {
+    if (prior) Object.defineProperty(globalThis, "window", prior);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
 finish();

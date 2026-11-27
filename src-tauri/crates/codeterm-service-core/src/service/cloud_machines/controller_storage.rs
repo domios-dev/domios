@@ -259,7 +259,10 @@ impl CloudMachineController {
         let now_ms = self.clock.now_ms();
         let updated = self.update_record(&record.machine_id, |rec| {
             let mut next = rec.clone();
-            next.state = if archived.state == "out_of_credits" {
+            next.state = if archived.state == "out_of_credits"
+                || (archived.storage_tier == CloudStorageTier::Evicting
+                    && rec.state == CloudLifecycleState::OutOfCredits)
+            {
                 CloudLifecycleState::OutOfCredits
             } else {
                 CloudLifecycleState::Asleep
@@ -271,18 +274,22 @@ impl CloudMachineController {
             next.last_error = None;
             next.ownership.auxiliary_resource_ids.insert(
                 AUX_KEY_STORAGE_TIER.into(),
-                CloudStorageTier::Cold.as_str().into(),
+                archived.storage_tier.as_str().into(),
             );
             next.ownership.auxiliary_resource_ids.insert(
                 AUX_KEY_RECOVERABLE_ARCHIVE_ID.into(),
                 archived.archive_id.clone(),
             );
-            next.ownership
-                .auxiliary_resource_ids
-                .insert(AUX_KEY_PURGE_AT.into(), archived.purge_at.to_string());
-            next.ownership
-                .auxiliary_resource_ids
-                .insert(AUX_KEY_ALLOCATED_GB.into(), "0".into());
+            if archived.storage_tier == CloudStorageTier::Cold {
+                if let Some(purge_at) = archived.purge_at.filter(|date| *date > 0) {
+                    next.ownership
+                        .auxiliary_resource_ids
+                        .insert(AUX_KEY_PURGE_AT.into(), purge_at.to_string());
+                }
+                next.ownership
+                    .auxiliary_resource_ids
+                    .insert(AUX_KEY_ALLOCATED_GB.into(), "0".into());
+            }
             Ok(next)
         })?;
         Ok(updated.receipt(now_ms, None))

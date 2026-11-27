@@ -10,7 +10,7 @@ import type {
   CloudReceipt,
   CloudUsagePayload,
 } from "../../lib/cloudMachines/types";
-import { findMachineStorageEntry, formatAutoArchiveLabel, storageTierLabel } from "../Usage/cloudStorageModel";
+import { findMachineStorageEntry, formatAutoArchiveLabel, machineStorageTier, storageTierLabel } from "../Usage/cloudStorageModel";
 import { BusyState } from "../shared/BusyState";
 import { Button } from "../shared/Button";
 import { UI_PANEL } from "../shared/design";
@@ -18,6 +18,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { MachineGlyph } from "../shared/MachineGlyph";
 import { useEscapeDismissal } from "../shared/useEscapeDismissal";
 import { CloudBootstrapPanel } from "../CloudBootstrap/CloudBootstrapPanel";
+import { cloudHoursStatus } from "../../lib/cloudMachines/usageModel";
 import { CloudUsageMeter } from "./CloudUsageMeter";
 import "./cloudMachines.css";
 
@@ -73,7 +74,7 @@ export function CloudMachineDrawer({
   const isOutOfCredits = view.state === "out_of_credits";
   const isWaking = view.state === "waking" || view.state === "creating" || view.state === "enrolling";
   const machineStorage = findMachineStorageEntry(usage?.storage?.machines, machine);
-  const rawStorageTier = machineStorage?.tier ?? machine.storage_tier ?? "hot";
+  const rawStorageTier = machineStorageTier(machine.storage_tier, machineStorage?.tier);
   const isArchived = rawStorageTier === "cold" || rawStorageTier === "recoverable_deleted";
   const isEvicting = rawStorageTier === "evicting";
   const tierLabel = storageTierLabel(rawStorageTier);
@@ -122,6 +123,9 @@ export function CloudMachineDrawer({
                 />
               )}
               <span>{view.drawerStatusLabel}</span>
+              {isOutOfCredits && cloudHoursStatus(usage) !== "Out of hours" && (
+                <span className="ct-mesh-tag ct-mesh-tone--warning">Out of hours</span>
+              )}
             </div>
           </div>
           <button
@@ -209,7 +213,7 @@ export function CloudMachineDrawer({
         {actionError && <InlineErrorNotice role="alert" description={{ title: actionError, cause: "", actions: [], raw: "" }} />}
 
         <div className="mt-auto flex flex-col gap-2.5 pt-3">
-          {confirmArchive ? (
+          {confirmArchive && canArchiveNow ? (
             <div
               role="group"
               aria-label={`Archive ${machine.name}`}
@@ -282,7 +286,7 @@ export function CloudMachineDrawer({
                     Sleep now
                   </Button>
                 )}
-                {isAsleep && (
+                {isAsleep && !isEvicting && (
                   <Button
                     type="button"
                     size="sm"

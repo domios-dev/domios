@@ -92,6 +92,52 @@ describe("MeshMachineList wiring", () => {
     window.localStorage.clear();
   });
 
+  it("shows hours and archive progress in the list and opens top up", async () => {
+    window.localStorage.setItem(MESH_VIEW_MODE_STORAGE_KEY, "list");
+    const machine = makeCloud("archive-progress", "Vault", "asleep");
+    const onTopUpMachine = vi.fn();
+    const render = async (storage_tier: CloudReceipt["storage_tier"], usage: CloudUsagePayload) => {
+      const cloud: CanvasCloud = {
+        machines: [{ ...machine, storage_tier }],
+        usage,
+        isFree: false,
+        slotOpen: false,
+        pendingCreate: null,
+        onOpenSlot: () => {},
+        onCloseSlot: () => {},
+        onCreateCloud: () => {},
+        onPairComputer: () => {},
+        onSelectMachine: () => {},
+        onTopUpMachine,
+        onFailureAction: () => {},
+      };
+      await act(async () => root.render(
+        <MeshCanvas
+          thisMachine={{ name: "Studio", ip: "192.168.1.2" }}
+          peers={[]}
+          onPeerClick={() => {}}
+          recentPushes={[]}
+          width={1280}
+          height={800}
+          cloud={cloud}
+        />,
+      ));
+      return host.querySelector<HTMLElement>('[data-testid="mesh-list-row-cloud:archive-progress"]')!;
+    };
+
+    const row = await render("evicting", { ...USAGE, warnings: { epoch: 4, pct80_at: 101 } });
+    expect(row.textContent).toContain("Low on hours");
+    expect(row.textContent).toContain("Archiving…");
+    const topUp = Array.from(row.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Top up");
+    expect(topUp).toBeDefined();
+    await act(async () => topUp!.click());
+    expect(onTopUpMachine).toHaveBeenCalledExactlyOnceWith({ ...machine, storage_tier: "evicting" });
+
+    const archived = await render("cold", { ...USAGE, remaining: 0, warnings: { epoch: 4, exhausted_at: 103 } });
+    expect(archived.textContent).toContain("Archived");
+    expect(archived.textContent).toContain("Out of hours");
+  });
+
   it("persists Canvas | List toggle choices and defaults to List only above 8 machines without a choice", async () => {
     const fourPeers = [1, 2, 3].map((i) => makePeer(i));
     await act(async () => {

@@ -6,7 +6,7 @@ import {
   promoRedeemOutcome,
   promoRefusalMessage,
 } from "../../lib/cloudMachines/promoModel";
-import { cloudUsageMeterView } from "../../lib/cloudMachines/usageModel";
+import { cloudHoursStatus, cloudUsageMeterView } from "../../lib/cloudMachines/usageModel";
 import type { CloudPromoRedemption, CloudReceipt, CloudUsagePayload } from "../../lib/cloudMachines/types";
 import { projectCloudStorageMeter } from "../Usage/cloudStorageModel";
 import { Button } from "../shared/Button";
@@ -86,7 +86,7 @@ export function CloudUsageMeter({
     }
   };
 
-  const showCalmPrompt = view.lowBalance || view.exhausted;
+  const hoursStatus = cloudHoursStatus(usage);
 
   return (
     <section aria-label="Cloud hours" data-testid="cloud-usage-meter" className={`flex w-full flex-col ${className}`}>
@@ -137,13 +137,11 @@ export function CloudUsageMeter({
         </div>
       )}
 
-      {showCalmPrompt ? (
+      {hoursStatus ? (
         <>
           <div className="mt-3 flex items-center justify-between gap-2.5 rounded-[10px] border border-[var(--ct-border-subtle)] bg-[color-mix(in_srgb,var(--ct-fg)_2%,var(--ct-bg))] px-3 py-2.5">
             <div className="min-w-0">
-              <div className="text-[12px] font-semibold text-[var(--ct-fg)]">
-                {view.exhausted ? "Out of credits: top up to wake" : "Running low on hours"}
-              </div>
+              <span className="ct-mesh-tag ct-mesh-tone--warning">{hoursStatus}</span>
               <div className="mt-0.5 text-[11px] text-[var(--ct-muted-fg)]">
                 {view.exhausted
                   ? "Your files stay safe while asleep."

@@ -58,10 +58,11 @@ interface Props {
   config: AppConfig;
   onConfigUpdate: (config: AppConfig) => Promise<void>;
   onClose: () => void;
-  tabRequest?: { tab: MeshTab; newMachine?: boolean; seq?: number };
+  tabRequest?: { tab: MeshTab; newMachine?: boolean; cloudTopUp?: boolean; seq?: number };
+  onCloudTopUpOpened?: (seq?: number) => void;
 }
 
-export function MeshPanel({ config, onClose, tabRequest }: Props) {
+export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: Props) {
   const touchUi = useTouchOptimizedUi();
   const account = useMeshAccount();
   const accountPlan = useAccountPlan(account.presence === "signed_in" ? (account.uid ?? null) : null);
@@ -174,6 +175,11 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
   const [meshAnnouncement, setMeshAnnouncement] = useState("");
   const [topUpDialog, setTopUpDialog] = useState<{ mode: TopUpMode; machine?: CloudReceipt; size?: string } | null>(null);
+  useEffect(() => {
+    if (!tabRequest?.cloudTopUp) return;
+    setTopUpDialog({ mode: "topup" });
+    onCloudTopUpOpened?.(tabRequest.seq);
+  }, [tabRequest, onCloudTopUpOpened]);
   const [pendingCheckout, setPendingCheckout] = useState<PendingCloudTopUpCheckout | null>(null);
   const [returnDialog, setReturnDialog] = useState<{
     addedHours: number;
@@ -293,7 +299,7 @@ export function MeshPanel({ config, onClose, tabRequest }: Props) {
         setActiveTab("network");
       },
       onSelectMachine: (machineId) => setDrawerState({ kind: "cloud", machineId }),
-      onTopUpMachine: (machine) => setTopUpDialog({ mode: "wake", machine }),
+      onTopUpMachine: (machine) => setTopUpDialog({ mode: machine.state === "out_of_credits" ? "wake" : "topup", machine }),
       onSleepMachine: cloud.sleep,
       onWakeMachine: cloud.wake,
       onFailureAction: handleCloudFailureAction,

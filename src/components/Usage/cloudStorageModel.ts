@@ -100,11 +100,20 @@ export function formatStorageBytes(bytes: number | null | undefined): string {
 export function storageTierLabel(tier: CloudStorageTier): string {
   switch (tier) {
     case "hot": return "Hot";
-    case "evicting": return "Archiving";
+    case "evicting": return "Archiving…";
     case "cold": return "Archived - wakes in ~2 min";
     case "recoverable_deleted": return "Archived - wakes in ~2 min";
     case "purged": return "Purged";
   }
+}
+
+export function machineStorageTier(
+  machineTier: CloudStorageTier | null | undefined,
+  usageTier: CloudStorageTier | undefined,
+): CloudStorageTier {
+  if (usageTier === "cold" || machineTier === "cold" && usageTier === "evicting") return "cold";
+  if (machineTier === "evicting" && (!usageTier || usageTier === "hot")) return "evicting";
+  return usageTier ?? machineTier ?? "hot";
 }
 
 export function formatAutoArchiveLabel(hotDays: number | null | undefined): string {

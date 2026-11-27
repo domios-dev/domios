@@ -61,7 +61,7 @@ export function useCloudUsage(enabled = true) {
     void refresh();
     const onFocus = () => { if (active) void refresh(); };
     window.addEventListener("focus", onFocus);
-    for (const event of ["mesh-state-changed", "entitlement-changed", "account-changed"]) {
+    for (const event of ["mesh-state-changed", "entitlement-changed", "account-changed", "cloud-hours-changed"]) {
       void listen(event, () => { if (active) void refresh(); })
         .then((unlisten) => { if (active) unlisteners.push(unlisten); else unlisten(); })
         .catch(() => undefined);
@@ -75,7 +75,7 @@ export function useCloudUsage(enabled = true) {
 
   const applyRedemption = useCallback((redemption: CloudPromoRedemption) => {
     setUsage((current) => current
-      ? { ...current, remaining: redemption.remaining, purchased: redemption.purchased }
+      ? { ...current, remaining: redemption.remaining, purchased: redemption.purchased, warnings: undefined }
       : current);
   }, []);
 

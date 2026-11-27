@@ -15,7 +15,7 @@ import type { MeshTarget } from "./accountMeshClient";
 import { ACCESS_LABELS } from "./MachineFooter";
 import type { CanvasAccount } from "./MeshCanvas";
 import type { MeshCollapsedGroupOverrides } from "./meshViewModeModel";
-import { findMachineStorageEntry } from "../Usage/cloudStorageModel";
+import { findMachineStorageEntry, machineStorageTier, storageTierLabel, type CloudStorageTier } from "../Usage/cloudStorageModel";
 import { privateNetworkLabel, type TailscaleState } from "./tailscaleSetup";
 import type { PeerStatus } from "./useMeshData";
 
@@ -80,6 +80,7 @@ export interface MeshMachineRow {
   cloudSizeMeta?: string | null;
   cloudSizeSpecs?: string | null;
   cloudState?: CloudLifecycleState;
+  storageTier?: CloudStorageTier;
   statusLabel: string;
   detailLine?: string | null;
   tone: MachineTone;
@@ -359,12 +360,11 @@ export function projectMeshMachineRows({
     const seen = seenCandidates.length > 0 ? Math.max(...seenCandidates) : null;
     const canRename = Boolean(row?.target && matchedPeer?.online && account?.actions.onRename);
     const renameUnavailable = !row || !row.target || !matchedPeer?.online;
-    const statusLabel =
-      view.state === "out_of_credits"
-        ? "Out of cloud hours"
-        : view.state === "waking"
-          ? "Waking up"
-          : view.footerLabel;
+    const storageTier = machineStorageTier(machine.storage_tier, machineStorage?.tier);
+    const archiveLabel = storageTier === "evicting"
+      ? storageTierLabel(storageTier)
+      : storageTier === "cold" ? "Archived" : null;
+    const statusLabel = archiveLabel ?? (view.state === "waking" ? "Waking up" : view.footerLabel);
     const tone: MachineTone = view.state === "out_of_credits" ? "warning" : view.footerTone;
 
     rows.push({
@@ -380,6 +380,7 @@ export function projectMeshMachineRows({
       cloudSizeMeta: sizeOption?.specsLabel ? `${view.sizeLabel} · ${sizeOption.specsLabel}` : view.sizeLabel,
       cloudSizeSpecs: sizeOption?.specsLabel ?? view.sizeLabel,
       cloudState: view.state,
+      storageTier,
       statusLabel,
       detailLine: sizeOption?.specsLabel ? `${view.sizeLabel} · ${sizeOption.specsLabel}` : view.sizeLabel,
       tone,

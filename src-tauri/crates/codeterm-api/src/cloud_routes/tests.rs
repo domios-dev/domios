@@ -983,6 +983,7 @@ async fn cloud_usage_route_forwards_custom_bounds_and_full_catalog_fields() {
     let mut burn = std::collections::BTreeMap::new();
     burn.insert("small".into(), 1.0);
     let usage = CloudUsageSummary {
+        warnings: None,
         used: 1.5,
         allowance: 10.0,
         purchased: 25.0,

@@ -1060,3 +1060,70 @@ fn decodes_and_validates_record_warm_bootstrap_phases_wire_contract() {
         json!("warm_console_ready")
     );
 }
+
+#[test]
+fn cloud_hours_warnings_decode_as_optional_account_stamps() {
+    use crate::account_mesh::cloud_provisioning::{RenewLeaseReply, WireCloudCreditWarnings};
+
+    let warnings = json!({
+        "epoch": 3,
+        "pct80_at": 1_795_789_200,
+        "pct95_at": 1_795_789_300,
+        "exhausted_at": 1_795_789_400,
+        "future_field": 1,
+    });
+    let expected = Some(WireCloudCreditWarnings {
+        epoch: 3,
+        pct80_at: Some(1_795_789_200),
+        pct95_at: Some(1_795_789_300),
+        exhausted_at: Some(1_795_789_400),
+    });
+    let mut fixture: Value = serde_json::from_str(FIXTURES_JSON).unwrap();
+    for kind in ["create", "wake"] {
+        fixture["replies"][kind]["warnings"] = warnings.clone();
+        let reply: ProvisionedMachineReply =
+            serde_json::from_value(fixture["replies"][kind].clone()).unwrap();
+        assert_eq!(reply.warnings, expected);
+    }
+    let usage: CloudUsageReply =
+        serde_json::from_value(fixture["replies"]["usage"].clone()).unwrap();
+    assert_eq!(usage.warnings, None);
+    fixture["replies"]["usage"]["warnings"] = warnings.clone();
+    let usage: CloudUsageReply =
+        serde_json::from_value(fixture["replies"]["usage"].clone()).unwrap();
+    assert_eq!(usage.warnings, expected);
+    let renewal: RenewLeaseReply = serde_json::from_value(json!({
+        "machine_id": "worker",
+        "lease_id": "lease",
+        "lease_expires_at": 1_795_789_500,
+        "warnings": warnings,
+    }))
+    .unwrap();
+    assert_eq!(renewal.warnings, expected);
+}
+
+#[test]
+fn cloud_archive_decodes_in_progress_without_cold_metadata() {
+    use crate::account_mesh::cloud_provisioning::{ArchiveMachineReply, WireCloudStorageTier};
+
+    let reply: ArchiveMachineReply = serde_json::from_value(json!({
+        "machine_id": "worker",
+        "state": "archiving",
+        "storage_tier": "evicting",
+        "status": "archiving",
+        "archive_id": "archive",
+        "already_archived": false,
+    }))
+    .unwrap();
+    assert_eq!(reply.state, "archiving");
+    assert_eq!(reply.storage_tier, WireCloudStorageTier::Evicting);
+    assert_eq!(reply.archive_id, "archive");
+    assert_eq!(
+        (
+            reply.cold_since_at,
+            reply.purge_at,
+            reply.archive_generation
+        ),
+        (None, None, None)
+    );
+}

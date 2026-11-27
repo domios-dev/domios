@@ -116,6 +116,9 @@ pub struct CloudPlanAllowances {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloudUsageSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings:
+        Option<codeterm_account::account_mesh::cloud_provisioning::WireCloudCreditWarnings>,
     pub used: f64,
     pub allowance: f64,
     pub purchased: f64,

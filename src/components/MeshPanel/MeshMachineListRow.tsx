@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ExternalLink, Moon, Pencil, Play, SlidersHorizontal } from "lucide-react";
+import { cloudHoursStatus } from "../../lib/cloudMachines/usageModel";
 import { appVersion } from "../../lib/buildStamp";
 import { LOCAL_MACHINE_ID } from "../../lib/machinePlacement";
 import { machineLabel, UNKNOWN_MACHINE } from "../../lib/machineIdentity";
@@ -181,6 +182,11 @@ export function MeshMachineListRow({
     }
   };
 
+  const hoursStatus = row.isCloud && row.cloudMachine
+    ? cloudHoursStatus(row.cloudUsage, row.cloudState === "out_of_credits")
+    : null;
+  const archiving = row.storageTier === "evicting";
+
   const menuItems: DropdownMenuEntry[] = [];
   if (row.canOpen) {
     menuItems.push({
@@ -199,7 +205,7 @@ export function MeshMachineListRow({
         onClick: () => { void cloud.onSleepMachine!(cm.machine_id); },
       });
     }
-    if (row.cloudState === "asleep" && cloud.onWakeMachine) {
+    if (row.cloudState === "asleep" && !archiving && cloud.onWakeMachine) {
       menuItems.push({
         label: "Wake",
         icon: <Play size={13} aria-hidden="true" />,
@@ -207,7 +213,7 @@ export function MeshMachineListRow({
         onClick: () => { void cloud.onWakeMachine!(cm.machine_id); },
       });
     }
-    if (row.cloudState === "out_of_credits") {
+    if (hoursStatus) {
       menuItems.push({
         label: "Top up",
         onClick: () => cloud.onTopUpMachine(cm),
@@ -262,7 +268,7 @@ export function MeshMachineListRow({
   const versionMismatch = Boolean(row.version && row.version !== localVersion);
   const glyphMuted = !(row.tone === "ok" || row.tone === "progress");
   const rowAriaLabel = row.isCloud
-    ? `${row.name}, cloud machine, ${row.statusLabel}`
+    ? `${row.name}, cloud machine, ${row.statusLabel}${hoursStatus ? `, ${hoursStatus}` : ""}`
     : machineLabel(row.name, identity, row.statusLabel);
 
   const toneClass = TONE_CLASS[row.tone];
@@ -292,14 +298,14 @@ export function MeshMachineListRow({
     }
     if (row.isCloud && row.cloudMachine && cloud) {
       const cm = row.cloudMachine;
+      if (hoursStatus) {
+        return { label: "Top up", tone: "accent" as const, hoverOnly: false, onClick: () => cloud.onTopUpMachine(cm) };
+      }
       if ((row.cloudState === "awake" || row.cloudState === "draining") && cloud.onSleepMachine) {
         return { label: "Sleep", tone: "ghost" as const, hoverOnly: false, onClick: () => { void cloud.onSleepMachine!(cm.machine_id); } };
       }
-      if (row.cloudState === "asleep" && cloud.onWakeMachine) {
+      if (row.cloudState === "asleep" && !archiving && cloud.onWakeMachine) {
         return { label: "Wake", tone: "ghost" as const, hoverOnly: false, onClick: () => { void cloud.onWakeMachine!(cm.machine_id); } };
-      }
-      if (row.cloudState === "out_of_credits") {
-        return { label: "Top up", tone: "accent" as const, hoverOnly: false, onClick: () => cloud.onTopUpMachine(cm) };
       }
     }
     if (row.kind === "peer" && row.online && row.canOpen && !narrow) {
@@ -355,6 +361,7 @@ export function MeshMachineListRow({
             </span>
             {row.isThisMachine && <span className="ct-mesh-you">You</span>}
             {lock && <LockBadge view={lock} />}
+            {hoursStatus && <span className="ct-mesh-tag ct-mesh-tone--warning">{hoursStatus}</span>}
           </div>
 
           {narrow ? (

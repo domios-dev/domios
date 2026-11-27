@@ -712,7 +712,10 @@ impl CloudMachineController {
                             idle_since_ms,
                         })
                     }
-                    Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
+                    Err(error @ (CloudError::CreditsExhausted | CloudError::LeaseRequired)) => {
+                        if matches!(error, CloudError::CreditsExhausted) {
+                            peer_control.warn_hours_exhausted(&record).await;
+                        }
                         let _ = self.update_record(machine_id, |rec| {
                             let mut next = rec.clone();
                             next.exhaustion_pending = true;
@@ -916,7 +919,10 @@ impl CloudMachineController {
                     idle_since_ms: record.idle_since_ms,
                 })
             }
-            Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
+            Err(error @ (CloudError::CreditsExhausted | CloudError::LeaseRequired)) => {
+                if matches!(error, CloudError::CreditsExhausted) {
+                    peer_control.warn_hours_exhausted(&record).await;
+                }
                 let _ = self.update_record(machine_id, |rec| {
                     let mut next = rec.clone();
                     next.exhaustion_pending = true;

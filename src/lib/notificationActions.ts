@@ -53,7 +53,13 @@ export function adoptStoredActions(raw: unknown): NotificationAction[] | undefin
 
 export async function runNotificationAction(action: NotificationAction): Promise<void> {
   if (action.type === "url" && action.value) {
-    if (!handleNeighborLink(action.value)) window.open(action.value, "_blank");
+    if (action.value === "domios://cloud/top-up" || action.value === "domios://cloud/machines") {
+      window.dispatchEvent(new CustomEvent("codeterm:open-panel", {
+        detail: { panel: "mesh", meshTab: "inventory", cloudTopUp: action.value === "domios://cloud/top-up" },
+      }));
+    } else if (!handleNeighborLink(action.value)) {
+      window.open(action.value, "_blank");
+    }
   }
 }
 
