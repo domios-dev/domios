@@ -3,18 +3,126 @@ use super::idle_drain::{
     evaluate_idle_and_renewal, IdleDecision, IdleEvalInput, IdlePolicy, IdleSleepAction,
     PeerBusySnapshot,
 };
-use super::ports::{CloudPeerControlPort, CloudProvisioningPort};
-use super::state::{transition, LifecycleEvent};
-use super::types::{CloudError, CloudLifecycleState, CloudReceipt, PendingProvisioningOp};
+use super::ports::{CloudPeerControlPort, CloudProvisioningPort, ProvisionedLease};
+use super::state::{
+    apply_draining_truth, infer_backend_truth_from_usage, plan_draining_recovery, transition,
+    usage_reports_credits_exhausted, BackendDrainingTruth, DrainingReconcileIntent,
+    DrainingRecoveryPlan, LifecycleEvent,
+};
+use super::types::{
+    CloudError, CloudLifecycleState, CloudMachineRecord, CloudReceipt, CloudSleepMode,
+    PendingProvisioningOp, DEFAULT_LEASE_RENEW_LEAD_MS,
+};
+
+pub(super) struct ActiveDrainGuard<'a> {
+    controller: &'a CloudMachineController,
+    machine_id: String,
+}
+
+impl Drop for ActiveDrainGuard<'_> {
+    fn drop(&mut self) {
+        self.controller.clear_active_drain(&self.machine_id);
+    }
+}
+
+struct ProbedDrainingTruth {
+    truth: BackendDrainingTruth,
+    renewed_lease: Option<ProvisionedLease>,
+    sleep_mode: Option<CloudSleepMode>,
+    already_stopped_on_backend: bool,
+}
 
 impl CloudMachineController {
+    pub(super) fn acquire_active_drain(&self, machine_id: &str) -> ActiveDrainGuard<'_> {
+        self.mark_active_drain(machine_id);
+        ActiveDrainGuard {
+            controller: self,
+            machine_id: machine_id.to_owned(),
+        }
+    }
+
+    pub(super) async fn complete_drain_sleep_locked(
+        &self,
+        draining: &CloudMachineRecord,
+        action: IdleSleepAction,
+        provisioning: &dyn CloudProvisioningPort,
+        peer_control: &dyn CloudPeerControlPort,
+    ) -> Result<CloudReceipt, CloudError> {
+        if let Err(error) = peer_control.enter_drain(draining).await {
+            let _ = self.update_record(&draining.machine_id, |rec| {
+                transition(rec, LifecycleEvent::DrainAbortedBusy, self.clock.now_ms())
+            });
+            return Err(error);
+        }
+
+        let request_id =
+            self.begin_pending_request(&draining.machine_id, PendingProvisioningOp::Sleep)?;
+        match provisioning
+            .sleep(draining.backend_machine_id(), &request_id)
+            .await
+        {
+            Ok(sleep_mode) => {
+                let now_ms = self.clock.now_ms();
+                let asleep = self.update_record(&draining.machine_id, |rec| {
+                    let mut next = transition(rec, LifecycleEvent::ProviderStopped, now_ms)?;
+                    next.sleep_mode = sleep_mode;
+                    next.pending_request = None;
+                    Ok(next)
+                })?;
+                let warning = (sleep_mode == CloudSleepMode::DeleteRecreate
+                    || action == IdleSleepAction::DeleteForRecreate)
+                    .then(|| {
+                        "machine uses delete_recreate sleep mode; instance was imaged and deleted to stop billing and will recreate with a new IPv4 on next wake".into()
+                    });
+                Ok(asleep.receipt(now_ms, warning))
+            }
+            Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
+                let _ = peer_control.reopen_drain(draining).await;
+                let now_ms = self.clock.now_ms();
+                let asleep = self.update_record(&draining.machine_id, |rec| {
+                    apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
+                })?;
+                Ok(asleep.receipt(now_ms, None))
+            }
+            Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
+                let _ = peer_control.reopen_drain(draining).await;
+                let now_ms = self.clock.now_ms();
+                let exhausted = self.update_record(&draining.machine_id, |rec| {
+                    apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
+                })?;
+                Ok(exhausted.receipt(now_ms, Some("Out of credits: top up to wake".into())))
+            }
+            Err(error) => {
+                if error.is_uncertain_provisioning_outcome() {
+                    self.mark_pending_unconfirmed(
+                        &draining.machine_id,
+                        PendingProvisioningOp::Sleep,
+                        &error.to_string(),
+                    );
+                } else {
+                    self.clear_pending_request(&draining.machine_id);
+                }
+                let _ = peer_control.reopen_drain(draining).await;
+                let _ = self.update_record(&draining.machine_id, |rec| {
+                    transition(rec, LifecycleEvent::DrainAbortedBusy, self.clock.now_ms())
+                });
+                Err(error)
+            }
+        }
+    }
+
     pub(super) async fn sleep_for_exhaustion(
         &self,
         machine_id: &str,
         provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
     ) -> Result<CloudReceipt, CloudError> {
-        let record = self.find_record(machine_id)?;
+        let initial = self.find_record(machine_id)?;
+        let drain_lock = self.machine_drain_lock(&initial.machine_id);
+        let _drain_lock_guard = drain_lock.lock().await;
+        let _active_drain = self.acquire_active_drain(&initial.machine_id);
+
+        let record = self.find_record(&initial.machine_id)?;
         let _ = peer_control.enter_drain(&record).await;
         let request_id =
             self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
@@ -62,7 +170,12 @@ impl CloudMachineController {
         provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
     ) -> Result<CloudReceipt, CloudError> {
-        let record = self.find_record(machine_id)?;
+        let initial = self.find_record(machine_id)?;
+        let drain_lock = self.machine_drain_lock(&initial.machine_id);
+        let _drain_lock_guard = drain_lock.lock().await;
+        let _active_drain = self.acquire_active_drain(&initial.machine_id);
+
+        let record = self.find_record(&initial.machine_id)?;
         let _ = peer_control.enter_drain(&record).await;
         let request_id =
             self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
@@ -109,6 +222,345 @@ impl CloudMachineController {
                 Err(error)
             }
         }
+    }
+
+    async fn probe_draining_backend_truth(
+        &self,
+        record: &CloudMachineRecord,
+        provisioning: &dyn CloudProvisioningPort,
+    ) -> Result<ProbedDrainingTruth, CloudError> {
+        let mut usage_exhausted = false;
+        if let Ok(summary) = provisioning.usage().await {
+            if let Some(truth) = infer_backend_truth_from_usage(record, &summary) {
+                return Ok(ProbedDrainingTruth {
+                    truth,
+                    renewed_lease: None,
+                    sleep_mode: None,
+                    already_stopped_on_backend: true,
+                });
+            }
+            usage_exhausted = usage_reports_credits_exhausted(&summary);
+        }
+
+        if let Some(lease_id) = record
+            .lease_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            let request_id = mint_request_id();
+            return match provisioning
+                .renew_lease(record.backend_machine_id(), lease_id, &request_id)
+                .await
+            {
+                Ok(renewed) => Ok(ProbedDrainingTruth {
+                    truth: BackendDrainingTruth::Awake,
+                    renewed_lease: Some(renewed),
+                    sleep_mode: None,
+                    already_stopped_on_backend: false,
+                }),
+                Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
+                    let truth = if record.exhaustion_pending || usage_exhausted {
+                        BackendDrainingTruth::OutOfCredits
+                    } else {
+                        BackendDrainingTruth::Asleep
+                    };
+                    Ok(ProbedDrainingTruth {
+                        truth,
+                        renewed_lease: None,
+                        sleep_mode: None,
+                        already_stopped_on_backend: true,
+                    })
+                }
+                Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
+                    Ok(ProbedDrainingTruth {
+                        truth: BackendDrainingTruth::OutOfCredits,
+                        renewed_lease: None,
+                        sleep_mode: None,
+                        already_stopped_on_backend: false,
+                    })
+                }
+                Err(error) => Err(error),
+            };
+        }
+
+        // No persisted lease_id to renew: settle backend via idempotent sleep.
+        let request_id =
+            self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
+        match provisioning
+            .sleep(record.backend_machine_id(), &request_id)
+            .await
+        {
+            Ok(sleep_mode) => {
+                let truth = if record.exhaustion_pending || usage_exhausted {
+                    BackendDrainingTruth::OutOfCredits
+                } else {
+                    BackendDrainingTruth::Asleep
+                };
+                Ok(ProbedDrainingTruth {
+                    truth,
+                    renewed_lease: None,
+                    sleep_mode: Some(sleep_mode),
+                    already_stopped_on_backend: true,
+                })
+            }
+            Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
+                let truth = if record.exhaustion_pending || usage_exhausted {
+                    BackendDrainingTruth::OutOfCredits
+                } else {
+                    BackendDrainingTruth::Asleep
+                };
+                Ok(ProbedDrainingTruth {
+                    truth,
+                    renewed_lease: None,
+                    sleep_mode: None,
+                    already_stopped_on_backend: true,
+                })
+            }
+            Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
+                Ok(ProbedDrainingTruth {
+                    truth: BackendDrainingTruth::OutOfCredits,
+                    renewed_lease: None,
+                    sleep_mode: None,
+                    already_stopped_on_backend: true,
+                })
+            }
+            Err(error) => {
+                if error.is_uncertain_provisioning_outcome() {
+                    self.mark_pending_unconfirmed(
+                        &record.machine_id,
+                        PendingProvisioningOp::Sleep,
+                        &error.to_string(),
+                    );
+                } else {
+                    self.clear_pending_request(&record.machine_id);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub(super) async fn reconcile_draining_locked(
+        &self,
+        machine_id: &str,
+        intent: DrainingReconcileIntent,
+        delete_on_stop_billed: bool,
+        provisioning: &dyn CloudProvisioningPort,
+        peer_control: &dyn CloudPeerControlPort,
+    ) -> Result<CloudMachineRecord, CloudError> {
+        let record = self.find_record(machine_id)?;
+        if record.state != CloudLifecycleState::Draining {
+            return Ok(record);
+        }
+
+        let probed = self
+            .probe_draining_backend_truth(&record, provisioning)
+            .await?;
+        let policy = IdlePolicy {
+            idle_window_ms: 0,
+            lease_renew_lead_ms: DEFAULT_LEASE_RENEW_LEAD_MS,
+            max_awake_without_owner_ms: None,
+            sleep_mode: record.sleep_mode,
+            delete_on_stop_billed,
+        };
+        let plan =
+            plan_draining_recovery(record.state, probed.truth, intent, policy.sleep_action());
+
+        match plan {
+            DrainingRecoveryPlan::NotDraining => Ok(record),
+            DrainingRecoveryPlan::FinishAsleep => {
+                let _ = peer_control.reopen_drain(&record).await;
+                let now_ms = self.clock.now_ms();
+                self.update_record(machine_id, |rec| {
+                    let mut next = apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)?;
+                    if let Some(sleep_mode) = probed.sleep_mode {
+                        next.sleep_mode = sleep_mode;
+                    }
+                    Ok(next)
+                })
+            }
+            DrainingRecoveryPlan::FinishOutOfCredits => {
+                let mut sleep_mode = probed.sleep_mode;
+                if !probed.already_stopped_on_backend {
+                    let request_id =
+                        self.begin_pending_request(machine_id, PendingProvisioningOp::Sleep)?;
+                    match provisioning
+                        .sleep(record.backend_machine_id(), &request_id)
+                        .await
+                    {
+                        Ok(mode) => sleep_mode = Some(mode),
+                        Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {}
+                        Err(error) => {
+                            if error.is_uncertain_provisioning_outcome() {
+                                self.mark_pending_unconfirmed(
+                                    machine_id,
+                                    PendingProvisioningOp::Sleep,
+                                    &error.to_string(),
+                                );
+                            } else {
+                                self.clear_pending_request(machine_id);
+                            }
+                            return Err(error);
+                        }
+                    }
+                }
+                let _ = peer_control.reopen_drain(&record).await;
+                let now_ms = self.clock.now_ms();
+                self.update_record(machine_id, |rec| {
+                    let mut next =
+                        apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)?;
+                    if let Some(mode) = sleep_mode {
+                        next.sleep_mode = mode;
+                    }
+                    Ok(next)
+                })
+            }
+            DrainingRecoveryPlan::ReopenAwake => {
+                let _ = peer_control.reopen_drain(&record).await;
+                let now_ms = self.clock.now_ms();
+                self.update_record(machine_id, |rec| {
+                    let mut next = apply_draining_truth(rec, BackendDrainingTruth::Awake, now_ms)?;
+                    if let Some(renewed) = &probed.renewed_lease {
+                        next.lease_id = Some(renewed.lease_id.clone());
+                        next.lease_expires_at_ms = Some(renewed.lease_expires_at_ms);
+                    }
+                    Ok(next)
+                })
+            }
+            DrainingRecoveryPlan::ResumeSleep => {
+                // Persist any renewed lease before resuming the two-phase drain/sleep.
+                let refreshed = if let Some(renewed) = &probed.renewed_lease {
+                    self.update_record(machine_id, |rec| {
+                        let mut next = rec.clone();
+                        next.lease_id = Some(renewed.lease_id.clone());
+                        next.lease_expires_at_ms = Some(renewed.lease_expires_at_ms);
+                        next.exhaustion_pending = false;
+                        Ok(next)
+                    })?
+                } else {
+                    record
+                };
+
+                if peer_control.enter_drain(&refreshed).await.is_err() {
+                    let _ = peer_control.reopen_drain(&refreshed).await;
+                    let now_ms = self.clock.now_ms();
+                    return self.update_record(machine_id, |rec| {
+                        apply_draining_truth(rec, BackendDrainingTruth::Awake, now_ms)
+                    });
+                }
+
+                let request_id =
+                    self.begin_pending_request(machine_id, PendingProvisioningOp::Sleep)?;
+                match provisioning
+                    .sleep(refreshed.backend_machine_id(), &request_id)
+                    .await
+                {
+                    Ok(sleep_mode) => {
+                        let now_ms = self.clock.now_ms();
+                        self.update_record(machine_id, |rec| {
+                            let mut next =
+                                apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)?;
+                            next.sleep_mode = sleep_mode;
+                            Ok(next)
+                        })
+                    }
+                    Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {
+                        let _ = peer_control.reopen_drain(&refreshed).await;
+                        let now_ms = self.clock.now_ms();
+                        self.update_record(machine_id, |rec| {
+                            apply_draining_truth(rec, BackendDrainingTruth::Asleep, now_ms)
+                        })
+                    }
+                    Err(CloudError::CreditsExhausted | CloudError::LeaseRequired) => {
+                        let _ = peer_control.reopen_drain(&refreshed).await;
+                        let now_ms = self.clock.now_ms();
+                        self.update_record(machine_id, |rec| {
+                            apply_draining_truth(rec, BackendDrainingTruth::OutOfCredits, now_ms)
+                        })
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "[cloud] resume sleep during Draining recovery failed for {machine_id}: {error}; returning to Awake"
+                        );
+                        if error.is_uncertain_provisioning_outcome() {
+                            self.mark_pending_unconfirmed(
+                                machine_id,
+                                PendingProvisioningOp::Sleep,
+                                &error.to_string(),
+                            );
+                        } else {
+                            self.clear_pending_request(machine_id);
+                        }
+                        let _ = peer_control.reopen_drain(&refreshed).await;
+                        let now_ms = self.clock.now_ms();
+                        self.update_record(machine_id, |rec| {
+                            let mut next =
+                                transition(rec, LifecycleEvent::DrainAbortedBusy, now_ms)?;
+                            if next.last_awake_at_ms.is_none() {
+                                next.last_awake_at_ms = Some(now_ms);
+                            }
+                            Ok(next)
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reconciles a single stale `Draining` machine record against backend truth, serialized
+    /// against any in-flight drain or sleep on the same machine.
+    pub async fn reconcile_draining(
+        &self,
+        machine_id: &str,
+        intent: DrainingReconcileIntent,
+        delete_on_stop_billed: bool,
+        provisioning: &dyn CloudProvisioningPort,
+        peer_control: &dyn CloudPeerControlPort,
+    ) -> Result<CloudMachineRecord, CloudError> {
+        let initial = self.find_record(machine_id)?;
+        let drain_lock = self.machine_drain_lock(&initial.machine_id);
+        let _drain_lock_guard = drain_lock.lock().await;
+        let _active_drain = self.acquire_active_drain(&initial.machine_id);
+        self.reconcile_draining_locked(
+            &initial.machine_id,
+            intent,
+            delete_on_stop_billed,
+            provisioning,
+            peer_control,
+        )
+        .await
+    }
+
+    /// Reconciles every persisted `Draining` record that currently has no live drain owner.
+    pub async fn reconcile_draining_machines(
+        &self,
+        delete_on_stop_billed: bool,
+        provisioning: &dyn CloudProvisioningPort,
+        peer_control: &dyn CloudPeerControlPort,
+    ) -> Vec<Result<CloudMachineRecord, CloudError>> {
+        let draining_ids: Vec<String> = self
+            .list_records()
+            .into_iter()
+            .filter(|rec| {
+                rec.state == CloudLifecycleState::Draining
+                    && !self.has_active_drain(&rec.machine_id)
+            })
+            .map(|rec| rec.machine_id)
+            .collect();
+        let mut outcomes = Vec::with_capacity(draining_ids.len());
+        for machine_id in draining_ids {
+            outcomes.push(
+                self.reconcile_draining(
+                    &machine_id,
+                    DrainingReconcileIntent::FinishDrainOrRecover,
+                    delete_on_stop_billed,
+                    provisioning,
+                    peer_control,
+                )
+                .await,
+            );
+        }
+        outcomes
     }
 
     /// Records an owner-originated interaction with a cloud machine, extending any

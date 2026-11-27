@@ -38,8 +38,11 @@ pub use ports::{
     ProvisioningCreateRequest, SystemClock,
 };
 pub use state::{
-    can_issue_enrollment_apply, ownership_labels, reconcile_provider_machines, transition,
-    LifecycleEvent, ObservedProviderMachine, ObservedProviderState, ReconcileOutcome,
+    apply_draining_truth, can_issue_enrollment_apply, infer_backend_truth_from_usage,
+    ownership_labels, plan_draining_recovery, reconcile_provider_machines, transition,
+    usage_reports_credits_exhausted, BackendDrainingTruth, DrainingReconcileIntent,
+    DrainingRecoveryPlan, LifecycleEvent, ObservedProviderMachine, ObservedProviderState,
+    ReconcileOutcome,
 };
 pub use storage::{
     is_local_disk_full, validate_volume_upgrade_gb, CloudColdWakeParams, CloudDeleteMode,
@@ -160,6 +163,8 @@ impl ServiceContext {
     }
 }
 
+#[cfg(test)]
+mod draining_recovery_tests;
 #[cfg(test)]
 mod endpoint_tests;
 #[cfg(test)]

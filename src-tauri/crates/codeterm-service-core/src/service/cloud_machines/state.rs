@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 
+use super::idle_drain::IdleSleepAction;
+use super::storage::CloudStorageTier;
 use super::types::{
     CloudError, CloudLifecycleState, CloudMachineRecord, CloudOwnershipReceipt, CloudRate,
-    CloudSleepMode,
+    CloudSleepMode, CloudUsageSummary,
 };
 
 pub const LABEL_MANAGED: &str = "domios.managed";
@@ -179,6 +181,116 @@ pub fn transition(
 
 pub fn can_issue_enrollment_apply(record: &CloudMachineRecord) -> bool {
     record.state == CloudLifecycleState::Enrolling && !record.apply_unconfirmed
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BackendDrainingTruth {
+    Awake,
+    Asleep,
+    OutOfCredits,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DrainingReconcileIntent {
+    /// Background/supervisor recovery: finish sleeping if the backend is still awake so billing stops.
+    FinishDrainOrRecover,
+    /// Explicit wake request: keep awake if backend is already awake, otherwise settle before waking.
+    PrepareForWake,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DrainingRecoveryPlan {
+    NotDraining,
+    FinishAsleep,
+    FinishOutOfCredits,
+    ResumeSleep,
+    ReopenAwake,
+}
+
+pub fn plan_draining_recovery(
+    state: CloudLifecycleState,
+    truth: BackendDrainingTruth,
+    intent: DrainingReconcileIntent,
+    sleep_action: IdleSleepAction,
+) -> DrainingRecoveryPlan {
+    if state != CloudLifecycleState::Draining {
+        return DrainingRecoveryPlan::NotDraining;
+    }
+    match truth {
+        BackendDrainingTruth::Asleep => DrainingRecoveryPlan::FinishAsleep,
+        BackendDrainingTruth::OutOfCredits => DrainingRecoveryPlan::FinishOutOfCredits,
+        BackendDrainingTruth::Awake => match intent {
+            DrainingReconcileIntent::PrepareForWake => DrainingRecoveryPlan::ReopenAwake,
+            DrainingReconcileIntent::FinishDrainOrRecover => match sleep_action {
+                IdleSleepAction::KeepUnderLease => DrainingRecoveryPlan::ReopenAwake,
+                IdleSleepAction::StopProvider | IdleSleepAction::DeleteForRecreate => {
+                    DrainingRecoveryPlan::ResumeSleep
+                }
+            },
+        },
+    }
+}
+
+pub fn apply_draining_truth(
+    record: &CloudMachineRecord,
+    truth: BackendDrainingTruth,
+    now_ms: u64,
+) -> Result<CloudMachineRecord, CloudError> {
+    if record.state != CloudLifecycleState::Draining {
+        return Err(CloudError::InvalidTransition {
+            from: record.state,
+            event: "draining_reconcile",
+        });
+    }
+    match truth {
+        BackendDrainingTruth::Asleep => {
+            let mut next = transition(record, LifecycleEvent::ProviderStopped, now_ms)?;
+            next.pending_request = None;
+            Ok(next)
+        }
+        BackendDrainingTruth::OutOfCredits => {
+            let mut next = transition(record, LifecycleEvent::CreditsExhausted, now_ms)?;
+            next.pending_request = None;
+            Ok(next)
+        }
+        BackendDrainingTruth::Awake => {
+            let mut next = transition(record, LifecycleEvent::DrainAbortedBusy, now_ms)?;
+            if next.last_awake_at_ms.is_none() {
+                next.last_awake_at_ms = Some(now_ms);
+            }
+            next.exhaustion_pending = false;
+            next.pending_request = None;
+            next.last_error = None;
+            Ok(next)
+        }
+    }
+}
+
+pub fn usage_reports_credits_exhausted(usage: &CloudUsageSummary) -> bool {
+    let tracked =
+        usage.cap > 0.0 || usage.allowance > 0.0 || usage.purchased > 0.0 || usage.used > 0.0;
+    tracked && usage.remaining <= 0.0
+}
+
+pub fn infer_backend_truth_from_usage(
+    record: &CloudMachineRecord,
+    usage: &CloudUsageSummary,
+) -> Option<BackendDrainingTruth> {
+    let storage = usage.storage.as_ref()?;
+    let backend_id = record.backend_machine_id();
+    let entry = storage
+        .machines
+        .iter()
+        .find(|m| m.machine_id == backend_id || m.machine_id == record.machine_id)?;
+    let stopped = entry.stopped_at.is_some() || !matches!(entry.tier, CloudStorageTier::Hot);
+    if !stopped {
+        return None;
+    }
+    if record.exhaustion_pending || usage_reports_credits_exhausted(usage) {
+        Some(BackendDrainingTruth::OutOfCredits)
+    } else {
+        Some(BackendDrainingTruth::Asleep)
+    }
 }
 
 pub fn ownership_labels(
