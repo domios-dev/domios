@@ -21,7 +21,7 @@ describe("Browser pointer hit testing", () => {
       const target = window.document.getElementById("target")!;
       const cover = window.document.getElementById("cover")!;
       const label = window.document.getElementById("label")!;
-      let top: Element = cover;
+      let top = cover;
       window.document.elementFromPoint = (x, y) => {
         assert.deepEqual([x, y], [120, 60]);
         return top;

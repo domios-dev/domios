@@ -653,7 +653,7 @@ fn decodes_and_validates_cloud_commerce_checkout_and_usage_fixtures_and_refusals
             "currency": "USD",
             "unexpected": true
         }))
-        .is_err()
+        .is_ok()
     );
 
     let mut bad_url = checkout_reply.clone();
@@ -740,7 +740,7 @@ fn decodes_and_validates_cloud_commerce_checkout_and_usage_fixtures_and_refusals
     assert_eq!(minimal_usage.purchased_expiry_days, None);
     assert_eq!(minimal_usage.allowance_hours, None);
 
-    // Unknown fields on usage or nested catalog structs fail deserialization.
+    // Newer servers may add fields; usage and nested catalog replies tolerate them.
     assert!(serde_json::from_value::<CloudUsageReply>(json!({
         "used": 0.0,
         "allowance": 10.0,
@@ -750,7 +750,7 @@ fn decodes_and_validates_cloud_commerce_checkout_and_usage_fixtures_and_refusals
         "burn_per_size": {},
         "extra": true
     }))
-    .is_err());
+    .is_ok());
     assert!(serde_json::from_value::<WireCloudUsageSize>(json!({
         "id": "small",
         "cpu": 2,
@@ -759,7 +759,7 @@ fn decodes_and_validates_cloud_commerce_checkout_and_usage_fixtures_and_refusals
         "credits_per_hour": 1,
         "extra": 1
     }))
-    .is_err());
+    .is_ok());
 
     // Spend cap exceeded with Tally's 4 extra cent fields decodes strictly and maps cleanly.
     let cap_details = json!({

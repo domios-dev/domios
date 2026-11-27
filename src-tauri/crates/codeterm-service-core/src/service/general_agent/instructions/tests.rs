@@ -34,7 +34,9 @@ fn general_agent_memory_management_fragment_is_composed_once() {
     let fragment = crate::prompts::MEM_MANAGEMENT.trim();
     assert!(!fragment.is_empty());
     assert_eq!(rendered.matches(fragment).count(), 1);
-    let cli_fragment = crate::prompts::CODETERM_CLI.trim();
+    // The General Agent carries the shared CLI reference minus its memory section.
+    let cli_reference = super::cli_without_memory_section();
+    let cli_fragment = cli_reference.trim();
     assert!(!cli_fragment.is_empty());
     assert_eq!(rendered.matches(cli_fragment).count(), 1);
     assert_eq!(rendered.matches("OPAQUE_PROVIDER").count(), 1);

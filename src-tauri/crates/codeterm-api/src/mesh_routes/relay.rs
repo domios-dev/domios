@@ -403,17 +403,7 @@ pub async fn mesh_relay_to_peer(
             req.body,
         )
         .await?;
-        if let Some((provider, role)) = analytics::remote_spawn_analytics_from_relay(
-            &req.method,
-            &req.path,
-            &analytics_body,
-            &resp,
-            &state.svc.configuration().general_agent.agent_provider,
-        ) {
-            state
-                .svc
-                .record_product_agent_spawned_with(Some(&provider), role.as_deref());
-        }
+        analytics::record_remote_spawn(&state, &req.method, &req.path, &analytics_body, &resp);
         return Ok(answered_by(resp));
     }
     let transport =
@@ -572,17 +562,7 @@ pub async fn mesh_relay_to_peer(
         }
     }
 
-    if let Some((provider, role)) = analytics::remote_spawn_analytics_from_relay(
-        &cmd.method,
-        &cmd.path,
-        &cmd.body,
-        &resp,
-        &state.svc.configuration().general_agent.agent_provider,
-    ) {
-        state
-            .svc
-            .record_product_agent_spawned_with(Some(&provider), role.as_deref());
-    }
+    analytics::record_remote_spawn(&state, &cmd.method, &cmd.path, &cmd.body, &resp);
 
     Ok(answered_by(resp))
 }
@@ -1195,28 +1175,21 @@ pub use remote_notification::{
 };
 
 #[cfg(test)]
-mod peer_resolution_tests;
-
-#[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-mod delivery_error_tests;
-
-#[cfg(test)]
 mod command_round_trip_tests;
-
-#[cfg(test)]
-mod owner_gate_tests;
-
-#[cfg(test)]
-#[path = "relay/sync_access_tests.rs"]
-mod sync_access_tests;
-
 #[cfg(test)]
 #[path = "relay/connection_reuse_tests.rs"]
 mod connection_reuse_tests;
-
+#[cfg(test)]
+mod delivery_error_tests;
 #[cfg(test)]
 #[path = "relay/origin_tests.rs"]
 mod origin_tests;
+#[cfg(test)]
+mod owner_gate_tests;
+#[cfg(test)]
+mod peer_resolution_tests;
+#[cfg(test)]
+#[path = "relay/sync_access_tests.rs"]
+mod sync_access_tests;
+#[cfg(test)]
+mod tests;

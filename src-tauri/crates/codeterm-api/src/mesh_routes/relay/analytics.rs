@@ -1,4 +1,23 @@
+use crate::routes::AppState;
 use codeterm_service_core::mesh::types::RelayResponse;
+
+/// Records `agent_spawned` for a successfully relayed remote spawn.
+pub(super) fn record_remote_spawn(
+    state: &AppState,
+    method: &str,
+    path: &str,
+    body: &serde_json::Value,
+    resp: &RelayResponse,
+) {
+    let default_provider = &state.svc.configuration().general_agent.agent_provider;
+    if let Some((provider, role)) =
+        remote_spawn_analytics_from_relay(method, path, body, resp, default_provider)
+    {
+        state
+            .svc
+            .record_product_agent_spawned_with(Some(&provider), role.as_deref());
+    }
+}
 
 /// Extract `(provider, role)` for `agent_spawned` analytics when a local daemon
 /// successfully relays an agent or fresh-general spawn to a remote peer.
@@ -68,7 +87,7 @@ mod tests {
     fn extracts_provider_and_role_from_relayed_agent_spawn() {
         let resp = ok_resp(serde_json::json!({
             "tab_id": "tab-1",
-            "agent": "claude",
+            "agent": "OPAQUE_PROVIDER_A",
             "role": "Worker",
             "role_profile": "worker"
         }));
@@ -78,9 +97,9 @@ mod tests {
                 "/api/agents/spawn",
                 &serde_json::json!({}),
                 &resp,
-                "codex"
+                "OPAQUE_PROVIDER_B"
             ),
-            Some(("claude".into(), Some("worker".into())))
+            Some(("OPAQUE_PROVIDER_A".into(), Some("worker".into())))
         );
     }
 
@@ -93,9 +112,9 @@ mod tests {
                 "/api/agents/general/sessions",
                 &serde_json::json!({ "role": "general_agent", "intent": "fresh_general" }),
                 &resp,
-                "codex"
+                "OPAQUE_PROVIDER_B"
             ),
-            Some(("codex".into(), Some("general_agent".into())))
+            Some(("OPAQUE_PROVIDER_B".into(), Some("general_agent".into())))
         );
     }
 
@@ -111,9 +130,9 @@ mod tests {
             remote_spawn_analytics_from_relay(
                 "POST",
                 "/api/agents/spawn",
-                &serde_json::json!({ "agent": "codex" }),
+                &serde_json::json!({ "agent": "OPAQUE_PROVIDER_B" }),
                 &failed,
-                "codex"
+                "OPAQUE_PROVIDER_B"
             ),
             None
         );
@@ -123,7 +142,7 @@ mod tests {
                 "/api/agents/spawn",
                 &serde_json::json!({}),
                 &ok_resp(serde_json::json!({})),
-                "codex"
+                "OPAQUE_PROVIDER_B"
             ),
             None
         );

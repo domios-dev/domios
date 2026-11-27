@@ -94,7 +94,7 @@ fn client_events_allow_only_client_owned_events() {
         Event::AnalyticsOptedIn {},
         Event::PlanCreated {},
         Event::AgentSpawned {
-            provider_id: ProviderId::Codex,
+            provider_id: ProviderId::Other,
             role: Role::General,
         },
         Event::CloudMachineCreated {},

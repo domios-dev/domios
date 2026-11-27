@@ -24,23 +24,23 @@ fn product_agent_spawned_has_only_closed_provider_and_role() {
         })
     );
     assert_eq!(
-        agent_spawned(Some("claude"), Some("general_agent")),
+        agent_spawned(Some("OPAQUE_PROVIDER"), Some("general_agent")),
         Some(Event::AgentSpawned {
-            provider_id: ProviderId::Claude,
+            provider_id: ProviderId::Other,
             role: Role::General
         })
     );
     assert_eq!(
-        agent_spawned(Some("claude"), Some("general")),
+        agent_spawned(Some("OPAQUE_PROVIDER"), Some("general")),
         Some(Event::AgentSpawned {
-            provider_id: ProviderId::Claude,
+            provider_id: ProviderId::Other,
             role: Role::General
         })
     );
     assert_eq!(
-        agent_spawned(Some("codex"), None),
+        agent_spawned(Some("OPAQUE_PROVIDER"), None),
         Some(Event::AgentSpawned {
-            provider_id: ProviderId::Codex,
+            provider_id: ProviderId::Other,
             role: Role::None
         })
     );
