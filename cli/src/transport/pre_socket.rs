@@ -28,6 +28,10 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
             cmd::account::handle(json, action);
             None
         }
+        Commands::Secret { action } => {
+            cmd::secret::handle(json, action);
+            None
+        }
         Commands::Analytics { action } => {
             cmd::analytics::handle(json, action);
             None

@@ -20,7 +20,10 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   const snapshotAuthentication = snapshot?.authentication;
   const snapshotAuth = snapshot?.auth;
   const snapshotLogin = snapshot?.login;
+  const snapshotLoginBinding = snapshot?.loginBinding;
   const snapshotLoginCodeInput = snapshot?.loginCodeInput;
+  const snapshotCodeSubmission = snapshot?.codeSubmission;
+  const snapshotPreferredLoginMethod = snapshot?.preferredLoginMethod;
   const snapshotLoginChoices = snapshot?.loginChoices;
   const snapshotLoginMethods = snapshot?.loginMethods;
   const snapshotLoginProviderName = snapshot?.loginProviderName;
@@ -44,7 +47,7 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   useEffect(() => {
     revision.current++;
     const next = snapshotState !== undefined && snapshotEpoch !== undefined
-      ? { controls:snapshotControls, authentication:snapshotAuthentication, state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason, failureCode: snapshotFailureCode, auth:snapshotAuth, login:snapshotLogin, loginCodeInput:snapshotLoginCodeInput, loginChoices:snapshotLoginChoices, loginMethods:snapshotLoginMethods, loginProviderName:snapshotLoginProviderName, loginTerminal:snapshotLoginTerminal, apiKeyMethods:snapshotApiKeyMethods,
+      ? { controls:snapshotControls, authentication:snapshotAuthentication, state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason, failureCode: snapshotFailureCode, auth:snapshotAuth, login:snapshotLogin, loginBinding:snapshotLoginBinding, loginCodeInput:snapshotLoginCodeInput, codeSubmission:snapshotCodeSubmission, preferredLoginMethod:snapshotPreferredLoginMethod, loginChoices:snapshotLoginChoices, loginMethods:snapshotLoginMethods, loginProviderName:snapshotLoginProviderName, loginTerminal:snapshotLoginTerminal, apiKeyMethods:snapshotApiKeyMethods,
         active_turn_started_at_ms: snapshotStartedAt, last_turn_duration_ms: snapshotDuration,
         history: snapshotHistory, historyPages: snapshotHistoryPages, historyError: snapshotHistoryError } : null;
     const state = runtimeStateFromSnapshot(current.current.key === key ? current.current.state : null, next);
@@ -52,7 +55,7 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
     if (current.current.key === key && current.current.state === state && current.current.questions === snapshotQuestions) return;
     current.current = { key, state, questions: snapshotQuestions };
     setRecord(current.current);
-  }, [key, snapshotControls, snapshotAuthentication, snapshotState, snapshotEpoch, snapshotReason, snapshotFailureCode, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotHistoryError, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginCodeInput, snapshotLoginChoices, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal, snapshotApiKeyMethods, tabId]);
+  }, [key, snapshotControls, snapshotAuthentication, snapshotState, snapshotEpoch, snapshotReason, snapshotFailureCode, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotHistoryError, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginBinding, snapshotLoginCodeInput, snapshotCodeSubmission, snapshotPreferredLoginMethod, snapshotLoginChoices, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal, snapshotApiKeyMethods, tabId]);
 
   useEffect(() => {
     generation.current++;

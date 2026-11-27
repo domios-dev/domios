@@ -720,6 +720,7 @@ fn main_impl() {
         Commands::Plugin { .. } => unreachable!(),
 
         Commands::Account { .. } => unreachable!(),
+        Commands::Secret { .. } => unreachable!(),
         Commands::Analytics { .. } => unreachable!(),
         Commands::Supporter { .. } => unreachable!(),
 

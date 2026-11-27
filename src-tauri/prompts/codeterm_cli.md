@@ -45,7 +45,7 @@ Programmatic sends to agents are framed, including anonymous CLI sends. Host job
 - Version/quota questions: `domios identify` (not `--version`, not curl) and `domios usage latest` (never `ccusage` or parsing `~/.claude`).
 - System sleep: `domios keepawake ...` — never `caffeinate`/`powercfg`/`systemd-inhibit`.
 - AGENT-TO-AGENT TRAFFIC IS ENGLISH (task bodies, reports, cron tasks, mesh messages); only user-facing channels carry the user's language.
-- SECRETS NEVER GO TO MEM — `domios mem secret` / `domios docs SECRETS`.
+- SECRETS NEVER GO TO MEM OR CHAT — never ask the owner to paste a secret into chat or a terminal; create a masked request (`domios secret request --target vault:<NAME> --kind token --reason "..."`, check with `domios secret status <id>`) and reference stored secrets by name (`domios docs SECRETS`).
 - Message and pad file options accept `-` for UTF-8 stdin: `send --from-file -`, `--from-pad -`, `plan task remote-report --message-file -`.
 
 ## Capability map — where to look when the task mentions…
@@ -109,7 +109,7 @@ Plan-locked Blueprint owners hold their automations with `plan_limit_locked`. Ap
 
 Choose 1-3 catalogue tags from `domios blueprint tags` and pass each with `--tag` when keeping any solution. Typed callable Blueprints are saved with `domios blueprint keep --file callable.yaml --when "Reuse this typed helper" --tag data-transform`; inputs stay their signature and no scheduler job is created. Reuse the returned `mem:` identity through `call.ref`. `domios blueprint show mem:<id> --json` exposes the pinned callee graph; show on a caller also includes bounded nested results and stops. Call admission uses the host checker and caller Team/workspace. The CLI freezes local import bytes before sending them; source labels never authorize daemon file reads.
 
-Remote provider sign-in: `domios agent login --tab ID --device` starts a declared code flow; `domios agent login --tab ID --show --mesh PEER --json` reads its link, code and expiry for the owner. An ACP tab lists its declared methods in `--show`; `domios agent login --tab ID --method METHOD_ID` authenticates with one, adding `--api-key-stdin` for a key-taking method. Never save or log login values. The sign-in card can send one phone notification. See `domios docs API-CLI`.
+Remote provider sign-in: `domios agent login --tab ID [--device|--method ID] --mesh PEER` starts a declared sign-in flow; `domios agent login --tab ID --show --mesh PEER --json` reads its status, loginId, link, choices, code and expiry for the owner. An ACP or CLI-login tab lists its declared methods/choices in `--show`; `domios agent login --tab ID --method METHOD_ID` selects one, adding `--api-key-stdin` only locally for a key-taking method. Single-use PKCE authorization codes are submitted only by the owner in the Domios UI sign-in card (never via CLI, chat, or terminal keys). Never save or log login values. The sign-in card can send one phone notification. See `domios docs API-CLI`.
 
 Memory backend switching is explicit: stop the daemon, run `domios mem backend migrate --to postgres` or `--to sqlite`, verify the 21-table summary, then set `memory.backend` to the target before restarting. The source is retained. Postgres needs server support and the secret `domios.mem:postgres_url`; see `domios docs MEMORY`.
 
