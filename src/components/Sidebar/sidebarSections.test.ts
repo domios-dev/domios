@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces, sidebarWorkspaceScrollTop } from "./sidebarSections";
+import {
+  hydrateProtectedExpanded,
+  initialSidebarExpanded,
+  minimalScrollDeltaForItem,
+  minimalScrollTopForItem,
+  partitionSidebarWorkspaces,
+} from "./sidebarSections";
 
 const workspace = (id: string, protectedWorkspace = false) => ({ id, protected: protectedWorkspace }) as never;
 const sections = partitionSidebarWorkspaces([workspace("general", true), workspace("codeterm"), workspace("binaura")]);
@@ -12,14 +18,14 @@ assert(hydrated.expanded.has("general"), "hydrated protected General expands aft
 const userCollapsed = new Set(hydrated.expanded);
 userCollapsed.delete("general");
 assert(!hydrateProtectedExpanded(userCollapsed, hydrated.hydratedProtectedIds, [workspace("general", true), workspace("codeterm")]).expanded.has("general"), "workspace refresh preserves a user-collapsed General");
+
+const viewport = { top: 100, bottom: 500 };
+assert.equal(minimalScrollDeltaForItem(viewport, { top: 200, bottom: 240 }), 0, "visible item requires no scroll");
+assert.equal(minimalScrollTopForItem(280, viewport, { top: 200, bottom: 240 }), 280, "visible item preserves scrollTop");
+assert.equal(minimalScrollTopForItem(280, viewport, { top: 40, bottom: 80 }), 220, "item above viewport scrolls minimally up instead of jumping to top");
+assert.equal(minimalScrollTopForItem(280, viewport, { top: 85, bottom: 125 }), 265, "partially clipped top item scrolls minimally up");
+assert.equal(minimalScrollTopForItem(120, viewport, { top: 530, bottom: 570 }), 190, "item below viewport scrolls minimally down");
+assert.equal(minimalScrollTopForItem(30, viewport, { top: 40, bottom: 80 }), 0, "minimal scroll clamps at 0");
+assert.equal(minimalScrollTopForItem(280, { top: 0, bottom: 0 }, { top: 20, bottom: 60 }), 280, "unmeasured viewport never changes scrollTop");
+assert.equal(minimalScrollTopForItem(280, viewport, { top: 0, bottom: 0 }), 280, "unmeasured item never changes scrollTop");
 console.log("sidebarSections.test.ts: ok");
-
-
-const scope = (id: string) => ({ activeWorkspaceId: id, selectedWorkspaceId: id });
-for (const retained of [700, 368, 297, 534, 132, 225]) {
-  assert.equal(sidebarWorkspaceScrollTop(scope("acp1191"), scope("Quest"), retained), 0,
-    "a workspace switch must expose General and the workspace switcher instead of retaining a clipped offset");
-}
-assert.equal(sidebarWorkspaceScrollTop(scope("Quest"), scope("Quest"), 225), 225, "tab changes and ordinary rerenders keep a deliberate scroll");
-assert.equal(sidebarWorkspaceScrollTop(scope("Quest"), { activeWorkspaceId: "general", selectedWorkspaceId: "Quest" }, 225), 0, "opening General must expose its header");
-assert.equal(sidebarWorkspaceScrollTop(scope("Quest"), { activeWorkspaceId: "Quest", selectedWorkspaceId: "gem1191" }, 225), 0, "changing only the workspace detail must expose the switcher");
