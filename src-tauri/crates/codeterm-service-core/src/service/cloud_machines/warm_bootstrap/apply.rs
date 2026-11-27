@@ -117,7 +117,8 @@ pub struct WarmBootstrapApplyEnv<'a> {
     pub providers: Vec<ProviderSignInCardStatus>,
 }
 
-/// Returns true only when the target has no prior non-bundled owner memory or local identity file.
+/// Returns true only when the target has no owner- or neighbor-authored memory and no local identity file.
+/// System-authored items (bundled seed, team templates, plugin verb skills) are provisioned on every fresh daemon.
 pub fn is_target_mem_empty(mem: &MemManager, general_dir: &Path) -> Result<bool, String> {
     if let Ok(identity_file) = std::fs::read_to_string(general_dir.join("identity.md")) {
         if !identity_file.trim().is_empty() {
@@ -134,7 +135,7 @@ pub fn is_target_mem_empty(mem: &MemManager, general_dir: &Path) -> Result<bool,
                 .source
                 .as_deref()
                 .is_some_and(|s| s.starts_with("bundled:"));
-            if !bundled {
+            if !bundled && item.author.kind.as_str() != "system" {
                 return Ok(false);
             }
         }
