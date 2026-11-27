@@ -17242,6 +17242,203 @@
       ]
     },
     {
+      "name": "secret",
+      "about": "Request owner-submitted masked secrets for local or Full-access mesh machines",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "cancel",
+          "about": "Cancel a pending secure input request",
+          "aliases": [],
+          "args": [
+            {
+              "name": "reason",
+              "positional": false,
+              "required": false,
+              "value_name": "REASON",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional cancellation reason",
+              "aliases": []
+            },
+            {
+              "name": "request_id",
+              "positional": true,
+              "required": true,
+              "value_name": "REQUEST_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Request id returned by `domios secret request`",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "request",
+          "about": "Create a masked owner input request for a closed consumer (never accepts a value)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "epoch",
+              "positional": false,
+              "required": false,
+              "value_name": "EPOCH",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional runtime epoch binding (provider-login:<tab>)",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "required": true,
+              "value_name": "KIND",
+              "possible_values": [
+                "code",
+                "token",
+                "password",
+                "key"
+              ],
+              "default": null,
+              "help": "Kind of secret requested from the owner",
+              "aliases": []
+            },
+            {
+              "name": "login-id",
+              "positional": false,
+              "required": false,
+              "value_name": "LOGIN_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional active login flow id (provider-login:<tab>)",
+              "aliases": []
+            },
+            {
+              "name": "machine",
+              "positional": false,
+              "required": false,
+              "value_name": "MACHINE",
+              "possible_values": [],
+              "default": null,
+              "help": "Target machine name or installation id (defaults to local machine)",
+              "aliases": []
+            },
+            {
+              "name": "method",
+              "positional": false,
+              "required": false,
+              "value_name": "METHOD",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional declared login method id (provider-login or provider-key)",
+              "aliases": []
+            },
+            {
+              "name": "nonce",
+              "positional": false,
+              "required": false,
+              "value_name": "NONCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional runtime binding nonce (provider-login:<tab>)",
+              "aliases": []
+            },
+            {
+              "name": "overwrite",
+              "positional": false,
+              "required": false,
+              "value_name": "OVERWRITE",
+              "possible_values": [],
+              "default": null,
+              "help": "Allow overwriting an existing vault slot (vault:<NAME> only)",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional provider id binding (provider-login:<tab>)",
+              "aliases": []
+            },
+            {
+              "name": "reason",
+              "positional": false,
+              "required": true,
+              "value_name": "REASON",
+              "possible_values": [],
+              "default": null,
+              "help": "Short human-readable reason shown on the owner's masked card",
+              "aliases": []
+            },
+            {
+              "name": "session-id",
+              "positional": false,
+              "required": false,
+              "value_name": "SESSION_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional agent session id binding (provider-login:<tab>)",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Optional target tab id (provider-key:<provider>)",
+              "aliases": []
+            },
+            {
+              "name": "target",
+              "positional": false,
+              "required": true,
+              "value_name": "TARGET",
+              "possible_values": [],
+              "default": null,
+              "help": "Explicit consumer: vault:<NAME>, provider-login:<tab>, or provider-key:<provider>",
+              "aliases": []
+            },
+            {
+              "name": "ttl-secs",
+              "positional": false,
+              "required": false,
+              "value_name": "TTL_SECS",
+              "possible_values": [],
+              "default": null,
+              "help": "Request lifetime in seconds (30..=900, default 300)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Inspect typed status of a secure input request (never returns the secret value)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "request_id",
+              "positional": true,
+              "required": true,
+              "value_name": "REQUEST_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Request id returned by `domios secret request`",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "send",
       "about": "Send text to a tab (default: current tab)",
       "aliases": [],

@@ -3737,6 +3737,41 @@ Preview a shipped manager's instructions or ask the owner to approve their sync
 - `<role>`
 - `--team`
 
+#### `domios secret`
+
+Request owner-submitted masked secrets for local or Full-access mesh machines
+
+#### `domios secret cancel`
+
+Cancel a pending secure input request
+
+- `--reason` — Optional cancellation reason
+- `<request_id>` — Request id returned by `domios secret request`
+
+#### `domios secret request`
+
+Create a masked owner input request for a closed consumer (never accepts a value)
+
+- `--epoch` — Optional runtime epoch binding (provider-login:<tab>)
+- `--kind` — Kind of secret requested from the owner
+- `--login-id` — Optional active login flow id (provider-login:<tab>)
+- `--machine` — Target machine name or installation id (defaults to local machine)
+- `--method` — Optional declared login method id (provider-login or provider-key)
+- `--nonce` — Optional runtime binding nonce (provider-login:<tab>)
+- `--overwrite` — Allow overwriting an existing vault slot (vault:<NAME> only)
+- `--provider` — Optional provider id binding (provider-login:<tab>)
+- `--reason` — Short human-readable reason shown on the owner's masked card
+- `--session-id` — Optional agent session id binding (provider-login:<tab>)
+- `--tab` — Optional target tab id (provider-key:<provider>)
+- `--target` — Explicit consumer: vault:<NAME>, provider-login:<tab>, or provider-key:<provider>
+- `--ttl-secs` — Request lifetime in seconds (30..=900, default 300)
+
+#### `domios secret status`
+
+Inspect typed status of a secure input request (never returns the secret value)
+
+- `<request_id>` — Request id returned by `domios secret request`
+
 #### `domios send`
 
 Send text to a tab (default: current tab)
