@@ -1,5 +1,6 @@
 pub mod controller;
 mod controller_idle;
+mod controller_reconcile;
 mod controller_storage;
 mod controller_warm;
 mod enrichment;
@@ -8,6 +9,7 @@ pub mod idle_drain;
 pub mod idle_driver;
 pub mod placement;
 pub mod ports;
+pub mod reconcile;
 pub mod state;
 pub mod storage;
 pub mod store;
@@ -19,6 +21,7 @@ use std::sync::Arc;
 use crate::service::{background_work, ServiceContext};
 
 pub use controller::{mint_request_id, CloudMachineController, CreateCloudMachineParams};
+pub use controller_reconcile::{LocalReconcileReport, LocalRecordReconcileOutcome};
 pub use held_sends::{
     CloudWakeQueue, FlushWriteOutcome, HeldCloudSend, HeldCloudSendState, SingleFlightWakes,
     DEFAULT_WAKE_HOLD_DEADLINE_MS, RELEASE_CONDITION_PEER_READY,
@@ -37,12 +40,18 @@ pub use ports::{
     EnrollmentBinding, EnrollmentOutcome, ProvisionedLease, ProvisionedMachine,
     ProvisioningCreateRequest, SystemClock,
 };
+pub use reconcile::{
+    apply_local_record_adoption, apply_local_record_delete, backend_machines_from_usage,
+    plan_local_record_reconcile, BackendMachineEntry, BackendMatchReason, LocalReconcilePolicy,
+    LocalRecordReconcileAction, LocalRecordReconcileIntent, DEFAULT_CREATE_MATCH_WINDOW_MS,
+    DEFAULT_UNCERTAIN_CREATE_GRACE_MS,
+};
 pub use state::{
     apply_draining_truth, can_issue_enrollment_apply, infer_backend_truth_from_usage,
     ownership_labels, plan_draining_recovery, reconcile_provider_machines, transition,
     usage_reports_credits_exhausted, BackendDrainingTruth, DrainingReconcileIntent,
     DrainingRecoveryPlan, LifecycleEvent, ObservedProviderMachine, ObservedProviderState,
-    ReconcileOutcome,
+    ReconcileOutcome, LABEL_CREATE_REQUEST_ID,
 };
 pub use storage::{
     is_local_disk_full, validate_volume_upgrade_gb, CloudColdWakeParams, CloudDeleteMode,
@@ -169,6 +178,8 @@ mod draining_recovery_tests;
 mod endpoint_tests;
 #[cfg(test)]
 mod idle_driver_tests;
+#[cfg(test)]
+mod reconcile_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -1,6 +1,7 @@
 use zeroize::Zeroizing;
 
 use super::controller::{mint_request_id, CloudMachineController};
+use super::controller_reconcile::require_provider_machine_id;
 use super::ports::{
     CloudEnrollmentPort, CloudPeerControlPort, CloudProvisioningPort, EnrollmentOutcome,
 };
@@ -38,6 +39,7 @@ impl CloudMachineController {
                     .get(AUX_KEY_RECOVERABLE_ARCHIVE_ID)
                     .cloned()
             });
+        let provider_machine_id = require_provider_machine_id(&record)?.to_owned();
         let binding = enrollment.prepare_binding().await?;
         let request_id =
             self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Wake)?;
@@ -47,7 +49,7 @@ impl CloudMachineController {
             archive_id: resolved_archive_id,
         };
         let provisioned = provisioning
-            .wake_cold(record.backend_machine_id(), &request_id, &cold_params)
+            .wake_cold(&provider_machine_id, &request_id, &cold_params)
             .await;
         drop(cold_params);
         let provisioned = match provisioned {
@@ -183,9 +185,10 @@ impl CloudMachineController {
                 ),
             });
         }
+        let provider_machine_id = require_provider_machine_id(&record)?.to_owned();
         let request_id = mint_request_id();
         let reply = provisioning
-            .resize_volume(record.backend_machine_id(), new_size_gb, &request_id)
+            .resize_volume(&provider_machine_id, new_size_gb, &request_id)
             .await?;
         let _ = self.update_record(&record.machine_id, |rec| {
             let mut next = rec.clone();

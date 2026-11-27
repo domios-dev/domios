@@ -1,4 +1,5 @@
 use super::controller::{mint_request_id, CloudMachineController};
+use super::controller_reconcile::require_provider_machine_id;
 use super::idle_drain::{
     evaluate_idle_and_renewal, IdleDecision, IdleEvalInput, IdlePolicy, IdleSleepAction,
     PeerBusySnapshot,
@@ -48,6 +49,7 @@ impl CloudMachineController {
         provisioning: &dyn CloudProvisioningPort,
         peer_control: &dyn CloudPeerControlPort,
     ) -> Result<CloudReceipt, CloudError> {
+        let provider_id = require_provider_machine_id(draining)?.to_owned();
         if let Err(error) = peer_control.enter_drain(draining).await {
             let _ = self.update_record(&draining.machine_id, |rec| {
                 transition(rec, LifecycleEvent::DrainAbortedBusy, self.clock.now_ms())
@@ -57,10 +59,7 @@ impl CloudMachineController {
 
         let request_id =
             self.begin_pending_request(&draining.machine_id, PendingProvisioningOp::Sleep)?;
-        match provisioning
-            .sleep(draining.backend_machine_id(), &request_id)
-            .await
-        {
+        match provisioning.sleep(&provider_id, &request_id).await {
             Ok(sleep_mode) => {
                 let now_ms = self.clock.now_ms();
                 let asleep = self.update_record(&draining.machine_id, |rec| {
@@ -123,13 +122,11 @@ impl CloudMachineController {
         let _active_drain = self.acquire_active_drain(&initial.machine_id);
 
         let record = self.find_record(&initial.machine_id)?;
+        let provider_id = require_provider_machine_id(&record)?.to_owned();
         let _ = peer_control.enter_drain(&record).await;
         let request_id =
             self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
-        match provisioning
-            .sleep(record.backend_machine_id(), &request_id)
-            .await
-        {
+        match provisioning.sleep(&provider_id, &request_id).await {
             Ok(sleep_mode) => {
                 let now_ms = self.clock.now_ms();
                 let exhausted = self.update_record(&record.machine_id, |rec| {
@@ -176,13 +173,11 @@ impl CloudMachineController {
         let _active_drain = self.acquire_active_drain(&initial.machine_id);
 
         let record = self.find_record(&initial.machine_id)?;
+        let provider_id = require_provider_machine_id(&record)?.to_owned();
         let _ = peer_control.enter_drain(&record).await;
         let request_id =
             self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
-        match provisioning
-            .sleep(record.backend_machine_id(), &request_id)
-            .await
-        {
+        match provisioning.sleep(&provider_id, &request_id).await {
             Ok(sleep_mode) => {
                 let now_ms = self.clock.now_ms();
                 let asleep = self.update_record(&record.machine_id, |rec| {
@@ -242,6 +237,7 @@ impl CloudMachineController {
             usage_exhausted = usage_reports_credits_exhausted(&summary);
         }
 
+        let provider_id = require_provider_machine_id(record)?.to_owned();
         if let Some(lease_id) = record
             .lease_id
             .as_deref()
@@ -250,7 +246,7 @@ impl CloudMachineController {
         {
             let request_id = mint_request_id();
             return match provisioning
-                .renew_lease(record.backend_machine_id(), lease_id, &request_id)
+                .renew_lease(&provider_id, lease_id, &request_id)
                 .await
             {
                 Ok(renewed) => Ok(ProbedDrainingTruth {
@@ -287,10 +283,7 @@ impl CloudMachineController {
         // No persisted lease_id to renew: settle backend via idempotent sleep.
         let request_id =
             self.begin_pending_request(&record.machine_id, PendingProvisioningOp::Sleep)?;
-        match provisioning
-            .sleep(record.backend_machine_id(), &request_id)
-            .await
-        {
+        match provisioning.sleep(&provider_id, &request_id).await {
             Ok(sleep_mode) => {
                 let truth = if record.exhaustion_pending || usage_exhausted {
                     BackendDrainingTruth::OutOfCredits
@@ -382,12 +375,10 @@ impl CloudMachineController {
             DrainingRecoveryPlan::FinishOutOfCredits => {
                 let mut sleep_mode = probed.sleep_mode;
                 if !probed.already_stopped_on_backend {
+                    let provider_id = require_provider_machine_id(&record)?.to_owned();
                     let request_id =
                         self.begin_pending_request(machine_id, PendingProvisioningOp::Sleep)?;
-                    match provisioning
-                        .sleep(record.backend_machine_id(), &request_id)
-                        .await
-                    {
+                    match provisioning.sleep(&provider_id, &request_id).await {
                         Ok(mode) => sleep_mode = Some(mode),
                         Err(CloudError::Conflict(_) | CloudError::MachineNotFound(_)) => {}
                         Err(error) => {
@@ -449,12 +440,10 @@ impl CloudMachineController {
                     });
                 }
 
+                let provider_id = require_provider_machine_id(&refreshed)?.to_owned();
                 let request_id =
                     self.begin_pending_request(machine_id, PendingProvisioningOp::Sleep)?;
-                match provisioning
-                    .sleep(refreshed.backend_machine_id(), &request_id)
-                    .await
-                {
+                match provisioning.sleep(&provider_id, &request_id).await {
                     Ok(sleep_mode) => {
                         let now_ms = self.clock.now_ms();
                         self.update_record(machine_id, |rec| {
@@ -618,10 +607,11 @@ impl CloudMachineController {
                 lease_expires_at_ms,
                 idle_since_ms,
             } => {
+                let provider_id = require_provider_machine_id(&record)?.to_owned();
                 let lease_id = record.lease_id.clone().unwrap_or_default();
                 let request_id = mint_request_id();
                 match provisioning
-                    .renew_lease(record.backend_machine_id(), &lease_id, &request_id)
+                    .renew_lease(&provider_id, &lease_id, &request_id)
                     .await
                 {
                     Ok(renewed) => {
@@ -818,10 +808,11 @@ impl CloudMachineController {
             });
         }
 
+        let provider_id = require_provider_machine_id(&record)?.to_owned();
         let lease_id = record.lease_id.clone().unwrap_or_default();
         let request_id = mint_request_id();
         match provisioning
-            .renew_lease(record.backend_machine_id(), &lease_id, &request_id)
+            .renew_lease(&provider_id, &lease_id, &request_id)
             .await
         {
             Ok(renewed) => {

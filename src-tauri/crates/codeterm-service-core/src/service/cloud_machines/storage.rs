@@ -58,6 +58,12 @@ pub struct ProviderSnapshotResidual {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CloudMachineStorageUsage {
     pub machine_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at_ms: Option<u64>,
     pub tier: CloudStorageTier,
     pub allocated_gb: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
