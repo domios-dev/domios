@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { composerDraftRecords, editComposerDraft, readComposerDraft, restoreComposerDrafts } from "./drafts";
 import { DraftPersistence } from "./draftPersistence";
 import type { ClientCheckpoint } from "./checkpoint";
@@ -174,4 +174,28 @@ it("uses the newest live-tab snapshot when pruning waits for disk restore", asyn
   await Promise.all([oldSnapshot, newSnapshot]);
   await drafts.flush();
   expect([...values]).toEqual([["tab-session-chat:new", "keep"]]);
+});
+
+it("logs draft save failures at debug level when DEV_BUILD is enabled", async () => {
+  vi.resetModules();
+  vi.doMock("../devBuild", () => ({ DEV_BUILD: true }));
+  const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+  try {
+    const { DraftPersistence: DevDraftPersistence } = await import("./draftPersistence");
+    const drafts = new DevDraftPersistence({
+      read: async () => new Map(),
+      write: async () => { throw new Error("quota"); },
+    });
+    drafts.edit("tab-session-chat:t", "kept in memory");
+    await expect(drafts.flush()).rejects.toThrow("quota");
+    expect(drafts.records.get("tab-session-chat:t")).toBe("kept in memory");
+    expect(debug).toHaveBeenCalledWith(
+      "[draft-persistence] Draft save failed",
+      expect.objectContaining({ scope: "tab-session-chat:t", failures: 1 }),
+    );
+  } finally {
+    debug.mockRestore();
+    vi.doUnmock("../devBuild");
+    vi.resetModules();
+  }
 });

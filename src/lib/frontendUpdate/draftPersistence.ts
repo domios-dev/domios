@@ -1,4 +1,7 @@
+import { DEV_BUILD } from "../devBuild";
 import { createDraftStorage, type DraftStorage } from "./draftStorage";
+
+export const REPEATED_DRAFT_FAILURE_THRESHOLD = 3;
 
 interface PendingDraft {
   value: string | null;
@@ -11,6 +14,7 @@ export class DraftPersistence {
   readonly records = new Map<string, string>();
   private readonly writes = new Map<string, PendingDraft>();
   private readonly errors = new Map<string, Error>();
+  private readonly consecutiveFailures = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
   private loading?: Promise<void>;
   private loaded = false;
@@ -25,6 +29,10 @@ export class DraftPersistence {
 
   error(scope: string): Error | undefined { return this.errors.get(scope) ?? this.errors.get(""); }
 
+  failureCount(scope: string): number { return this.consecutiveFailures.get(scope) ?? 0; }
+
+  repeatedlyFailed(scope: string): boolean { return this.failureCount(scope) >= REPEATED_DRAFT_FAILURE_THRESHOLD; }
+
   private emit(): void { for (const listener of this.listeners) listener(); }
 
   initialize(): Promise<void> {
@@ -34,7 +42,9 @@ export class DraftPersistence {
       this.errors.delete("");
       this.emit();
     }).catch((error: unknown) => {
-      this.errors.set("", error instanceof Error ? error : new Error(String(error)));
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.errors.set("", failure);
+      if (DEV_BUILD) console.debug("[draft-persistence] Draft restore failed", failure);
       this.emit();
     });
     return this.loading;
@@ -67,9 +77,14 @@ export class DraftPersistence {
         try {
           await this.storage.write(scope, value);
           this.errors.delete(scope);
+          this.consecutiveFailures.delete(scope);
           this.emit();
         } catch (error) {
-          this.errors.set(scope, error instanceof Error ? error : new Error(String(error)));
+          const failure = error instanceof Error ? error : new Error(String(error));
+          this.errors.set(scope, failure);
+          const failures = (this.consecutiveFailures.get(scope) ?? 0) + 1;
+          this.consecutiveFailures.set(scope, failures);
+          if (DEV_BUILD) console.debug("[draft-persistence] Draft save failed", { scope, failures, error: failure });
           write.pending = true;
           failedRevision = revision;
           this.emit();
