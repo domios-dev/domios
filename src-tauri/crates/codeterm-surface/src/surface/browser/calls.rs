@@ -126,7 +126,7 @@ impl BrowserRuntime {
                 let viewport =
                     super::metrics::capture_viewport(&self.screenshot_metrics(&page).await?)?;
                 let base64 = self
-                    .screenshot_base64(&page, shot.full, shot.include_overlay)
+                    .verified_screenshot_base64(&page, shot.full, shot.include_overlay)
                     .await?;
                 let path = self
                     .save_evidence(ctx, format!("shot-{}.png", now_ms()), base64.clone())

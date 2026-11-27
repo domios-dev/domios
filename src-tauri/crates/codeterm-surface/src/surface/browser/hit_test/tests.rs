@@ -608,3 +608,202 @@ async fn browser_click_refuses_when_all_in_bounds_points_are_occluded_by_modal()
     assert_eq!(connection.probed_points.lock().len(), 9);
     assert!(connection.input_commands.lock().is_empty());
 }
+
+#[test]
+fn browser_hit_test_reply_composer_card_allows_nested_button_and_refuses_covering_wrapper() {
+    let mut nodes = base_page_nodes();
+    let mut composer = node(3, Some(2), "section");
+    composer.dom_id = "composer-card".into();
+    composer.position = "relative".into();
+    composer.rect = Some(rect(200.0, 200.0, 600.0, 280.0));
+
+    let mut toolbar = node(4, Some(3), "div");
+    toolbar.dom_id = "toolbar".into();
+    toolbar.rect = Some(rect(216.0, 420.0, 568.0, 44.0));
+
+    let mut reply_btn = node(5, Some(4), "button");
+    reply_btn.dom_id = "reply-btn".into();
+    reply_btn.role = "button".into();
+    reply_btn.name = "Reply".into();
+    reply_btn.interactive = true;
+    reply_btn.clickable_container = true;
+    reply_btn.cursor_pointer = true;
+    reply_btn.rect = Some(rect(700.0, 424.0, 84.0, 36.0));
+
+    let mut inner_div = node(6, Some(5), "div");
+    inner_div.dom_id = "reply-inner".into();
+    let mut inner_span = node(7, Some(6), "span");
+    inner_span.dom_id = "reply-label".into();
+
+    // Transparent full-card wrapper div inside a non-clickable composer card (no bypass allowed).
+    let mut transparent_wrapper = node(8, Some(3), "div");
+    transparent_wrapper.dom_id = "card-overlay".into();
+    transparent_wrapper.position = "absolute".into();
+    transparent_wrapper.transparent = true;
+    transparent_wrapper.rect = Some(rect(200.0, 200.0, 600.0, 280.0));
+
+    // Opaque sticky footer covering the reply button.
+    let mut sticky_footer = node(9, Some(1), "div");
+    sticky_footer.dom_id = "sticky-footer".into();
+    sticky_footer.position = "fixed".into();
+    sticky_footer.transparent = false;
+    sticky_footer.rect = Some(rect(0.0, 852.0, 1585.0, 48.0));
+
+    nodes.extend([
+        composer,
+        toolbar,
+        reply_btn,
+        inner_div,
+        inner_span,
+        transparent_wrapper,
+        sticky_footer,
+    ]);
+
+    let clear_nested = HitScene {
+        target: 5,
+        stack: vec![7, 6, 5, 4, 3, 2, 1, 0],
+        nodes: nodes.clone(),
+    };
+    assert_eq!(classify_scene(&clear_nested), Ok(()));
+
+    let covered_by_wrapper = HitScene {
+        target: 5,
+        stack: vec![8, 7, 6, 5, 4, 3, 2, 1, 0],
+        nodes: nodes.clone(),
+    };
+    assert_eq!(
+        classify_scene(&covered_by_wrapper),
+        Err("target_occluded: covered by div#card-overlay".into())
+    );
+
+    let covered_by_footer = HitScene {
+        target: 5,
+        stack: vec![9, 7, 6, 5, 4, 3, 2, 1, 0],
+        nodes,
+    };
+    assert_eq!(
+        classify_scene(&covered_by_footer),
+        Err("target_occluded: covered by div#sticky-footer".into())
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn browser_click_reply_composer_probes_clear_edge_above_partial_sticky_footer() {
+    struct StickyFooterConnection {
+        closed: watch::Sender<Option<String>>,
+        subscribers: Mutex<Vec<mpsc::Sender<Arc<CdpEvent>>>>,
+        probed_points: Mutex<Vec<(f64, f64)>>,
+        input_commands: Mutex<Vec<(String, Value)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl CdpConnection for StickyFooterConnection {
+        fn endpoint(&self) -> &str {
+            "ws://127.0.0.1:1/sticky-footer"
+        }
+        fn closed(&self) -> watch::Receiver<Option<String>> {
+            self.closed.subscribe()
+        }
+        fn close(&self, reason: &str) {
+            self.closed.send_replace(Some(reason.into()));
+        }
+        fn subscribe(&self, _filter: EventFilter) -> EventStream {
+            let (tx, rx) = mpsc::channel(8);
+            self.subscribers.lock().push(tx);
+            EventStream::from_receiver(rx)
+        }
+        async fn send_to(
+            &self,
+            _: Option<&str>,
+            method: &str,
+            params: Value,
+            _: Duration,
+        ) -> Result<Value, CdpError> {
+            if method.starts_with("Input.") {
+                self.input_commands
+                    .lock()
+                    .push((method.into(), params.clone()));
+            }
+            Ok(match method {
+                "Target.attachToTarget" => json!({"sessionId": "session"}),
+                "Page.getFrameTree" => {
+                    json!({"frameTree": {"frame": {"id": "main", "loaderId": "1"}}})
+                }
+                "DOM.getContentQuads" => {
+                    json!({"quads": [[700, 836, 784, 836, 784, 876, 700, 876]]})
+                }
+                "DOM.resolveNode" => json!({"object": {"objectId": "reply-obj"}}),
+                "Runtime.callFunctionOn"
+                    if params["functionDeclaration"]
+                        .as_str()
+                        .is_some_and(|src| src.contains("function domiosHitTest")) =>
+                {
+                    let x = params["arguments"][0]["value"].as_f64().unwrap_or(0.0);
+                    let y = params["arguments"][1]["value"].as_f64().unwrap_or(0.0);
+                    self.probed_points.lock().push((x, y));
+                    // Sticky footer covers y >= 852 (including the button's center y = 856).
+                    let scene = if y >= 852.0 {
+                        json!({
+                            "target": 2,
+                            "stack": [3, 2, 1, 0],
+                            "nodes": [
+                                {"id": 0, "parent": null, "tag": "html", "landmarkOrChrome": true},
+                                {"id": 1, "parent": 0, "tag": "body", "landmarkOrChrome": true},
+                                {"id": 2, "parent": 1, "tag": "button", "domId": "reply-btn", "role": "button", "name": "Reply", "interactive": true},
+                                {"id": 3, "parent": 1, "tag": "div", "domId": "sticky-footer", "position": "fixed"}
+                            ]
+                        })
+                    } else {
+                        json!({
+                            "target": 2,
+                            "stack": [2, 1, 0],
+                            "nodes": [
+                                {"id": 0, "parent": null, "tag": "html", "landmarkOrChrome": true},
+                                {"id": 1, "parent": 0, "tag": "body", "landmarkOrChrome": true},
+                                {"id": 2, "parent": 1, "tag": "button", "domId": "reply-btn", "role": "button", "name": "Reply", "interactive": true}
+                            ]
+                        })
+                    };
+                    json!({"result": {"value": scene}})
+                }
+                _ => json!({}),
+            })
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let runtime = BrowserRuntime::new(
+        codeterm_browser::BrowserHostConfig::under_data_dir(root.path()),
+        "Agent",
+        "tab",
+        Arc::new(tokio::sync::OnceCell::new()),
+        Default::default(),
+    );
+    let (closed, _) = watch::channel(None);
+    let connection = Arc::new(StickyFooterConnection {
+        closed,
+        subscribers: Mutex::new(Vec::new()),
+        probed_points: Mutex::new(Vec::new()),
+        input_commands: Mutex::new(Vec::new()),
+    });
+    let page = CdpClient::from_connection(connection.clone())
+        .attach_page("main")
+        .await
+        .unwrap();
+    runtime.shared.bind(&page);
+
+    runtime.click_node(&page, 11).await.unwrap();
+
+    let probed = connection.probed_points.lock().clone();
+    assert_eq!(probed.len(), 5);
+    assert!((probed[0].0 - 742.0).abs() < 1e-9 && (probed[0].1 - 856.0).abs() < 1e-9);
+    assert!((probed[3].0 - 742.0).abs() < 1e-9 && (probed[3].1 - 840.0).abs() < 1e-9);
+
+    let inputs = connection.input_commands.lock().clone();
+    assert_eq!(inputs.len(), 3);
+    for (method, params) in &inputs {
+        assert_eq!(method, "Input.dispatchMouseEvent");
+        assert!((params["x"].as_f64().unwrap() - 742.0).abs() < 1e-9);
+        assert!((params["y"].as_f64().unwrap() - 840.0).abs() < 1e-9);
+    }
+}

@@ -54,4 +54,45 @@ describe("Browser pointer hit testing", () => {
       assert.equal(check.call(host, 10, 10), "target_occluded: no element at pointer coordinates");
     } finally { window.happyDOM.abort(); }
   });
+
+  it("collects hit facts inside nested non-landmark composer containers without losing target binding", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.write(readFileSync(resolve(import.meta.dirname, "fixtures/reply-composer-card.html"), "utf8"));
+      const replyBtn = window.document.getElementById("reply-btn")!;
+      const replyLabel = window.document.getElementById("reply-label")!;
+      const replyInner = window.document.getElementById("reply-inner")!;
+      const toolbar = window.document.getElementById("toolbar")!;
+      const cardOverlay = window.document.getElementById("card-overlay")!;
+      const stickyFooter = window.document.getElementById("sticky-footer")!;
+      const consentInput = window.document.getElementById("reply-consent")!;
+      const consentLabel = window.document.getElementById("consent-label")!;
+      const consentText = window.document.getElementById("consent-text")!;
+
+      const check = window.eval(`(${hitTest})`);
+
+      // Nested button inside non-landmark <div>/<section> containers must not throw on parentElement.contains(targetEl).
+      window.document.elementsFromPoint = () => [replyLabel, replyInner, replyBtn, toolbar, window.document.body];
+      const clearFacts = check.call(replyBtn, 480, 220);
+      assert.equal(typeof clearFacts, "object");
+      assert.equal(topDomId(clearFacts), "reply-label");
+      assert.equal(clearFacts.nodes.find((node: { id: number }) => node.id === clearFacts.target)?.domId, "reply-btn");
+
+      // Transparent wrapper div and opaque sticky footer inside composer card collect accurate metadata.
+      window.document.elementsFromPoint = () => [cardOverlay, replyBtn, toolbar, window.document.body];
+      const overlayFacts = check.call(replyBtn, 480, 220);
+      assert.equal(topDomId(overlayFacts), "card-overlay");
+      assert.equal(overlayFacts.nodes.find((node: { domId: string }) => node.domId === "card-overlay")?.transparent, true);
+
+      window.document.elementsFromPoint = () => [stickyFooter, replyBtn, toolbar, window.document.body];
+      const footerFacts = check.call(replyBtn, 480, 220);
+      assert.equal(topDomId(footerFacts), "sticky-footer");
+      assert.equal(footerFacts.nodes.find((node: { domId: string }) => node.domId === "sticky-footer")?.transparent, false);
+
+      // Associated <label for="..."> inside a non-landmark div must recognize targetEl.id inside register().
+      window.document.elementsFromPoint = () => [consentText, consentLabel, consentInput, window.document.body];
+      const labelFacts = check.call(consentInput, 40, 180);
+      assert.equal(labelFacts.nodes.find((node: { domId: string }) => node.domId === "consent-label")?.associatedLabel, true);
+    } finally { window.happyDOM.abort(); }
+  });
 });

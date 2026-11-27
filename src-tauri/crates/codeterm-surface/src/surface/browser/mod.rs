@@ -22,6 +22,7 @@ mod overlay;
 mod page;
 mod redaction;
 mod resume;
+mod screenshot;
 mod sessions;
 mod snapshots;
 mod snip;
@@ -368,7 +369,7 @@ impl BrowserRuntime {
         self.navigate_for_agent(page, action, target).await
     }
 
-    async fn screenshot_base64(
+    pub(super) async fn screenshot_base64(
         &self,
         page: &PageChannel,
         full: bool,
