@@ -139,16 +139,16 @@ fn expands_versioned_desktop_cli_wildcards_newest_first_and_rejects_unsafe_globs
         _ => None,
     };
 
-    let claude_win_parent = appdata.join("Claude").join("claude-code");
-    let claude_mac_parent = home
+    let alpha_win_parent = appdata.join("AlphaDesktop").join("agent-cli");
+    let alpha_mac_parent = home
         .join("Library")
         .join("Application Support")
-        .join("Claude")
-        .join("claude-code");
-    let opencode_win_parent = appdata.join("ai.opencode.desktop").join("cli");
+        .join("AlphaDesktop")
+        .join("agent-cli");
+    let beta_win_parent = appdata.join("ai.beta.desktop").join("cli");
 
     let reader = |dir: &Path| {
-        if dir == claude_win_parent {
+        if dir == alpha_win_parent {
             vec![
                 "2.1.9".into(),
                 "2.1.87".into(),
@@ -156,9 +156,9 @@ fn expands_versioned_desktop_cli_wildcards_newest_first_and_rejects_unsafe_globs
                 "..".into(),
                 "bad/child".into(),
             ]
-        } else if dir == claude_mac_parent {
+        } else if dir == alpha_mac_parent {
             vec!["2.1.50".into(), "2.1.87".into()]
-        } else if dir == opencode_win_parent {
+        } else if dir == beta_win_parent {
             vec!["1.19.6".into(), "2.4.2-x64".into(), "custom".into()]
         } else {
             Vec::new()
@@ -166,12 +166,12 @@ fn expands_versioned_desktop_cli_wildcards_newest_first_and_rejects_unsafe_globs
     };
 
     let templates = vec![
-        "%APPDATA%/Claude/claude-code/*".into(),
-        "~/Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS".into(),
-        "%APPDATA%/ai.opencode.desktop/cli/*".into(),
-        "%APPDATA%/Claude/claude-code/*/*".into(),
-        "%APPDATA%/Claude/claude-code/2.*".into(),
-        "%APPDATA%/Claude/claude-code/*/../escape".into(),
+        "%APPDATA%/AlphaDesktop/agent-cli/*".into(),
+        "~/Library/Application Support/AlphaDesktop/agent-cli/*/alpha.app/Contents/MacOS".into(),
+        "%APPDATA%/ai.beta.desktop/cli/*".into(),
+        "%APPDATA%/AlphaDesktop/agent-cli/*/*".into(),
+        "%APPDATA%/AlphaDesktop/agent-cli/2.*".into(),
+        "%APPDATA%/AlphaDesktop/agent-cli/*/../escape".into(),
         "/*".into(),
     ];
 
@@ -179,22 +179,22 @@ fn expands_versioned_desktop_cli_wildcards_newest_first_and_rejects_unsafe_globs
     assert_eq!(
         expanded,
         vec![
-            claude_win_parent.join("2.1.87"),
-            claude_win_parent.join("2.1.10"),
-            claude_win_parent.join("2.1.9"),
-            claude_mac_parent
+            alpha_win_parent.join("2.1.87"),
+            alpha_win_parent.join("2.1.10"),
+            alpha_win_parent.join("2.1.9"),
+            alpha_mac_parent
                 .join("2.1.87")
-                .join("claude.app")
+                .join("alpha.app")
                 .join("Contents")
                 .join("MacOS"),
-            claude_mac_parent
+            alpha_mac_parent
                 .join("2.1.50")
-                .join("claude.app")
+                .join("alpha.app")
                 .join("Contents")
                 .join("MacOS"),
-            opencode_win_parent.join("2.4.2-x64"),
-            opencode_win_parent.join("1.19.6"),
-            opencode_win_parent.join("custom"),
+            beta_win_parent.join("2.4.2-x64"),
+            beta_win_parent.join("1.19.6"),
+            beta_win_parent.join("custom"),
         ]
     );
 }
