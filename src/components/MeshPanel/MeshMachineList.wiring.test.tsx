@@ -210,7 +210,7 @@ describe("MeshMachineList wiring", () => {
     const onSignIn = vi.fn();
     const onPlans = vi.fn();
     const onRemove = vi.fn(async () => true);
-    const onRename = vi.fn(async () => true);
+    const onRename = vi.fn(async (_id: string, _name: string) => true);
 
     const signedOutRow = { ...lenovoRow, installation_id: "inst-so", display_name: "Mini", presence: "signed_out" as const };
     const overLimitRow = { ...lenovoRow, installation_id: "inst-limit", display_name: "laptop-2", eligibility: "mesh-allowance" as const };
