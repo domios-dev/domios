@@ -216,17 +216,21 @@ impl Persistence {
     }
 
     pub fn sync(&mut self, notifications: &[Notification]) {
-        let rendered = render(notifications);
-        if rendered == self.written {
-            return;
-        }
-        match codeterm_util::private_file::write_atomic(&self.path, rendered.as_bytes()) {
-            Ok(()) => self.written = rendered,
-            Err(error) => log::warn!(
+        if let Err(error) = self.sync_checked(notifications) {
+            log::warn!(
                 "[notify-persist] {} could not be written: {error}",
                 self.path.display()
-            ),
+            );
         }
+    }
+
+    pub(crate) fn sync_checked(&mut self, notifications: &[Notification]) -> std::io::Result<()> {
+        let rendered = render(notifications);
+        if rendered != self.written {
+            codeterm_util::private_file::write_atomic(&self.path, rendered.as_bytes())?;
+            self.written = rendered;
+        }
+        Ok(())
     }
 }
 

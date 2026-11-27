@@ -1,19 +1,28 @@
 use std::{collections::BTreeMap, io, path::Path};
 
 use codeterm_account::account_mesh::cloud_provisioning::WireCloudCreditWarnings;
-use codeterm_notification_core::contract::{NotificationAction, NotifyLevel};
+use codeterm_notification_core::{
+    contract::{NotificationAction, NotifyLevel},
+    store::{
+        DurableBellNotice, Notification, NotificationProvenance, NotificationSeverity,
+        NotificationStore,
+    },
+};
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::service::{
-    notification::{NotificationOrigin, PushIntent},
+    notification::{PushEnvelope, PushIntent},
     tab_chat::structured_sink::emit_chat_msgs,
     ServiceContext,
 };
 
 use super::CloudLifecycleState;
-use crate::{agent::chat_types::ChatMsg, notification::store::Ask};
+use crate::agent::chat_types::ChatMsg;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum Threshold {
     Percent80,
     Percent95,
@@ -52,43 +61,130 @@ fn newly_observed(
     ]
     .into_iter()
     .filter_map(|(threshold, stamp, observed)| {
-        let stamp = stamp.filter(|stamp| *stamp > observed.unwrap_or(0))?;
+        let stamp = stamp.filter(|stamp| *stamp > 0 && observed.is_none())?;
         *observed = Some(stamp);
         Some((threshold, stamp))
     })
     .collect()
 }
 
-fn claim_warnings(
-    path: &Path,
-    account: &str,
-    warnings: WireCloudCreditWarnings,
-) -> io::Result<Vec<(Threshold, u64)>> {
-    static CLAIM_LOCK: Mutex<()> = Mutex::new(());
-    let _guard = CLAIM_LOCK.lock();
-    let mut accounts = load_warnings(path)?;
-    let previous = accounts.entry(account.to_owned()).or_default();
-    let before = *previous;
-    let crossed = newly_observed(previous, warnings);
-    if *previous != before {
-        codeterm_util::private_file::write_atomic(path, &serde_json::to_vec(&accounts)?)?;
-    }
-    Ok(crossed)
+#[derive(Default, Serialize, Deserialize)]
+struct WarningLedger {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pending: BTreeMap<String, PendingWarning>,
+    #[serde(flatten)]
+    observed: BTreeMap<String, WireCloudCreditWarnings>,
 }
 
-fn load_warnings(path: &Path) -> io::Result<BTreeMap<String, WireCloudCreditWarnings>> {
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
-        Err(error) => Err(error),
+#[derive(Serialize, Deserialize)]
+struct PendingWarning {
+    threshold: Threshold,
+    body: String,
+}
+
+static LEDGER_LOCK: Mutex<()> = Mutex::new(());
+
+impl WarningLedger {
+    fn load(path: &Path) -> io::Result<Self> {
+        match std::fs::read(path) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(error),
+        }
     }
+
+    fn save(&self, path: &Path) -> io::Result<()> {
+        codeterm_util::private_file::write_atomic(path, &serde_json::to_vec(self)?)
+    }
+
+    fn stage(&mut self, account: &str, warnings: WireCloudCreditWarnings, body: &str) -> bool {
+        let previous = self.observed.entry(account.to_owned()).or_default();
+        let before = *previous;
+        for (threshold, _) in newly_observed(previous, warnings) {
+            self.pending.insert(
+                threshold.notice_id(account, warnings.epoch),
+                PendingWarning {
+                    threshold,
+                    body: body.to_owned(),
+                },
+            );
+        }
+        before != *previous
+    }
+}
+
+impl Threshold {
+    fn notice_id(self, account: &str, epoch: u64) -> String {
+        let threshold = match self {
+            Self::Percent80 => 80,
+            Self::Percent95 => 95,
+            Self::Exhausted => 100,
+        };
+        let digest = Sha256::digest(format!("{account}:{epoch}:{threshold}").as_bytes());
+        format!("cloud-hours-{digest:x}")
+    }
+
+    fn presentation(self) -> (&'static str, NotificationSeverity, Option<NotifyLevel>) {
+        use NotificationSeverity::{Info, Warning};
+        match self {
+            Self::Percent80 => ("80% of cloud hours used", Info, None),
+            Self::Percent95 => (
+                "95% of cloud hours used",
+                Warning,
+                Some(NotifyLevel::Verbose),
+            ),
+            Self::Exhausted => (
+                "Out of cloud hours",
+                Warning,
+                Some(NotifyLevel::ActionNeeded),
+            ),
+        }
+    }
+}
+
+impl PendingWarning {
+    fn bell_notice(&self, id: &str) -> DurableBellNotice {
+        let (title, severity, level) = self.threshold.presentation();
+        DurableBellNotice {
+            id: id.into(),
+            title: title.into(),
+            body: self.body.clone(),
+            severity,
+            level,
+            actions: vec![
+                NotificationAction::Url {
+                    label: "Top up".into(),
+                    value: "domios://cloud/top-up".into(),
+                },
+                NotificationAction::Url {
+                    label: "Open cloud machines".into(),
+                    value: "domios://cloud/machines".into(),
+                },
+            ],
+        }
+    }
+}
+
+fn deliver_pending(
+    ledger: &mut WarningLedger,
+    bell: &mut NotificationStore,
+    mut mark_delivered: impl FnMut(&WarningLedger) -> io::Result<()>,
+) -> io::Result<Vec<Notification>> {
+    let mut delivered = Vec::new();
+    while let Some((id, pending)) = ledger.pending.pop_first() {
+        if let Some(notification) = bell.add_durable_bell(pending.bell_notice(&id))? {
+            delivered.push(notification);
+        }
+        mark_delivered(ledger)?;
+    }
+    Ok(delivered)
 }
 
 impl ServiceContext {
     pub fn has_unseen_cloud_hours(&self, account: &str, warnings: WireCloudCreditWarnings) -> bool {
-        let mut previous = load_warnings(&self.cloud_hours_warning_path())
+        let mut previous = WarningLedger::load(&self.cloud_hours_warning_path())
             .ok()
-            .and_then(|mut accounts| accounts.remove(account))
+            .and_then(|mut ledger| ledger.observed.remove(account))
             .unwrap_or_default();
         !newly_observed(&mut previous, warnings).is_empty()
     }
@@ -104,18 +200,6 @@ impl ServiceContext {
         warnings: WireCloudCreditWarnings,
         backend_machines: Option<Vec<(String, Option<String>)>>,
     ) {
-        let path = self.cloud_hours_warning_path();
-        let crossed = match claim_warnings(&path, account, warnings) {
-            Ok(crossed) => crossed,
-            Err(error) => {
-                log::debug!("Could not record cloud hours warnings: {error}");
-                return;
-            }
-        };
-        if crossed.is_empty() {
-            return;
-        }
-
         let records = self.cloud_machines().list_records();
         let names: Vec<_> = match backend_machines {
             Some(ref machines) => machines
@@ -151,46 +235,89 @@ impl ServiceContext {
         } else {
             format!("{balance} Affected machines: {}.", names.join(", "))
         };
-        for (threshold, stamp) in crossed {
-            let (title, severity, level) = match threshold {
-                Threshold::Percent80 => ("80% of cloud hours used", "info", None),
-                Threshold::Percent95 => (
-                    "95% of cloud hours used",
-                    "warning",
-                    Some(NotifyLevel::Verbose),
-                ),
-                Threshold::Exhausted => (
-                    "Out of cloud hours",
-                    "warning",
-                    Some(NotifyLevel::ActionNeeded),
-                ),
-            };
-            self.create_notification_actions_reported(
-                title.into(),
-                Some(body.clone()),
-                Some(severity),
-                Ask::offering(Some(vec![
-                    NotificationAction::Url {
-                        label: "Top up".into(),
-                        value: "domios://cloud/top-up".into(),
-                    },
-                    NotificationAction::Url {
-                        label: "Open cloud machines".into(),
-                        value: "domios://cloud/machines".into(),
-                    },
-                ])),
-                Some(true),
-                NotificationOrigin::default(),
-                PushIntent {
-                    level,
-                    event_key: Some(format!(
-                        "cloud-hours:{account}:{}:{threshold:?}:{stamp}",
-                        warnings.epoch
-                    )),
-                },
-                None,
-            );
+        match self.drain_cloud_hours_warnings(Some((account, warnings, &body))) {
+            Ok(notifications) => {
+                for notification in notifications {
+                    self.publish_cloud_hours_warning(notification);
+                }
+            }
+            Err(error) => log::debug!("Could not deliver cloud hours warnings: {error}"),
         }
+    }
+
+    pub(crate) fn replay_cloud_hours_warnings(&self) {
+        if let Err(error) = self.drain_cloud_hours_warnings(None) {
+            log::debug!("Could not replay pending cloud hours warnings: {error}");
+        }
+    }
+
+    fn drain_cloud_hours_warnings(
+        &self,
+        observation: Option<(&str, WireCloudCreditWarnings, &str)>,
+    ) -> io::Result<Vec<Notification>> {
+        let _guard = LEDGER_LOCK.lock();
+        let path = self.cloud_hours_warning_path();
+        let mut ledger = WarningLedger::load(&path)?;
+        if let Some((account, warnings, body)) = observation {
+            if ledger.stage(account, warnings, body) {
+                ledger.save(&path)?;
+            }
+        }
+        if ledger.pending.is_empty() {
+            return Ok(Vec::new());
+        }
+        deliver_pending(&mut ledger, &mut self.notif.lock(), |ledger| {
+            ledger.save(&path)
+        })
+    }
+
+    fn publish_cloud_hours_warning(&self, notification: Notification) {
+        let surfaces = self.resolve_surface_dispatch(notification.level);
+        if crate::notification::desktop::admit(surfaces.declared, &surfaces.desktop)
+            .pass()
+            .is_some()
+        {
+            let _ = self
+                .shell
+                .os_notify(&notification.title, notification.body.as_deref());
+        }
+        if notification.level.is_some() {
+            let plan = self.resolve_push_plan(PushIntent {
+                level: notification.level,
+                event_key: Some(notification.id.clone()),
+            });
+            if let Some(level) = plan.intent.level {
+                if self
+                    .notif
+                    .lock()
+                    .admit_durable_bell_push("cloud-hours", plan.per_scope_limit)
+                {
+                    let envelope = PushEnvelope {
+                        content: crate::notification::push::PushContent {
+                            level,
+                            title: notification.title.clone(),
+                            body: notification.body.clone(),
+                            provenance: NotificationProvenance::default(),
+                        },
+                        choices: Vec::new(),
+                        record: notification.id.clone(),
+                    };
+                    if let Err(error) = crate::service::notification_push::deliver_plan(
+                        &plan.targets,
+                        &plan.refusals,
+                        self,
+                        &envelope,
+                    ) {
+                        log::debug!("Could not push cloud hours warning: {error}");
+                        self.notif.lock().mark_push_failed(&notification.id);
+                    }
+                }
+            }
+        }
+        self.notify_event(
+            "notification-created",
+            serde_json::to_value(notification).unwrap_or_default(),
+        );
     }
 
     pub fn show_cloud_hours_exhausted_in_tabs(&self, lease_expires_at_ms: u64) {
