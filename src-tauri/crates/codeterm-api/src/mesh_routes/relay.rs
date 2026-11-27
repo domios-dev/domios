@@ -19,8 +19,7 @@ mod peer_rail;
 mod peer_stream;
 mod peer_stream_backoff;
 pub(crate) use cloud_producer::{
-    cloud_outbox_announce, resolve_cloud_ingress_endpoint, send_owner_secure_delivery,
-    send_via_cloud_ingress,
+    cloud_outbox_announce, resolve_cloud_ingress_endpoint, send_via_cloud_ingress,
 };
 pub use cloud_producer::{
     CloudIngressConnector, CloudIngressSendError, CLOUD_NOTIFICATION_RELAY_REFUSED,
@@ -344,16 +343,7 @@ pub async fn mesh_relay_to_peer(
         caller::bind(caller, &req.method, &req.path, &mut req.body)
             .map_err(|message| (StatusCode::FORBIDDEN, message))?;
     }
-    let is_login_code = path_guard::is_runtime_login_code_relay(&req.method, &req.path, &req.body);
-    path_guard::refuse_non_owner_login_code(
-        matches!(identity, crate::auth::CallerIdentity::Local),
-        is_login_code,
-        &mut req.body,
-    )?;
     if let Some(early) = cloud_wake::preflight_cloud_wake(&state, &headers, &req).await? {
-        if is_login_code {
-            path_guard::zeroize_login_body(&mut req.body);
-        }
         return Ok(Json(early));
     }
     let inbound_only = cloud_producer::has_cloud_outbox(&state);
@@ -363,11 +353,6 @@ pub async fn mesh_relay_to_peer(
             cloud_producer::resolve_outbound_transport(state, headers, &target, inbound_only)
         })
         .await?;
-    path_guard::refuse_non_owner_login_code(
-        request_origin == crate::auth::AuthenticatedOrigin::Owner,
-        is_login_code,
-        &mut req.body,
-    )?;
     if request_origin == crate::auth::AuthenticatedOrigin::Owner {
         state
             .svc
@@ -495,7 +480,7 @@ pub async fn mesh_relay_to_peer(
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
-    let mut cmd = codeterm_service_core::mesh::types::RelayCommand {
+    let cmd = codeterm_service_core::mesh::types::RelayCommand {
         method: req.method,
         path: req.path,
         body: relay_body,
@@ -507,11 +492,7 @@ pub async fn mesh_relay_to_peer(
     };
     // The sender hop's own transport failure classifies into the same
     // relay_failure() vocabulary the receiving hop uses (see relay_error_summary).
-    let relay_result = transport.send_relay(&state, &cmd).await;
-    if is_login_code {
-        path_guard::zeroize_login_body(&mut cmd.body);
-    }
-    let resp = match relay_result {
+    let resp = match transport.send_relay(&state, &cmd).await {
         Ok(resp) => resp,
         Err(failure) => return Ok(answered_by(failure)),
     };
@@ -991,7 +972,6 @@ async fn perform_relay_unredacted(
         return Ok((grant_refusal(), true));
     };
     let forward_target = origin::build_local_forward(state, cmd, &body, auth_header, &sender_name)?;
-    path_guard::zeroize_login_body(&mut body);
     if admitted_grant
         .as_ref()
         .is_some_and(|grant| !grant.current(&state.mesh.lock()))

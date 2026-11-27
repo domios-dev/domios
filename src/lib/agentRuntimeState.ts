@@ -11,21 +11,9 @@ export interface AgentRuntimeState {
   requiredSecrets?: string[];
   /** Declared sign-in methods that take an API key, which the host stores and injects. */
   apiKeyMethods?: string[];
-  loginBinding?: {
-    installationId?: string;
-    tabId?: string;
-    providerId?: string;
-    sessionId?: string;
-    nonce: string;
-    epoch: number;
-  };
+  loginBinding?: {nonce: string; epoch: number};
   auth?: "signedIn"|"signedOut"|"unknown";
   loginCodeInput?: boolean;
-  codeSubmission?: {
-    status: "submitted" | "accepted" | "completed" | "uncertain" | "failed";
-    loginId: string;
-    reason?: string;
-  } | null;
   preferredLoginMethod?:{method?:string;methodId?:string;choice?:string;apiKey:boolean};
   loginChoices?: { id: string; label: string }[];
   loginMethods?: ("browser"|"device"|"apiKey")[];

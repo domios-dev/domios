@@ -141,7 +141,6 @@ pub(crate) fn operation_for(command: &Commands, _scoped: bool) -> Option<Operati
             _ => Some(Operation::LocalInput),
         },
         Commands::Account { .. }
-        | Commands::Secret { .. }
         | Commands::Analytics { .. }
         | Commands::Config { .. }
         | Commands::Supporter { .. }

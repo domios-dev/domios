@@ -216,14 +216,12 @@ domios agent login --tab ID --method METHOD_ID
 ```
 
 Provider-declared flows also support default browser sign-in and local
-`--api-key-stdin` (never argv or mesh). ACP and CLI-login agents declare their own methods/choices:
-`--show` lists them, and `--method ID` selects one. Single-use PKCE browser
-authorization codes are never accepted by `agent login`; the owner submits them
-once through the masked field in the Domios UI sign-in card for that tab. A method the
+`--api-key-stdin` (never argv or mesh). ACP agents declare their own methods:
+`--show` lists them, and `--method ID` authenticates with one. A method the
 launch profile marks as key-taking also needs `--api-key-stdin`; Domios stores
 the key in its secret store, restarts the runtime with it in the agent's
 environment and then authenticates. A refusal prints the daemon's reason. `--show` reads without starting:
-`login.loginId`, `login.url`, `userCode`, `expiresAtMs` (Unix milliseconds). Values disappear at
+`login.url`, `userCode`, `expiresAtMs` (Unix milliseconds). Values disappear at
 completion, cancellation or within 15 minutes; an earlier provider deadline wins.
 One flow per provider; cancel before retry. Verified completion resumes the same
 thread without replay. **Send to my phone** requests one `action_needed` push;
@@ -233,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 87 -->
+<!-- revision: 86 -->

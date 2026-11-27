@@ -970,7 +970,6 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::App { .. }
         | Commands::Web { .. }
         | Commands::Account { .. }
-        | Commands::Secret { .. }
         | Commands::Analytics { .. }
         | Commands::Plugin { .. }
         | Commands::ModelProvider { .. }

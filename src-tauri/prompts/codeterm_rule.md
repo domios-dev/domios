@@ -60,10 +60,10 @@ Chat supports GFM. Use a `mermaid` fence or `<ds-html>…</ds-html>` (Tailwind v
 
 Where a credential lives depends on whose it is. Domios's own credentials, anything Domios, a skill, plugin, bridge, mesh peer, or integration authenticates with, go in the secret store (`domios mem secret`), never a file. A project's own runtime token may live in that project's `.env` when it is gitignored, uncommitted, permission-restricted, and never printed or logged; prefer the project's own secret manager where it has one. That is ordinary practice, not something to refuse.
 
-`domios docs SECRETS` has the command ladder and backends. Never ask the owner to paste a secret into chat or a terminal; create a masked request with `domios secret request`, reference stored secrets by name, and pipe local values through stdin, never argv (`--value`, `--password`).
+`domios docs SECRETS` has the command ladder, exit codes, and backends. Two rules hold before you read it: pipe secret values through stdin (`echo -n "$V" | …`), never argv (`--value`, `--password`), which leaks into shell history and `ps`; and secrets stay on their machine, because each vault is local and nothing crosses the mesh.
 
 ### Config and language
 
 Telegram setup and config options are in the `domios` skill; `domios config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 43 -->
+<!-- revision: 42 -->

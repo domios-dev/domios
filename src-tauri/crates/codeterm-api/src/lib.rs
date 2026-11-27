@@ -18,7 +18,6 @@ mod request_census;
 pub mod routes;
 mod runtime_login;
 pub mod secrets_routes;
-pub mod secure_input_routes;
 
 pub mod agent_done_routes;
 pub mod agent_fork_routes;

@@ -174,7 +174,6 @@ pub fn request_scope<'a>(method: &Method, uri: &'a str) -> Option<PeerScope<'a>>
         }
         (&Method::PATCH, "/api/config") => PeerScope::new(FullAccess, Host),
         (&Method::POST, "/api/mesh/rpc") => PeerScope::new(FullAccess, Host),
-        (&Method::POST, "/api/secure-input/deliver") => PeerScope::new(FullAccess, Host),
         (&Method::GET, "/api/mesh/cloud/peer/idle" | "/api/mesh/cloud/peer/provider-readiness")
         | (
             &Method::POST,
@@ -437,7 +436,6 @@ pub fn is_local_only_path(path: &str) -> bool {
     path.starts_with("/api/analytics/")
         || path.starts_with("/api/dictation/")
         || path.starts_with("/api/secrets/")
-        || path.starts_with("/api/secure-input/requests")
         || path.starts_with("/api/account/")
         || path == "/api/mesh/debug/sign"
         || path == SUPPORTER_TOKEN_PATH

@@ -1135,7 +1135,6 @@ fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
         .merge(super::transport_orchestration::router())
         .merge(super::team_template_routes::router())
         .merge(super::frontend_shell_routes::router())
-        .merge(super::secure_input_routes::router())
 }
 
 #[cfg(test)]

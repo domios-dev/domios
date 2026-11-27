@@ -1,4 +1,4 @@
-const SECRET_KEY = /^(value|password|master_?password|secret|token|api_?key|client_?secret|key|code|auth_?code|authorization_?code|login_?code)$/i;
+const SECRET_KEY = /^(value|password|master_?password|secret|token|api_?key|client_?secret|key)$/i;
 const MAX_DEPTH = 4;
 
 /** Copy of IPC args that is safe to log: secret-bearing fields are replaced, never printed. */

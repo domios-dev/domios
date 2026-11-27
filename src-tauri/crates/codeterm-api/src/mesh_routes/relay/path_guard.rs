@@ -36,38 +36,6 @@ pub(super) fn validate_relay_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn is_runtime_login_code_relay(
-    method: &str,
-    path: &str,
-    body: &serde_json::Value,
-) -> bool {
-    let bare = path.split('?').next().unwrap_or(path);
-    method.eq_ignore_ascii_case("POST")
-        && bare.starts_with("/api/tabs/")
-        && bare.ends_with("/agent/runtime/login")
-        && (body.get("action").and_then(serde_json::Value::as_str) == Some("code")
-            || body.get("code").is_some_and(|value| !value.is_null()))
-}
-
-pub(super) fn refuse_non_owner_login_code(
-    allowed: bool,
-    is_login_code: bool,
-    body: &mut serde_json::Value,
-) -> Result<(), (axum::http::StatusCode, String)> {
-    if is_login_code && !allowed {
-        zeroize_login_body(body);
-        return Err((
-            axum::http::StatusCode::FORBIDDEN,
-            "Only the local owner may submit a remote sign-in code".into(),
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn zeroize_login_body(body: &mut serde_json::Value) {
-    codeterm_service_core::service::agent_runtime::login::zeroize_login_json_value(body);
-}
-
 fn is_dot_segment(segment: &str) -> bool {
     matches!(
         segment.to_ascii_lowercase().replace("%2e", ".").as_str(),

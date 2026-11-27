@@ -137,12 +137,8 @@ pub(super) async fn show_login(
     Path(tab): Path<String>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
     require_permission_authority(&state, &headers)?;
-    let installation_id = state.mesh.lock().ident.identity.instance_id.clone();
     codeterm_service_core::service::agent_runtime::login::show(&state.svc, &tab)
-        .map(|mut value| {
-            stamp_binding_installation_id(&mut value, &installation_id);
-            login_response(value)
-        })
+        .map(login_response)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
@@ -152,24 +148,7 @@ pub(super) async fn login(
     Path(tab): Path<String>,
     Json(request): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
-    let is_code_request = request.action.as_deref() == Some("code") || request.code.is_some();
-    let installation_id = state.mesh.lock().ident.identity.instance_id.clone();
-    if is_code_request {
-        let is_remote =
-            require_code_submission_authority(&state, &headers).map_err(|(status, reason)| {
-                (status, typed_login_refusal("login_forbidden", &reason))
-            })?;
-        validate_code_route_binding(&installation_id, &tab, is_remote, &request).map_err(
-            |reason| {
-                (
-                    StatusCode::CONFLICT,
-                    typed_login_refusal("login_binding_mismatch", &reason),
-                )
-            },
-        )?;
-    } else {
-        require_permission_authority(&state, &headers)?;
-    }
+    require_permission_authority(&state, &headers)?;
     if request.api_key.is_some() && !super::auth::is_local_caller(&state, &headers) {
         return Err((
             StatusCode::FORBIDDEN,
@@ -178,20 +157,8 @@ pub(super) async fn login(
     }
     operate(&state.svc, &tab, request)
         .await
-        .map(|mut value| {
-            stamp_binding_installation_id(&mut value, &installation_id);
-            login_response(value)
-        })
-        .map_err(|reason| {
-            if is_code_request {
-                (
-                    StatusCode::CONFLICT,
-                    typed_login_refusal("login_refused", &reason),
-                )
-            } else {
-                (StatusCode::CONFLICT, reason)
-            }
-        })
+        .map(login_response)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
 pub(super) async fn reset_credits(
@@ -257,114 +224,6 @@ pub(crate) fn require_permission_authority(
                 .to_string(),
         )),
     }
-}
-
-/// Authorization-code submission requires strictly Owner origin: either the local human Owner
-/// or a paired `AccessLevel::Full` peer carrying `AuthenticatedOrigin::Owner`. Agents, tab
-/// credentials, workers, narrowed peers, and non-owner mesh origins are refused.
-fn require_code_submission_authority(
-    state: &AppState,
-    headers: &HeaderMap,
-) -> Result<bool, (StatusCode, String)> {
-    match crate::auth::authenticated_request(state, headers)? {
-        (crate::auth::CallerIdentity::Local, crate::auth::AuthenticatedOrigin::Owner) => Ok(false),
-        (
-            crate::auth::CallerIdentity::Peer {
-                access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
-                ..
-            },
-            crate::auth::AuthenticatedOrigin::Owner,
-        ) => Ok(true),
-        _ => Err((
-            StatusCode::FORBIDDEN,
-            "Only the owner or a Full-access peer with Owner origin may submit a sign-in code"
-                .to_string(),
-        )),
-    }
-}
-
-fn validate_code_route_binding(
-    installation_id: &str,
-    tab: &str,
-    is_remote: bool,
-    request: &LoginRequest,
-) -> Result<(), String> {
-    if request
-        .login_id
-        .as_deref()
-        .is_none_or(|id| id.trim().is_empty())
-    {
-        return Err("Sign-in code requires an active login flow id".into());
-    }
-    let binding = request
-        .binding
-        .as_ref()
-        .ok_or("Sign-in code submission requires an active login binding")?;
-    if let Some(provided) = binding.installation_id.as_deref() {
-        if provided != installation_id {
-            return Err("Sign-in code belongs to a different installation".into());
-        }
-    } else if is_remote {
-        return Err("Remote sign-in code requires an exact installation binding".into());
-    }
-    if let Some(provided) = binding.tab_id.as_deref() {
-        if provided != tab {
-            return Err("Sign-in code belongs to a different tab".into());
-        }
-    } else if is_remote {
-        return Err("Remote sign-in code requires an exact tab binding".into());
-    }
-    if is_remote
-        && binding
-            .provider_id
-            .as_deref()
-            .or(request.provider_id.as_deref())
-            .is_none_or(|id| id.trim().is_empty())
-    {
-        return Err("Remote sign-in code requires an exact provider binding".into());
-    }
-    Ok(())
-}
-
-fn stamp_binding_installation_id(value: &mut serde_json::Value, installation_id: &str) {
-    if installation_id.trim().is_empty() {
-        return;
-    }
-    let Some(root) = value.as_object_mut() else {
-        return;
-    };
-    if let Some(binding) = root
-        .get_mut("loginBinding")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        binding
-            .entry("installationId".to_string())
-            .or_insert_with(|| serde_json::Value::String(installation_id.to_owned()));
-    }
-    if let Some(binding) = root
-        .get_mut("state")
-        .and_then(serde_json::Value::as_object_mut)
-        .and_then(|state| state.get_mut("loginBinding"))
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        binding
-            .entry("installationId".to_string())
-            .or_insert_with(|| serde_json::Value::String(installation_id.to_owned()));
-    }
-}
-
-fn typed_login_refusal(code: &str, reason: &str) -> String {
-    serde_json::json!({
-        "outcome": "refused",
-        "reason": reason,
-        "message": reason,
-        "error": {
-            "code": code,
-            "message": reason,
-            "bytes_written": false,
-        }
-    })
-    .to_string()
 }
 
 async fn controls(

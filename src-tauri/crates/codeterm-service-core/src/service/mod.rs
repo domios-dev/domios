@@ -193,7 +193,6 @@ pub mod role_identity;
 pub mod role_preset;
 pub mod role_profile;
 pub mod role_target;
-pub mod secure_input;
 mod session_backup;
 pub mod session_binding_deferral;
 mod session_binding_state;

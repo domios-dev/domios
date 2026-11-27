@@ -62,32 +62,12 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
   const [apiKey, setApiKey] = useState("");
   const [copied, setCopied] = useState(false);
   const [sentLogin, setSentLogin] = useState<string | undefined>();
-  const { busy, error, codeState, operate } = useRuntimeLogin(tabId, providerId, state);
+  const { busy, error, operate } = useRuntimeLogin(tabId, providerId, state);
   const helper = useAiHelperLaunch("sign-in-help-failure");
   const remote = tabId.startsWith("mesh:");
   const expired = state.login?.status === "pending" && state.login.expiresAtMs != null && state.login.expiresAtMs <= Date.now();
   const login = expired ? { ...state.login, status: "failed" as const, url: undefined, userCode: undefined, error: "Sign-in expired. Cancel it and try again." } : state.login;
   const pending = login?.status === "pending";
-  const serverCodeState = login?.loginId && state.codeSubmission?.loginId === login.loginId ? state.codeSubmission : null;
-  const localCodeState = login?.loginId && codeState?.loginId === login.loginId ? codeState : null;
-  const activeCodeStatus = serverCodeState?.status ?? (localCodeState?.status === "refused" ? "failed" : localCodeState?.status) ?? null;
-  const codeLocked = activeCodeStatus === "submitted" || activeCodeStatus === "accepted" || activeCodeStatus === "completed" || activeCodeStatus === "uncertain";
-  const uncertainReason = activeCodeStatus === "uncertain" ? (serverCodeState?.reason ?? localCodeState?.reason ?? "Code delivery is uncertain and was not replayed. Wait or cancel to start a new sign-in.") : null;
-  const cardStatus: "pending" | "submitted" | "accepted" | "completed" | "uncertain" | "failed" | null =
-    login?.status === "completed" || activeCodeStatus === "completed" ? "completed"
-    : activeCodeStatus === "uncertain" ? "uncertain"
-    : activeCodeStatus === "accepted" ? "accepted"
-    : activeCodeStatus === "submitted" ? "submitted"
-    : pending ? "pending"
-    : login?.status === "failed" || activeCodeStatus === "failed" || error ? "failed"
-    : null;
-  const statusLabel = cardStatus === "completed" ? "Completed"
-    : cardStatus === "uncertain" ? "Uncertain"
-    : cardStatus === "accepted" ? "Accepted"
-    : cardStatus === "submitted" ? "Submitted"
-    : cardStatus === "pending" ? "Pending"
-    : cardStatus === "failed" ? "Failed"
-    : null;
   const provider = state.loginProviderName ?? state.agentName ?? "the agent";
   const methods = state.loginMethods ?? [];
   const declared=Boolean(state.authentication?.methods.some(entry=>entry.input !== undefined));
@@ -107,6 +87,7 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
   const failure = error ?? login?.error ?? (state.state==="degraded" ? state.reason ?? undefined : undefined);
   const center = variant === "center";
   const openLink = (url: string) => (event: React.MouseEvent) => {
+    if (remote) return;
     event.preventDefault();
     void nativeBridge.openUrl(url);
   };
@@ -185,23 +166,12 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
     {customActions ?? actions}
     {!pending && onCancel && <button className={quiet} type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
 
-    {pending && login.url && (login.codeInput || state.loginCodeInput) && !codeLocked && <form aria-label="Sign-in code" className="flex w-full items-center gap-2"
-      onSubmit={event => {
-        event.preventDefault();
-        const value = code;
-        const fieldEl = event.currentTarget.querySelector<HTMLInputElement>('input[aria-label="Sign-in code"]');
-        if (fieldEl) fieldEl.value = "";
-        setCode("");
-        void operate({ action: "code", code: value });
-      }}>
+    {pending && login.url && (login.codeInput || state.loginCodeInput) && !remote && <form aria-label="Sign-in code" className="flex w-full items-center gap-2"
+      onSubmit={event => { event.preventDefault(); const value = code; setCode(""); void operate({ action: "code", code: value }); }}>
       <input type="password" aria-label="Sign-in code" value={code} autoComplete="off" spellCheck={false}
         onChange={event => setCode(event.target.value)} placeholder="Paste a code if your browser provides one" className={field} />
       <button type="submit" className={primary} disabled={busy || !code.trim()}>Submit code</button>
     </form>}
-
-    {statusLabel && <output aria-label="Sign-in status" data-login-status={cardStatus} className="text-[12px] text-[var(--ct-muted-fg)]">
-      {statusLabel}{uncertainReason ? `: ${uncertainReason}` : activeCodeStatus === "accepted" ? " — finishing verification…" : activeCodeStatus === "submitted" ? " — delivering code…" : ""}
-    </output>}
 
     {failure && <div className="w-full text-left"><InlineErrorNotice error={failure} operation="signing in" blocking /></div>}
     <CredentialOwnerRecovery key={login?.loginId} tabId={tabId} providerId={providerId} loginId={login?.loginId} error={login?.error} busy={busy}

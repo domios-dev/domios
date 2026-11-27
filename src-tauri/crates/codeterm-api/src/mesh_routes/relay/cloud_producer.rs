@@ -506,56 +506,6 @@ impl ReadyOutboundTransport {
     }
 }
 
-/// Sends an owner-submitted secure input delivery directly over enrolled Noise
-/// (`CloudIngress`) or signed Ed25519 HTTP — never via the cloud outbox.
-/// Zeroizes the payload JSON body immediately after transport completes.
-pub(crate) async fn send_owner_secure_delivery(
-    state: &AppState,
-    headers: &axum::http::HeaderMap,
-    target_peer_id: &str,
-    request_id: &str,
-    body: &mut serde_json::Value,
-) -> Result<RelayResponse, RelayResponse> {
-    let (_origin, transport, peer_id, peer_name, _peer_version) = match resolve_outbound_transport(
-        state,
-        headers,
-        &(Some(target_peer_id.to_owned()), None),
-        false,
-    ) {
-        Ok(resolved) => resolved,
-        Err((status, message)) => {
-            codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(body);
-            return Err(relay_failure(
-                status.as_u16(),
-                codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
-                Some(false),
-                message,
-            ));
-        }
-    };
-    let ready = match ReadyOutboundTransport::prepare(state, &peer_id, &peer_name, transport) {
-        Ok(ready) => ready,
-        Err((status, message)) => {
-            codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(body);
-            return Err(relay_failure(
-                status.as_u16(),
-                codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
-                Some(false),
-                message,
-            ));
-        }
-    };
-    let mut cmd = RelayCommand {
-        method: "POST".to_owned(),
-        path: "/api/secure-input/deliver".to_owned(),
-        body: std::mem::take(body),
-        delivery_id: Some(request_id.to_owned()),
-    };
-    let outcome = ready.send_relay(state, &cmd).await;
-    codeterm_service_core::service::secure_input::zeroize_secure_input_json_value(&mut cmd.body);
-    outcome
-}
-
 pub(super) struct CloudOutboxTarget {
     pub account_id: String,
     pub source_installation_id: String,
