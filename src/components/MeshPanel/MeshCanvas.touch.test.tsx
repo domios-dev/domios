@@ -18,9 +18,11 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
   host.remove();
+  window.localStorage.clear();
 });
 
 async function mount(width: number, touch: boolean) {
+  window.localStorage.clear();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -29,7 +31,9 @@ async function mount(width: number, touch: boolean) {
 }
 
 const list = () => host.querySelector("[data-testid=mesh-inventory-list]");
-const toggle = () => host.querySelector<HTMLButtonElement>("[data-testid=mesh-inventory-view-toggle]");
+const toggle = () => host.querySelector<HTMLElement>("[data-testid=mesh-inventory-view-toggle]");
+const canvasRadio = () => host.querySelector<HTMLButtonElement>("[data-testid=mesh-view-toggle-canvas]");
+const listRadio = () => host.querySelector<HTMLButtonElement>("[data-testid=mesh-view-toggle-list]");
 const layer = () => host.querySelector<HTMLElement>("[data-peer-card][data-machine-index]")?.parentElement ?? null;
 const scale = () => Number(/scale\(([^)]+)\)/.exec(layer()!.style.transform)?.[1]);
 const tap = (testId: string) => act(async () => host.querySelector<HTMLButtonElement>(`[data-testid=${testId}]`)!.click());
@@ -40,21 +44,21 @@ function touchEvent(type: string, points: Array<[number, number]>) {
   return event;
 }
 
-it("a touch phone opens on the stacked list with every machine, and Graph switches to the canvas", async () => {
+it("a touch phone opens on the grouped list with every machine, and Canvas switches to the canvas", async () => {
   await mount(390, true);
   expect(list()).not.toBeNull();
-  expect(list()!.querySelectorAll("[role=listitem]")).toHaveLength(1 + 1 + peers.length);
+  expect(list()!.querySelectorAll("[role=listitem]")).toHaveLength(1 + peers.length);
   expect(layer()).toBeNull();
-  await act(async () => toggle()!.click());
+  await act(async () => canvasRadio()!.click());
   expect(list()).toBeNull();
   expect(layer()).not.toBeNull();
-  await act(async () => toggle()!.click());
+  await act(async () => listRadio()!.click());
   expect(list()).not.toBeNull();
 });
 
 it("on touch, +/- visibly change the graph's scale and Fit all brings it back", async () => {
   await mount(390, true);
-  await act(async () => toggle()!.click());
+  await act(async () => canvasRadio()!.click());
   const fitted = scale();
   await tap("canvas-zoom-in");
   expect(scale()).toBeCloseTo(fitted * 1.25);
@@ -66,7 +70,7 @@ it("on touch, +/- visibly change the graph's scale and Fit all brings it back", 
 
 it("pinch zooms the graph and is kept from the page; a one-finger touch stays a tap and pans", async () => {
   await mount(390, true);
-  await act(async () => toggle()!.click());
+  await act(async () => canvasRadio()!.click());
   const canvas = layer()!.parentElement!;
   const before = scale();
   const start = touchEvent("touchstart", [[100, 300], [200, 300]]);
@@ -88,10 +92,10 @@ it("pinch zooms the graph and is kept from the page; a one-finger touch stays a 
   expect(scale()).toBeCloseTo(before * 2);
 });
 
-it("desktop keeps graph-only navigation and uses the shared zoom step", async () => {
+it("desktop opens on canvas with the Canvas | List toggle available and uses the shared zoom step", async () => {
   await mount(1200, false);
   expect(list()).toBeNull();
-  expect(toggle()).toBeNull();
+  expect(toggle()).not.toBeNull();
   const fitted = scale();
   await tap("canvas-zoom-in");
   expect(scale()).toBeCloseTo(fitted * 1.25);
