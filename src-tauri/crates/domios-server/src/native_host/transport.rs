@@ -1,4 +1,8 @@
 use super::enrollment::{enroll, verify_client_process, verify_component, EnrollmentPolicy};
+use super::listener::{
+    can_replace_active_session, create_listener, is_transient_accept_error,
+    native_socket_path_missing, recv_rebind_check,
+};
 use super::peer::pin_peer;
 use super::wire_io::{encode_frame, read_frame, send_frame, write_encoded_frame};
 use crate::bootstrap::process::PinnedProcess;
@@ -16,10 +20,7 @@ use codeterm_types::{
     },
     server_bootstrap::{ProcessProvenance, ServerComponentManifest, ServerReady},
 };
-use interprocess::local_socket::{
-    tokio::{prelude::*, Listener, Stream},
-    GenericNamespaced, ListenerOptions,
-};
+use interprocess::local_socket::tokio::{prelude::*, Listener, Stream};
 use parking_lot::{Mutex, RwLock};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
@@ -29,6 +30,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
+    time::Duration,
 };
 use tokio::{
     io::AsyncWriteExt,
@@ -177,6 +179,17 @@ where
         UpdateRequest: Sync,
         UpdateResult: Sync,
     {
+        self.serve_with_rebind(None).await
+    }
+
+    pub(crate) async fn serve_with_rebind(
+        self,
+        mut rebind_checks: Option<mpsc::Receiver<oneshot::Sender<()>>>,
+    ) -> io::Result<()>
+    where
+        UpdateRequest: Sync,
+        UpdateResult: Sync,
+    {
         let NativeHostServer {
             listener,
             endpoint,
@@ -193,8 +206,39 @@ where
             attaching: Mutex::new(None),
             pending_attaches: Arc::new(Semaphore::new(8)),
         });
+        let mut listener = Some(listener);
         loop {
-            let stream = listener.accept().await?;
+            let active_listener = listener.as_mut().expect("native listener active");
+            let stream = tokio::select! {
+                accepted = active_listener.accept() => match accepted {
+                    Ok(stream) => stream,
+                    Err(error) if is_transient_accept_error(&error) => {
+                        log::warn!("[native-host] transient accept error: {error}");
+                        continue;
+                    }
+                    Err(error) => {
+                        log::warn!("[native-host] accept error ({error}); attempting listener rebind");
+                        listener = None;
+                        listener = Some(create_listener(&state.ready)?);
+                        continue;
+                    }
+                },
+                ack = recv_rebind_check(&mut rebind_checks) => {
+                    if native_socket_path_missing(&state.ready) {
+                        match create_listener(&state.ready) {
+                            Ok(rebound) => {
+                                listener = Some(rebound);
+                                log::warn!("[native-host] socket path missing; rebound native-host listener");
+                            }
+                            Err(error) => {
+                                log::warn!("[native-host] failed to rebind missing socket: {error}");
+                            }
+                        }
+                    }
+                    let _ = ack.send(());
+                    continue;
+                }
+            };
             let Ok(permit) = state.pending_attaches.clone().try_acquire_owned() else {
                 drop(stream);
                 continue;
@@ -203,39 +247,11 @@ where
             tokio::spawn(async move {
                 let _permit = permit;
                 if let Err(error) = state.attach(stream).await {
-                    log::debug!("[native-host] attachment refused: {error}");
+                    log::warn!("[native-host] attachment refused: {error}");
                 }
             });
         }
     }
-}
-
-fn create_listener(ready: &ServerReady) -> io::Result<Listener> {
-    let address = codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
-        .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
-    codeterm_util::local_endpoint::prepare_namespaced(&address)?;
-    let target = codeterm_util::local_endpoint::display_name(&address);
-    let name = address
-        .to_ns_name::<GenericNamespaced>()
-        .map_err(|error| codeterm_util::local_endpoint::bind_error(&target, error))?;
-    let options = ListenerOptions::new().name(name);
-    // fchmod on a socket is EINVAL on macOS (interprocess: Unsupported); only Linux pins the mode.
-    #[cfg(target_os = "linux")]
-    let options = {
-        use interprocess::os::unix::local_socket::ListenerOptionsExt;
-        options.mode(0o600)
-    };
-    #[cfg(windows)]
-    let options = {
-        use interprocess::os::windows::{
-            local_socket::ListenerOptionsExt, security_descriptor::SecurityDescriptor,
-        };
-        let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;OW)").map_err(io::Error::other)?;
-        options.security_descriptor(SecurityDescriptor::deserialize(&sddl)?)
-    };
-    options
-        .create_tokio()
-        .map_err(|error| codeterm_util::local_endpoint::bind_error(&target, error))
 }
 
 impl NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult> {
@@ -297,10 +313,12 @@ where
             return Ok(None);
         };
         if session.retired.load(Ordering::Acquire)
+            || session.control.is_closed()
             || self.active_generation.load(Ordering::Acquire) != session.connection.generation
             || session.process.provenance().ok().as_ref() != Some(&session.client_process)
         {
-            return Err(codeterm_types::app_quit::QuitRefusal::Unavailable);
+            self.detach_if_current(&session);
+            return Ok(None);
         }
         Ok(Some(codeterm_types::app_quit::QuitClient {
             connection: session.connection.clone(),
@@ -542,6 +560,8 @@ where
         })?;
         let view = enrollment.view.clone();
         let connection = enrollment.connection.clone();
+        self.wait_if_active_exiting(&enrollment.client_process)
+            .await;
         self.reserve_attach(&connection, &enrollment.client_process)?;
         let (control_tx, control_rx) = mpsc::channel(MAX_PENDING_NATIVE_HOST_REQUESTS);
         let (event_tx, event_rx) = mpsc::channel(MAX_PENDING_NATIVE_HOST_REQUESTS);
@@ -594,6 +614,26 @@ where
         Ok(())
     }
 
+    async fn wait_if_active_exiting(&self, candidate: &ProcessProvenance) {
+        let shutdown = {
+            let active = self.endpoint.active.read();
+            active.as_ref().and_then(|session| {
+                let replaceable = can_replace_active_session(
+                    session.retired.load(Ordering::Acquire),
+                    session.control.is_closed(),
+                    session.process.provenance().ok().as_ref() == Some(&session.client_process),
+                    session.client_process == *candidate,
+                );
+                (!replaceable).then(|| session.shutdown.subscribe())
+            })
+        };
+        if let Some(mut shutdown) = shutdown {
+            if !*shutdown.borrow() {
+                let _ = timeout(Duration::from_secs(2), shutdown.changed()).await;
+            }
+        }
+    }
+
     fn reserve_attach(
         &self,
         connection: &NativeHostConnection,
@@ -608,10 +648,14 @@ where
         }
         let active = self.endpoint.active.read().clone();
         if let Some(active) = active {
-            if !active.retired.load(Ordering::Acquire)
-                && active.process.ensure_alive().is_ok()
-                && active.client_process != *candidate
-            {
+            let owner_matches = active.process.ensure_alive().is_ok()
+                && active.process.provenance().ok().as_ref() == Some(&active.client_process);
+            if !can_replace_active_session(
+                active.retired.load(Ordering::Acquire),
+                active.control.is_closed(),
+                owner_matches,
+                active.client_process == *candidate,
+            ) {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
                     "Another native client process owns this server instance",

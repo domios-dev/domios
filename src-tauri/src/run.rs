@@ -132,6 +132,15 @@ pub fn run(
                             attached.ready.epoch,
                             attached.native
                         );
+                        if let crate::host_ports::native_client::NativeClientStatus::NativeHostUnavailable {
+                            message,
+                            ..
+                        } = &attached.native
+                        {
+                            log::warn!(
+                                "[client] started without native host attachment ({message}); native capabilities require re-attachment"
+                            );
+                        }
                         #[cfg(debug_assertions)]
                         let readiness = matches!(
                             attached.native,
@@ -281,7 +290,8 @@ pub(crate) fn request_client_quit_exact(
     let api = app
         .try_state::<ServerApiAttachmentSlot>()
         .map(|slot| slot.inner().clone());
-    let attached = native.is_some() && api.as_ref().is_some_and(|api| api.current().is_some());
+    let attached = native.as_ref().is_some_and(|slot| slot.has_live_client())
+        || (native.is_some() && api.as_ref().is_some_and(|api| api.current().is_some()));
     let gate = match crash::exit::client_exit_status().map(|status| status.phase) {
         None => ExitGate::Idle,
         Some(crash::exit::ClientExitPhase::Requested) => ExitGate::Requested,
@@ -304,9 +314,10 @@ pub(crate) fn request_client_quit_exact(
             return Err(QuitRefusal::Unavailable);
         }
     }
-    let (Some(native), Some(api)) = (native, api) else {
+    let Some(native) = native else {
         return Err(QuitRefusal::Unavailable);
     };
+    let api = api.unwrap_or_default();
     let Ok(ticket) = crash::exit::begin_client_exit(crash::exit::ClientExitReason::ExplicitQuit)
     else {
         show_quit_feedback(app, QuitFeedback::Waiting);

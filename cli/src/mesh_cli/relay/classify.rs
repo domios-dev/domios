@@ -253,7 +253,17 @@ fn route_retry_hint(
 ) -> String {
     if let Some(hint) = data
         .get("error")
-        .and_then(|error| error.get("retry_hint").or_else(|| error.get("hint")))
+        .and_then(|error| {
+            error
+                .get("retry_hint")
+                .or_else(|| error.get("recovery"))
+                .or_else(|| error.get("hint"))
+        })
+        .or_else(|| {
+            data.get("recovery")
+                .or_else(|| data.get("retry_hint"))
+                .or_else(|| data.get("hint"))
+        })
         .and_then(serde_json::Value::as_str)
     {
         return hint.to_string();

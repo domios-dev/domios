@@ -207,12 +207,15 @@ function useUpdatePanelController() {
   const activeId = stepKind === "plugin" ? pluginId : stepKind === "interface" ? "frontend"
     : intent?.stage === "app" && !restoredFailure && !app.error && !appIntentSatisfied(intent, hostVersion) ? "app" : null;
   const rows = updateRunRows(runItems, items, snapshot.items, intent, activeId, restoredFailure || (restoredIntent.current && app.error) ? { ...outcomes, app: "failed" } : outcomes);
-  const failure = error?.message ?? (app.error ? classifyUpdateFailure(app.error).message : null) ?? restoredFailure?.message;
+  const appFailure = app.error ? classifyUpdateFailure(app.error) : null;
+  const activeFailure = error ?? appFailure ?? restoredFailure;
+  const failure = activeFailure?.message ?? null;
+  const errorRecovery = activeFailure?.recovery ?? null;
   const errorDetails = error?.details ?? app.error ?? restoredFailure?.details;
   return { snapshot, items, rows, activeId, appStaged: app.phase === "success", awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
     ? Math.min(100, Math.max(0, app.downloadedBytes / app.downloadTotalBytes * 100)) : null,
     frontendRelease, history, checking, checkResult, information: status.information, checkDetails, sourcesFailed, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
-    errorDetails, blockingTabs: blockingUpdateTabs(errorDetails),
+    errorRecovery, errorDetails, blockingTabs: blockingUpdateTabs(errorDetails),
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id && (!item.channel || !status.errors[item.channel]))) };
 }
 

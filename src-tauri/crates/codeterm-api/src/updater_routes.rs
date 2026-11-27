@@ -256,6 +256,44 @@ fn validate_initiating_tab(
     }
 }
 
+enum InstallRouteError {
+    Static(StatusCode, &'static str),
+    Typed {
+        status: StatusCode,
+        failure: codeterm_types::native_update::apply::InstallHandoffFailure,
+    },
+}
+
+fn map_auto_install_outcome(
+    outcome: Result<ApplyResult, String>,
+) -> Result<
+    serde_json::Value,
+    (
+        StatusCode,
+        codeterm_types::native_update::apply::InstallHandoffFailure,
+    ),
+> {
+    match outcome {
+        Ok(ApplyResult::Restarting) => Ok(serde_json::json!({
+            "status": InstallStatus::Updating,
+            "handoff": "relaunching",
+            "message": "Installer handoff started; replacement version is not yet verified.",
+        })),
+        Ok(ApplyResult::NoUpdate) => Ok(serde_json::json!(InstallResponse {
+            status: InstallStatus::UpToDate,
+            message: Some("Already up to date.".into()),
+            ..Default::default()
+        })),
+        Err(error) => {
+            let failure =
+                codeterm_types::native_update::apply::InstallHandoffFailure::classify(&error);
+            let status =
+                StatusCode::from_u16(failure.code.http_status()).unwrap_or(StatusCode::CONFLICT);
+            Err((status, failure))
+        }
+    }
+}
+
 pub async fn install_update(
     state: AxumState<AppState>,
     headers: crate::auth::AgentHeaders,
@@ -293,7 +331,16 @@ pub async fn install_update(
             }
             value.into_response()
         }
-        Err((status, reason)) => {
+        Err(InstallRouteError::Typed { status, failure }) => {
+            log::error!(
+                "[updater] POST /api/update/install status={} code={} message={}",
+                status.as_u16(),
+                failure.code.as_str(),
+                failure.message
+            );
+            (status, Json(failure.to_api_json())).into_response()
+        }
+        Err(InstallRouteError::Static(status, reason)) => {
             log::error!(
                 "[updater] POST /api/update/install status={} reason={}",
                 status.as_u16(),
@@ -303,8 +350,11 @@ pub async fn install_update(
                 (
             status,
             Json(serde_json::json!({
+                "ok": false,
                 "code": "native_capability_unavailable",
-                "message": "Automatic installation requires a native application host attached to this server. The server has no application-host updater registered; a running desktop client alone does not provide this capability. Use Settings > Updates in the desktop client, or download the official installer from https://github.com/domios-dev/domios/releases/latest and run domios update install --from-file <installer-path> locally on macOS or Windows. On Linux, install the official package with the package manager."
+                "message": "Automatic installation requires a native application host attached to this server. The server has no application-host updater registered; a running desktop client alone does not provide this capability. Use Settings > Updates in the desktop client, or download the official installer from https://github.com/domios-dev/domios/releases/latest and run domios update install --from-file <installer-path> locally on macOS or Windows. On Linux, install the official package with the package manager.",
+                "recovery": "Relaunch the Domios desktop app and retry, or run domios update install --from-file <installer-path>.",
+                "hint": "Relaunch the Domios desktop app and retry, or run domios update install --from-file <installer-path>."
             })),
         ).into_response()
             } else {
@@ -318,20 +368,21 @@ async fn install_update_inner(
     AxumState(state): AxumState<AppState>,
     headers: crate::auth::AgentHeaders,
     Query(q): Query<InstallUpdateQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+) -> Result<Json<serde_json::Value>, InstallRouteError> {
     if q.after_update.is_some() {
         validate_after_update_enabled(true, state.svc.configuration().agent.continue_after_restart)
-            .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
+            .map_err(|reason| InstallRouteError::Static(StatusCode::BAD_REQUEST, reason))?;
     }
     let caller_tab_id = headers.local_tab_id();
     if q.method.as_deref() == Some("auto") {
         validate_initiating_tab(caller_tab_id.as_deref(), q.continue_tab.as_deref())
-            .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
+            .map_err(|reason| InstallRouteError::Static(StatusCode::BAD_REQUEST, reason))?;
     }
     let application_host = if q.method.as_deref() == Some("auto") {
         Some(
-            codeterm_commands::application_host::require(&state.svc)
-                .map_err(|_| (StatusCode::CONFLICT, "native_capability_unavailable"))?,
+            codeterm_commands::application_host::require(&state.svc).map_err(|_| {
+                InstallRouteError::Static(StatusCode::CONFLICT, "native_capability_unavailable")
+            })?,
         )
     } else {
         None
@@ -354,7 +405,7 @@ async fn install_update_inner(
 
     // Persist before restart — the next boot folds it into the General Agent's resume claim.
     if let Some(text) = q.after_update.as_deref() {
-        let tab_id = caller_tab_id.clone().ok_or((
+        let tab_id = caller_tab_id.clone().ok_or(InstallRouteError::Static(
             StatusCode::BAD_REQUEST,
             codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED,
         ))?;
@@ -364,9 +415,10 @@ async fn install_update_inner(
             let state = owner;
             let sender = {
                 let mux = state.svc.mux.read();
-                let tab = mux
-                    .get_tab(&tab_id)
-                    .ok_or((StatusCode::BAD_REQUEST, "caller_tab_not_found"))?;
+                let tab = mux.get_tab(&tab_id).ok_or(InstallRouteError::Static(
+                    StatusCode::BAD_REQUEST,
+                    "caller_tab_not_found",
+                ))?;
                 codeterm_service_core::multiplexer::types::TurnResumeSender {
                     tab_id,
                     label: tab.title.clone(),
@@ -375,20 +427,22 @@ async fn install_update_inner(
                 }
             };
             codeterm_service_core::service::post_update::stash(&text, Some(sender)).map_err(|_| {
-                (
+                InstallRouteError::Static(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "update_handoff_write_failed",
                 )
             })
         })
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))??;
+        .map_err(|_| {
+            InstallRouteError::Static(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed")
+        })??;
     }
 
     // Auto update checks bypass the daemon's short-check cache to avoid stale "up_to_date" right after release.
     // Keep cache useful for polling badge and manual browser fallback paths.
     if let Some(app) = application_host {
-        let lease = lease.ok_or((
+        let lease = lease.ok_or(InstallRouteError::Static(
             StatusCode::INTERNAL_SERVER_ERROR,
             "update lease unavailable",
         ))?;
@@ -396,62 +450,40 @@ async fn install_update_inner(
             let us = state.update_state.lock();
             (us.channel, us.install_method.clone())
         };
-        let manifest_url = q.manifest_url.clone();
-        let continue_tab = q.continue_tab.clone();
+        let opts = ApplyOptions {
+            channel,
+            manifest_url: q.manifest_url.clone(),
+            install_method,
+            initiating_tab_id: caller_tab_id,
+            continue_tab_id: q.continue_tab.clone(),
+        };
         let update_state = state.update_state.clone();
         codeterm_update::apply::begin_apply(&update_state);
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    let msg = format!("tokio runtime build failed: {}", e);
-                    log::error!("[updater] {}", msg);
-                    update_state.lock().set_error(msg);
-                    return;
+        let (outcome_tx, outcome_rx) = tokio::sync::oneshot::channel();
+        // Keep lease ownership on a detached task so a client disconnect never releases single-flight early.
+        tokio::spawn(async move {
+            let outcome = single_flight::apply_with_lease(lease, app.as_ref(), opts).await;
+            match &outcome {
+                Ok(ApplyResult::Restarting) => {
+                    update_state.lock().set_phase(UpdatePhase::Applying);
+                    log::info!("[updater] installer handoff pending; replacement version is not yet verified");
                 }
-            };
-            rt.block_on(async {
-                let opts = ApplyOptions {
-                    channel,
-                    manifest_url,
-                    install_method,
-                    initiating_tab_id: caller_tab_id,
-                    continue_tab_id: continue_tab,
-                };
-                let outcome =
-                    single_flight::apply_with_lease(lease, app.as_ref(), opts.clone()).await;
-                match outcome {
-                    Ok(result) => match result {
-                        ApplyResult::Restarting => {
-                            update_state.lock().set_phase(UpdatePhase::Applying);
-                            log::info!("[updater] installer handoff pending; replacement version is not yet verified");
-                        }
-                        ApplyResult::NoUpdate => {
-                            update_state.lock().set_phase(UpdatePhase::Idle);
-                            log::info!("[updater] check_and_apply: no update available");
-                        }
-                    },
-                    Err(e) => {
-                        log::error!(
-                            "[updater] POST /api/update/install status=200 phase=error: {}",
-                            e
-                        );
-                        update_state.lock().set_error(e);
-                    }
+                Ok(ApplyResult::NoUpdate) => {
+                    update_state.lock().set_phase(UpdatePhase::Idle);
+                    log::info!("[updater] check_and_apply: no update available");
                 }
-            });
+                Err(error) => {
+                    update_state.lock().set_error(error.clone());
+                }
+            }
+            let _ = outcome_tx.send(outcome);
         });
-        return Ok(Json(serde_json::json!(InstallResponse {
-            status: InstallStatus::Updating,
-            message: Some(
-                "Checking for the latest version. App will restart if an update is available."
-                    .into()
-            ),
-            ..Default::default()
-        })));
+        let outcome = outcome_rx
+            .await
+            .unwrap_or_else(|_| Err("native updater task terminated before completion".into()));
+        return map_auto_install_outcome(outcome)
+            .map(Json)
+            .map_err(|(status, failure)| InstallRouteError::Typed { status, failure });
     }
 
     // Non-auto paths still need the resolved info (download URL, install command). Fall back on the cached check; if it's missing, ask the caller to poll /check first.
@@ -459,7 +491,10 @@ async fn install_update_inner(
     let info = us
         .last_check
         .as_ref()
-        .ok_or((StatusCode::BAD_REQUEST, "Run check first"))?
+        .ok_or(InstallRouteError::Static(
+            StatusCode::BAD_REQUEST,
+            "Run check first",
+        ))?
         .clone();
     drop(us);
 

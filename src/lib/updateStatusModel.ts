@@ -67,7 +67,7 @@ export function unavailableSourceKeys(errors: Readonly<Record<string, string>>):
   return Object.keys(errors).filter(source => source !== CORE_PLUGIN_CHANNEL);
 }
 
-export interface UpdateFailure { message: string; details: string; channelUnavailable: boolean }
+export interface UpdateFailure { message: string; details: string; channelUnavailable: boolean; recovery?: string }
 
 export interface BlockingUpdateTab { tab_id: string; title: string; workspace: string; command: string }
 const BLOCKING_TABS_MARKER = "[update-blocking-tabs]";
@@ -86,6 +86,8 @@ export function blockingUpdateTabs(raw: string | null | undefined): BlockingUpda
   } catch { return []; }
 }
 
+const RELAUNCH_RECOVERY = "Relaunch the Domios desktop app and retry the update.";
+
 /** Describes a failed update the owner started; a failed check never reaches here. */
 export function classifyUpdateFailure(detail: unknown): UpdateFailure {
   const raw = detail instanceof Error ? detail.toString() : String(detail);
@@ -96,11 +98,32 @@ export function classifyUpdateFailure(detail: unknown): UpdateFailure {
   }
   try {
     const refusal: unknown = JSON.parse(raw.replace(/^Error: /, ""));
-    if (typeof refusal === "object" && refusal !== null && "kind" in refusal
-      && refusal.kind === "native_update_admission_refused" && "message" in refusal && typeof refusal.message === "string") {
-      return { message: refusal.message, details: raw, channelUnavailable: false };
+    if (typeof refusal === "object" && refusal !== null && "kind" in refusal && "message" in refusal && typeof refusal.message === "string") {
+      if (refusal.kind === "native_update_admission_refused") {
+        return { message: refusal.message, details: raw, channelUnavailable: false };
+      }
+      if (refusal.kind === "install_handoff_failed") {
+        const recovery = "recovery" in refusal && typeof refusal.recovery === "string" ? refusal.recovery : undefined;
+        return { message: refusal.message, details: raw, channelUnavailable: false, recovery };
+      }
     }
   } catch {}
+  if (/server attachment is unavailable|native host(?: attachment)? is unavailable|native updater attachment is unavailable|attached server process identity changed|NotAttached/i.test(raw)) {
+    return {
+      message: "The native host attachment to the Domios server is unavailable; the installer handoff was refused.",
+      details: raw,
+      channelUnavailable: false,
+      recovery: RELAUNCH_RECOVERY,
+    };
+  }
+  if (/native_capability_unavailable/i.test(raw)) {
+    return {
+      message: "Automatic installation requires a native application host attached to this server.",
+      details: raw,
+      channelUnavailable: false,
+      recovery: RELAUNCH_RECOVERY,
+    };
+  }
   const channel = raw.indexOf(CHANNEL_UNAVAILABLE_PREFIX);
   if (channel >= 0) return { message: raw.slice(channel), details: raw, channelUnavailable: true };
   const httpStatus = raw.match(/\bHTTP (?:status )?(\d{3})\b/i)?.[1];

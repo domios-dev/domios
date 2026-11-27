@@ -677,10 +677,16 @@ fn is_provider_cli_launch(method: &str, path: &str) -> bool {
     !provider.is_empty() && !provider.contains('/')
 }
 
+fn is_update_install(method: &str, path: &str) -> bool {
+    let bare = path.split('?').next().unwrap_or(path);
+    method.eq_ignore_ascii_case("POST") && bare == "/api/update/install"
+}
+
 pub(crate) fn local_forward_deadline(method: &str, path: &str) -> std::time::Duration {
     if is_tab_delivery(method, path)
         || crate::mesh_attachment::is_attachment_ingest(method, path)
         || is_provider_cli_launch(method, path)
+        || is_update_install(method, path)
     {
         SEND_FORWARD_DEADLINE
     } else {

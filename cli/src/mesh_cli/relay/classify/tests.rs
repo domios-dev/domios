@@ -56,3 +56,37 @@ fn protocol_upgrade_refusal_keeps_code_and_update_instruction() {
         delivery::PEER_RELAY_PROTOCOL_MISMATCH
     );
 }
+
+#[test]
+fn relayed_install_handoff_failure_preserves_code_message_and_relaunch_recovery() {
+    let body = serde_json::json!({
+        "ok": false,
+        "status": 409,
+        "error": "HTTP 409",
+        "data": {
+            "ok": false,
+            "kind": "install_handoff_failed",
+            "code": "server_attachment_unavailable",
+            "message": "The native host attachment to the Domios server is unavailable; the installer handoff was refused.",
+            "recovery": "Relaunch the Domios desktop app and retry the update.",
+            "hint": "Relaunch the Domios desktop app and retry the update."
+        }
+    });
+    let failure = classify_relay_answer(
+        "rollacodebot",
+        ("POST", "/api/update/install?method=auto"),
+        reqwest::StatusCode::OK,
+        &serde_json::to_vec(&body).unwrap(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        failure.code.as_deref(),
+        Some("server_attachment_unavailable")
+    );
+    assert!(failure.reason.contains("server_attachment_unavailable"));
+    assert!(failure.reason.contains("native host attachment"));
+    assert_eq!(
+        failure.retry_hint,
+        "Relaunch the Domios desktop app and retry the update."
+    );
+}

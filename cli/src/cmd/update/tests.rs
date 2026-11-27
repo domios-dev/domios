@@ -382,3 +382,55 @@ fn update_success_requires_a_running_version_matching_the_verified_native_receip
     status["current_version"] = serde_json::json!("1.20.1");
     assert_eq!(super::verified_update_version(&status), Some("1.20.1"));
 }
+
+#[test]
+fn typed_handoff_failure_prints_code_reason_and_relaunch_recovery_in_human_and_json() {
+    use codeterm_types::native_update::apply::{InstallFailureCode, InstallHandoffFailure};
+    let failure = InstallHandoffFailure::classify("the server attachment is unavailable");
+    assert_eq!(
+        failure.code,
+        InstallFailureCode::ServerAttachmentUnavailable
+    );
+    let body = failure.to_api_json().to_string();
+    let error = crate::cmd::print::CliError::http(409, &body);
+    assert!(error.message.contains("server_attachment_unavailable"));
+    assert!(error.message.contains("recovery: Relaunch"));
+    for json in [false, true] {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        crate::cmd::print::write_cli_error(json, &error, &mut stdout, &mut stderr);
+        if json {
+            let envelope: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+            assert_eq!(envelope["ok"], false);
+            assert_eq!(envelope["result"]["code"], "server_attachment_unavailable");
+            assert!(envelope["result"]["recovery"]
+                .as_str()
+                .unwrap()
+                .contains("Relaunch"));
+        } else {
+            let text = String::from_utf8(stderr).unwrap();
+            assert!(text.contains("server_attachment_unavailable"));
+            assert!(text.contains("Relaunch"));
+        }
+    }
+}
+
+#[test]
+fn local_install_response_rejects_error_phase_or_blocked_status() {
+    let blocked =
+        serde_json::json!({"status": "blocked", "message": "the server attachment is unavailable"});
+    assert!(matches!(
+        super::check_local_install_response(&blocked),
+        super::LocalInstallResponseFailure::Failed(_)
+    ));
+    let phase_err = serde_json::json!({"status": "updating", "phase": "error", "last_error": "the server attachment is unavailable"});
+    assert!(matches!(
+        super::check_local_install_response(&phase_err),
+        super::LocalInstallResponseFailure::Failed(_)
+    ));
+    let ok = serde_json::json!({"status": "up_to_date"});
+    assert_eq!(
+        super::check_local_install_response(&ok),
+        super::LocalInstallResponseFailure::None
+    );
+}

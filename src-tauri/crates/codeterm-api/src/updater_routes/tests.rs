@@ -279,8 +279,11 @@ async fn auto_install_without_native_host_returns_actionable_typed_refusal() {
     assert!(update.lock().last_error.is_none());
 }
 
+static AUTO_INSTALL_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test]
 async fn auto_install_with_native_host_reaches_the_registered_updater() {
+    let _guard = AUTO_INSTALL_TEST_LOCK.lock().await;
     use axum::{body::Body, http::Request};
     use codeterm_update::{
         application_host::ApplicationHost,
@@ -333,4 +336,91 @@ async fn auto_install_with_native_host_reaches_the_registered_updater() {
         .unwrap()
         .unwrap();
     assert!(options.manifest_url.is_none());
+}
+
+#[test]
+fn auto_install_outcome_mapping_never_reports_success_for_failed_handoff() {
+    use codeterm_types::native_update::apply::InstallFailureCode;
+    use codeterm_update::apply::ApplyResult;
+
+    let up_to_date = super::map_auto_install_outcome(Ok(ApplyResult::NoUpdate)).unwrap();
+    assert_eq!(up_to_date["status"], "up_to_date");
+
+    let restarting = super::map_auto_install_outcome(Ok(ApplyResult::Restarting)).unwrap();
+    assert_eq!(restarting["status"], "updating");
+    assert_eq!(restarting["handoff"], "relaunching");
+
+    let (status, failure) =
+        super::map_auto_install_outcome(Err("the server attachment is unavailable".into()))
+            .unwrap_err();
+    assert_eq!(status, axum::http::StatusCode::CONFLICT);
+    assert_eq!(
+        failure.code,
+        InstallFailureCode::ServerAttachmentUnavailable
+    );
+    assert!(failure.recovery.contains("Relaunch"));
+}
+
+#[tokio::test]
+async fn failed_install_handoff_returns_typed_non_200_failure_with_relaunch_recovery() {
+    let _guard = AUTO_INSTALL_TEST_LOCK.lock().await;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+    };
+    use codeterm_update::{
+        application_host::ApplicationHost,
+        apply::{ApplyOptions, ApplyResult},
+    };
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    struct FailingHost;
+    #[codeterm_update::application_host::async_trait]
+    impl ApplicationHost for FailingHost {
+        fn restart(&self) -> Result<(), String> {
+            Err("Unexpected restart".into())
+        }
+        fn exit(&self, _: i32) -> Result<(), String> {
+            Err("Unexpected exit".into())
+        }
+        async fn copy_image_to_clipboard(&self, _: String) -> Result<(), String> {
+            Err("Unexpected clipboard".into())
+        }
+        async fn check_and_apply(&self, _: ApplyOptions) -> Result<ApplyResult, String> {
+            Err("the server attachment is unavailable".into())
+        }
+    }
+
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+    assert!(fixture
+        .service
+        .register_host_extension(Arc::new(
+            codeterm_commands::application_host::ApplicationHostState(Arc::new(FailingHost))
+        ))
+        .is_ok());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let update = state.update_state.clone();
+    let response = crate::routes::create_router(state)
+        .oneshot(
+            Request::post("/api/update/install?method=auto")
+                .header("authorization", "Bearer preview-test-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["code"], "server_attachment_unavailable");
+    assert!(body["recovery"].as_str().unwrap().contains("Relaunch"));
+    assert_eq!(update.lock().phase, codeterm_update::UpdatePhase::Error);
+    assert_eq!(
+        update.lock().last_error.as_deref(),
+        Some("the server attachment is unavailable")
+    );
 }

@@ -612,6 +612,29 @@ static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
 /// The start-failure page is a recovery surface the retrying page must still replace.
 static ON_START_FAILURE: AtomicBool = AtomicBool::new(false);
 
+pub(crate) fn rebind_active_view(app: &codeterm_client_shell::app_runtime::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(url) = window.url() else {
+        return;
+    };
+    let Some(generation) = app
+        .try_state::<ClientRootRenderLatch>()
+        .and_then(|latch| latch.acknowledged_generation(&url.origin().ascii_serialization()))
+    else {
+        return;
+    };
+    if !active_view_matches(app, generation.view) {
+        return;
+    }
+    if let Some(slot) = app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>() {
+        if let Err(reason) = slot.bind_observed_view(&url, generation) {
+            log::debug!("[native-client] view rebind skipped after silent reattach: {reason:?}");
+        }
+    }
+}
+
 pub(crate) fn server_disconnected(
     app: codeterm_client_shell::app_runtime::AppHandle,
     _ready: codeterm_types::server_bootstrap::ServerReady,

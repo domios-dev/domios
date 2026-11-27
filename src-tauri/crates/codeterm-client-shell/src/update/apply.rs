@@ -23,6 +23,7 @@ pub(crate) async fn check_and_apply(
         #[cfg(target_os = "linux")]
         {
             use tauri::Manager;
+            server_stop.ensure_attached().await?;
             let Some(package) =
                 codeterm_update::debian::stage(opts.manifest_url.as_deref()).await?
             else {
@@ -139,6 +140,7 @@ async fn check_and_apply_plugin(
         }
     };
 
+    server_stop.ensure_attached().await?;
     let identity = PayloadIdentity {
         version: update.version.clone(),
         signature: update.signature.clone(),

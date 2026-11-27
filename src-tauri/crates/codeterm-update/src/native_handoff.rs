@@ -364,7 +364,12 @@ fn now_ms() -> u64 {
 }
 
 pub fn failure_code(message: &str) -> &'static str {
-    if message.contains("install-file holders")
+    if message.contains("server attachment")
+        || message.contains("native host is unavailable")
+        || message.contains("native updater attachment")
+    {
+        "server_attachment_unavailable"
+    } else if message.contains("install-file holders")
         || message.starts_with(crate::holders::REFUSAL_PREFIX)
     {
         "install_file_holders"
