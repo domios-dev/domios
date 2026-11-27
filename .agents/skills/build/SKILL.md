@@ -151,6 +151,23 @@ Only the Dockerfile's explicit `ARCHIVE_SOURCE=ci-smoke` plus `ALLOW_CI_SMOKE=1`
 path accepts these unsigned inputs; production defaults to minisign verification.
 Run the resulting image only through `.github/workflows/docker-smoke.yml`.
 
+### Docker cloud image caching
+
+`.github/workflows/cloud-image.yml` (candidate `qa` profile) and
+`.github/workflows/release-cloud-image.yml` (signed-release production profile) build
+`docker/cloud.Dockerfile` with a job-unique Buildx `docker-container` builder removed in `always()`.
+
+- **Rust / Cargo cache (candidate only):** reuses the existing `sccache` policy (`RUSTC_WRAPPER=sccache`,
+  `CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only`, `cache-verify`/`cache-stats`/`cache-release`
+  on self-hosted; `SCCACHE_GHA_ENABLED=true` plus `actions/cache` for `~/.cargo` registry/git on hosted).
+  Hosted candidate jobs drop `src-tauri/target` and `cli/target` after archiving `target/cloud-qa/archives`
+  so the Docker build has headroom. Release cloud-image jobs invoke no compiler.
+- **Docker layer cache:** both runners read/write the registry cache
+  `ghcr.io/domios-dev/domios-cloud:buildcache-amd64` (`mode=max`) using `GITHUB_TOKEN` (`packages: write`).
+  Self-hosted release runners additionally persist a local Buildx cache at
+  `/tmp/domios-ci/buildx-cache/domios-cloud` (outside the checkout and Cargo target trees, beside
+  `/tmp/domios-ci/checkout`), swapped atomically on build success.
+
 ## Debug staging without runtime launch
 
 Native Neighbor Firestore uses Google TLS for cloud targets. Only the existing

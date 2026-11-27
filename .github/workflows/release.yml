@@ -37,6 +37,7 @@ permissions:
   actions: read
   contents: write
   issues: write
+  packages: write
   pull-requests: write
 
 # Release-push cancellation is owned by CI; publication serializes without cancelling.
@@ -504,6 +505,18 @@ jobs:
       promote_run_id: ${{ needs.prepare.outputs.promote_run_id }}
       test_waiver: ${{ needs.prepare.outputs.test_waiver }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+    secrets: inherit
+
+  cloud-image:
+    name: release cloud image
+    needs: [prepare, release-manifest]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && needs.release-manifest.result == 'success' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    uses: ./.github/workflows/release-cloud-image.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
     secrets: inherit
 
   frontend:
