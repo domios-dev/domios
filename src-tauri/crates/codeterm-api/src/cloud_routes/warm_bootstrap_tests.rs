@@ -6,8 +6,10 @@ use axum::{
 };
 use codeterm_service_core::{
     mesh::{
-        account_mesh::AccountPresence,
-        crown::{generate_peer_keypair, sign_request_with_origin, AuthenticatedOrigin},
+        crown::{
+            generate_peer_keypair, sign_request_with_agent, sign_request_with_origin,
+            AuthenticatedAgent, AuthenticatedOrigin,
+        },
         types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION},
     },
     multiplexer::state::MultiplexerState,
@@ -118,14 +120,6 @@ async fn peer_warm_bootstrap_enforces_authority_provenance_idempotency_and_exclu
     state.config.lock().api.token = Some("local-owner-secret".into());
 
     let target_instance_id = state.mesh.lock().status().instance_id.clone();
-    {
-        let mut mesh = state.mesh.lock();
-        let mut account = mesh.account_state().clone();
-        account.presence = AccountPresence::SignedIn {
-            account_id: "acct-same-owner".into(),
-        };
-        mesh.apply_account_state(account);
-    }
 
     let (full_priv, full_pub) = generate_peer_keypair();
     state.mesh.lock().insert_account_peer_for_test(PairedPeer {
@@ -167,6 +161,14 @@ async fn peer_warm_bootstrap_enforces_authority_provenance_idempotency_and_exclu
         last_active_ms: None,
     });
 
+    let enrolled_account_id = state
+        .mesh
+        .lock()
+        .account_state()
+        .signed_in_account()
+        .expect("insert_account_peer_for_test seeds signed-in account with own membership")
+        .to_owned();
+
     let app = routes::create_router_with_frontend(state.clone(), None);
 
     // 1. ReadOnly peer is refused (403) with zero writes.
@@ -174,7 +176,7 @@ async fn peer_warm_bootstrap_enforces_authority_provenance_idempotency_and_exclu
         sign_request_with_origin(&readonly_priv, "home-ro-peer", AuthenticatedOrigin::Owner)
             .unwrap();
     let proj_ro = sample_projection(
-        "acct-same-owner",
+        &enrolled_account_id,
         "home-ro-peer",
         &target_instance_id,
         "gen-route-1",
@@ -190,10 +192,20 @@ async fn peer_warm_bootstrap_enforces_authority_provenance_idempotency_and_exclu
     assert_eq!(status, StatusCode::FORBIDDEN);
 
     // 2. Full peer with Agent origin is refused (403) with zero writes.
-    let agent_token =
-        sign_request_with_origin(&full_priv, "home-full-peer", AuthenticatedOrigin::Agent).unwrap();
+    let remote_agent = AuthenticatedAgent {
+        instance_id: "home-full-peer".into(),
+        tab_id: "remote-agent-tab".into(),
+        can_spawn: false,
+    };
+    let agent_token = sign_request_with_agent(
+        &full_priv,
+        "home-full-peer",
+        AuthenticatedOrigin::Agent,
+        Some(&remote_agent),
+    )
+    .unwrap();
     let proj_ok = sample_projection(
-        "acct-same-owner",
+        &enrolled_account_id,
         "home-full-peer",
         &target_instance_id,
         "gen-route-1",
@@ -255,7 +267,7 @@ async fn peer_warm_bootstrap_enforces_authority_provenance_idempotency_and_exclu
 
     // 6. Stale generation is refused (409).
     let proj_stale = sample_projection(
-        "acct-same-owner",
+        &enrolled_account_id,
         "home-full-peer",
         &target_instance_id,
         "gen-route-2-stale",
