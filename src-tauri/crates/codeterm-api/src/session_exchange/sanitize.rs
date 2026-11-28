@@ -246,9 +246,11 @@ fn walk(value: &Value, key: &str, private: bool, schema: SchemaLocation) -> Resu
         ),
         Value::Object(object) => {
             let mut result = Map::new();
+            let prior_nonce = |field: &str| key == "prior_session_bindings" && field == "nonce";
             let is_known = |field: &str| {
                 !private
                     && (!matches!(schema, SchemaLocation::None)
+                        || prior_nonce(field)
                         || KEYS
                             .split_whitespace()
                             .chain([LEAF_SESSION_ID_KEY])
@@ -273,7 +275,7 @@ fn walk(value: &Value, key: &str, private: bool, schema: SchemaLocation) -> Resu
                     walk(
                         value,
                         field,
-                        private || opaque(field) || !known,
+                        private || opaque(field) || !known || prior_nonce(field),
                         if value.is_string() {
                             schema
                         } else {

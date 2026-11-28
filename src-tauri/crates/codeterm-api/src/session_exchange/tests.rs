@@ -15,6 +15,32 @@ pub(super) fn fixture_document() -> serde_json::Value {
 }
 
 #[test]
+fn sanitized_desk_retains_prior_binding_nonce_field_for_typed_import() {
+    let mut document = fixture_document();
+    let leaf = "/workspaces/0/tabs/0/split_tree";
+    let identity = document["snapshot"]
+        .pointer_mut(leaf)
+        .unwrap()
+        .get_mut("agent_identity")
+        .unwrap();
+    let nonce = "private-retired-binding";
+    identity["prior_session_bindings"] = json!([{"session_id":"prior-session","nonce":nonce}]);
+    let snapshot: SessionSnapshot = serde_json::from_value(document["snapshot"].clone()).unwrap();
+    let (safe, _, measurements) = capture_snapshot(&snapshot, |_| Ok(Vec::new())).unwrap();
+    let safe_leaf = safe.pointer(leaf).unwrap();
+    assert_eq!(
+        safe_leaf["agent_identity"]["prior_session_bindings"],
+        json!([{"session_id":"prior-session","nonce":"x".repeat(nonce.len())}])
+    );
+    assert_eq!(
+        measurements[0]["leaf_bytes"],
+        serde_json::to_vec(safe_leaf).unwrap().len()
+    );
+    document["snapshot"] = safe;
+    super::fixture_document(&document).unwrap();
+}
+
+#[test]
 fn failed_role_pty_export_conserves_typed_failure_and_never_reads_a_session() {
     let mut document = fixture_document();
     let leaf = &mut document["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"];
