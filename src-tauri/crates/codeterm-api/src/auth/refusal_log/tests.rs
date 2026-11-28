@@ -13,25 +13,25 @@ fn key(ip: &str, path: &str) -> RefusalLogKey {
 fn coalesces_repeated_refusals_within_window_and_reports_suppressed_count() {
     let mut coalescer = RefusalLogCoalescer::new(10_000, 16);
     assert_eq!(
-        coalescer.observe(key("100.96.129.45", "/api/events/stream"), 1_000),
+        coalescer.observe(key("192.0.2.45", "/api/events/stream"), 1_000),
         RefusalLogDecision::Emit { suppressed: 0 }
     );
     for tick in 1..=441 {
         assert_eq!(
-            coalescer.observe(key("100.96.129.45", "/api/events/stream"), 1_000 + tick),
+            coalescer.observe(key("192.0.2.45", "/api/events/stream"), 1_000 + tick),
             RefusalLogDecision::Suppress
         );
     }
     assert_eq!(
-        coalescer.observe(key("100.96.129.45", "/api/events/stream"), 11_000),
+        coalescer.observe(key("192.0.2.45", "/api/events/stream"), 11_000),
         RefusalLogDecision::Emit { suppressed: 441 }
     );
     assert_eq!(
-        coalescer.observe(key("100.96.129.45", "/api/events/stream"), 11_500),
+        coalescer.observe(key("192.0.2.45", "/api/events/stream"), 11_500),
         RefusalLogDecision::Suppress
     );
     assert_eq!(
-        coalescer.observe(key("100.96.129.45", "/api/events/stream"), 21_000),
+        coalescer.observe(key("192.0.2.45", "/api/events/stream"), 21_000),
         RefusalLogDecision::Emit { suppressed: 1 }
     );
 }
@@ -40,20 +40,20 @@ fn coalesces_repeated_refusals_within_window_and_reports_suppressed_count() {
 fn bounds_tracked_keys_by_evicting_expired_then_oldest() {
     let mut coalescer = RefusalLogCoalescer::new(10_000, 2);
     assert_eq!(
-        coalescer.observe(key("100.64.0.1", "/api/events/stream"), 100),
+        coalescer.observe(key("198.51.100.1", "/api/events/stream"), 100),
         RefusalLogDecision::Emit { suppressed: 0 }
     );
     assert_eq!(
-        coalescer.observe(key("100.64.0.2", "/api/events/stream"), 200),
+        coalescer.observe(key("198.51.100.2", "/api/events/stream"), 200),
         RefusalLogDecision::Emit { suppressed: 0 }
     );
     assert_eq!(
-        coalescer.observe(key("100.64.0.3", "/api/events/stream"), 300),
+        coalescer.observe(key("198.51.100.3", "/api/events/stream"), 300),
         RefusalLogDecision::Emit { suppressed: 0 }
     );
     assert_eq!(coalescer.len(), 2);
     assert_eq!(
-        coalescer.observe(key("100.64.0.1", "/api/events/stream"), 400),
+        coalescer.observe(key("198.51.100.1", "/api/events/stream"), 400),
         RefusalLogDecision::Emit { suppressed: 0 }
     );
 }

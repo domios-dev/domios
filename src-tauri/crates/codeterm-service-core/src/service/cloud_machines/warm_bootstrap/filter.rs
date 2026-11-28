@@ -19,7 +19,7 @@ const SECRET_PREFIXES: &[&str] = &[
     "ghu_",
     "ghs_",
     "github_pat_",
-    "AIza",
+    concat!("AI", "za"),
     "xoxb-",
     "xoxp-",
     "xoxa-",

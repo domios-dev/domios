@@ -354,7 +354,7 @@ class CloudArchiveTests(unittest.TestCase):
             # 1. Credential-bearing remote URL refuses eviction
             repo = cloud_home / "projects" / "app"
             orig_remote = run_git(repo, "remote", "get-url", "origin")
-            run_git(repo, "remote", "set-url", "origin", "https://user:ghp_secret@github.com/org/app.git")
+            run_git(repo, "remote", "set-url", "origin", "https://user:fixture-password@example.test/org/app.git")
             with self.assertRaises(mod.ArchiveError) as cm_cred:
                 mod.export_essentials_archive(
                     cloud_home, archive_file,

@@ -9,6 +9,8 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
+| `cloud-image-node` | unit | js | manual | no | no | 30 | glob `scripts/docker/cloud-image.test.mjs` | `node --test scripts/docker/cloud-image.test.mjs` | `packaging/docker/README.md` |
+| `cloud-container-python` | unit | python | manual | no | no | 120 | glob `docker/test_cloud_archive.py` `docker/test_fly_entrypoint.py` | `node scripts/test-catalogue.mjs run --entry cloud-container-python` | `packaging/docker/README.md` |
 | `ci-build-cancellation` | integration | js | manual | no | no | 90 | glob `scripts/ci-build-cancellation.test.mjs` | `node --test scripts/ci-build-cancellation.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `release-promotion` | unit | js | pr | no | no | 30 | glob `scripts/release-promote.test.mjs` `scripts/release-qualification-draft.test.mjs` `scripts/release-served-metadata.test.mjs` `scripts/sync-release-notes.test.mjs` | `node --test scripts/release-promote.test.mjs scripts/release-qualification-draft.test.mjs scripts/release-served-metadata.test.mjs scripts/sync-release-notes.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `windows-installer-preflight` | integration | mixed | manual | no | no | 90 | glob `tests/windows/*.Tests.ps1` | `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows/installer-preflight.Tests.ps1` | `.agents/skills/testing/SKILL.md` |

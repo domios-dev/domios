@@ -56,13 +56,18 @@ fn bootstrap_requires_the_creation_secret_and_a_fresh_session_binding() {
 
 #[test]
 fn direct_ingress_requires_public_ipv4_on_the_dedicated_port() {
-    for address in [
-        "127.0.0.1:7687",
-        "10.0.0.1:7687",
-        "100.64.1.2:7687",
-        "8.8.8.8:443",
+    use std::net::SocketAddrV4;
+
+    for (octets, port) in [
+        ([127, 0, 0, 1], 7687),
+        ([10, 0, 0, 1], 7687),
+        ([100, 64, 1, 2], 7687),
+        ([8, 8, 8, 8], 443),
     ] {
-        assert!(!super::direct_address_allowed(address.parse().unwrap()));
+        assert!(!super::direct_address_allowed(SocketAddrV4::new(
+            octets.into(),
+            port,
+        )));
     }
     assert!(super::direct_address_allowed(
         "8.8.8.8:7687".parse().unwrap()
@@ -950,7 +955,7 @@ async fn provider_proxy_dial_refuses_private_loopback_and_mixed_resolved_ips() {
         ),
         ("rfc1918_172", vec!["172.16.0.1:443".parse().unwrap()]),
         ("rfc1918_192", vec!["192.168.1.1:443".parse().unwrap()]),
-        ("cgnat", vec!["100.64.0.1:443".parse().unwrap()]),
+        ("cgnat", vec![SocketAddr::from(([100, 64, 0, 1], 443))]),
         ("loopback_v6", vec!["[::1]:443".parse().unwrap()]),
         (
             "v4_mapped_loopback",

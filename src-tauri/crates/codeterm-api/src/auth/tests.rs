@@ -826,7 +826,7 @@ async fn refusal_storm_coalesces_logs_and_does_not_block_concurrent_requests() {
         .with_state(state);
 
     let (rogue_key, _) = codeterm_service_core::mesh::crown::generate_peer_keypair();
-    let peer_addr: SocketAddr = "100.96.129.45:56834".parse().unwrap();
+    let peer_addr: SocketAddr = "192.0.2.45:56834".parse().unwrap();
     let local_addr: SocketAddr = "127.0.0.1:49000".parse().unwrap();
 
     let mut storm = tokio::task::JoinSet::new();
@@ -878,7 +878,7 @@ async fn refusal_storm_coalesces_logs_and_does_not_block_concurrent_requests() {
 
     assert_eq!(
         refusal_log::snapshot_suppressed_for_test(
-            "100.96.129.45",
+            "192.0.2.45",
             "/api/events/stream",
             "mesh-signature",
             "unknown_or_invalid_credential",
@@ -912,7 +912,7 @@ async fn mesh_signature_returns_retryable_503_while_account_admission_is_pending
 
     let (peer_key, _) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     let token = codeterm_service_core::mesh::crown::sign_request(&peer_key, "peer-rog").unwrap();
-    let peer_addr: SocketAddr = "100.96.129.45:56834".parse().unwrap();
+    let peer_addr: SocketAddr = "192.0.2.45:56834".parse().unwrap();
 
     for with_tailnet in [true, false] {
         let mut req = Request::get("/api/events/stream")
@@ -945,7 +945,7 @@ async fn mesh_signature_returns_retryable_503_while_account_admission_is_pending
 
     assert_eq!(
         refusal_log::snapshot_suppressed_for_test(
-            "100.96.129.45",
+            "192.0.2.45",
             "/api/events/stream",
             "mesh-signature",
             "mesh_not_ready",
