@@ -88,3 +88,11 @@ test("inserts a space after sentence and clause punctuation between dictated seg
   decimal.update(update(1, "", { committed: "14", final: true }));
   assert.equal(decimal.durable, "3.14");
 });
+
+test("an update spanning an engine rotation preserves commit order and discards only the preview on cancellation", () => {
+  const draft = new DictationSessionModel("one", "value 3", 7, 7);
+  draft.update(update(1, "uncommitted", { priorCommitted: [".", "14."], committed: "Next" }));
+  assert.equal(draft.durable, "value 3.14. Next");
+  draft.cancel();
+  assert.equal(draft.text, "value 3.14. Next");
+});

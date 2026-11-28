@@ -6,14 +6,16 @@ use std::{
     time::Duration,
 };
 
+use async_trait::async_trait;
 use codeterm_plugin::transcribe::{
     DictationAdmission, DictationSession, TranscribeRegistry, Transcriber,
 };
 use codeterm_types::dictation::{
-    DictationStart, DictationStartResult, DictationUpdate, MAX_AUDIO_BYTES, MAX_PCM_BYTES,
+    DictationSegment, DictationStart, DictationStartResult, DictationUpdate, MAX_PCM_BYTES,
     MAX_UPDATE_BYTES,
 };
 use parking_lot::Mutex;
+use serde::Serialize;
 use tokio::{
     sync::{mpsc, oneshot, watch},
     time::{sleep_until, Instant},
@@ -22,13 +24,27 @@ use tokio::{
 use super::ServiceContext;
 
 pub mod live_capture;
+mod rotation;
+
+use rotation::{cancelled, RotatingEngine, RotationOutput};
 
 const IDLE: Duration = Duration::from_secs(45);
-const LIFETIME: Duration = Duration::from_secs(345);
+// A stalled composer can still hold three minutes of audio in its worklet pipe.
+const COMPOSER_IDLE: Duration = Duration::from_secs(240);
 const EXCHANGE: Duration = Duration::from_secs(18);
-const MAX_FRAMES: u32 = (MAX_AUDIO_BYTES / MAX_PCM_BYTES) as u32 + 2;
 
-type ClientResult = Result<DictationUpdate, String>;
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationFrameResult {
+    #[serde(flatten)]
+    pub update: DictationUpdate,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub prior_committed: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+}
+
+type ClientResult = Result<DictationFrameResult, String>;
 type Slot = Arc<Mutex<Option<Recording>>>;
 
 #[derive(Default)]
@@ -142,7 +158,6 @@ impl DictationSessions {
         finish: bool,
     ) -> ClientResult {
         if sequence == 0
-            || sequence > MAX_FRAMES
             || pcm.is_empty() != finish
             || pcm.len() > MAX_PCM_BYTES
             || pcm.len() % 2 != 0
@@ -216,8 +231,7 @@ impl ServiceContext {
         let (reply, started) = oneshot::channel();
         tokio::spawn(async move {
             let admission = backend.start_dictation().await;
-            drop(backend);
-            let mut engine = match admission {
+            let engine = match admission {
                 DictationAdmission::Ready(engine) => engine,
                 DictationAdmission::Setup(reason) => {
                     let _ = reply.send(DictationStartResult::Setup { reason });
@@ -235,7 +249,8 @@ impl ServiceContext {
                 engine.close().await;
                 return;
             }
-            let terminal = run(&mut claim, &authority, engine.as_mut()).await;
+            let mut engine = RotatingEngine::new(backend, engine);
+            let terminal = run(&mut claim, &authority, &mut engine).await;
             engine.close().await;
             let current = !*claim.cancellation.borrow() && authority.current();
             drop(claim);
@@ -287,73 +302,113 @@ impl Authority {
     }
 }
 
+struct ComposerOutput<'a> {
+    authority: &'a Authority,
+    cancel: watch::Receiver<bool>,
+    committed: Vec<String>,
+}
+
+#[async_trait]
+impl RotationOutput for ComposerOutput<'_> {
+    fn check(&self) -> Result<(), String> {
+        if *self.cancel.borrow() || !self.authority.current() {
+            return Err("The dictation composer or plugin changed.".into());
+        }
+        Ok(())
+    }
+
+    fn cancellation(&self) -> &watch::Receiver<bool> {
+        &self.cancel
+    }
+
+    async fn accept(
+        &mut self,
+        segment: DictationSegment,
+        finished: bool,
+    ) -> Result<String, String> {
+        if !segment.committed.is_empty() {
+            self.committed.push(segment.committed);
+        }
+        if finished && !segment.provisional.is_empty() {
+            self.committed.push(segment.provisional);
+            return Ok(String::new());
+        }
+        Ok(segment.provisional)
+    }
+}
+
 async fn run(
     claim: &mut Claim,
     authority: &Authority,
-    engine: &mut dyn DictationSession,
+    engine: &mut RotatingEngine,
 ) -> Option<(oneshot::Sender<ClientResult>, ClientResult)> {
-    let expires = Instant::now() + LIFETIME;
-    let mut idle = Instant::now() + IDLE;
-    let mut next = 1;
-    let mut bytes = 0;
+    let mut next = 1u32;
+    let mut idle = Instant::now() + COMPOSER_IDLE;
     loop {
         let frame = tokio::select! {
             biased;
-            _ = claim.cancellation.changed() => return None,
-            _ = sleep_until(expires.min(idle)) => return None,
+            _ = cancelled(&mut claim.cancellation) => return None,
+            _ = sleep_until(idle) => return None,
             frame = claim.frames.recv() => frame?,
         };
-        if frame.sequence != next {
+        if frame.sequence != next || next == u32::MAX {
             let _ = frame
                 .response
                 .send(Err("The dictation frame is out of order.".into()));
             continue;
         }
-        if !authority.current() {
-            let _ = frame
-                .response
-                .send(Err("The dictation composer or plugin changed.".into()));
-            return None;
-        }
-        bytes += frame.pcm.len();
-        if bytes > MAX_AUDIO_BYTES {
-            let _ = frame
-                .response
-                .send(Err("The dictation audio limit was reached.".into()));
-            return None;
-        }
-        let segment = tokio::select! {
-            biased;
-            _ = claim.cancellation.changed() => return None,
-            _ = sleep_until(expires.min(Instant::now() + EXCHANGE)) => {
-                let _ = frame.response.send(Err("The dictation worker did not answer in time.".into()));
-                return None;
-            }
-            segment = engine.update(frame.pcm, frame.finish) => segment,
+        let mut output = ComposerOutput {
+            authority,
+            cancel: claim.cancellation.clone(),
+            committed: Vec::new(),
         };
-        let result = segment.and_then(|segment| {
-            if *claim.cancellation.borrow() || !authority.current() {
-                return Err("The dictation composer or plugin changed.".into());
+        let result = if frame.finish {
+            engine.close_standby().await;
+            engine
+                .finish_engine(&mut output)
+                .await
+                .map(|()| String::new())
+        } else {
+            engine.audio(&mut output, frame.pcm).await
+        };
+        let stopped = result.is_err();
+        let result = match result {
+            Err(reason) if output.committed.is_empty() => Err(reason),
+            result => {
+                let (provisional, stop_reason) = match result {
+                    Ok(provisional) => (provisional, None),
+                    Err(reason) => (String::new(), Some(reason)),
+                };
+                // On rotation, each engine reply retains its own transcript bound.
+                let committed = if provisional.len()
+                    + output.committed.last().map_or(0, String::len)
+                    <= MAX_UPDATE_BYTES
+                {
+                    output.committed.pop().unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                Ok(DictationFrameResult {
+                    update: DictationUpdate {
+                        session: claim.session.clone(),
+                        sequence: next,
+                        committed,
+                        provisional,
+                        is_final: frame.finish,
+                    },
+                    prior_committed: output.committed,
+                    stop_reason,
+                })
             }
-            if segment.committed.len() + segment.provisional.len() > MAX_UPDATE_BYTES {
-                return Err("The dictation worker exceeded its transcript limit.".into());
-            }
-            Ok(DictationUpdate {
-                session: claim.session.clone(),
-                sequence: next,
-                committed: segment.committed,
-                provisional: segment.provisional,
-                is_final: frame.finish,
-            })
-        });
-        if result.is_err() || frame.finish {
+        };
+        if stopped || frame.finish {
             return Some((frame.response, result));
         }
         if frame.response.send(result).is_err() {
             return None;
         }
         next += 1;
-        idle = Instant::now() + IDLE;
+        idle = Instant::now() + COMPOSER_IDLE;
     }
 }
 

@@ -468,6 +468,7 @@
   "src/components/Terminal/liveTranscriptPassages.test.ts",
   "src/components/Terminal/ComposerActionButton.test.tsx",
   "src/components/Terminal/ExpandedComposer.dictation.test.tsx",
+  "src/components/Terminal/voice/useLiveDictation.test.tsx",
   "src/components/Terminal/composerDropSurface.test.tsx",
   "src/components/Terminal/ComposerContextMeter.test.tsx",
   "src/components/Terminal/ComposerQueueTray.test.tsx",

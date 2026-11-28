@@ -6,7 +6,6 @@ import type { DictationStartResult } from "../../../gen/DictationStartResult";
 import type { DictationUpdate } from "../../../gen/DictationUpdate";
 
 export const DICTATION_PCM_BYTES = 16_000;
-export const DICTATION_LIMIT_MS = 300_000;
 
 export function remoteDictationUnavailable(tabId?: string): string | null {
   return classifyTabTarget(tabId).kind === "local" && !relayTarget()
@@ -46,12 +45,15 @@ export function createDictationTransport(session: string, tabId: string) {
   }
   async function update(sequence: number, body: string | ArrayBuffer, final: boolean, signal: AbortSignal) {
     const endpoint = `${path}/${final ? "finish" : "frame"}/${sequence}`;
-    const result = await post<DictationUpdate>(endpoint, body, signal, !final);
+    const result = await post<DictationUpdate & { priorCommitted?: string[]; stopReason?: string }>(endpoint, body, signal, !final);
     if (!result || result.session !== session || result.sequence !== sequence || result.final !== final
-      || typeof result.committed !== "string" || typeof result.provisional !== "string") {
+      || typeof result.committed !== "string" || typeof result.provisional !== "string"
+      || (result.priorCommitted !== undefined && (!Array.isArray(result.priorCommitted)
+        || result.priorCommitted.some(segment => typeof segment !== "string")))
+      || (result.stopReason !== undefined && typeof result.stopReason !== "string")) {
       throw new Error("The daemon returned an invalid dictation update.");
     }
-    return result;
+    return { update: result, stopReason: result.stopReason };
   }
   return {
     async start() {

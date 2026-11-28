@@ -4,10 +4,8 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     middleware, Json, Router,
 };
-use codeterm_service_core::service::dictation::DictationSessions;
-use codeterm_types::dictation::{
-    DictationStart, DictationStartResult, DictationUpdate, MAX_PCM_BYTES,
-};
+use codeterm_service_core::service::dictation::{DictationFrameResult, DictationSessions};
+use codeterm_types::dictation::{DictationStart, DictationStartResult, MAX_PCM_BYTES};
 
 use super::live_transcript_capture::require_direct_secure_owner;
 use crate::plugin_host_action_routes::owner_post;
@@ -63,7 +61,7 @@ async fn frame(
     Path((session, sequence)): Path<(String, u32)>,
     headers: HeaderMap,
     audio: Bytes,
-) -> Result<Json<DictationUpdate>, Refusal> {
+) -> Result<Json<DictationFrameResult>, Refusal> {
     if headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -81,7 +79,7 @@ async fn finish(
     State(state): State<AppState>,
     Path((session, sequence)): Path<(String, u32)>,
     headers: HeaderMap,
-) -> Result<Json<DictationUpdate>, Refusal> {
+) -> Result<Json<DictationFrameResult>, Refusal> {
     submit(&state, &headers, &session, sequence, Vec::new(), true).await
 }
 
@@ -92,7 +90,7 @@ async fn submit(
     sequence: u32,
     pcm: Vec<u8>,
     finish: bool,
-) -> Result<Json<DictationUpdate>, Refusal> {
+) -> Result<Json<DictationFrameResult>, Refusal> {
     let client = client(headers, session)?;
     state
         .svc

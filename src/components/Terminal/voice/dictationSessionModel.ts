@@ -1,5 +1,6 @@
-import type { DictationUpdate } from "../../../../gen/DictationUpdate";
-export type { DictationUpdate } from "../../../../gen/DictationUpdate";
+import type { DictationUpdate as GeneratedDictationUpdate } from "../../../../gen/DictationUpdate";
+
+export type DictationUpdate = GeneratedDictationUpdate & { priorCommitted?: string[] };
 
 export interface DictationEdit {
   start: number;
@@ -90,12 +91,18 @@ export class DictationSessionModel {
     if (this.closed || update.session !== this.session || update.sequence !== this.sequence + 1) return null;
     this.sequence = update.sequence;
     this.closed = update.final;
-    const committed = update.final ? [update.committed, update.provisional].filter(Boolean).join(" ") : update.committed;
     const pending = update.final ? "" : update.provisional;
-    if (!committed && !pending && !this.provisional) return;
+    if (!update.committed && !update.priorCommitted?.length && !update.provisional && !this.provisional) return;
     const before = this.visible.slice(Math.max(0, this.start - 2), this.start);
     const after = this.visible[this.end];
-    const fixed = committed && needsSpaceBetween(before, committed[0]) ? " " + committed : committed;
+    let fixed = "";
+    const commits = [...(update.priorCommitted ?? []), update.committed];
+    if (update.final) commits.push(update.provisional);
+    for (const segment of commits) {
+      if (!segment) continue;
+      if (needsSpaceBetween((before + fixed).slice(-2), segment[0])) fixed += " ";
+      fixed += segment;
+    }
     const beforePreview = fixed ? (before + fixed).slice(-2) : before;
     const preview = pending && needsSpaceBetween(beforePreview, pending[0]) ? " " + pending : pending;
     const phrase = fixed + preview;

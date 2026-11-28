@@ -3,7 +3,6 @@ use ts_rs::TS;
 
 pub const SAMPLE_RATE: u32 = 16_000;
 pub const MAX_PCM_BYTES: usize = SAMPLE_RATE as usize;
-pub const MAX_AUDIO_BYTES: usize = SAMPLE_RATE as usize * 2 * 300;
 pub const MAX_UPDATE_BYTES: usize = 8192;
 
 #[derive(Debug, Deserialize, Serialize, TS)]
