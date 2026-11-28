@@ -51,6 +51,10 @@ export function adoptStoredActions(raw: unknown): NotificationAction[] | undefin
   });
 }
 
+export function isCloudTopUpAction(action: NotificationAction): boolean {
+  return action.type === "url" && action.value === "domios://cloud/top-up";
+}
+
 export async function runNotificationAction(action: NotificationAction): Promise<void> {
   if (action.type === "url" && action.value) {
     if (action.value === "domios://cloud/top-up" || action.value === "domios://cloud/machines") {

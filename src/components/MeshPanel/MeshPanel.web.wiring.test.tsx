@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { AppConfig } from "../../lib/types";
 import { invoke } from "../../lib/bridge";
+import { applyCloudAvailability } from "../../lib/cloudMachines/availability";
 import { MeshPanel } from "./MeshPanel";
 import { webUiSnapshot } from "./webUiFixture.testdata";
 import { GeneralInventorySections } from "../Sidebar/GeneralInventory";
@@ -86,7 +87,7 @@ it("opens machine management on request and returns to Mesh inventory on the nex
             config={config}
             onConfigUpdate={async () => {}}
             onClose={() => {}}
-            tabRequest={{ tab, cloudTopUp, seq: 4 }}
+            tabRequest={{ tab, cloudTopUp, newMachine: tab === "inventory", seq: 4 }}
             onCloudTopUpOpened={onCloudTopUpOpened}
           />
         </AccountMeshClientProvider>
@@ -102,11 +103,18 @@ it("opens machine management on request and returns to Mesh inventory on the nex
     await navigate("inventory");
     expect(host.querySelector('section[aria-label="My machines"]')).toBeNull();
     expect(host.querySelector('[aria-label="Mesh UI"]')).not.toBeNull();
+    const slot = host.querySelector('[aria-label="New machine"]');
+    expect(slot?.querySelectorAll('[role="radio"]')).toHaveLength(1);
     await navigate("inventory", true);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(onCloudTopUpOpened).not.toHaveBeenCalled();
+    await act(async () => applyCloudAvailability(true));
+    expect(slot?.querySelectorAll('[role="radio"]')).toHaveLength(2);
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Top up cloud hours");
     expect(onCloudTopUpOpened).toHaveBeenCalledExactlyOnceWith(4);
   } finally {
     await act(async () => root.unmount());
+    applyCloudAvailability(false);
     host.remove();
   }
 });

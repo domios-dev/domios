@@ -573,7 +573,7 @@ impl std::fmt::Display for CloudError {
             Self::ImplicitCreateRefused => {
                 write!(
                     f,
-                    "no existing cloud machine is available for reuse; create one explicitly with `domios mesh cloud create` or `--cloud new`"
+                    "no existing cloud machine is available for reuse"
                 )
             }
             Self::MachineNotFound(target) => write!(f, "cloud machine not found: {target}"),

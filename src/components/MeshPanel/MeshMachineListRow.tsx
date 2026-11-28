@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ExternalLink, Moon, Pencil, Play, SlidersHorizontal } from "lucide-react";
 import { cloudHoursStatus } from "../../lib/cloudMachines/usageModel";
+import { cloudMachineLifecycleActions } from "../../lib/cloudMachines/stateModel";
 import { appVersion } from "../../lib/buildStamp";
 import { LOCAL_MACHINE_ID } from "../../lib/machinePlacement";
 import { machineLabel, UNKNOWN_MACHINE } from "../../lib/machineIdentity";
@@ -182,10 +183,12 @@ export function MeshMachineListRow({
     }
   };
 
-  const hoursStatus = row.isCloud && row.cloudMachine
+  const topUp = cloud?.onTopUpMachine;
+  const hoursStatus = row.isCloud && row.cloudMachine && topUp
     ? cloudHoursStatus(row.cloudUsage, row.cloudState === "out_of_credits")
     : null;
   const archiving = row.storageTier === "evicting";
+  const cloudActions = row.cloudState && cloudMachineLifecycleActions(row.cloudState, archiving, Boolean(topUp));
 
   const menuItems: DropdownMenuEntry[] = [];
   if (row.canOpen) {
@@ -197,7 +200,7 @@ export function MeshMachineListRow({
   }
   if (row.isCloud && row.cloudMachine && cloud) {
     const cm = row.cloudMachine;
-    if ((row.cloudState === "awake" || row.cloudState === "draining") && cloud.onSleepMachine) {
+    if (cloudActions && cloudActions.sleep && cloud.onSleepMachine) {
       menuItems.push({
         label: "Sleep",
         icon: <Moon size={13} aria-hidden="true" />,
@@ -205,7 +208,7 @@ export function MeshMachineListRow({
         onClick: () => { void cloud.onSleepMachine!(cm.machine_id); },
       });
     }
-    if (row.cloudState === "asleep" && !archiving && cloud.onWakeMachine) {
+    if (cloudActions && cloudActions.wake && cloud.onWakeMachine) {
       menuItems.push({
         label: "Wake",
         icon: <Play size={13} aria-hidden="true" />,
@@ -213,10 +216,10 @@ export function MeshMachineListRow({
         onClick: () => { void cloud.onWakeMachine!(cm.machine_id); },
       });
     }
-    if (hoursStatus) {
+    if (hoursStatus && topUp) {
       menuItems.push({
         label: "Top up",
-        onClick: () => cloud.onTopUpMachine(cm),
+        onClick: () => topUp(cm),
       });
     }
   }
@@ -298,13 +301,13 @@ export function MeshMachineListRow({
     }
     if (row.isCloud && row.cloudMachine && cloud) {
       const cm = row.cloudMachine;
-      if (hoursStatus) {
-        return { label: "Top up", tone: "accent" as const, hoverOnly: false, onClick: () => cloud.onTopUpMachine(cm) };
+      if (hoursStatus && topUp) {
+        return { label: "Top up", tone: "accent" as const, hoverOnly: false, onClick: () => topUp(cm) };
       }
-      if ((row.cloudState === "awake" || row.cloudState === "draining") && cloud.onSleepMachine) {
+      if (cloudActions && cloudActions.sleep && cloud.onSleepMachine) {
         return { label: "Sleep", tone: "ghost" as const, hoverOnly: false, onClick: () => { void cloud.onSleepMachine!(cm.machine_id); } };
       }
-      if (row.cloudState === "asleep" && !archiving && cloud.onWakeMachine) {
+      if (cloudActions && cloudActions.wake && cloud.onWakeMachine) {
         return { label: "Wake", tone: "ghost" as const, hoverOnly: false, onClick: () => { void cloud.onWakeMachine!(cm.machine_id); } };
       }
     }

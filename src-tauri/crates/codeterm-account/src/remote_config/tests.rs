@@ -20,3 +20,19 @@ fn only_the_exact_string_true_enables_purchases() {
         assert!(!purchases_enabled_in(&response), "{response}");
     }
 }
+
+#[test]
+fn cloud_machines_default_closed_and_require_the_exact_string_true() {
+    assert!(cloud_machines_enabled_in(
+        &json!({"entries": {"cloud_machines_enabled": "true"}})
+    ));
+    for response in [
+        json!({"entries": {"cloud_machines_enabled": "false"}}),
+        json!({"entries": {"cloud_machines_enabled": true}}),
+        json!({"entries": {"cloud_machines_enabled": "TRUE"}}),
+        json!({"entries": {"purchases_enabled": "true"}}),
+        Value::Null,
+    ] {
+        assert!(!cloud_machines_enabled_in(&response), "{response}");
+    }
+}

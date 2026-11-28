@@ -173,10 +173,11 @@ function machineRate(
 export function cloudMachineCardView(
   machine: Pick<CloudReceipt | CloudCostSummary, "size" | "state" | "rate_per_hour">,
   usage?: CloudUsagePayload | null,
+  commerceEnabled = false,
 ): CloudMachineView {
   const sizeMeta = machine.size.toLowerCase();
   const sizeLabel = sizeTitle(machine.size);
-  const rate = machineRate(machine, usage);
+  const rate = commerceEnabled ? machineRate(machine, usage) : null;
   const rateLabel = rate ? formatHourlyRate(rate.amount, rate.currency) : null;
 
   switch (machine.state) {
@@ -264,16 +265,16 @@ export function cloudMachineCardView(
         dimCard: false,
         tileMuted: true,
         edgeKind: "dashed",
-        listStatus: "asleep, out of cloud hours",
+        listStatus: commerceEnabled ? "asleep, out of cloud hours" : "asleep",
         listIcon: "moon",
         listOnline: false,
-        blockedCard: {
+        blockedCard: commerceEnabled ? {
           title: "Out of cloud hours",
           body: `Your files and held message are waiting. ${ratePart}`,
           leftLabel: `${formatCreditHours(usage?.remaining ?? 0)} left`,
           ctaLabel: "Top up to wake",
-        },
-        drawerStatusLabel: "Out of cloud hours",
+        } : null,
+        drawerStatusLabel: commerceEnabled ? "Out of cloud hours" : "Asleep",
         drawerStatusTone: "muted",
       };
     }
@@ -326,13 +327,22 @@ export function cloudMachineCardView(
   }
 }
 
-export type CloudCreateDecision = "create" | "free_paywall" | "top_up";
+export type CloudCreateDecision = "create" | "free_paywall" | "top_up" | "unavailable";
+
+export function cloudMachineLifecycleActions(state: CloudLifecycleState, evicting: boolean, commerceEnabled: boolean) {
+  return {
+    sleep: state === "awake" || state === "draining",
+    wake: !evicting && (state === "asleep" || (!commerceEnabled && state === "out_of_credits")),
+  };
+}
 
 export function cloudCreateDecision(input: {
+  enabled?: boolean;
   planId: string | null | undefined;
   remaining: number | null;
   fullAccess?: boolean;
 }): CloudCreateDecision {
+  if (input.enabled !== true) return "unavailable";
   if (!input.fullAccess && (!input.planId || input.planId === "free")) {
     return input.remaining !== null && input.remaining > 0 ? "create" : "free_paywall";
   }

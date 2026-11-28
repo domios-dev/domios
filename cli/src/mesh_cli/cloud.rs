@@ -6,6 +6,7 @@ use crate::{build_local_api, local_api::LocalApiClient, read_api_config};
 #[derive(Subcommand, Debug)]
 pub enum MeshCloudAction {
     /// Create and enroll a new managed cloud machine
+    #[command(hide = true)]
     Create {
         /// Machine size profile (default: small)
         #[arg(long)]
@@ -478,7 +479,17 @@ pub fn handle_cloud(
         Ok(resp) => {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
-            crate::cmd::print::fail_http(1, status.as_u16(), &body);
+            let mut error = crate::cmd::print::CliError::http(status.as_u16(), &body);
+            if let Some(message) = error
+                .data
+                .as_ref()
+                .and_then(|value| value.get("error"))
+                .filter(|error| error["code"] == "cloud_machines_unavailable")
+                .and_then(|error| error["message"].as_str())
+            {
+                error.message = message.to_owned();
+            }
+            crate::cmd::print::fail_with(1, &error);
         }
         Err(error) => crate::cmd::print::fail(1, error.to_string()),
     }

@@ -3,6 +3,7 @@ import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
 import { listen } from "../../lib/bridge";
 import { onResync } from "../../lib/resync";
+import { applyCloudAvailability } from "../../lib/cloudMachines/availability";
 import { applyAccountPurchaseSwitch } from "../billing/purchaseSwitch";
 import { accountFailure, accountModel, accountLoginPath, type LoginHint, type AccountModel, type AccountStatus, type SignInFailure, type SignInStage } from "./accountModel";
 
@@ -61,9 +62,13 @@ export function useAccount(onSignOutFailure?: (message: string) => void) {
     const refresh = () => {
       const generation = ++active.current;
       request<AccountStatus>("/api/account/status", { signal: controller.signal }).then((status) => {
-        if (!controller.signal.aborted && generation === active.current) applyStatus(status);
+        if (!controller.signal.aborted && generation === active.current) {
+          applyCloudAvailability(status.cloud_machines_enabled);
+          applyStatus(status);
+        }
       }).catch((error: unknown) => {
         if (controller.signal.aborted || generation !== active.current) return;
+        applyCloudAvailability(false);
         if (DEV_BUILD) console.debug("Background account status refresh failed", error);
         setModel((current) => current.kind === "pending" ? { kind: "signed_out" } : current);
       });

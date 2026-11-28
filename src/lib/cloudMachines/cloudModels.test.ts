@@ -5,6 +5,7 @@ import {
   cloudCreateDecision,
   cloudFailurePresentation,
   cloudMachineCardView,
+  cloudMachineLifecycleActions,
   cloudSizeOptions,
   formatCloudUptime,
   formatCreditHours,
@@ -77,6 +78,7 @@ describe("cloudMachineCardView", () => {
     const ooc = cloudMachineCardView(
       { size: "small", state: "out_of_credits", rate_per_hour: { amount: 0.2, currency: "USD", credits_per_hour: 1 } },
       { ...SAMPLE_USAGE, remaining: 0, purchased: 0 },
+      true,
     );
     expect(ooc.footerLabel).toBe("Asleep");
     expect(ooc.blockedCard?.title).toBe("Out of cloud hours");
@@ -91,14 +93,30 @@ describe("cloudMachineCardView", () => {
   });
 
   it("routes Create machine by plan and balance, and maps typed create failures to one action", () => {
-    expect(cloudCreateDecision({ planId: "free", remaining: 0 })).toBe("free_paywall");
-    expect(cloudCreateDecision({ planId: "free", remaining: 25 })).toBe("create");
-    expect(cloudCreateDecision({ planId: "free", remaining: 0, fullAccess: true })).toBe("top_up");
-    expect(cloudCreateDecision({ planId: "pro", remaining: 0 })).toBe("top_up");
-    expect(cloudCreateDecision({ planId: "pro", remaining: 3.8 })).toBe("create");
+    expect(cloudCreateDecision({ enabled: true, planId: "free", remaining: 0 })).toBe("free_paywall");
+    expect(cloudCreateDecision({ enabled: true, planId: "free", remaining: 25 })).toBe("create");
+    expect(cloudCreateDecision({ enabled: true, planId: "free", remaining: 0, fullAccess: true })).toBe("top_up");
+    expect(cloudCreateDecision({ enabled: true, planId: "pro", remaining: 0 })).toBe("top_up");
+    expect(cloudCreateDecision({ enabled: true, planId: "pro", remaining: 3.8 })).toBe("create");
     expect(cloudFailurePresentation("credits_exhausted").action).toBe("top_up");
     expect(cloudFailurePresentation("limit_reached").action).toBe("upgrade");
     expect(cloudFailurePresentation("provider_unavailable").action).toBe("retry");
+  });
+
+  it("defaults creation closed and keeps existing machine lifecycle actions on either setting", () => {
+    expect(cloudCreateDecision({ planId: "pro", remaining: 25 })).toBe("unavailable");
+    expect(cloudCreateDecision({ enabled: false, planId: "pro", remaining: 25 })).toBe("unavailable");
+
+    for (const enabled of [true, false]) {
+      expect(cloudMachineLifecycleActions("asleep", false, enabled)).toEqual({ sleep: false, wake: true });
+      expect(cloudMachineLifecycleActions("awake", false, enabled)).toEqual({ sleep: true, wake: false });
+      expect(cloudMachineLifecycleActions("asleep", true, enabled).wake).toBe(false);
+    }
+    const exhausted = cloudMachineCardView({ size: "small", state: "out_of_credits" }, SAMPLE_USAGE);
+    expect(exhausted.listStatus).toBe("asleep");
+    expect(exhausted.rateLabel).toBeNull();
+    expect(exhausted.blockedCard).toBeNull();
+    expect(cloudMachineLifecycleActions("out_of_credits", false, false).wake).toBe(true);
   });
 
   it("derives sizes and rates from backend data without hardcoding commercial prices", () => {

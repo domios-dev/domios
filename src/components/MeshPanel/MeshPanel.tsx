@@ -9,6 +9,7 @@ import type { MeshTab } from "./types";
 import { MeshCanvas, type CanvasCloud, type RecentPush } from "./MeshCanvas";
 import { useCloudMachines } from "./useCloudMachines";
 import { cloudHoursPurchasedEvent } from "../../lib/cloudMachines/analytics";
+import { useCloudMachinesEnabled } from "../../lib/cloudMachines/availability";
 import { cloudCreateDecision, type CloudFailurePresentation } from "../../lib/cloudMachines/stateModel";
 import type { TopUpMode } from "../../lib/cloudMachines/topUpModel";
 import type { CloudReceipt } from "../../lib/cloudMachines/types";
@@ -65,6 +66,7 @@ interface Props {
 export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: Props) {
   const touchUi = useTouchOptimizedUi();
   const account = useMeshAccount();
+  const cloudEnabled = useCloudMachinesEnabled();
   const accountPlan = useAccountPlan(account.presence === "signed_in" ? (account.uid ?? null) : null);
   const connecting = useMeshConnections(config.mesh.enabled);
   const goOnline = useCallback(async () => {
@@ -176,10 +178,10 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
   const [meshAnnouncement, setMeshAnnouncement] = useState("");
   const [topUpDialog, setTopUpDialog] = useState<{ mode: TopUpMode; machine?: CloudReceipt; size?: string } | null>(null);
   useEffect(() => {
-    if (!tabRequest?.cloudTopUp) return;
+    if (!cloudEnabled || !tabRequest?.cloudTopUp) return;
     setTopUpDialog({ mode: "topup" });
     onCloudTopUpOpened?.(tabRequest.seq);
-  }, [tabRequest, onCloudTopUpOpened]);
+  }, [cloudEnabled, tabRequest, onCloudTopUpOpened]);
   const [pendingCheckout, setPendingCheckout] = useState<PendingCloudTopUpCheckout | null>(null);
   const [returnDialog, setReturnDialog] = useState<{
     addedHours: number;
@@ -190,6 +192,7 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
   } | null>(null);
   const cloud = useCloudMachines(
     account.presence === "signed_in" && (inventoryShown || drawerState?.kind === "cloud"),
+    cloudEnabled,
     refreshAll,
   );
   const machineCounts = useMemo(() => {
@@ -213,7 +216,7 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
   const isFreePlan = accountPlan.plan !== null && !accountPlan.plan.fullAccess && accountPlan.plan.plan === "free";
 
   useEffect(() => {
-    if (!pendingCheckout || !cloud.usage) return;
+    if (!cloudEnabled || !pendingCheckout || !cloud.usage) return;
     const delta = Math.round((cloud.usage.remaining - pendingCheckout.priorRemaining) * 10) / 10;
     if (delta <= 0) return;
     const checkout = pendingCheckout;
@@ -245,14 +248,16 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
         rolloverSentence: checkout.rolloverSentence,
       });
     }
-  }, [pendingCheckout, cloud]);
+  }, [cloudEnabled, pendingCheckout, cloud]);
 
   const handleCreateCloud = useCallback((size: string) => {
     const decision = cloudCreateDecision({
+      enabled: cloudEnabled,
       planId: accountPlan.plan?.plan ?? null,
       remaining: cloud.usage ? cloud.usage.remaining : null,
       fullAccess: accountPlan.plan?.fullAccess === true,
     });
+    if (decision === "unavailable") return;
     if (decision === "free_paywall") {
       setTopUpDialog({ mode: "free", size });
       return;
@@ -263,9 +268,10 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
     }
     setSlotOpen(false);
     void cloud.create(size);
-  }, [accountPlan.plan, cloud]);
+  }, [accountPlan.plan, cloud, cloudEnabled]);
 
   const handleCloudFailureAction = useCallback((action: CloudFailurePresentation["action"]) => {
+    if (!cloudEnabled) return;
     if (action === "retry") {
       const size = cloud.pendingCreate?.size ?? "small";
       void cloud.create(size);
@@ -276,7 +282,7 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
       return;
     }
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
-  }, [cloud]);
+  }, [cloud, cloudEnabled]);
 
   const canvasCloud = useMemo<CanvasCloud | undefined>(() => {
     if (account.presence !== "signed_in") return undefined;
@@ -285,7 +291,7 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
       usage: cloud.usage,
       isFree: isFreePlan,
       slotOpen,
-      pendingCreate: cloud.pendingCreate,
+      pendingCreate: cloudEnabled ? cloud.pendingCreate : null,
       selectedMachineId: drawerState?.kind === "cloud" ? drawerState.machineId : null,
       busyMachineId: cloud.busyMachineId,
       onOpenSlot: () => {
@@ -293,18 +299,20 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
         setSlotOpen(true);
       },
       onCloseSlot: () => setSlotOpen(false),
-      onCreateCloud: handleCreateCloud,
+      onCreateCloud: cloudEnabled ? handleCreateCloud : undefined,
       onPairComputer: () => {
         setSlotOpen(false);
         setActiveTab("network");
       },
       onSelectMachine: (machineId) => setDrawerState({ kind: "cloud", machineId }),
-      onTopUpMachine: (machine) => setTopUpDialog({ mode: machine.state === "out_of_credits" ? "wake" : "topup", machine }),
+      onTopUpMachine: cloudEnabled
+        ? (machine) => setTopUpDialog({ mode: machine.state === "out_of_credits" ? "wake" : "topup", machine })
+        : undefined,
       onSleepMachine: cloud.sleep,
       onWakeMachine: cloud.wake,
       onFailureAction: handleCloudFailureAction,
     };
-  }, [account.presence, cloud, isFreePlan, slotOpen, drawerState, handleCreateCloud, handleCloudFailureAction]);
+  }, [account.presence, cloud, cloudEnabled, isFreePlan, slotOpen, drawerState, handleCreateCloud, handleCloudFailureAction]);
 
   const cloudDrawerControls = useMemo(() => ({
     machines: cloud.machines,
@@ -313,7 +321,9 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
     idleSleepMinutes: config.mesh.cloud_idle_sleep_minutes || 15,
     busyMachineId: cloud.busyMachineId,
     actionError: cloud.actionError,
-    onTopUp: (machine: CloudReceipt, forWake: boolean) => setTopUpDialog({ mode: forWake ? "wake" : "topup", machine }),
+    onTopUp: cloudEnabled
+      ? (machine: CloudReceipt, forWake: boolean) => setTopUpDialog({ mode: forWake ? "wake" : "topup", machine })
+      : undefined,
     onRedeem: cloud.redeem,
     onSleep: cloud.sleep,
     onArchive: cloud.archive,
@@ -322,7 +332,7 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
       const res = await cloud.remove(machineId);
       return res.ok;
     },
-  }), [cloud, accountPlan.plan?.plan, config.mesh.cloud_idle_sleep_minutes]);
+  }), [cloud, cloudEnabled, accountPlan.plan?.plan, config.mesh.cloud_idle_sleep_minutes]);
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
   const handlePeerClick = useCallback((id: string) => {
@@ -502,7 +512,7 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
           onAnnouncement={setMeshAnnouncement}
           cloudDrawer={cloudDrawerControls}
         />
-        {topUpDialog && (
+        {cloudEnabled && topUpDialog && (
           <CloudTopUpDialog
             mode={topUpDialog.mode}
             usage={cloud.usage}
@@ -514,7 +524,7 @@ export function MeshPanel({ config, onClose, tabRequest, onCloudTopUpOpened }: P
             onCheckoutStarted={(pending) => setPendingCheckout(pending)}
           />
         )}
-        {returnDialog && (
+        {cloudEnabled && returnDialog && (
           <CloudTopUpReturnDialog
             addedHours={returnDialog.addedHours}
             newBalance={returnDialog.newBalance}

@@ -15,7 +15,7 @@ import "./cloudMachines.css";
 export interface CloudMachineSlotProps {
   usage: CloudUsagePayload | null;
   isFree: boolean;
-  onCreateCloud: (size: string) => void;
+  onCreateCloud?: (size: string) => void;
   onPairComputer: () => void;
   onCancel: () => void;
 }
@@ -28,6 +28,7 @@ export function CloudMachineSlot({
   onCancel,
 }: CloudMachineSlotProps) {
   const [kind, setKind] = useState<"cloud" | "computer">("cloud");
+  const cloudSelected = Boolean(onCreateCloud) && kind === "cloud";
   const sizes = useMemo(() => cloudSizeOptions(usage), [usage]);
   const [selectedSize, setSelectedSize] = useState<string>(() => sizes[0]?.id ?? "small");
   const activeSize = sizes.find((option) => option.id === selectedSize) ?? sizes[0];
@@ -48,7 +49,7 @@ export function CloudMachineSlot({
         : "Managed cloud machine";
 
   const handlePrimary = () => {
-    if (kind === "computer") {
+    if (!cloudSelected || !onCreateCloud) {
       onPairComputer();
       return;
     }
@@ -85,11 +86,11 @@ export function CloudMachineSlot({
       </div>
 
       <div role="radiogroup" aria-label="Machine type" className="grid gap-1 px-2 pb-2 pt-0.5">
-        <button
+        {onCreateCloud && <button
           type="button"
           role="radio"
-          aria-checked={kind === "cloud"}
-          aria-selected={kind === "cloud"}
+          aria-checked={cloudSelected}
+          aria-selected={cloudSelected}
           onClick={() => setKind("cloud")}
           className="ct-machine-option min-h-[48px]"
           style={{ ["--ct-switcher-tone" as string]: "var(--ct-accent)" }}
@@ -102,18 +103,18 @@ export function CloudMachineSlot({
             </span>
             <span className="ct-machine-option__status">{cloudSubline}</span>
           </span>
-        </button>
+        </button>}
 
         <button
           type="button"
           role="radio"
-          aria-checked={kind === "computer"}
-          aria-selected={kind === "computer"}
+          aria-checked={!cloudSelected}
+          aria-selected={!cloudSelected}
           onClick={() => setKind("computer")}
           className="ct-machine-option min-h-[46px]"
           style={{ ["--ct-switcher-tone" as string]: "var(--ct-accent)" }}
         >
-          <span aria-hidden="true" className="ct-cloud-radio" data-selected={kind === "computer" ? "true" : undefined} />
+          <span aria-hidden="true" className="ct-cloud-radio" data-selected={!cloudSelected ? "true" : undefined} />
           <span className="ct-machine-option__copy">
             <span className="ct-machine-option__name">One of your computers</span>
             <span className="ct-machine-option__status">Install Domios on it and pair</span>
@@ -121,7 +122,7 @@ export function CloudMachineSlot({
         </button>
       </div>
 
-      {kind === "cloud" && (
+      {cloudSelected && (
         <div className="flex flex-wrap items-center gap-2.5 px-3.5 pb-3 pt-1">
           {sizes.length > 1 ? (
             <Segmented
@@ -145,13 +146,13 @@ export function CloudMachineSlot({
         className="flex min-h-10 items-center gap-2 border-t px-3.5 pr-2.5 text-[11px] text-[var(--ct-muted-fg)]"
         style={{ borderColor: "color-mix(in srgb, var(--ct-border) 55%, transparent)" }}
       >
-        <span className="min-w-0 flex-1 truncate tabular-nums">{footerStatus}</span>
+        <span className="min-w-0 flex-1 truncate tabular-nums">{onCreateCloud && footerStatus}</span>
         <div className="flex shrink-0 items-center gap-1.5">
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
           <Button type="button" size="sm" variant="primary" onClick={handlePrimary}>
-            {kind === "computer" ? "Continue" : "Create machine"}
+            {cloudSelected ? "Create machine" : "Continue"}
           </Button>
         </div>
       </div>

@@ -380,12 +380,29 @@ pub struct CreateCloudBody {
     pub labels: BTreeMap<String, String>,
 }
 
+fn require_cloud_creation(enabled: bool) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if enabled {
+        return Ok(());
+    }
+    Err((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+            "ok": false,
+            "error": {
+                "code": "cloud_machines_unavailable",
+                "message": "Cloud machines are not available yet",
+            }
+        })),
+    ))
+}
+
 async fn create_machine(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<CreateCloudBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_local_caller(&state, &headers)?;
+    require_cloud_creation(codeterm_account::remote_config::cloud_machines_enabled())?;
     let provisioning = resolve_provisioning(&state);
     let enrollment = BakerEnrollmentAdapter {
         svc: state.svc.clone(),
@@ -588,6 +605,9 @@ async fn resolve_machine(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_local_caller(&state, &headers)?;
     let target = CloudTarget::parse(&body.target);
+    if matches!(target, CloudTarget::New) {
+        require_cloud_creation(codeterm_account::remote_config::cloud_machines_enabled())?;
+    }
     let ctrl = state.svc.cloud_machines();
     let provisioning = resolve_provisioning(&state);
     let peer_ctrl = MeshPeerControlAdapter::new(state.clone());

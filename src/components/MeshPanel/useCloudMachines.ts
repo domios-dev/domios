@@ -89,15 +89,15 @@ export function useCloudUsage(enabled = true) {
       : current);
   }, []);
 
-  return { usage, loading, error, refresh, applyRedemption };
+  return { usage: enabled ? usage : null, loading, error, refresh, applyRedemption };
 }
 
-export function useCloudMachines(enabled: boolean, onMeshChanged?: () => void) {
+export function useCloudMachines(enabled: boolean, commerceEnabled: boolean, onMeshChanged?: () => void) {
   const [machines, setMachines] = useState<CloudReceipt[]>([]);
   const [pendingCreate, setPendingCreate] = useState<PendingCloudCreate | null>(null);
   const [busyMachineId, setBusyMachineId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const usageState = useCloudUsage(enabled);
+  const usageState = useCloudUsage(enabled && commerceEnabled);
   const listReqId = useRef(0);
 
   const refreshMachines = useCallback(async () => {

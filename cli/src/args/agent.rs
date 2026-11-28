@@ -476,8 +476,7 @@ pub enum AgentAction {
         /// never notify the user; they are reported to its parent instead.
         #[arg(long = "non-user-facing")]
         non_user_facing: bool,
-        /// Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates),
-        /// new (explicitly create subject to limit), or a cloud machine ID/name.
+        /// Target an existing Domios cloud machine by ID, name, or auto (reuse awake or wake sleeping).
         #[arg(
             long,
             value_name = "TARGET",
