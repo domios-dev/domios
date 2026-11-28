@@ -7,6 +7,7 @@ edition = "2021"
 [[example]]
 name = "blueprint_recall_eval"
 path = "../../../evals/blueprint-recall/runner/main.rs"
+required-features = ["embeddings"]
 
 [dependencies]
 codeterm-wire = { path = "../codeterm-wire" }
