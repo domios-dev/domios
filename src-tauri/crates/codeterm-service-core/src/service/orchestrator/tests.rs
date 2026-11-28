@@ -328,6 +328,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
+        regenerable_runtime_prompt: false,
         preset: None,
         resume_session_id: None,
         fork_session: false,

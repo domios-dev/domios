@@ -59,6 +59,7 @@ pub(super) fn into_params(
         planned_reasoning_effort: None,
         reasoning_effort: body.reasoning_effort,
         system_prompt: body.system_prompt,
+        regenerable_runtime_prompt: false,
         preset: body.preset,
         execution_mode: body.execution_mode,
         launch_profile: body.launch_profile,

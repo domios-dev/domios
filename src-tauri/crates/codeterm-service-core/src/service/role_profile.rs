@@ -168,6 +168,7 @@ impl SpawnAgentParams {
             reasoning_effort: json_str(params, "reasoning_effort")
                 .or_else(|| json_str(params, "reasoning-effort")),
             system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
+            regenerable_runtime_prompt: false,
             preset: json_str(params, "preset"),
             execution_mode: json_str(params, "execution_mode"),
             launch_profile: json_str(params, "launch_profile"),
