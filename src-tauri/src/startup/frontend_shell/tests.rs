@@ -918,6 +918,33 @@ fn shell_initialization_captures_diagnostics_before_any_view_and_refuses_recaptu
     assert_eq!(evaluations.get(), 1);
 }
 
+#[cfg(debug_assertions)]
+#[test]
+fn replacement_native_diagnostics_inherits_preflight_for_retained_webview() {
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    crate::install_client_startup_options(
+        app.handle(),
+        crate::ClientStartupOptions {
+            local_webview_diagnostics: crate::LocalWebviewDiagnosticsMode::RequestedPort(9481),
+        },
+    )
+    .unwrap();
+    initialize_with_preflight(app.handle(), |_| {
+        PortPreflight::evaluate(true, true, || Ok(())).with_starting_view_present(false)
+    })
+    .unwrap();
+
+    let initial = new_native_diagnostics_session(app.handle());
+    let replacement = new_native_diagnostics_session(app.handle());
+    let receipt = replacement.preflight_receipt();
+    assert_eq!(receipt, initial.preflight_receipt());
+    assert_eq!(receipt["requested_port"], 9481);
+    assert_eq!(receipt["bind_outcome"], "available");
+    assert_eq!(receipt["starting_view_present"], false);
+}
+
 #[test]
 fn frontend_shell_contract_clean_reload_gets_a_fresh_document_generation() {
     let latch = ClientRootRenderLatch::default();

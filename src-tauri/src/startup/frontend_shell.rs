@@ -53,7 +53,9 @@ pub fn application_context(
 use crate::host_ports::webview_diagnostics::CLIENT_VIEW_QUERY;
 use crate::host_ports::ClientViewGeneration;
 use crate::host_ports::{
-    webview_diagnostics::{root_generation_from_url, with_root_generation, PortPreflight},
+    webview_diagnostics::{
+        root_generation_from_url, with_root_generation, DiagnosticsSession, PortPreflight,
+    },
     ClientRootRenderLatch, ClientRootRenderWait, ServerApiAttachment, ServerApiAttachmentSlot,
 };
 use codeterm_frontend_shell::{
@@ -371,6 +373,24 @@ pub(crate) fn native_view_origins(
     origins
 }
 
+pub(crate) fn new_native_diagnostics_session(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+) -> DiagnosticsSession {
+    let mode = app
+        .try_state::<crate::ClientStartupOptions>()
+        .map(|options| options.local_webview_diagnostics)
+        .unwrap_or_default();
+    let diagnostics = DiagnosticsSession::new(mode);
+    if let (crate::LocalWebviewDiagnosticsMode::RequestedPort(port), Some(supervisor)) =
+        (mode, app.try_state::<ShellSupervisor>())
+    {
+        if let Ok(preflight) = supervisor.diagnostics_preflight.for_port(port) {
+            diagnostics.set_port_preflight(port, preflight);
+        }
+    }
+    diagnostics
+}
+
 pub fn window_created(app: &codeterm_client_shell::app_runtime::AppHandle) {
     app.state::<ShellSupervisor>().windows.send_modify(|epoch| {
         epoch.generation += 1;
@@ -446,24 +466,8 @@ pub fn create_window(
         "[frontend-shell] window creation: frontend_origin={origin:?}, daemon_origin={:?}",
         bootstrap.as_ref().map(|bootstrap| &bootstrap.origin)
     );
-    let diagnostics_preflight = match app
-        .state::<crate::ClientStartupOptions>()
-        .local_webview_diagnostics
-    {
-        crate::LocalWebviewDiagnosticsMode::Disabled => None,
-        crate::LocalWebviewDiagnosticsMode::RequestedPort(port) => {
-            Some((port, supervisor.diagnostics_preflight.for_port(port)?))
-        }
-    };
     let shell_app = app.clone();
     let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
-    if let Some((port, preflight)) = diagnostics_preflight {
-        if let Some(slot) =
-            app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
-        {
-            slot.set_diagnostics_port_preflight(port, preflight);
-        }
-    }
     if let Some(bootstrap) = bootstrap {
         let origin = origin.as_deref().ok_or("Frontend origin is missing")?;
         let supervisor = app.state::<ShellSupervisor>();
