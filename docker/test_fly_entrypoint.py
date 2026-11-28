@@ -48,7 +48,7 @@ class FlyEntrypointTests(unittest.TestCase):
             events = []
             uid_state = {"uid": 0, "gid": 0}
             fake_pw = types.SimpleNamespace(
-                pw_name="node", pw_uid=1000, pw_gid=1000, pw_dir="/home/node"
+                pw_name="node", pw_uid=1000, pw_gid=1000, pw_dir="/opt/domios-home"
             )
             fake_pwd = types.SimpleNamespace(getpwnam=lambda name: fake_pw)
             captured = {}
@@ -282,7 +282,7 @@ class FlyEntrypointTests(unittest.TestCase):
             (data_dir / "config.toml").write_bytes((REPO / "docker/cloud-config.toml").read_bytes())
 
             uid_state = {"uid": 0, "gid": 0}
-            fake_pw = types.SimpleNamespace(pw_name="node", pw_uid=1000, pw_gid=1000, pw_dir="/home/node")
+            fake_pw = types.SimpleNamespace(pw_name="node", pw_uid=1000, pw_gid=1000, pw_dir="/opt/domios-home")
             fake_pwd = types.SimpleNamespace(getpwnam=lambda name: fake_pw)
             captured = {}
             chmod_modes = []

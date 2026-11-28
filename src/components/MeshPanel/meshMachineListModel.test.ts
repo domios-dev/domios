@@ -20,7 +20,7 @@ function makePeer(instanceId: string, name: string, patch: Partial<PeerStatus> =
   return {
     instance_id: instanceId,
     name,
-    ip: "100.64.0.10",
+    ip: "203.0.113.10",
     api_port: 7685,
     online: true,
     access_level: "full",

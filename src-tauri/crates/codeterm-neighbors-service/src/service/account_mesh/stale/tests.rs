@@ -43,7 +43,7 @@ fn row(
         },
         endpoint: endpoint_expires_at.map(|expires_at| MeshEndpointObservation {
             transport: None,
-            tailnet_ip: "100.64.0.10".into(),
+            tailnet_ip: "203.0.113.10".into(),
             api_port: 7685,
             expires_at,
         }),
