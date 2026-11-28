@@ -1,6 +1,8 @@
 mod peer;
 use peer::{validate_challenge, verify_native_peer};
 mod bootstrap;
+#[cfg(any(debug_assertions, test))]
+mod dev_diagnostics;
 mod output_flow;
 mod quit;
 pub(super) mod recovery;
@@ -15,6 +17,8 @@ pub(crate) use bootstrap::{
     startup_io_error, startup_reached, startup_refused, startup_started, ClientStartupFailure,
     ClientStartupStage,
 };
+#[cfg(debug_assertions)]
+pub(crate) use dev_diagnostics::attachment_receipt as dev_attachment_receipt;
 
 pub(crate) fn record_frontend_recovery(detail: &str) {
     startup_log::record("frontend", "recovery", Some(detail), None);
@@ -708,13 +712,14 @@ impl NativeHostClient {
         if self.publish_dev_locator {
             if let Some(snapshot) = self.diagnostics_snapshot() {
                 eprintln!(
-                    "DOMIOS_DEV_NATIVE_LOCATOR {}",
-                    serde_json::json!({
-                        "snapshot": snapshot,
-                        "navigation_generation": generation.navigation,
-                        "preflight": self.diagnostics.preflight_receipt(),
-                        "origin": url.origin().ascii_serialization(),
-                    })
+                    "{}",
+                    dev_diagnostics::root_receipts(
+                        &self.ready,
+                        &snapshot,
+                        generation.navigation,
+                        self.diagnostics.preflight_receipt(),
+                        &url.origin().ascii_serialization(),
+                    )
                 );
             }
         }

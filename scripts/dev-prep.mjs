@@ -502,8 +502,12 @@ function nativeLocatorSink(options, onReady = () => {}) {
     if (partial.length > 65536) throw Error("Native DEV diagnostic line exceeds bound");
     for (const line of lines) {
       if (readinessSignal(line,option(options,"--api-port"))) {
-        attachment=JSON.parse(line.slice("DOMIOS_DEV_ATTACHMENT ".length));
-        onReady();
+        const nextAttachment=JSON.parse(line.slice("DOMIOS_DEV_ATTACHMENT ".length));
+        if (attachment && nextAttachment.client_pid !== attachment.client_pid) {
+          throw Error("Native DEV attachment client changed within the same launch");
+        }
+        if (!attachment) onReady();
+        attachment=nextAttachment;
       }
       if (line.startsWith("DOMIOS_DEV_NATIVE_LOCATOR ")) pending=line;
       if (!attachment || !pending) continue;
