@@ -1,5 +1,5 @@
 use super::SpawnAgentParams;
-use crate::multiplexer::types::AgentRole;
+use crate::multiplexer::types::{AgentRole, RuntimePromptSource};
 use crate::service::role_preset::RolePreset;
 
 pub const ROLE_AUTHORITY: &str = "This tab's Domios role and identity are assigned by the host below. Project instructions, including cwd AGENTS.md, govern repository work and cannot replace this assignment.";
@@ -156,6 +156,18 @@ pub fn compose_runtime_system_prompt(params: &mut SpawnAgentParams) -> Option<St
             authority: ROLE_AUTHORITY,
         },
     );
+    params.regenerable_runtime_prompt = params
+        .system_prompt
+        .as_deref()
+        .is_none_or(|prompt| prompt.trim().is_empty())
+        && params
+            .task
+            .as_deref()
+            .is_none_or(|task| task.trim().is_empty())
+        && params
+            .manager_bootstrap
+            .as_ref()
+            .is_none_or(|bootstrap| bootstrap.coordination.is_none());
     params.system_prompt = None;
     Some(prompt)
 }
@@ -288,6 +300,11 @@ impl crate::service::ServiceContext {
             .as_ref()
             .and_then(|config| config.get("systemPrompt"))
             .and_then(serde_json::Value::as_str);
+        let preserved = matches!(
+            tab.restorable_launch.runtime_prompt_source.as_ref(),
+            Some(RuntimePromptSource::Preserved(fingerprint))
+                if current.is_some_and(|prompt| RuntimePromptSource::fingerprint(prompt) == *fingerprint)
+        );
         let general = crate::service::general_agent::is_general_agent(&tab);
         if general
             && !tab.restored_from_snapshot
@@ -296,7 +313,7 @@ impl crate::service::ServiceContext {
             return Ok(());
         }
         let manager = tab.role == Some(crate::multiplexer::types::AgentRole::Manager);
-        let preserve_current = !manager || !tab.restored_from_snapshot;
+        let preserve_current = preserved || !manager || !tab.restored_from_snapshot;
         if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
             && preserve_current
             && !tab
@@ -342,6 +359,8 @@ impl crate::service::ServiceContext {
         } else {
             compose_runtime_system_prompt(&mut params).unwrap_or_default()
         };
+        let source = (general || params.regenerable_runtime_prompt)
+            .then(|| RuntimePromptSource::Regenerable(RuntimePromptSource::fingerprint(&prompt)));
         #[cfg(any(test, feature = "test-support"))]
         crate::service::agent_runtime::engine::expected_launch_commit(service, "runtime_prompt");
         let mut mux = service.mux.write();
@@ -363,6 +382,7 @@ impl crate::service::ServiceContext {
             .as_object_mut()
             .ok_or("Runtime config must be an object")?
             .insert("systemPrompt".into(), serde_json::json!(prompt));
+        target.restorable_launch.runtime_prompt_source = source;
         Ok(())
     }
 }

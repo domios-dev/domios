@@ -109,6 +109,9 @@ pub struct RestorableLaunchParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub identity_instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub runtime_prompt_source: Option<RuntimePromptSource>,
     #[serde(default)]
     pub permission_bypass_requested: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -166,10 +169,26 @@ impl RestorableLaunchParameters {
             && self.args.is_none()
             && self.agent_name.is_none()
             && self.identity_instructions.is_none()
+            && self.runtime_prompt_source.is_none()
             && !self.permission_bypass_requested
             && self.runtime_launch_options.is_none()
             && self.host_approval_choice.is_none()
             && self.selected_session_mode.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimePromptSource {
+    Regenerable(String),
+    Preserved(String),
+}
+
+impl RuntimePromptSource {
+    pub fn fingerprint(prompt: &str) -> String {
+        use sha2::{Digest, Sha256};
+
+        format!("{:x}", Sha256::digest(prompt.as_bytes()))
     }
 }
 

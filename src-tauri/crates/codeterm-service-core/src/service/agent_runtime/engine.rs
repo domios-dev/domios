@@ -374,7 +374,7 @@ async fn ensure_scoped(
     launch::refused_start(thread.as_deref(), saved_state.as_ref())?;
     let mut retired_cli = false;
     let mut retired_session = None;
-    let session = {
+    let (session, config) = {
         let mux = svc.mux.read();
         mux.ensure_tab_membership_mutable(tab)
             .map_err(RuntimeFailure::Refused)?;
@@ -421,7 +421,12 @@ async fn ensure_scoped(
                 retired_session = Some(old);
             }
         }
-        sessions
+        let config = if config["systemPrompt"].as_str().is_none() {
+            target.agent_runtime_config.clone().unwrap_or(Value::Null)
+        } else {
+            config
+        };
+        let session = sessions
             .entry(tab.into())
             .or_insert_with(|| {
                 let mut state = RuntimeState::unloaded(thread.clone());
@@ -482,7 +487,8 @@ async fn ensure_scoped(
                     history_retry: Mutex::new(None),
                 })
             })
-            .clone()
+            .clone();
+        (session, config)
     };
     if let Some(old) = retired_session {
         let process = old.process.lock().clone();

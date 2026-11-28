@@ -35,6 +35,7 @@ struct LayoutRow {
     tab_id: Option<String>,
     cwd: Option<String>,
     fields_json: Option<String>,
+    prompt: super::DeskPrompt,
 }
 
 pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
@@ -314,8 +315,11 @@ fn load_layouts(
 ) -> Result<HashMap<(String, Option<i64>), Vec<LayoutRow>>, StorageError> {
     let mut statement = conn
         .prepare(
-            "SELECT id, group_id, parent_id, ordinal, kind, orientation, ratio, tab_id, cwd, fields_json \
-             FROM desk_layout_nodes ORDER BY group_id, parent_id, ordinal",
+            "SELECT node.id, group_id, parent_id, ordinal, kind, orientation, ratio, tab_id, cwd, fields_json, \
+                    prompt.system_prompt, prompt.identity_instructions \
+             FROM desk_layout_nodes AS node \
+             LEFT JOIN desk_layout_prompts AS prompt ON prompt.layout_id = node.id \
+             ORDER BY group_id, parent_id, ordinal",
         )
         .map_err(|error| sqlite_error("prepare desk layout", error))?;
     let rows = statement
@@ -331,6 +335,10 @@ fn load_layouts(
                 tab_id: row.get(7)?,
                 cwd: row.get(8)?,
                 fields_json: row.get(9)?,
+                prompt: super::DeskPrompt {
+                    system_prompt: row.get(10)?,
+                    identity_instructions: row.get(11)?,
+                },
             })
         })
         .map_err(|error| sqlite_error("query desk layout", error))?;
@@ -366,7 +374,10 @@ fn build_layout(
                 .ok_or_else(|| corrupt("leaf has no typed fields"))?;
             let fields: Value = serde_json::from_str(json)
                 .map_err(|error| corrupt(format!("invalid leaf fields: {error}")))?;
-            let fields = DeskLeafFields { values: fields };
+            let fields = DeskLeafFields {
+                values: fields,
+                prompt: row.prompt.clone(),
+            };
             fields.validate()?;
             Ok(DeskLayoutNode::Leaf {
                 tab_id,

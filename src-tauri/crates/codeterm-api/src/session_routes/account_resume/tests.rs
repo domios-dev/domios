@@ -6,12 +6,10 @@ fn leaf(provider: &str, session: &str, id: &str, namespace: Option<&str>) -> Des
     DeskLayoutNode::Leaf {
         tab_id: "saved".into(),
         cwd: None,
-        fields: DeskLeafFields {
-            values: json!({
-                "agent_type":provider, "agent_session_id":session,
-                "agent_identity":{"restorable_launch":{"account_id":id,"account_namespace":namespace}}
-            }),
-        },
+        fields: DeskLeafFields::new(json!({
+            "agent_type":provider, "agent_session_id":session,
+            "agent_identity":{"restorable_launch":{"account_id":id,"account_namespace":namespace}}
+        })),
     }
 }
 

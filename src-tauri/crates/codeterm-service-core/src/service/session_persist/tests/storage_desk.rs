@@ -1,6 +1,149 @@
 use super::*;
 
 #[test]
+fn oversized_chat_backend_prompts_save_restore_and_recompose() {
+    use crate::multiplexer::{
+        state::MultiplexerState,
+        types::{AgentRole, RuntimePromptSource, TabBacking},
+    };
+    use crate::service::{orchestrator, test_fixture::ServiceFixture};
+    use codeterm_storage::{DeskLayoutNode, DeskPrompt, MAX_DESK_LEAF_BYTES};
+
+    let general_kind = codeterm_types::agent::role_kind::builtins::GENERAL_AGENT;
+    let (mut mux, general) = MultiplexerState::new();
+    let workspace = mux.create_workspace("opaque-workspace".into(), None);
+    let worker_id = mux.create_tab(&workspace.id).unwrap();
+    let opaque_id = mux.create_tab(&workspace.id).unwrap();
+    let oversized = "opaque-cache-fragment\n".repeat(MAX_DESK_LEAF_BYTES / 4);
+    for (id, role, profile) in [
+        (&general, AgentRole::Manager, Some(general_kind)),
+        (&worker_id, AgentRole::Worker, None),
+        (&opaque_id, AgentRole::Worker, None),
+    ] {
+        let tab = mux.get_tab_mut(id).unwrap();
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "fixture-provider".into(),
+            session_id: format!("thread-{id}"),
+        };
+        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_session_id = Some(format!("thread-{id}"));
+        tab.role = Some(role);
+        tab.role_profile = profile.map(str::to_owned);
+        tab.agent_runtime_config =
+            Some(serde_json::json!({"systemPrompt": oversized, "model": "fixture-model"}));
+    }
+    mux.get_tab_mut(&worker_id)
+        .unwrap()
+        .restorable_launch
+        .runtime_prompt_source = Some(RuntimePromptSource::Regenerable(
+        RuntimePromptSource::fingerprint(&oversized),
+    ));
+    let identity = "opaque-original-persona";
+    mux.get_tab_mut(&opaque_id)
+        .unwrap()
+        .restorable_launch
+        .identity_instructions = Some(identity.into());
+
+    let root = tempfile::tempdir().unwrap();
+    let authority = crate::startup::open_instance_storage_at(root.path());
+    let storage = authority.require_ready().unwrap();
+    let worker = pending_worker();
+    worker
+        .configure(WorkerMessage::InstallStorage(
+            crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
+        ))
+        .unwrap();
+    assert!(matches!(
+        worker.submit_snapshot(mux.to_session_snapshot(), SaveIntent::PreserveDesk, true),
+        Ok(Some(SaveOutcome::Saved))
+    ));
+    stop_test_worker(&worker);
+    storage.shutdown().wait(PERSISTENCE_DEADLINE).unwrap();
+    drop(authority);
+
+    let authority = crate::startup::open_instance_storage_at(root.path());
+    let storage = authority.require_ready().unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    let saved = adapter.normalized_snapshot().unwrap();
+    for id in [&general, &worker_id, &opaque_id] {
+        let saved_tab = saved
+            .workspaces
+            .iter()
+            .flat_map(|ws| &ws.tabs)
+            .find(|tab| &tab.id == id)
+            .unwrap();
+        let DeskLayoutNode::Leaf { fields, .. } = &saved_tab.layout else {
+            panic!("expected a persisted chat backend leaf");
+        };
+        fields.validate().unwrap();
+        assert_eq!(
+            fields.values["agent_identity"]["agent_runtime_config"],
+            serde_json::json!({"model":"fixture-model"})
+        );
+        assert!(fields
+            .values
+            .pointer("/agent_identity/restorable_launch/identity_instructions")
+            .is_none());
+        if id == &opaque_id {
+            assert_eq!(
+                fields.prompt.system_prompt.as_deref(),
+                Some(oversized.as_str())
+            );
+            assert_eq!(
+                fields.prompt.identity_instructions.as_deref(),
+                Some(identity)
+            );
+        } else {
+            assert_eq!(fields.prompt, DeskPrompt::default());
+        }
+    }
+
+    let restored = MultiplexerState::from_session_snapshot(&adapter.snapshot().unwrap());
+    let opaque = restored.get_tab(&opaque_id).unwrap();
+    assert_eq!(
+        opaque.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
+        oversized
+    );
+    assert_eq!(
+        opaque.restorable_launch.identity_instructions.as_deref(),
+        Some(identity)
+    );
+    let fixture = ServiceFixture::new(restored);
+    for id in [&general, &worker_id] {
+        orchestrator::ensure_tab_runtime_prompt(&fixture.service, id).unwrap();
+    }
+    let worker_prompt =
+        orchestrator::compose_runtime_system_prompt(&mut orchestrator::SpawnAgentParams {
+            role: Some(AgentRole::Worker.label().into()),
+            ..Default::default()
+        })
+        .unwrap();
+    let general_prompt = crate::service::general_agent::instructions::render_system_prompt(
+        fixture
+            .service
+            .configuration()
+            .general_agent
+            .capability_hints,
+        "fixture-provider",
+        Some(&fixture.service.mem),
+    );
+    let mux = fixture.service.mux.read();
+    for (id, expected) in [(&general, general_prompt), (&worker_id, worker_prompt)] {
+        let tab = mux.get_tab(id).unwrap();
+        assert_eq!(
+            tab.agent_session_id.as_deref(),
+            Some(format!("thread-{id}").as_str())
+        );
+        assert_eq!(
+            tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
+            expected
+        );
+        assert!(tab.pending_delivery.is_none());
+    }
+    storage.shutdown().wait(PERSISTENCE_DEADLINE).unwrap();
+}
+
+#[test]
 fn oversized_leaf_does_not_block_desk_completion() {
     use crate::session::store::SplitNodeSnapshot;
     use codeterm_storage::{DeskLayoutNode, DeskLeafFields, MAX_DESK_LEAF_BYTES};
@@ -21,7 +164,7 @@ fn oversized_leaf_does_not_block_desk_completion() {
         let fields = values.as_object_mut().unwrap();
         fields.remove("type");
         fields.remove("tab_id");
-        DeskLeafFields { values }
+        DeskLeafFields::new(values)
     };
     let workspace = &mut snapshot.workspaces[0];
     for id in ["retained", "closing"] {

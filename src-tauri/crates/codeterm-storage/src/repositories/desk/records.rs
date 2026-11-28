@@ -10,6 +10,7 @@ pub const MAX_DESK_TEAMS: usize = 4096;
 pub const MAX_DESK_LAYOUT_NODES: usize = 65_536;
 pub const MAX_DESK_LAYOUT_DEPTH: usize = 128;
 pub const MAX_DESK_LEAF_BYTES: usize = 64 * 1024;
+pub const MAX_DESK_PROMPT_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_DESK_CATALOGUE: usize = 65_536;
 
 const LEAF_FIELDS: &[&str] = &[
@@ -60,17 +61,36 @@ const LEAF_FIELDS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeskLeafFields {
     pub values: Value,
+    pub prompt: DeskPrompt,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DeskPrompt {
+    pub system_prompt: Option<String>,
+    pub identity_instructions: Option<String>,
+}
+
+impl DeskPrompt {
+    pub fn byte_len(&self) -> usize {
+        self.system_prompt.as_ref().map_or(0, String::len)
+            + self.identity_instructions.as_ref().map_or(0, String::len)
+    }
 }
 
 impl Default for DeskLeafFields {
     fn default() -> Self {
-        DeskLeafFields {
-            values: Value::Object(Default::default()),
-        }
+        Self::new(Value::Object(Default::default()))
     }
 }
 
 impl DeskLeafFields {
+    pub fn new(values: Value) -> Self {
+        Self {
+            values,
+            prompt: DeskPrompt::default(),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), StorageError> {
         self.validated_size().map(|_| ())
     }
@@ -108,7 +128,40 @@ impl DeskLeafFields {
                 format!("exceeds {MAX_DESK_LEAF_BYTES} bytes"),
             ));
         }
-        Ok(bytes)
+        let prompt_bytes = self.prompt.byte_len();
+        if prompt_bytes > MAX_DESK_PROMPT_BYTES {
+            return Err(StorageError::invalid(
+                "desk prompt",
+                format!("exceeds {MAX_DESK_PROMPT_BYTES} bytes"),
+            ));
+        }
+        if (self.prompt.system_prompt.is_some() || self.prompt.identity_instructions.is_some())
+            && (!self.values["chatbackend_plugin_id"].is_string()
+                || [
+                    "/agent_identity/agent_runtime_config",
+                    "/agent_identity/restorable_launch",
+                ]
+                .into_iter()
+                .any(|path| {
+                    self.values
+                        .pointer(path)
+                        .is_some_and(|value| !value.is_null() && !value.is_object())
+                })
+                || self
+                    .values
+                    .pointer("/agent_identity/agent_runtime_config/systemPrompt")
+                    .is_some()
+                || self
+                    .values
+                    .pointer("/agent_identity/restorable_launch/identity_instructions")
+                    .is_some())
+        {
+            return Err(StorageError::invalid(
+                "desk prompt",
+                "requires a chat backend leaf with prompt fields stored separately",
+            ));
+        }
+        Ok(bytes + prompt_bytes)
     }
 }
 
