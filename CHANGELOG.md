@@ -7,6 +7,27 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.23.4]
+
+### Highlights
+
+- Windows can install the OpenCode CLI on machines without Node.js or npm. Domios also reuses compatible CLI binaries installed by the OpenCode and Claude desktop apps. [#788](https://github.com/domios-dev/domios/issues/788)
+- Switch between Canvas and List in the machine panel. The list groups machines by status and lets you review and remove stale entries together.
+- Repeated tool calls can appear in a single expandable chat row.
+
+### Fixed
+
+- Live chat keeps messages and tool groups in transcript order when a late update changes a timestamp. Completed routed reports stay rendered while transcript replay catches up.
+- Provider setup identifies missing prerequisites and offers an official install route and a re-check.
+- Update success requires the replacement client and server to be running the target build. The native window can reattach when the server returns.
+- Remote terminal links, selection copy, and OSC 52 clipboard writes work in remote views.
+- Browser hit testing handles overlays and associated labels more reliably.
+- ACP tool calls retain terminal output after completion, render inline images without truncation corruption, and authorize local previews from reported tool locations.
+
+### Known issues
+
+- Cloud machine creation is unavailable while the server flag is off. Existing cloud machines still have wake, sleep, and delete controls.
+
 ## [1.23.3]
 
 ### Highlights
