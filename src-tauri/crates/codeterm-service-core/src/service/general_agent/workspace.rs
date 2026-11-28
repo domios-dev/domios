@@ -441,6 +441,8 @@ mod tests {
         assert!(tab.description.is_none());
         assert!(!tab.skip_snapshot);
         assert!(tab.protected);
-        assert!(crate::service::general_agent::identity::is_general_agent(tab));
+        assert!(crate::service::general_agent::identity::is_general_agent(
+            tab
+        ));
     }
 }

@@ -584,7 +584,9 @@ impl Drop for WakeLeaderGuard {
         if let Some(entry) = self.entry.take() {
             let mut result = entry.wake.result.lock();
             if result.is_none() {
-                *result = Some(Err(CloudError::ProviderUnavailable("wake cancelled".into())));
+                *result = Some(Err(CloudError::ProviderUnavailable(
+                    "wake cancelled".into(),
+                )));
             }
             drop(result);
             self.owner.in_flight.lock().remove(&entry.machine_id);

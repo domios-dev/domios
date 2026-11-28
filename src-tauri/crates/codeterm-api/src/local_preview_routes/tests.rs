@@ -1040,15 +1040,16 @@ async fn remote_non_owner_origins_cannot_prepare_read_or_check_previews_while_pe
         )
         .unwrap()
     );
-    for (label, auth) in [("agent", agent_auth.as_str()), ("service", service_auth.as_str())] {
+    for (label, auth) in [
+        ("agent", agent_auth.as_str()),
+        ("service", service_auth.as_str()),
+    ] {
         for (suffix, body) in [
             ("prepare", serde_json::json!({})),
             ("read", serde_json::json!({"path": page, "kind": "page"})),
             ("check", serde_json::json!({"paths": [page]})),
         ] {
-            let response = fixture
-                .post(&fixture.owner, suffix, body, Some(auth))
-                .await;
+            let response = fixture.post(&fixture.owner, suffix, body, Some(auth)).await;
             assert_eq!(response.status(), StatusCode::FORBIDDEN, "{label} {suffix}");
             assert_headers(&response);
         }

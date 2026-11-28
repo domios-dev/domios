@@ -800,8 +800,12 @@ async fn link_event_flushes_once_per_generation_and_never_replays_written_or_unc
         .flush_outcomes
         .lock()
         .push_back(FlushWriteOutcome::RefusedMachineSleeping);
-    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-1", peer_ctrl.as_ref())
-        .await;
+    ctrl.flush_held_sends_for_link_generation(
+        &created.machine_id,
+        "stream:gen-1",
+        peer_ctrl.as_ref(),
+    )
+    .await;
     assert_eq!(peer_ctrl.flushed_ids.lock().len(), 1);
     assert_eq!(
         ctrl.inspect_held_send(&held.send_id).unwrap().state,
@@ -809,8 +813,12 @@ async fn link_event_flushes_once_per_generation_and_never_replays_written_or_unc
     );
 
     // Duplicate event for the SAME link generation must not re-attempt flush.
-    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-1", peer_ctrl.as_ref())
-        .await;
+    ctrl.flush_held_sends_for_link_generation(
+        &created.machine_id,
+        "stream:gen-1",
+        peer_ctrl.as_ref(),
+    )
+    .await;
     assert_eq!(peer_ctrl.flushed_ids.lock().len(), 1);
 
     // New link generation flushes exactly once and delivers.
@@ -818,16 +826,24 @@ async fn link_event_flushes_once_per_generation_and_never_replays_written_or_unc
         .flush_outcomes
         .lock()
         .push_back(FlushWriteOutcome::Delivered);
-    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-2", peer_ctrl.as_ref())
-        .await;
+    ctrl.flush_held_sends_for_link_generation(
+        &created.machine_id,
+        "stream:gen-2",
+        peer_ctrl.as_ref(),
+    )
+    .await;
     assert_eq!(peer_ctrl.flushed_ids.lock().len(), 2);
     let status = ctrl.inspect_held_send(&held.send_id).unwrap();
     assert_eq!(status.state, ChatSendState::Sent);
     assert_eq!(status.correlation_id.as_deref(), Some("tok-1"));
 
     // Subsequent link generation never replays delivered send.
-    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-3", peer_ctrl.as_ref())
-        .await;
+    ctrl.flush_held_sends_for_link_generation(
+        &created.machine_id,
+        "stream:gen-3",
+        peer_ctrl.as_ref(),
+    )
+    .await;
     assert_eq!(peer_ctrl.flushed_ids.lock().len(), 2);
 
     // Uncertain write becomes submit_unconfirmed and is NEVER replayed on a newer link generation.
@@ -848,15 +864,23 @@ async fn link_event_flushes_once_per_generation_and_never_replays_written_or_unc
         .flush_outcomes
         .lock()
         .push_back(FlushWriteOutcome::Uncertain("reset after write".into()));
-    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-4", peer_ctrl.as_ref())
-        .await;
+    ctrl.flush_held_sends_for_link_generation(
+        &created.machine_id,
+        "stream:gen-4",
+        peer_ctrl.as_ref(),
+    )
+    .await;
     assert_eq!(peer_ctrl.flushed_ids.lock().len(), 3);
     assert_eq!(
         ctrl.inspect_held_send(&uncertain.send_id).unwrap().state,
         ChatSendState::Unknown
     );
-    ctrl.flush_held_sends_for_link_generation(&created.machine_id, "stream:gen-5", peer_ctrl.as_ref())
-        .await;
+    ctrl.flush_held_sends_for_link_generation(
+        &created.machine_id,
+        "stream:gen-5",
+        peer_ctrl.as_ref(),
+    )
+    .await;
     assert_eq!(peer_ctrl.flushed_ids.lock().len(), 3);
 }
 
@@ -982,7 +1006,9 @@ async fn unconfirmed_and_starting_wake_retry_once_with_same_request_id_inside_de
         .unwrap();
     prov.wake_outcomes
         .lock()
-        .push_back(Err(CloudError::ProviderUnconfirmed("adopt in flight".into())));
+        .push_back(Err(CloudError::ProviderUnconfirmed(
+            "adopt in flight".into(),
+        )));
     prov.wake_outcomes.lock().push_back(Ok(()));
     let receipt = ctrl
         .wake(&created.machine_id, &prov, peer_ctrl.as_ref(), 60_000)

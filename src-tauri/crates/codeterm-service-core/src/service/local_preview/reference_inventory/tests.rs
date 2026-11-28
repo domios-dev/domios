@@ -362,8 +362,8 @@ async fn prepare_waitable_settles_to_ready_directly_and_read_catches_up_on_appen
 }
 
 #[tokio::test]
-async fn wait_bounded_follows_newer_run_on_uncancelled_entry_and_prepare_recovers_error_after_growth()
-{
+async fn wait_bounded_follows_newer_run_on_uncancelled_entry_and_prepare_recovers_error_after_growth(
+) {
     let (fixture, tab, _) = fixture();
     let transcript = fixture.temp.path().join("own.jsonl");
     append(&transcript, "initial");

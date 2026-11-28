@@ -88,7 +88,8 @@ pub fn start_idle_driver(state: AppState) -> Option<CloudIdleDriverHandle> {
         CloudIdleDriverConfig::with_idle_window_reader(idle_window_ms)
             .with_max_awake_without_owner_reader(max_awake_without_owner_ms),
     );
-    let watcher = spawn_wake_delivery_watcher_with_shutdown(state, Some(handle.subscribe_shutdown()));
+    let watcher =
+        spawn_wake_delivery_watcher_with_shutdown(state, Some(handle.subscribe_shutdown()));
     handle.attach_auxiliary_task(watcher);
     Some(handle)
 }

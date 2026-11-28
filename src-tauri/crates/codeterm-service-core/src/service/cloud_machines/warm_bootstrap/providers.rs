@@ -110,11 +110,7 @@ fn is_usable_login_tab_candidate(
     }) {
         return false;
     }
-    if !tab
-        .cwd
-        .as_deref()
-        .is_some_and(|cwd| !cwd.trim().is_empty())
-    {
+    if !tab.cwd.as_deref().is_some_and(|cwd| !cwd.trim().is_empty()) {
         return false;
     }
     if !tab

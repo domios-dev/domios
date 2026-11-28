@@ -302,7 +302,9 @@ struct RouteTask {
 
 impl RouteTask {
     fn rearm(&self, attempt: RouteAttempt, link_nonce: impl FnOnce() -> Option<String>) {
-        let Some(ended) = self.end.lock().take() else { return };
+        let Some(ended) = self.end.lock().take() else {
+            return;
+        };
         let changed = ended.dial.attempt != attempt || ended.link_nonce != link_nonce();
         let recover = ended.attached
             || (!matches!(attempt.lifecycle, RouteLifecycle::LegacyWake { .. })

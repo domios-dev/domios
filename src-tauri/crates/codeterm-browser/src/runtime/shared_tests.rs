@@ -872,7 +872,8 @@ async fn discarding_beforeunload_target_tears_down_without_answering_dialog() {
 }
 
 #[tokio::test]
-async fn discarding_shared_beforeunload_target_refuses_without_crashing_sibling_or_dropping_lease() {
+async fn discarding_shared_beforeunload_target_refuses_without_crashing_sibling_or_dropping_lease()
+{
     let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
     let connection = FakeConnection::new();
     let launches = Arc::new(AtomicUsize::new(0));

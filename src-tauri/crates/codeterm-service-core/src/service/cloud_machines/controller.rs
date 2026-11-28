@@ -192,7 +192,10 @@ impl CloudMachineController {
             .map_err(|error| CloudError::Internal(format!("persist cloud machines: {error}")))
     }
 
-    pub(super) fn persist_wake_queue_locked(&self, queue: &CloudWakeQueue) -> Result<(), CloudError> {
+    pub(super) fn persist_wake_queue_locked(
+        &self,
+        queue: &CloudWakeQueue,
+    ) -> Result<(), CloudError> {
         let (next_seq, sends) = queue.snapshot_persisted();
         self.wake_queue_store
             .save(next_seq, &sends)

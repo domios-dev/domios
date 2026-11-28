@@ -389,13 +389,10 @@ async fn cloud_wake_positive_usage_restores_exhausted_machine() {
     home.mesh
         .lock()
         .attach_reverse_stream_for_test("cloud-inst-wake".into(), [13u8; 32]);
-    let woken = tokio::time::timeout(
-        Duration::from_secs(1),
-        wake_machine_for_use(&home, machine),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let woken = tokio::time::timeout(Duration::from_secs(1), wake_machine_for_use(&home, machine))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(woken.state, CloudLifecycleState::Awake);
     assert_eq!(provisioning.usage_calls.load(Ordering::SeqCst), 1);
     assert_eq!(provisioning.wakes.load(Ordering::SeqCst), 1);
