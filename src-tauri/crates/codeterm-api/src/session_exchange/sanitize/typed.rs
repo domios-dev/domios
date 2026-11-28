@@ -1,12 +1,24 @@
 use serde::ser::{self, Serialize, SerializeMap, SerializeSeq, SerializeStruct};
 use serde_json::{Map, Value};
 
-use super::{filler, private_key, IDS};
+use super::{filler, private_key, walk, SchemaLocation, IDS, METADATA};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Sanitizer {
     preserve_string: bool,
     typed_map_values: bool,
+    desk: bool,
+    private: bool,
+    split: bool,
+}
+
+impl Sanitizer {
+    pub(super) fn desk() -> Self {
+        Self {
+            desk: true,
+            ..Self::default()
+        }
+    }
 }
 
 type Error = serde_json::Error;
@@ -19,7 +31,12 @@ fn error(message: impl std::fmt::Display) -> Error {
 macro_rules! scalar {
     ($($method:ident($ty:ty)),* $(,)?) => {$(
         fn $method(self, value: $ty) -> Result<Value> {
-            serde::Serializer::$method(serde_json::value::Serializer, value)
+            let value = serde::Serializer::$method(serde_json::value::Serializer, value)?;
+            if self.private {
+                walk(&value, "", true, SchemaLocation::None).map_err(error)
+            } else {
+                Ok(value)
+            }
         }
     )*};
 }
@@ -95,10 +112,16 @@ impl serde::Serializer for Sanitizer {
         self,
         _: &'static str,
         _: u32,
-        _: &'static str,
-        _: &T,
+        variant: &'static str,
+        value: &T,
     ) -> Result<Value> {
-        Err(error("Unsupported plan newtype variant"))
+        if !self.desk {
+            return Err(error("Unsupported plan newtype variant"));
+        }
+        Ok(Value::Object(Map::from_iter([(
+            variant.into(),
+            value.serialize(self)?,
+        )])))
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Sequence> {
@@ -127,13 +150,13 @@ impl serde::Serializer for Sanitizer {
     }
 
     fn serialize_map(self, _: Option<usize>) -> Result<Object> {
-        let mut object = Object::new("");
+        let mut object = Object::new("", self);
         object.typed_map_values = self.typed_map_values;
         Ok(object)
     }
 
     fn serialize_struct(self, name: &'static str, _: usize) -> Result<Object> {
-        Ok(Object::new(name))
+        Ok(Object::new(name, self))
     }
 
     fn serialize_struct_variant(
@@ -187,17 +210,50 @@ pub(super) struct Object {
     name: &'static str,
     values: Map<String, Value>,
     key: Option<String>,
+    split_field: bool,
     typed_map_values: bool,
+    sanitizer: Sanitizer,
 }
 
 impl Object {
-    fn new(name: &'static str) -> Self {
+    fn new(name: &'static str, sanitizer: Sanitizer) -> Self {
         Self {
             name,
             values: Map::new(),
             key: None,
+            split_field: false,
             typed_map_values: false,
+            sanitizer,
         }
+    }
+
+    fn desk_field<T: ?Sized + Serialize>(&self, key: &str, value: &T) -> Result<Value> {
+        let private = self.sanitizer.private
+            || matches!(
+                key,
+                "nonce" | "claimed_nonce" | "runtime_launch_options" | "selected_session_mode"
+            )
+            || matches!(
+                (self.name, key),
+                ("AgentIdentitySnapshot", "agent_runtime_questions")
+                    | ("WatcherSpec", "observations" | "state")
+            )
+            || super::opaque(key)
+            || (key != super::LEAF_SESSION_ID_KEY
+                && !super::KEYS.split_whitespace().any(|field| field == key));
+        if self.name == "AgentIdentitySnapshot"
+            && matches!(key, "agent_runtime_state" | "agent_runtime_config")
+        {
+            let raw = serde_json::to_value(value)?;
+            return super::runtime_json(key, &raw).map_err(error);
+        }
+        let sanitizer = Sanitizer {
+            private,
+            preserve_string: !private && (IDS.contains(&key) || METADATA.contains(&key)),
+            split: key == "split_tree",
+            ..Sanitizer::desk()
+        };
+        value.serialize(sanitizer)
     }
 }
 
@@ -210,6 +266,11 @@ impl SerializeStruct for Object {
         key: &'static str,
         value: &T,
     ) -> Result<()> {
+        if self.sanitizer.desk {
+            let safe = self.desk_field(key, value)?;
+            self.values.insert(key.into(), safe);
+            return Ok(());
+        }
         // Serde emits internally tagged enum discriminants as ordinary struct strings.
         let tag = matches!(
             (self.name, key),
@@ -248,6 +309,7 @@ impl SerializeStruct for Object {
                 || preserve_continuation
                 || IDS.contains(&key),
             typed_map_values: self.name == "ControlLoop" && key == "agent_states",
+            ..Sanitizer::default()
         };
         self.values.insert(key.into(), value.serialize(sanitizer)?);
         Ok(())
@@ -267,7 +329,16 @@ impl SerializeMap for Object {
         let key = raw
             .as_str()
             .ok_or_else(|| error("Plan map key must be a string"))?;
-        self.key = Some(private_key(key, &self.values).map_err(error)?);
+        self.split_field =
+            self.sanitizer.split && matches!(key, "type" | "orientation" | "ratio" | "children");
+        self.key = Some(if self.split_field {
+            if self.values.contains_key(key) {
+                return Err(error("Duplicate split snapshot field"));
+            }
+            key.into()
+        } else {
+            private_key(key, &self.values).map_err(error)?
+        });
         Ok(())
     }
 
@@ -276,11 +347,17 @@ impl SerializeMap for Object {
             .key
             .take()
             .ok_or_else(|| error("Plan map value missing key"))?;
-        let safe = if self.typed_map_values {
+        let safe = if self.split_field {
+            value.serialize(Sanitizer {
+                preserve_string: matches!(key.as_str(), "type" | "orientation"),
+                split: key == "children",
+                ..Sanitizer::desk()
+            })?
+        } else if self.typed_map_values {
             value.serialize(Sanitizer::default())?
         } else {
             let raw = serde_json::to_value(value)?;
-            super::walk(&raw, "", true, super::SchemaLocation::None).map_err(error)?
+            walk(&raw, "", true, SchemaLocation::None).map_err(error)?
         };
         self.values.insert(key, safe);
         Ok(())

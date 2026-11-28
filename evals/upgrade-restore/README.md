@@ -124,6 +124,18 @@ leaf's retained agent session ID. Verification checks both session fields and th
 chat backend provider, requires a loaded app-server without a PTY, and compares
 the replayed history with the captured shape.
 
+Check required desk fields in an existing sanitized capture before booting DEV:
+
+```bash
+node evals/upgrade-restore/check-desk.mjs /tmp/upgrade-real/desk.json
+```
+
+The checker reads the file and reports missing fields across all recognizable
+typed records in one pass. It also reports positions and key sizes for masked
+fields within those records. Legacy captures can obscure the identity of an
+optional parent field, which requires inspection before any repair. This pass
+does not print values, modify the capture, or exercise the live import.
+
 With that target DEV running, stage only through the dev wrapper:
 
 ```bash

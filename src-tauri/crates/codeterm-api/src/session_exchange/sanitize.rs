@@ -21,8 +21,21 @@ pub(super) fn sanitize_plan(plan: &codeterm_types::plan::Plan) -> Result<Value, 
 }
 
 fn sanitize_record(record: &impl serde::Serialize) -> Result<Value, String> {
+    sanitize_typed(record, typed::Sanitizer::default())
+}
+
+pub(super) fn sanitize_desk(
+    snapshot: &codeterm_service_core::session::store::SessionSnapshot,
+) -> Result<Value, String> {
+    sanitize_typed(snapshot, typed::Sanitizer::desk())
+}
+
+fn sanitize_typed(
+    record: &impl serde::Serialize,
+    sanitizer: typed::Sanitizer,
+) -> Result<Value, String> {
     let safe = record
-        .serialize(typed::Sanitizer::default())
+        .serialize(sanitizer)
         .map_err(|error| error.to_string())?;
     let raw = serde_json::to_value(record).map_err(|error| error.to_string())?;
     if serde_json::to_vec(&raw)
@@ -32,12 +45,12 @@ fn sanitize_record(record: &impl serde::Serialize) -> Result<Value, String> {
             .map_err(|error| error.to_string())?
             .len()
     {
-        return Err("Plan sanitization changed the serialized size".into());
+        return Err("Typed sanitization changed the serialized size".into());
     }
     Ok(safe)
 }
 
-const KEYS: &str = "version timestamp workspaces active_workspace_id teams id name tabs active_tab_id cwd provisioned_cwd protected sort_order task_keys next_sequence issued description split_tree type purpose icon utility_created_at created_at_ms close_restore shell_profile tab_id title title_level agent_type agent_type_locked agent_session_id agent_identity role role_profile team_id parent_tab_id spawned_by_tab_id report_target_tab_id report_target_mesh_peer ownership can_spawn depth chat_view auto_approve permission_auto_confirm audience agent_session_model agent_planned_model agent_requested_model agent_provider_resolved_model model_fallback model_identity_mismatch chatbackend_plugin_id chatbackend_session_id surface watcher pending_delivery orientation ratio children agent_runtime_state agent_runtime_config agent_runtime_questions session_binding_nonce reported_session_binding_nonce agent_state turn_resume boot_stage boot_failure_reason reasoning_effort restorable_launch context_epochs prior_session_bindings task_binding roleless_tracked managed lifecycle_epoch lifecycle_operation_id plan_id task_id attempt_id spawn_handle bound_at failed_provider structured_runtime_mode context_files context_skills worker_restart captured requested_model model requested_reasoning_effort resolved_reasoning_effort args agent_name identity_instructions permission_bypass_requested host_approval_choice selected_session_moderuntime_launch_options provider_id binding_nonce mode additional_directories network_access excluded_commands personality temp_dir settings systemPrompt effort state epoch reason active_turn_started_at_ms last_turn_duration_ms session_id start_epoch actual actual_source requested source manager_tab_id manager_name manager_closed lifecycle created_at workspace_id provider messages total seq content text thinking toolName toolInput toolResult toolUseId toolFlowId blocks data kind role status nextCursor threadId turnId items openItems index cursors turns stage questions objective goal format sanitized histories measurements snapshot prompt_bytes identity_bytes leaf_bytes history_bytes history_pages record_type page_size";
+const KEYS: &str = "version timestamp workspaces active_workspace_id teams id name tabs active_tab_id cwd provisioned_cwd protected sort_order task_keys next_sequence issued description split_tree type purpose icon utility_created_at created_at_ms close_restore shell_profile tab_id title title_level agent_type agent_type_locked agent_session_id agent_identity role role_profile team_id parent_tab_id spawned_by_tab_id report_target_tab_id report_target_mesh_peer ownership can_spawn depth chat_view auto_approve permission_auto_confirm audience agent_session_model agent_planned_model agent_requested_model agent_provider_resolved_model model_fallback model_identity_mismatch chatbackend_plugin_id chatbackend_session_id surface watcher pending_delivery orientation ratio children agent_runtime_state agent_runtime_config agent_runtime_questions session_binding_nonce reported_session_binding_nonce agent_state turn_resume boot_stage boot_failure_reason reasoning_effort restorable_launch context_epochs prior_session_bindings task_binding roleless_tracked managed lifecycle_epoch lifecycle_operation_id plan_id task_id attempt_id spawn_handle bound_at failed_provider structured_runtime_mode context_files context_skills worker_restart captured requested_model model requested_reasoning_effort resolved_reasoning_effort args agent_name identity_instructions permission_bypass_requested host_approval_choice selected_session_mode runtime_launch_options provider_id binding_nonce mode additional_directories network_access excluded_commands personality temp_dir settings systemPrompt effort state epoch reason active_turn_started_at_ms last_turn_duration_ms session_id start_epoch actual actual_source requested source manager_tab_id manager_name manager_closed lifecycle created_at workspace_id provider messages total seq content text thinking toolName toolInput toolResult toolUseId toolFlowId blocks data kind role status nextCursor threadId turnId items openItems index cursors turns stage questions objective goal format sanitized histories measurements snapshot prompt_bytes identity_bytes leaf_bytes history_bytes history_pages record_type page_size";
 const IDS: &[&str] = &[
     "id",
     "tab_id",
@@ -301,6 +314,40 @@ fn walk(value: &Value, key: &str, private: bool, schema: SchemaLocation) -> Resu
     })
 }
 
+fn runtime_json(field: &str, raw: &Value) -> Result<Value, String> {
+    let Some(object) = raw.as_object() else {
+        return walk(raw, "", true, SchemaLocation::None);
+    };
+    let known = |key: &str| match field {
+        "agent_runtime_config" => key == "systemPrompt",
+        "agent_runtime_state" => matches!(key, "state" | "epoch" | "reason"),
+        _ => false,
+    };
+    let mut safe = Map::new();
+    for (key, value) in object {
+        if known(key) {
+            let preserve = match (key.as_str(), value) {
+                ("state", Value::String(state)) => matches!(
+                    state.as_str(),
+                    "loaded" | "unloaded" | "loading" | "degraded" | "refused" | "unavailable"
+                ),
+                ("epoch", Value::Number(_)) => true,
+                _ => false,
+            };
+            let value = walk(value, key, !preserve, SchemaLocation::None)?;
+            safe.insert(key.clone(), value);
+        }
+    }
+    for (key, value) in object {
+        if !known(key) {
+            let key = private_key(key, &safe)?;
+            safe.insert(key, walk(value, "", true, SchemaLocation::None)?);
+        }
+    }
+    Ok(Value::Object(safe))
+}
+
+#[cfg(test)]
 pub(super) fn sanitize(value: &Value) -> Result<Value, String> {
     let safe = walk(value, "", false, SchemaLocation::None)?;
     if serde_json::to_vec(value).map_err(|e| e.to_string())?.len()
