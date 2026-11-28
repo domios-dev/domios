@@ -261,8 +261,7 @@ fn capture_snapshot(
             "transcript":transcript}),
         );
     }
-    let safe_snapshot =
-        sanitize::sanitize(&serde_json::to_value(&snapshot).map_err(|e| e.to_string())?)?;
+    let safe_snapshot = sanitize::sanitize_desk(snapshot)?;
     let safe_histories = sanitize::sanitize_plans(&json!(histories))?;
     Ok((safe_snapshot, safe_histories, measurements))
 }

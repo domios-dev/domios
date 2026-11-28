@@ -41,6 +41,117 @@ fn sanitized_desk_retains_prior_binding_nonce_field_for_typed_import() {
 }
 
 #[test]
+fn sanitized_full_desk_preserves_typed_schema_and_masks_opaque_payloads() {
+    let mut document = fixture_document();
+    let leaf_path = "/workspaces/0/tabs/0/split_tree";
+    document["snapshot"]["workspaces"][0]["task_keys"] = json!({"prefix":"SECRET","next":42});
+    document["snapshot"]["teams"] =
+        json!([{"id":"team","created_at":10,"workspace_id":"ws","lifecycle":"active"}]);
+    let leaf = document["snapshot"].pointer_mut(leaf_path).unwrap();
+    leaf["chatbackend_plugin_id"] = json!("fixture-provider");
+    leaf["chatbackend_session_id"] = json!("history-session");
+    leaf["team_id"] = json!("team");
+    leaf["ownership"] = json!({
+        "controller_title":"private controller","controller_tab_id":"private controller tab",
+        "peer_id":"private peer id","peer_name":"private peer",
+        "team":{"id":"private team id","title":"private team"}
+    });
+    leaf["agent_identity"]["agent_runtime_config"] = json!({"systemPrompt":"private prompt","id":"private lookalike","settings":{"mode":"private mode"}});
+    leaf["agent_identity"]["agent_runtime_state"] =
+        json!({"state":"loaded","epoch":32,"reason":"private reason","id":"private lookalike"});
+    leaf["agent_identity"]["agent_runtime_questions"] =
+        json!([{"id":"private question","title":"private question title"}]);
+    leaf["agent_identity"]["description_origin"] = json!("task");
+    leaf["agent_identity"]["agent_state"] =
+        json!({"state":"question","subtype":"permission","status_line":"private status"});
+    leaf["agent_identity"]["prior_session_bindings"] =
+        json!([{"session_id":"previous-session","nonce":"private binding"}]);
+    leaf["agent_identity"]["turn_resume"] = json!({
+        "session_id":"history-session","start_epoch":"private epoch",
+        "sender":{"tab_id":"tab","label":"private sender"},
+        "settled":{"start_epoch":"private epoch","outcome":{"skipped":"private diagnostic"}}
+    });
+    leaf["agent_identity"]["restorable_launch"] = json!({
+        "selected_session_mode":"private mode",
+        "runtime_launch_options":{"provider_id":"fixture-provider","binding_nonce":"private nonce",
+            "mode":"private mode","additional_directories":["private folder"]},
+        "context_files":{"edit":["private edit"],"read":["private read"]},
+        "execution_sandbox":{"intent":"mutating","cwd":"private cwd","launch_args":["private argument"],
+            "writable_roots":["private root"],"environment":{"id":"private environment"}},
+        "worker_restart":{"attempt_id":"attempt","original_brief":"private brief","sender_tab":"tab"}
+    });
+    leaf["model_fallback"] = json!({
+        "requested_model":"fixture-model","provider_resolved_model":"fixture-model","reason":"private fallback"
+    });
+    leaf["pending_delivery"] = json!({
+        "record_id":"private record","content_digest":"private digest","channel":"system_prompt",
+        "state":"pending","attempt_provenance":{"attempt_id":"attempt","started_at_ms":42}
+    });
+    let snapshot: SessionSnapshot = serde_json::from_value(document["snapshot"].clone()).unwrap();
+    let (safe, histories, measurements) = capture_snapshot(&snapshot, |_| Ok(Vec::new())).unwrap();
+    let raw = serde_json::to_value(snapshot).unwrap();
+    assert_eq!(safe.to_string().len(), raw.to_string().len());
+    assert!(!safe.to_string().contains("private"));
+    let leaf = safe.pointer(leaf_path).unwrap();
+    let identity = &leaf["agent_identity"];
+    let launch = &identity["restorable_launch"];
+    assert_eq!(leaf["chatbackend_plugin_id"], "fixture-provider");
+    assert_eq!(leaf["agent_session_id"], "history-session");
+    assert_eq!(
+        leaf["ownership"]["team"]["id"],
+        "x".repeat("private team id".len())
+    );
+    assert_eq!(identity["description_origin"], "task");
+    assert_eq!(identity["agent_state"]["subtype"], "permission");
+    assert_eq!(
+        identity["agent_runtime_config"]["systemPrompt"],
+        "x".repeat("private prompt".len())
+    );
+    assert!(identity["agent_runtime_config"]["id"].is_null());
+    assert_eq!(identity["agent_runtime_state"]["state"], "loaded");
+    assert!(identity["agent_runtime_questions"][0]["id"].is_null());
+    assert_eq!(launch["execution_sandbox"]["intent"], "mutating");
+    assert!(launch["execution_sandbox"]["environment"]["id"].is_null());
+    assert_eq!(
+        launch["selected_session_mode"],
+        "x".repeat("private mode".len())
+    );
+    assert_eq!(
+        launch["runtime_launch_options"]["binding_nonce"],
+        "x".repeat("private nonce".len())
+    );
+    assert_eq!(histories[0]["transcript"]["status"], "captured");
+    assert_eq!(measurements[0]["leaf_bytes"], leaf.to_string().len());
+    document["snapshot"] = safe;
+    super::fixture_document(&document).unwrap();
+
+    let mut split = raw;
+    let leaf = split.pointer_mut(leaf_path).unwrap();
+    *leaf = json!({"type":"Split","orientation":"Horizontal","ratio":0.5,"children":[leaf.clone()],
+        "private extra":{"id":"private extra id"}});
+    let snapshot: SessionSnapshot = serde_json::from_value(split).unwrap();
+    let (safe, _, _) = capture_snapshot(&snapshot, |_| Ok(Vec::new())).unwrap();
+    assert_eq!(
+        safe.to_string().len(),
+        serde_json::to_vec(&snapshot).unwrap().len()
+    );
+    assert!(safe
+        .pointer(leaf_path)
+        .unwrap()
+        .get("private extra")
+        .is_none());
+    assert!(!safe.to_string().contains("private"));
+    let restored: SessionSnapshot = serde_json::from_value(safe).unwrap();
+    assert_eq!(
+        serde_json::to_value(restored)
+            .unwrap()
+            .pointer(leaf_path)
+            .unwrap()["children"][0]["type"],
+        "Leaf"
+    );
+}
+
+#[test]
 fn failed_role_pty_export_conserves_typed_failure_and_never_reads_a_session() {
     let mut document = fixture_document();
     let leaf = &mut document["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"];
