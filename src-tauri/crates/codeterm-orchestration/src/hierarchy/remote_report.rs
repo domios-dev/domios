@@ -1,4 +1,8 @@
-use super::{resolve_peer_client_by_name, ServiceContext};
+use codeterm_service_core::{
+    mesh::types::RelayCommand, service::mesh_artifacts_transfer_via, MeshStateHandle,
+};
+
+use super::ServiceContext;
 
 impl HierarchyRemoteReportExt for ServiceContext {
     fn relay_report_to_peer(
@@ -10,12 +14,13 @@ impl HierarchyRemoteReportExt for ServiceContext {
         model: Option<String>,
         body: String,
     ) {
-        let client = {
-            let mesh_handle = self.ext::<codeterm_service_core::MeshStateHandle>();
-            let mesh = mesh_handle.lock();
-            resolve_peer_client_by_name(&mesh, &peer)
-        };
-        let Some(client) = client else {
+        let mesh = self.ext::<MeshStateHandle>().clone();
+        let peer_id = mesh
+            .lock()
+            .resolve_peer(&peer)
+            .ok()
+            .map(|peer| peer.instance_id.clone());
+        let Some(peer_id) = peer_id else {
             log::warn!(
                 "[report/mesh] no paired peer named '{}' — report from {} stored only",
                 peer,
@@ -33,7 +38,7 @@ impl HierarchyRemoteReportExt for ServiceContext {
         if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
             send_body["source_model"] = serde_json::json!(m);
         }
-        let mut cmd = codeterm_service_core::mesh::types::RelayCommand {
+        let mut cmd = RelayCommand {
             method: "POST".into(),
             path: format!("/api/tabs/{}/send", target_tab),
             body: send_body,
@@ -43,13 +48,23 @@ impl HierarchyRemoteReportExt for ServiceContext {
         };
         let svc = self.clone();
         codeterm_service_core::async_runtime::spawn(async move {
-            if let Err(error) = codeterm_service_core::service::mesh_artifacts::transfer(
+            let send = |command: RelayCommand| {
+                let client = mesh.lock().client_for(&peer_id);
+                async move {
+                    let client = client.ok_or("Report peer is unavailable")?;
+                    client
+                        .send_relay(&command)
+                        .await
+                        .map_err(|error| error.to_string())
+                }
+            };
+            if let Err(error) = mesh_artifacts_transfer_via(
                 &svc,
                 Ok(Some(from_tab.clone())),
-                &client,
                 &cmd.method,
                 &cmd.path,
                 &mut cmd.body,
+                &send,
             )
             .await
             {
@@ -60,7 +75,7 @@ impl HierarchyRemoteReportExt for ServiceContext {
                 );
                 return;
             }
-            match client.send_relay(&cmd).await {
+            match send(cmd).await {
                 Ok(r) if r.ok => log::info!("[report/mesh] delivered to {}/{}", peer, target_tab),
                 Ok(r) => log::warn!(
                     "[report/mesh] {} rejected report to {}: {:?}",
