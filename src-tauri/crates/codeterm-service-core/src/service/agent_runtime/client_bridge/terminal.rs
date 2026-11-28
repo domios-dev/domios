@@ -113,9 +113,61 @@ pub(super) fn environment(
     Ok(env)
 }
 
+const TRANSCRIPT_BYTES: usize = 16 * 1024;
+
+#[derive(Default)]
+struct Capture {
+    head: Vec<u8>,
+    tail: Vec<u8>,
+    total: usize,
+}
+
+impl Capture {
+    fn append(&mut self, bytes: &[u8], limit: usize) {
+        self.total = self.total.saturating_add(bytes.len());
+        let head_limit = limit.min(TRANSCRIPT_BYTES).saturating_sub(64) / 2;
+        let count = bytes.len().min(head_limit.saturating_sub(self.head.len()));
+        self.head.extend_from_slice(&bytes[..count]);
+        self.tail.extend_from_slice(bytes);
+        if self.tail.len() > limit {
+            let mut start = self.tail.len() - limit;
+            while self.tail.get(start).is_some_and(|byte| byte & 0xc0 == 0x80) {
+                start += 1;
+            }
+            self.tail.drain(..start);
+        }
+    }
+
+    fn transcript(&self, limit: usize) -> String {
+        let budget = limit.min(TRANSCRIPT_BYTES);
+        if self.total == self.tail.len() && self.total <= budget {
+            return String::from_utf8_lossy(&self.tail).into_owned();
+        }
+        let mut head = self.head.as_slice();
+        if let Err(error) = std::str::from_utf8(head) {
+            if error.error_len().is_none() {
+                head = &head[..error.valid_up_to()];
+            }
+        }
+        let tail_limit = budget.saturating_sub(64).saturating_sub(head.len());
+        let mut start = self.tail.len().saturating_sub(tail_limit);
+        while self.tail.get(start).is_some_and(|byte| byte & 0xc0 == 0x80) {
+            start += 1;
+        }
+        let tail = &self.tail[start..];
+        format!(
+            "{}\n[{} bytes omitted]\n{}",
+            String::from_utf8_lossy(head),
+            self.total - head.len() - tail.len(),
+            String::from_utf8_lossy(tail)
+        )
+    }
+}
+
+pub(super) type OutputCallback = Arc<dyn Fn(String, Option<i64>, bool) + Send + Sync>;
+
 pub(super) struct Terminal {
-    pub output: Arc<Mutex<Vec<u8>>>,
-    pub truncated: Arc<Mutex<bool>>,
+    capture: Arc<Mutex<Capture>>,
     command_line: String,
     cwd: String,
     pid: u32,
@@ -158,7 +210,7 @@ impl Terminal {
         directory: std::fs::File,
         env: &BTreeMap<String, String>,
         on_exit: Option<Arc<tokio::sync::Notify>>,
-        on_output: Option<Arc<dyn Fn(String) + Send + Sync>>,
+        on_output: Option<OutputCallback>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(windows)]
         let resolved_program = windows::program(
@@ -222,11 +274,10 @@ impl Terminal {
         crate::service::windows_job::resume(&child)?;
         let mut stdout = child.stdout.take().ok_or("Missing terminal stdout")?;
         let mut stderr = child.stderr.take().ok_or("Missing terminal stderr")?;
-        let output = Arc::new(Mutex::new(Vec::new()));
-        let truncated = Arc::new(Mutex::new(false));
+        let capture = Arc::new(Mutex::new(Capture::default()));
         let limit = spec.output_byte_limit.unwrap_or(MAX_BYTES).min(MAX_BYTES);
-        let out = output.clone();
-        let clipped = truncated.clone();
+        let out = capture.clone();
+        let live_output = on_output.clone();
         #[cfg(test)]
         let (changed, changes) = watch::channel(());
         let reader = crate::async_runtime::spawn(async move {
@@ -244,25 +295,13 @@ impl Terminal {
                     (false, Ok(0) | Err(_)) => stderr_open = false,
                     (is_stdout, Ok(count)) => {
                         let bytes = if is_stdout { &a[..count] } else { &b[..count] };
-                        let tail = {
+                        let transcript = {
                             let mut held = out.lock();
-                            held.extend_from_slice(bytes);
-                            if held.len() > limit {
-                                let excess = held.len() - limit;
-                                held.drain(..excess);
-                                while held.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
-                                    held.remove(0);
-                                }
-                                *clipped.lock() = true;
-                            }
-                            on_output.as_ref().map(|_| {
-                                const LIVE_TAIL_BYTES: usize = 8192;
-                                let start = held.len().saturating_sub(LIVE_TAIL_BYTES);
-                                String::from_utf8_lossy(&held[start..]).into_owned()
-                            })
+                            held.append(bytes, limit);
+                            live_output.as_ref().map(|_| held.transcript(limit))
                         };
-                        if let (Some(emit), Some(text)) = (&on_output, tail) {
-                            emit(text);
+                        if let (Some(emit), Some(text)) = (&live_output, transcript) {
+                            emit(text, None, false);
                         }
                         #[cfg(test)]
                         changed.send_replace(());
@@ -288,6 +327,7 @@ impl Terminal {
                 }
             }
         });
+        let final_capture = capture.clone();
         crate::async_runtime::spawn(async move {
             #[cfg(unix)]
             tokio::select! { _ = stopping.changed() => {}, _ = &mut witnessed => {} }
@@ -314,6 +354,14 @@ impl Terminal {
                 let signal: Option<String> = None;
                 Ok(json!({"exitCode":status.code(),"signal":signal}))
             })();
+            if let Some(emit) = on_output {
+                let exit_code = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|status| status["exitCode"].as_i64());
+                let output = final_capture.lock().transcript(limit);
+                emit(output, exit_code, true);
+            }
             finished.send_replace(Some(result));
             if let Some(notify) = on_exit {
                 notify.notify_one();
@@ -332,8 +380,7 @@ impl Terminal {
             .join(" ");
         let cwd_text = codeterm_paths::strip_verbatim_prefix(&_cwd.to_string_lossy());
         Ok(Arc::new(Self {
-            output,
-            truncated,
+            capture,
             command_line,
             cwd: cwd_text,
             pid,
@@ -357,7 +404,8 @@ impl Terminal {
         self.pid
     }
     pub fn output(&self) -> Value {
-        let mut text = String::from_utf8_lossy(&self.output.lock()).into_owned();
+        let capture = self.capture.lock();
+        let mut text = String::from_utf8_lossy(&capture.tail).into_owned();
         if text.len() > self.limit {
             let mut start = text.len() - self.limit;
             while !text.is_char_boundary(start) {
@@ -365,7 +413,7 @@ impl Terminal {
             }
             text.drain(..start);
         }
-        json!({"output":text,"truncated":*self.truncated.lock(),"exitStatus":self.ended.borrow().as_ref().and_then(|result| result.as_ref().ok()).cloned()})
+        json!({"output":text,"truncated":capture.total != capture.tail.len(),"exitStatus":self.ended.borrow().as_ref().and_then(|result| result.as_ref().ok()).cloned()})
     }
     pub async fn wait(&self) -> Result<Value, String> {
         let mut ended = self.ended.clone();

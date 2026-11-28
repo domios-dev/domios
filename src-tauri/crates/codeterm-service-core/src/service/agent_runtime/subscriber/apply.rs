@@ -386,7 +386,10 @@ fn apply(
                 mux_changed = true;
             }
         }
-        RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
+        RuntimeEvent::ItemUpdated {
+            thread_id,
+            mut item,
+        } if owned(&thread_id) => {
             super::super::turn_requests::observe_item(session, &context, &item);
             if item.tool_name.as_deref() == Some("update_plan") {
                 let owner = svc.clone();
@@ -407,18 +410,12 @@ fn apply(
                     });
                 }
             }
-            let item = session.cache.lock().reconcile_live(item, at);
-            if svc.require_public_transcript_tab(&context.tab_id).is_err() {
-                return;
-            }
-            crate::flow_trace::SourceCursor::rpc(
-                &context.tab_id,
-                &session.provider,
-                &thread_id,
-                Some(&context.binding_nonce),
-                &item,
-            );
-            let origin = if live && cfg!(debug_assertions) && crate::paths::is_dev_instance() {
+            let public = svc.require_public_transcript_tab(&context.tab_id).is_ok();
+            let origin = if public
+                && live
+                && cfg!(debug_assertions)
+                && crate::paths::is_dev_instance()
+            {
                 let started = std::time::Instant::now();
                 super::super::model::responsiveness::binding(
                     &context.tab_id, Some(&thread_id), Some(&context.binding_nonce),
@@ -434,6 +431,23 @@ fn apply(
             } else {
                 None
             };
+            let terminal_maps = (item.kind == "tool_call"
+                && item.tool_background_task_id.is_some())
+            .then(|| session.maps.lock());
+            if let Some(maps) = &terminal_maps {
+                maps.project_terminal_output(&thread_id, &mut item);
+            }
+            let item = session.cache.lock().reconcile_live(item, at);
+            if !public {
+                return;
+            }
+            crate::flow_trace::SourceCursor::rpc(
+                &context.tab_id,
+                &session.provider,
+                &thread_id,
+                Some(&context.binding_nonce),
+                &item,
+            );
             crate::service::tab_chat::structured_sink::emit_live_runtime_chat_msg(
                 svc.ui.as_ref(),
                 &context.tab_id,
@@ -442,6 +456,7 @@ fn apply(
                 Some(&context.binding_nonce),
                 origin.as_ref(),
             );
+            drop(terminal_maps);
         }
         RuntimeEvent::EvidenceUpdated {
             item_id,

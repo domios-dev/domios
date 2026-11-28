@@ -1,5 +1,27 @@
-use super::{environment, Env};
+use super::{environment, Capture, Env, TRANSCRIPT_BYTES};
 use std::collections::HashMap;
+
+#[test]
+fn terminal_transcript_keeps_head_tail_and_exact_omitted_byte_count() {
+    let mut capture = Capture::default();
+    let output = format!("k6/{}!/p3", "🌍".repeat(9_000));
+    for chunk in output.as_bytes().chunks(97) {
+        capture.append(chunk, 20_000);
+    }
+    let transcript = capture.transcript(20_000);
+    let parts: Vec<_> = transcript.split('\n').collect();
+    assert_eq!(parts.len(), 3);
+    assert!(output.starts_with(parts[0]));
+    assert!(output.ends_with(parts[2]));
+    assert_eq!(
+        parts[1],
+        format!(
+            "[{} bytes omitted]",
+            output.len() - parts[0].len() - parts[2].len()
+        )
+    );
+    assert!(transcript.len() <= TRANSCRIPT_BYTES);
+}
 
 #[test]
 fn terminal_environment_strips_inherited_credentials() {

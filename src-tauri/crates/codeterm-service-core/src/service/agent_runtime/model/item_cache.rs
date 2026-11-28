@@ -216,6 +216,13 @@ impl ItemCache {
                 item.tool_kind = item.tool_kind.or_else(|| previous.tool_kind.clone());
                 item.tool_name = item.tool_name.or_else(|| previous.tool_name.clone());
                 item.tool_input = item.tool_input.or_else(|| previous.tool_input.clone());
+                item.attachments = item.attachments.or_else(|| previous.attachments.clone());
+                if item.tool_background_task_id.is_some()
+                    && item.tool_background_task_id == previous.tool_background_task_id
+                {
+                    item.tool_result = item.tool_result.or_else(|| previous.tool_result.clone());
+                    item.tool_exit_code = item.tool_exit_code.or(previous.tool_exit_code);
+                }
             }
             item.tool_started_at_ms = item
                 .tool_started_at_ms
@@ -268,19 +275,6 @@ impl ItemCache {
         self.items
             .back()
             .map_or(0, |row| row.seq.saturating_add(1).max(0) as u64)
-    }
-    pub fn patch_terminal_output(&mut self, terminal_id: &str, output: String) -> Option<ChatMsg> {
-        let index = self.items.iter().rposition(|row| {
-            row.kind == "tool_call"
-                && row.tool_status.as_deref() == Some("running")
-                && row.tool_background_task_id.as_deref() == Some(terminal_id)
-        })?;
-        if self.items[index].tool_result.as_deref() == Some(output.as_str()) {
-            return None;
-        }
-        let mut updated = self.items[index].clone();
-        updated.tool_result = Some(output);
-        Some(self.reconcile(updated))
     }
     pub fn restore_transcript(&mut self, rows: Vec<ChatMsg>) {
         for row in rows {

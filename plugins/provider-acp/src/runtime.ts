@@ -8,6 +8,7 @@ import { clientRequest, reduceStream, sessionUpdate, settleStream, streamTurnUsa
 import { pathToFileUri } from "./runtimeReduceTools";
 import { usageFromReply } from "./runtimeReducePlan";
 import { fitTextReduction } from "./runtimeReduceBudget";
+import { imageAdmission } from "./runtimeOutput";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
 import { authentication, sessionSettings, modelOption, effortOption, label, sessionModel, selectedSessionModel, configOptions } from "./runtimeControls";
 import { launchSelection } from "./launchSelection";
@@ -713,6 +714,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   if (!own.length) return {state:raw,events:prompts};
   let projection=state.projection ?? raw;
   const events:import("@codeterm/plugin-sdk").AgentEvent[]=[];
+  const admitImage=imageAdmission();
   for (const {frame,index} of own) {
     const window=ctx.streamWindow;
     const witness=window?.turnRequests?.find(request=>request.sendId === state.promptSend?.sendId);
@@ -731,7 +733,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       window.turnRequests?.some(request=>request.sendId === claim.sendId && request.written === true
         && request.afterSequence !== undefined && sequence !== undefined && sequence > request.afterSequence))};
     const claim=frameContext.claimedSends.find(claim=>claim.threadId === ctx.threadId && claim.sendId === state.promptSend?.sendId);
-    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable && claim ? {sendId:claim.sendId,input:claim.input} : undefined);
+    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable && claim ? {sendId:claim.sendId,input:claim.input} : undefined,false,admitImage);
     projection=reduced.state;events.push(...reduced.events);
   }
   const reduction={state:projection,events};

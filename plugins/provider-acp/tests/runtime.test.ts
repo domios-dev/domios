@@ -63,6 +63,48 @@ function loadHooks():AgentRuntime {
 for (const invalid of [undefined,()=>null,Symbol("opaque"),1n,NaN,Infinity,-Infinity])
   assert.throws(()=>runtimeJson({state:{nested:[invalid]},events:[]},"runtimeReduce"),/non-JSON/);
 const hooks = loadHooks();
+{
+  const context:RuntimeContext={
+    epoch:1, cwd:"/work/project", hostVersion:"1.23.3", tabId:"opaque-media", bindingNonce:"opaque-binding",
+    settings:{}, providerSettings:{}, claimedSends:[], activeTurns:[], threadParents:[],
+  };
+  const initialize={kind:"initialize"} as const;
+  const open={kind:"openThread",instructions:"",settings:{}} as const;
+  hooks.runtimeResponse(context,initialize,hooks.runtimePlan(context,initialize).state,
+    {kind:"success",value:{protocolVersion:1,agentCapabilities:{}}});
+  const threadId="opaque-thread";
+  hooks.runtimeResponse(context,open,hooks.runtimePlan(context,open).state,{kind:"success",value:{sessionId:threadId}});
+  const bound={...context,threadId};
+  const frame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:"session/update",params:{sessionId:threadId,update}});
+  const data=Buffer.alloc(192*1024,0xa7).toString("base64");
+  const overBudget=Buffer.alloc(192*1024+3,0x6e).toString("base64");
+  const image=(value:string)=>({type:"image",mimeType:"image/png",data:value});
+  const toolCallId="opaque-tool";
+  const terminal={type:"terminal",terminalId:"opaque-terminal"};
+  const rawOutput="prefix/"+ "🌍".repeat(10_000)+"/suffix";
+  const first=hooks.runtimeReduce(bound,null,[frame({
+    sessionUpdate:"tool_call",toolCallId,status:"in_progress",rawOutput,
+    content:[terminal,{type:"content",content:image(data)},{type:"content",content:image(overBudget)}],
+  })]);
+  const second=hooks.runtimeReduce(bound,first.state,[
+    frame({sessionUpdate:"tool_call_update",toolCallId,status:"completed",rawOutput:"",content:[terminal]}),
+    frame({sessionUpdate:"agent_message_chunk",content:image(data)}),
+    frame({sessionUpdate:"agent_message_chunk",content:{type:"resource",resource:{mimeType:"image/png",blob:overBudget}}}),
+  ]);
+  const rows=new Map<string,ChatMsg>();
+  for (const event of [...first.events,...second.events]) foldRow(rows,event);
+  const row=rows.get(toolCallId)!;
+  assert.equal(row.toolStatus,"completed");
+  assert.equal(row.attachments?.[0]?.data,data);
+  assert.ok(row.toolResult?.startsWith("prefix/") && row.toolResult.endsWith("/suffix") && row.toolResult.isWellFormed());
+  const [head, summary, tail]=row.toolResult!.split("\n");
+  assert.equal(summary,`[${Buffer.byteLength(rawOutput)-Buffer.byteLength(head)-Buffer.byteLength(tail)} bytes omitted]`);
+  assert.ok(Buffer.byteLength(row.toolResult!)>8000);
+  assert.ok([...rows.values()].some(item=>item.type === "image" && item.imageData === data));
+  assert.equal([...rows.values()].filter(item=>item.content === "[image too large (193 KB)]").length,2);
+  assert.ok(second.events.some(event=>event.kind === "chatItemPatch" && event.item.toolResult === undefined && !event.item.attachments));
+  console.log("✓ ACP tool output, image retention and image size notices");
+}
 function assertPlanRefusal(plan:RuntimePlan):void {
   assert.equal(plan.action.kind,"refused");
   if (plan.action.kind !== "refused") throw new Error("Expected a local plan refusal");

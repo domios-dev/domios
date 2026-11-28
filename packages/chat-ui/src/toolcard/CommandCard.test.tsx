@@ -34,4 +34,20 @@ const matchingSummary = matchingTitle.querySelector('[data-testid="toolcard-summ
 if (!matchingSummary || matchingSummary.className.includes("hidden") || matchingSummary.textContent !== "git status -sb") {
   throw new Error("inline command card must keep summary visible when title equals CommandLine");
 }
+
+const data = "tbhv";
+function CompletedImageCard() {
+  const [expanded, setExpanded] = React.useState(false);
+  return <CommandCard event={event({
+    kind: "command", status: "success",
+    message: { id: "media", type: "tool_call", content: "", attachments: [{ id: "opaque", mimeType: "image/png", data }] },
+  })} expanded={expanded} onToggle={() => setExpanded(open => !open)} />;
+}
+const imageCard = await render(<CompletedImageCard />);
+const expand = imageCard.querySelector<HTMLButtonElement>('button[aria-label="Show full command"]');
+if (!expand || expand.disabled) throw new Error("completed image output must enable the command disclosure");
+await act(async () => expand.click());
+if (imageCard.querySelector("img")?.getAttribute("src") !== `data:image/png;base64,${data}`) {
+  throw new Error("expanded command must render its intact inline attachment");
+}
 console.log("command card tests: passed");

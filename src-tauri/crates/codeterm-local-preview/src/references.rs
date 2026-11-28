@@ -20,7 +20,7 @@ pub fn path_key(path: &Path) -> String {
 }
 
 fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {
-    if raw != raw.trim() {
+    if raw.is_empty() || raw != raw.trim() {
         return;
     }
     let path = if raw.to_ascii_lowercase().starts_with("file:") {
@@ -89,6 +89,19 @@ pub fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashSet<Stri
                     if let Some(path) = record.get(field).and_then(|value| value.as_str()) {
                         insert(&mut paths, path, cwd);
                     }
+                }
+            }
+        }
+        if matches!(message.kind.as_str(), "tool_call" | "tool_result") {
+            for location in message
+                .tool_locations
+                .as_ref()
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(path) = location.get("path").and_then(serde_json::Value::as_str) {
+                    insert(&mut paths, path, cwd);
                 }
             }
         }

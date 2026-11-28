@@ -852,29 +852,19 @@ async fn execute(
                     .map(|process| process.background_changed.clone());
                 let id = uuid::Uuid::new_v4().to_string();
                 let stream_owner = owner.clone();
-                let stream_session = session.clone();
+                let stream_session = Arc::downgrade(&session);
                 let stream_expected = expected.clone();
                 let stream_terminal_id = id.clone();
-                let on_output: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |tail: String| {
-                    let live = stream_session.context.lock().clone();
-                    if live.epoch != stream_expected.epoch
-                        || live.binding_nonce != stream_expected.binding_nonce
-                        || live.thread_id != stream_expected.thread_id
-                    {
-                        return;
-                    }
-                    let updated = stream_session
-                        .cache
-                        .lock()
-                        .patch_terminal_output(&stream_terminal_id, tail);
-                    if let Some(item) = updated {
-                        crate::service::tab_chat::structured_sink::emit_live_runtime_chat_msg(
-                            stream_owner.ui.as_ref(),
-                            &live.tab_id,
-                            &item,
-                            live.thread_id.as_deref(),
-                            Some(&live.binding_nonce),
-                            None,
+                let on_output = Arc::new(move |output: String, exit_code, finished| {
+                    if let Some(session) = stream_session.upgrade() {
+                        publish_terminal_output(
+                            &stream_owner,
+                            &session,
+                            &stream_expected,
+                            &stream_terminal_id,
+                            output,
+                            exit_code,
+                            finished,
                         );
                     }
                 });
@@ -936,6 +926,63 @@ async fn execute(
                 Ok(terminal.output())
             }
         }
+    }
+}
+
+fn publish_terminal_output(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    expected: &RuntimeContext,
+    terminal_id: &str,
+    output: String,
+    exit_code: Option<i64>,
+    finished: bool,
+) {
+    let current = session.context.lock().clone();
+    if current.epoch != expected.epoch
+        || current.binding_nonce != expected.binding_nonce
+        || current.thread_id != expected.thread_id
+    {
+        return;
+    }
+    let public = svc.require_public_transcript_tab(&current.tab_id).is_ok();
+    let mut maps = session.maps.lock();
+    let Some(row) =
+        maps.remember_terminal_output(&current, terminal_id, output, exit_code, finished)
+    else {
+        return;
+    };
+    let item = {
+        let mut cache = session.cache.lock();
+        let Some(mut item) = cache.get(&row.id).cloned().filter(|item| {
+            item.tool_background_task_id.as_deref() == Some(terminal_id)
+                && (finished || item.tool_status.as_deref() == Some("running"))
+        }) else {
+            return;
+        };
+        if (item.tool_result.as_ref(), item.tool_exit_code)
+            == (row.tool_result.as_ref(), row.tool_exit_code)
+        {
+            return;
+        }
+        item.tool_result = row.tool_result;
+        item.tool_exit_code = row.tool_exit_code;
+        cache.reconcile(item)
+    };
+    if public {
+        crate::service::tab_chat::structured_sink::emit_live_runtime_chat_msg(
+            svc.ui.as_ref(),
+            &current.tab_id,
+            &item,
+            current.thread_id.as_deref(),
+            Some(&current.binding_nonce),
+            None,
+        );
+    }
+    drop(maps);
+    if finished && item.tool_status.as_deref() != Some("running") {
+        let session = session.clone();
+        crate::async_runtime::spawn(async move { super::transcript::archive(&session).await });
     }
 }
 

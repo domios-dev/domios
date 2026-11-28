@@ -12,6 +12,7 @@ import type { ToolKindVisual } from "./toolKindVisual";
 import { toolEventVisual, toolOutcomeVisual, toolVisualForOutcome } from "./toolVisualModel";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 import { rawToolPayload } from "./toolParsing";
+import { AttachmentStrip } from "../AttachmentStrip";
 
 interface ToolCardFrameProps {
   expandable?: boolean;
@@ -89,7 +90,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const host = useChatBlockHost();
   const compact = useCompactToolRow();
   const [technicalOpen, setTechnicalOpen] = useState(false);
-  const canExpand = expandable || technicalOpen;
+  const images = event.message.attachments?.filter(attachment => attachment.mimeType.startsWith("image/"));
+  const canExpand = expandable || technicalOpen || Boolean(images?.length);
   const open = expanded && canExpand;
   const visual = visualOverride ? toolVisualForOutcome(visualOverride, event.status) : toolEventVisual(event);
   const Glyph = visual.glyph;
@@ -226,6 +228,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         {open || fullscreen ? (
           <RowMenuIsolate>
             {children}
+            {images?.length ? <AttachmentStrip images={images} files={[]} captioned={false} /> : null}
             {technicalOpen && showTechnicalDetails && <><div className="mt-2 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Command</div><BoundedMessageContent collapsedHeight="12rem" as="pre"
               data-testid="message-raw-content" className="mt-2 whitespace-pre-wrap break-words font-mono text-xs"
               style={{ color: "var(--ct-muted-fg)" }}>{event.detail || rawToolPayload(event)}</BoundedMessageContent></>}
