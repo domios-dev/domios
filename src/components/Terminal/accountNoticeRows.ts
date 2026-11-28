@@ -1,4 +1,4 @@
-import { orderTimelineItems,type NormalizedChatMessage } from "@codeterm/chat-core";
+import { orderTimelineItems, timestampMs, type NormalizedChatMessage } from "@codeterm/chat-core";
 import type { AccountContinuationNotice } from "../../../gen/AccountContinuationNotice";
 
 export function accountNoticeRows(notices:readonly AccountContinuationNotice[],provider:string|null|undefined,session:string|null):NormalizedChatMessage[] {
@@ -10,5 +10,15 @@ export function mergeAccountNoticeRows(rows:readonly NormalizedChatMessage[],not
   const ids=new Set(rows.map(row=>row.id));
   const pending=notices.filter(notice=>{if(ids.has(notice.id))return false;ids.add(notice.id);return true;});
   if(!pending.length)return rows as NormalizedChatMessage[];
-  return orderTimelineItems([...rows,...pending]);
+  const orderedNotices = orderTimelineItems(pending);
+  const merged: NormalizedChatMessage[] = [];
+  let next = 0;
+  for (const row of rows) {
+    const at = timestampMs(row.timestamp);
+    while (next < orderedNotices.length && at != null && (timestampMs(orderedNotices[next].timestamp) ?? Infinity) < at) {
+      merged.push(orderedNotices[next++]);
+    }
+    merged.push(row);
+  }
+  return merged.concat(orderedNotices.slice(next));
 }

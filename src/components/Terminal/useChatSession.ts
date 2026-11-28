@@ -14,6 +14,7 @@ import { transcriptRows, transcriptOffsetKind } from "@codeterm/chat-core";
 import type {
   NormalizedChatMessage as ChatMessage,
   TranscriptBatch,
+  TranscriptOrder,
   TranscriptOutcome,
   TranscriptRange,
 } from "@codeterm/chat-core";
@@ -123,6 +124,7 @@ export function useChatSession({
   live = true,
   queueSendsBehindTurn = false,
   hostRows,
+  transcriptOrder,
   showLiveTools = false,
 }: {
   tabId: string;
@@ -145,6 +147,7 @@ export function useChatSession({
   live?: boolean;
   queueSendsBehindTurn?: boolean;
   hostRows?:readonly ChatMessage[];
+  transcriptOrder?: TranscriptOrder;
   showLiveTools?: boolean;
 }) {
   const activatedRef = useRef(false);
@@ -457,13 +460,13 @@ export function useChatSession({
         cursor: res.start_offset,
         consumedBytes: offsetKind === "items" ? 0 : beforeOffset - res.start_offset,
         rows: page.length,
-        messages: transcriptRows(readTranscriptWindow(windowKeyRef.current).transcript),
+        messages: transcriptRows(readTranscriptWindow(windowKeyRef.current).transcript, transcriptOrder),
       } : null;
     } catch (e) {
       if (isCurrentOlderRead(generationAtRequest, signal)) onErrorRef.current?.(e instanceof Error ? e.message : String(e));
       return null;
     }
-  }, [commitBatch, isCurrentOlderRead, tabId]);
+  }, [commitBatch, isCurrentOlderRead, tabId, transcriptOrder]);
 
   const loadHistoryPage = useCallback(async (message: ChatMessage, signal: AbortSignal) => {
     const marker = message.timelineMarker;
@@ -494,6 +497,7 @@ export function useChatSession({
 
   const view = useChatWindowView({
     hostRows,
+    transcriptOrder,
     liveToolsScope: showLiveTools ? `${windowKey}|${sessionBindingNonce ?? ""}` : null,
     cwd,
     queueSendsBehindTurn,
