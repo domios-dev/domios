@@ -146,9 +146,13 @@ async fn receiver_grants_preview_unassigned_friend_from_current_list_without_ins
         .session()
         .await
         .unwrap();
-    let list = json!({"access":"paid","friends":[{"friendship_id":friendship,"my_receiver":{
-        "installation_id":null,"enc_key_id":null,"machine_label":null,"receiving":false,"revision":7
-    }}]});
+    let unknown = "b".repeat(64);
+    let list = json!({"access":"paid","friends":[
+        {"friendship_id":friendship,"my_receiver":{
+            "installation_id":null,"enc_key_id":null,"machine_label":null,"receiving":false,"revision":7
+        }},
+        {"friendship_id":unknown}
+    ]});
     service
         .neighbor_backend_read(
             "friendsList",
@@ -172,6 +176,199 @@ async fn receiver_grants_preview_unassigned_friend_from_current_list_without_ins
     assert_eq!(result["previous"], Value::Null);
     assert_eq!(result["unavailable"], false);
     assert!(service.neighbor_friend_receiver(&friendship).is_none());
+    let error = service
+        .neighbor_runtime(
+            NeighborRuntimeCommand::ReceiverGrants {
+                friendship_id: unknown,
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error, Error::ReceiverStatusUnknown.to_string());
+}
+
+struct TakeoverRegistry {
+    uid: String,
+    installation: String,
+    key: parking_lot::Mutex<Option<(String, String)>>,
+    moved: AtomicBool,
+}
+
+impl TakeoverRegistry {
+    fn list(&self) -> Value {
+        let receiver = if self.moved.load(Ordering::Acquire) {
+            json!({
+                "installation_id":self.installation,"enc_key_id":self.key.lock().as_ref().unwrap().1,
+                "machine_label":"This desk","receiving":true,"revision":20
+            })
+        } else {
+            json!({
+                "installation_id":"other-desk","enc_key_id":format!("ek_{}", "1".repeat(32)),
+                "machine_label":"Other desk","receiving":true,"revision":19
+            })
+        };
+        json!({"access":"paid","friends":[{"friendship_id":"a".repeat(64),"my_receiver":receiver}]})
+    }
+}
+
+#[async_trait::async_trait]
+impl AuthenticatedCall for TakeoverRegistry {
+    async fn invoke(&self, route: &str, data: Value) -> codeterm_neighbors::Result<Value> {
+        match route {
+            "friendsList" => Ok(self.list()),
+            "friendsOwnKeys" => Ok(json!(self
+                .key
+                .lock()
+                .iter()
+                .map(|(verifier, _)| json!({"verifier_key_id":verifier}))
+                .collect::<Vec<_>>())),
+            "friendsEnrollVerifierKey" => {
+                assert_eq!(data["installation_id"], self.installation);
+                let signing = data["public_key_spki_b64"].as_str().unwrap();
+                let encryption = data["encryption_public_key_spki_b64"].as_str().unwrap();
+                let hash = codeterm_neighbors::crypto::sha256_hex(
+                    format!("verifier-key:{}:{signing}", self.uid).as_bytes(),
+                );
+                let key_id = format!("vk_{}", &hash[..32]);
+                let key = (
+                    key_id.clone(),
+                    codeterm_neighbors::crypto::encryption_key_id(encryption),
+                );
+                assert!(self.key.lock().replace(key).is_none());
+                Ok(json!({"verifier_key_id":key_id}))
+            }
+            "friendsSetFriendReceiver" => {
+                assert_eq!(data["installation_id"], self.installation);
+                assert_eq!(data["friendship_id"], "a".repeat(64));
+                assert_eq!(data["operation"], "set");
+                assert_eq!(data["takeover"], true);
+                assert!(self.key.lock().is_some());
+                if data["expected_revision"] != 19 || self.moved.swap(true, Ordering::AcqRel) {
+                    return Err(Error::ReceiverRevisionStale);
+                }
+                Ok(json!({"schema_version":1,"receiver":{
+                    "friendship_id":data["friendship_id"],"machine_label":"This desk",
+                    "revision":20,"receiving":true,"is_me":true
+                }}))
+            }
+            _ => panic!("Unexpected takeover registry call: {route}"),
+        }
+    }
+
+    async fn id_token(&self) -> codeterm_neighbors::Result<Zeroizing<String>> {
+        panic!("Receiver selection does not start listeners before commit")
+    }
+}
+
+#[tokio::test]
+async fn receiver_grants_preview_remote_holder_and_commit_checked_cold_start_takeover() {
+    use codeterm_neighbors::keys::Slot;
+
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = crate::test_support::fixture(mux);
+    let service = &fixture.service;
+    let friendship = "a".repeat(64);
+    fixture
+        .seed_neighbor_concierge(&tab, &friendship, Permission::default())
+        .await;
+    service.forget_neighbor_friend_receivers();
+    service.neighbor_projection_unavailable();
+    let session = service.account().await.unwrap().session().await.unwrap();
+    let uid = &session.identity.uid;
+    let installation = service.installation_id().await.unwrap();
+    let calls = Arc::new(TakeoverRegistry {
+        uid: uid.clone(),
+        installation: installation.as_str().into(),
+        key: Default::default(),
+        moved: AtomicBool::new(false),
+    });
+    let store = service.fixture_neighbor_key_store();
+    let ports = Arc::new(FixtureKeyPorts {
+        registry: Arc::new(FirebaseRegistry {
+            calls: calls.clone(),
+            uid: uid.clone(),
+            installation_id: installation.as_str().into(),
+            machine_label: "This desk".into(),
+        }),
+        scope: KeyScope::installation(installation.as_str(), uid).unwrap(),
+        metadata: Metadata::new(service.account_data_root().unwrap(), uid),
+    });
+    service
+        .extensions
+        .get_or_init(|| FixtureKeyPortBinding(Arc::downgrade(&ports)));
+    service
+        .neighbor_backend_read("friendsList", uid, session.login_generation, async {
+            Ok(calls.list())
+        })
+        .await
+        .unwrap();
+
+    let preview = service
+        .neighbor_runtime(
+            NeighborRuntimeCommand::ReceiverGrants {
+                friendship_id: friendship.clone(),
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview["previous_machine"], "Other desk");
+    assert_eq!(preview["revision"], 19);
+    assert_eq!(preview["unavailable"], true);
+    let digest = preview["digest"].as_str().unwrap();
+    assert!(hex_id(digest, 64));
+    assert!(service.neighbor_friend_receiver(&friendship).is_none());
+    assert!(calls.key.lock().is_none());
+    assert!(store
+        .load(&ports.scope, Slot::Current)
+        .await
+        .unwrap()
+        .is_none());
+
+    let select = |revision, confirmed, digest: &str| {
+        let command = serde_json::from_value(json!({
+            "operation":"set_friend_receiver","friendship_id":friendship,"receiver_operation":"set",
+            "expected_receiver_revision":revision,"takeover_confirmed":confirmed,
+            "grant_decision":{"choice":"keep","expected_digest":digest}
+        }))
+        .unwrap();
+        service.neighbor_operation(owner::Operation::Command {
+            command,
+            caller: None,
+            nonce: None,
+        })
+    };
+    for (revision, confirmed, digest, code) in [
+        (19, false, digest, "receiving_elsewhere:"),
+        (18, true, digest, "receiver_revision_stale:"),
+        (19, true, &"0".repeat(64), "receiver_grant_stale:"),
+    ] {
+        match select(revision, confirmed, digest).await {
+            Err(error) => assert!(error.starts_with(code), "{error}"),
+            Ok(_) => panic!("Takeover committed without matching consent, revision and digest"),
+        }
+        assert!(calls.key.lock().is_none());
+        assert!(!calls.moved.load(Ordering::Acquire));
+    }
+
+    let Ok(owner::Outcome::ReceiverCommitted(phase)) = select(19, true, digest).await else {
+        panic!("Confirmed takeover did not commit");
+    };
+    assert_eq!(phase.committed.result["receiver"]["revision"], 20);
+    assert_eq!(phase.committed.result["receiver"]["receiving"], true);
+    assert_eq!(phase.committed.result["receiver"]["is_me"], true);
+    assert!(store
+        .load(&ports.scope, Slot::Current)
+        .await
+        .unwrap()
+        .is_some());
+    let current =
+        first_action::friend_status(&calls.list(), &friendship, installation.as_str()).unwrap();
+    assert!(current.receiving_here());
+    assert_eq!(current.receiver_revision, 20);
 }
 
 #[tokio::test]

@@ -68,16 +68,11 @@ impl NeighborsExt for ServiceContext {
                             .invoke("friendsList", json!({}))
                             .await
                             .map_err(|error| error.to_string())?;
-                        let status = first_action::friend_status(
-                            &list,
-                            friendship_id,
-                            installation.as_str(),
-                        )
-                        .map_err(|error| error.to_string())?;
-                        if status.receiver_installation_id.is_some() {
-                            return Err(Error::ReceiverStatusUnknown.to_string());
-                        }
-                        status
+                        first_action::friend_status(&list, friendship_id, installation.as_str())
+                            .map_err(|error| match error {
+                                Error::InvalidEnvelope => Error::ReceiverStatusUnknown.to_string(),
+                                _ => error.to_string(),
+                            })?
                     }
                 };
                 self.require_neighbor_generation(generation)?;
