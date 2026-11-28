@@ -1741,7 +1741,7 @@
               "value_name": "TARGET",
               "possible_values": [],
               "default": null,
-              "help": "Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicitly create subject to limit), or a cloud machine ID/name",
+              "help": "Target an existing Domios cloud machine by ID, name, or auto (reuse awake or wake sleeping)",
               "aliases": []
             },
             {
@@ -8762,7 +8762,7 @@
         },
         {
           "name": "cloud",
-          "about": "Create, list, sleep, wake, or delete cloud machines on this controller. Local-only",
+          "about": "Manage existing cloud machines on this controller. Local-only",
           "aliases": [],
           "args": [],
           "subcommands": [
@@ -8779,34 +8779,6 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Cloud machine ID, name, or peer ID",
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
-              "name": "create",
-              "about": "Create and enroll a new managed cloud machine",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "name",
-                  "positional": false,
-                  "required": false,
-                  "value_name": "NAME",
-                  "possible_values": [],
-                  "default": null,
-                  "help": "Human-friendly machine name",
-                  "aliases": []
-                },
-                {
-                  "name": "size",
-                  "positional": false,
-                  "required": false,
-                  "value_name": "SIZE",
-                  "possible_values": [],
-                  "default": null,
-                  "help": "Machine size profile (default: small)",
                   "aliases": []
                 }
               ],
@@ -14795,7 +14767,7 @@
                   "value_name": "TARGET",
                   "possible_values": [],
                   "default": null,
-                  "help": "Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicit create subject to limit), or a cloud machine ID/name",
+                  "help": "Target an existing Domios cloud machine by ID, name, or auto (reuse awake or wake sleeping)",
                   "aliases": []
                 },
                 {
