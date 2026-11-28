@@ -16,14 +16,7 @@ fn emulator() -> Endpoints {
 }
 
 fn qa() -> Endpoints {
-    Endpoints {
-        project: "domios-signin-qa",
-        functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
-        signin: "https://domios-signin-qa.web.app/signin/",
-        redeem: "https://us-central1-domios-signin-qa.cloudfunctions.net/redeemDesktopLoginCode",
-        qa: true,
-        ..PRODUCTION
-    }
+    QA
 }
 
 #[test]
@@ -57,6 +50,11 @@ fn trusted_selection_matrix_preserves_cloud_opt_out_release_and_qa_refusals() {
         },
         Endpoints {
             emulator: true,
+            ..qa.endpoints
+        },
+        Endpoints {
+            redeem:
+                "https://us-central1-domios-signin-qa.cloudfunctions.net/redeemDesktopLoginCode",
             ..qa.endpoints
         },
         Endpoints {

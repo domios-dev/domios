@@ -1,5 +1,5 @@
 use super::callable::Calls;
-use codeterm_account::firebase_endpoints::{self, Endpoints, PRODUCTION};
+use codeterm_account::firebase_endpoints::{self, Endpoints, PRODUCTION, QA};
 use codeterm_neighbors::{
     adapter::{AuthenticatedCall, FirebaseTransport, FirestoreTarget},
     Error, Result,
@@ -29,19 +29,10 @@ impl Selection {
             }
             FirestoreTarget::debug_emulator("http://127.0.0.1:18080", "demo-domios")?
         } else if endpoints.qa {
-            let qa = Endpoints {
-                project: "domios-signin-qa",
-                functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
-                signin: "https://domios-signin-qa.web.app/signin/",
-                redeem:
-                    "https://us-central1-domios-signin-qa.cloudfunctions.net/redeemDesktopLoginCode",
-                qa: true,
-                ..PRODUCTION
-            };
-            if !debug || endpoints != qa {
+            if !debug || endpoints != QA {
                 return Err(Error::Transport);
             }
-            FirestoreTarget::google("domios-signin-qa")?
+            FirestoreTarget::google(QA.project)?
         } else {
             if endpoints != PRODUCTION {
                 return Err(Error::Transport);

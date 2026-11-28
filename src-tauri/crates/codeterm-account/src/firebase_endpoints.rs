@@ -51,6 +51,15 @@ pub const PRODUCTION: Endpoints = Endpoints {
     qa: false,
 };
 
+pub const QA: Endpoints = Endpoints {
+    project: "domios-signin-qa",
+    functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
+    signin: "https://domios-signin-qa.web.app/signin/",
+    redeem: "https://qa-auth.domios.dev/api/redeemDesktopLoginCode",
+    qa: true,
+    ..PRODUCTION
+};
+
 #[cfg(any(debug_assertions, test))]
 const EMULATOR: Endpoints = Endpoints {
     project: "demo-domios",

@@ -1,12 +1,9 @@
-use super::{Endpoints, PRODUCTION};
+use super::{Endpoints, QA};
 
 pub(super) struct Qa {
     pub project: &'static str,
     pub api_key: &'static str,
     pub app_id: &'static str,
-    functions: String,
-    signin: String,
-    redeem: String,
 }
 
 pub(super) fn selected(
@@ -44,39 +41,28 @@ impl Qa {
             app_id,
             "account target: qa requires DOMIOS_QA_FIREBASE_APP_ID",
         )?;
-        if project != "domios-signin-qa"
+        if project != QA.project
             || Some(api_key) == production_key.filter(|value| !value.is_empty())
             || Some(app_id) == production_app.filter(|value| !value.is_empty())
         {
             return Err("account target: mixed production/QA Firebase configuration refused");
         }
-        let functions = format!("https://us-central1-{project}.cloudfunctions.net/");
         Ok(Self {
-            project,
+            project: QA.project,
             api_key,
             app_id,
-            redeem: "https://qa-auth.domios.dev/api/redeemDesktopLoginCode".into(),
-            signin: format!("https://{project}.web.app/signin/"),
-            functions,
         })
     }
 
-    pub fn endpoints(&'static self) -> Endpoints {
-        Endpoints {
-            project: self.project,
-            functions: &self.functions,
-            signin: &self.signin,
-            redeem: &self.redeem,
-            qa: true,
-            ..PRODUCTION
-        }
+    pub fn endpoints(&self) -> Endpoints {
+        QA
     }
 
     pub fn validate_account(&self, config: &crate::Config) -> Result<(), &'static str> {
         if config.provider != "firebase"
             || config.api_key != self.api_key
-            || config.signin_url != self.signin
-            || config.redeem_url != self.redeem
+            || config.signin_url != QA.signin
+            || config.redeem_url != QA.redeem
         {
             return Err("account target: mixed QA account configuration refused; clear saved account overrides");
         }
