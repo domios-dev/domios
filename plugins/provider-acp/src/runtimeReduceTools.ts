@@ -1,5 +1,6 @@
 import type { ChatMsg, JsonValue } from "@codeterm/plugin-sdk";
 import { utf8Length } from "./runtimeReduceAccounting";
+import { imageTooLarge, IMAGE_DATA_BUDGET, inlineImage } from "./runtimeOutput";
 
 export const object = (value:unknown):Record<string,JsonValue> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string,JsonValue> : {};
@@ -22,7 +23,6 @@ const MAX_DIFF_LINES=4096;
 const MAX_DIFF_CELLS=40000;
 const MAX_CONTENT_PARTS=64;
 const MAX_LOCATIONS=8;
-const MAX_INLINE_IMAGE_BYTES=262144;
 
 export interface ToolLocationItem {
   path: string;
@@ -144,12 +144,6 @@ function pushLocation(list:ToolLocationItem[], path:string, line?:number):void {
   list.push(line !== undefined ? {path,line} : {path});
 }
 
-function imageDataUrl(mimeType:unknown, data:unknown):string|undefined {
-  if (typeof mimeType !== "string" || !/^image\/[a-zA-Z0-9.+-]+$/.test(mimeType)
-    || typeof data !== "string" || !data.length || data.length > MAX_INLINE_IMAGE_BYTES) return undefined;
-  return `data:${mimeType};base64,${data}`;
-}
-
 const TOOL_KINDS:Record<string,string> = {
   execute:"command",
   edit:"edit",
@@ -162,7 +156,7 @@ const TOOL_KINDS:Record<string,string> = {
   switch_mode:"generic",
 };
 
-export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|undefined, seq:number):ChatMsg|undefined {
+export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|undefined, seq:number, imageNotices:string[]=[], admitImage:(bytes:number)=>boolean=()=>true):ChatMsg|undefined {
   const id = validToolCallId(update.toolCallId);
   if (!id) return undefined;
   const row:ChatMsg = {...previous,id,seq:previous?.seq ?? seq,type:"tool_call",content:"",toolId:id,collapsed:true};
@@ -180,7 +174,7 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
     ? statuses[String(update.status) as keyof typeof statuses] : undefined;
   if (status) { row.toolStatus=status; row.toolError=status === "failed"; }
   const hasRawOutput=update.rawOutput !== undefined && update.rawOutput !== null;
-  if (hasRawOutput)
+  if (hasRawOutput && update.rawOutput !== "")
     row.toolResult=typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
   let locations:ToolLocationItem[]|undefined;
   if (Array.isArray(update.locations)) {
@@ -190,6 +184,19 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
   if (Array.isArray(update.content)) {
     const results:string[]=[];
     const diffs:JsonValue[]=[];
+    const images:NonNullable<ChatMsg["attachments"]>=[];
+    let imageBytes=0;
+    const addImage=(mimeType:unknown,data:unknown):boolean=>{
+      const image=inlineImage(mimeType,data);
+      if (!image) return false;
+      if (imageBytes+image.data.length > IMAGE_DATA_BUDGET || !admitImage(image.data.length))
+        imageNotices.push(imageTooLarge(image.data));
+      else {
+        imageBytes+=image.data.length;
+        images.push({id:`image-${images.length+1}`,...image});
+      }
+      return true;
+    };
     let omitted=update.content.length > MAX_CONTENT_PARTS;
     for (const raw of update.content.slice(0,MAX_CONTENT_PARTS)) {
       const part=object(raw);
@@ -197,9 +204,7 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
         const block=object(part.content);
         if (block.type === "text" && typeof block.text === "string") results.push(block.text);
         else if (block.type === "image") {
-          const url=imageDataUrl(block.mimeType,block.data);
-          if (url) results.push(url);
-          else omitted=true;
+          if (!addImage(block.mimeType,block.data)) omitted=true;
         } else if (block.type === "resource_link") {
           const uri=text(block.uri);
           if (uri) {
@@ -221,9 +226,7 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
           }
           if (typeof resource.text === "string" && resource.text.length) results.push(resource.text);
           else if (typeof resource.blob === "string") {
-            const url=imageDataUrl(resource.mimeType,resource.blob);
-            if (url) results.push(url);
-            else if (uri) results.push(filePath ?? uri);
+            if (!addImage(resource.mimeType,resource.blob) && uri) results.push(filePath ?? uri);
           } else if (uri) results.push(filePath ?? uri);
         } else if (block.type === "audio") {
           const mime=text(block.mimeType) ?? "audio";
@@ -248,10 +251,12 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
       }
     }
     const explicitEmpty=update.content.length === 0 && previous !== undefined;
-    if (results.length || omitted) row.toolResult=[...results,...(omitted ? ["ACP tool detail was omitted because the bounded diff or content limit was reached."] : [])].join("\n");
-    else if (!hasRawOutput && (explicitEmpty || previous?.toolResult !== undefined)) row.toolResult="";
+    if (results.length) row.toolResult=results.join("\n");
+    else if (!hasRawOutput && explicitEmpty) row.toolResult="";
+    if (omitted) row.toolDetail=[row.toolDetail,"ACP tool detail was omitted because the bounded diff or content limit was reached."].filter(Boolean).join("\n");
+    if (images.length) row.attachments=images;
     if (diffs.length) row.fileDiffs=diffs;
-    else if (explicitEmpty || previous?.fileDiffs !== undefined) row.fileDiffs=[];
+    else if (explicitEmpty) row.fileDiffs=[];
   }
   if (locations !== undefined) {
     if (locations.length) (row as Record<string,unknown>).toolLocations=locations;

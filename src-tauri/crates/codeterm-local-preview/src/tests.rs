@@ -199,6 +199,49 @@ fn references_come_only_from_directives_and_structured_file_records() {
 }
 
 #[test]
+fn tool_locations_authorize_only_checked_local_references() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = crate::html_preview::preview_test_root(temp.path());
+    let image = root.join("z4.png");
+    let other = root.join("q8.png");
+    let secret = root.join(".ssh/k2.png");
+    std::fs::create_dir_all(secret.parent().unwrap()).unwrap();
+    for path in [&image, &other, &secret] {
+        std::fs::write(path, b"v7").unwrap();
+    }
+    let messages = [
+        ChatMsg {
+            kind: "tool_call".into(),
+            tool_locations: Some(serde_json::json!([
+                {"path":"z4.png", "line":3},
+                {"path":secret},
+                {"path":"file://foreign/q8.png"},
+                {"path":false},
+            ])),
+            ..Default::default()
+        },
+        ChatMsg {
+            kind: "assistant".into(),
+            tool_locations: Some(serde_json::json!([{"path":"q8.png"}])),
+            ..Default::default()
+        },
+    ];
+    let paths = referenced_paths(&messages, root.to_str());
+    assert!(paths.contains(&path_key(&image)));
+    assert!(!paths.contains(&path_key(&other)));
+    let policy = PreviewPolicy::new(paths, &[]).unwrap();
+    assert!(policy
+        .authorize(&image, Some(&image.canonicalize().unwrap()))
+        .is_ok());
+    assert!(policy
+        .authorize(&other, Some(&other.canonicalize().unwrap()))
+        .is_err());
+    assert!(policy
+        .authorize(&secret, Some(&secret.canonicalize().unwrap()))
+        .is_err());
+}
+
+#[test]
 fn rejects_secret_directories_credential_files_and_configured_roots() {
     let temp = tempfile::tempdir().unwrap();
     let root = crate::html_preview::preview_test_root(temp.path());

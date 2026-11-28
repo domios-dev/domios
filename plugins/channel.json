@@ -49,7 +49,7 @@
     {
       "id": "acp",
       "path": "provider-acp",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "minCodeterm": "1.19.2"
     }
   ],

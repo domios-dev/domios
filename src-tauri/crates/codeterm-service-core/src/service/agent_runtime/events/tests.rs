@@ -30,7 +30,7 @@ fn an_item_update_replaces_the_row_with_the_same_id() {
     put(&mut maps, 1, item("a", true, "one"));
     put(&mut maps, 1, item("a", false, "one two"));
     assert_eq!(item_ids(&maps), vec!["a".to_string()]);
-    assert_eq!(text_total(&maps.items), "one two".len());
+    assert_eq!(retained_bytes(&maps.items), "one two".len());
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn the_byte_budget_shrinks_running_text_instead_of_failing() {
     let big = "x".repeat(LIVE_ITEM_BYTES);
     put(&mut maps, 1, item("a", true, &big));
     put(&mut maps, 1, item("b", true, &big));
-    assert!(text_total(&maps.items) <= LIVE_ITEM_BYTES);
+    assert!(retained_bytes(&maps.items) <= LIVE_ITEM_BYTES);
     assert_eq!(item_ids(&maps).len(), 2);
 }
 
@@ -338,6 +338,63 @@ fn tool_patch_preserves_full_retained_card_and_sequence() {
     );
     assert_eq!(row.tool_result.as_ref().unwrap().len(), 15900);
     assert_eq!(row.tool_status.as_deref(), Some("completed"));
+}
+
+#[test]
+fn terminal_output_before_the_card_and_after_completion_stays_bound_to_its_tool() {
+    let mut maps = RuntimeMaps::default();
+    let context = RuntimeContext {
+        epoch: 1,
+        thread_id: Some("t".into()),
+        binding_nonce: "f3".into(),
+        ..Default::default()
+    };
+    maps.sync_active_turn(&context);
+    let mut foreign = context.clone();
+    foreign.binding_nonce = "h8".into();
+    assert!(maps
+        .remember_terminal_output(&foreign, "g8", "p0".into(), Some(5), true)
+        .is_none());
+    assert!(maps
+        .remember_terminal_output(&context, "g8", "q6".into(), None, false)
+        .is_none());
+    let mut tool = item("r5", true, "");
+    tool.kind = "tool_call".into();
+    tool.tool_background_task_id = Some("g8".into());
+    maps.project_terminal_output("foreign", &mut tool);
+    assert!(tool.tool_result.is_none());
+    put(&mut maps, 1, tool.clone());
+    maps.project_terminal_output("t", &mut tool);
+    assert_eq!(tool.tool_result.as_deref(), Some("q6"));
+    for id in 0..TERMINAL_SNAPSHOTS {
+        assert!(maps
+            .remember_terminal_output(&context, &format!("s{id}"), "h2".into(), None, true)
+            .is_none());
+    }
+
+    let patch = AgentRuntimeEvent::ChatItemPatch {
+        thread_id: "t".into(),
+        item: ChatMsg {
+            id: "r5".into(),
+            kind: "tool_call".into(),
+            tool_status: Some("completed".into()),
+            ..Default::default()
+        },
+    };
+    let update = translate_with_items(&patch, &mut maps, false).unwrap();
+    fold(&mut maps, 1, &update);
+    let RuntimeEvent::ItemUpdated { mut item, .. } = update else {
+        panic!("expected tool update");
+    };
+    maps.project_terminal_output("t", &mut item);
+    assert_eq!(item.tool_result.as_deref(), Some("q6"));
+
+    let final_row = maps
+        .remember_terminal_output(&context, "g8", "q6\nv1".into(), Some(0), true)
+        .unwrap();
+    assert_eq!(final_row.tool_status.as_deref(), Some("completed"));
+    assert_eq!(final_row.tool_result.as_deref(), Some("q6\nv1"));
+    assert_eq!(final_row.tool_exit_code, Some(0));
 }
 
 #[test]

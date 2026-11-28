@@ -276,7 +276,7 @@ const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:
     assert.equal(event.item.toolId,"bounded-edit");
     assert.equal(event.item.toolStatus,"failed");
     assert.equal(event.item.toolError,true);
-    assert.ok(event.item.toolDetail?.includes("shortened"),"dropped output is disclosed in a native tool field");
+    assert.match(event.item.toolResult ?? "", /\[\d+ bytes omitted\]/,"the displayed output states the amount omitted");
   }
   assert.equal(reduceTool({toolCallId:"x".repeat(20000),title:"Edit",kind:"edit",status:"in_progress"},undefined,1),undefined,"oversized toolCallId is refused before duplicating into id and toolId");
   assert.equal(reduceTool({toolCallId:"bad\0id",title:"Edit",kind:"edit",status:"in_progress"},undefined,1),undefined,"NUL toolCallId is refused");
@@ -302,7 +302,7 @@ const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:
     assert.equal(maxEvent.item.id,maxId);
     assert.equal(maxEvent.item.toolId,maxId);
     assert.ok(Buffer.byteLength(JSON.stringify(maxEvent.item))<=32768,"boundary-length valid toolCallId still stays within the 32 KiB row cap");
-    assert.ok(maxEvent.item.toolDetail?.includes("shortened"));
+    assert.match(maxEvent.item.toolResult ?? "", /\[\d+ bytes omitted\]/);
   }
   const orphanUpdate=reduceStream(context,null,[updateFrame({sessionUpdate:"tool_call_update",toolCallId:"never-started",status:"failed"})],cursor);
   assert.equal(orphanUpdate.events.some(item=>item.kind === "chatItem" || item.kind === "chatItemPatch"),false,"unknown tool_call_update never emits an orphan chatItemPatch");

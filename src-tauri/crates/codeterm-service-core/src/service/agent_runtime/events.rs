@@ -6,12 +6,14 @@ use codeterm_plugin::agent_runtime::{
 };
 use codeterm_types::agent::chat_types::ChatMsg;
 use codeterm_types::pty::PendingPrompt;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 mod routed;
 
 pub const LIVE_ITEM_CAP: usize = 1000;
 pub const LIVE_ITEM_BYTES: usize = 8 * 1024 * 1024;
+const TERMINAL_SNAPSHOTS: usize = 32;
 
 #[derive(Clone, Debug)]
 pub enum RuntimeEvent {
@@ -105,6 +107,7 @@ struct StoredItem {
     thread_id: String,
     item: ChatMsg,
     closed: bool,
+    terminal_output: Option<Arc<TerminalOutput>>,
 }
 
 struct RestoreBinding {
@@ -141,6 +144,7 @@ pub struct RuntimeMaps {
     current_turns: HashMap<String, String>,
     reconciliation_misses: HashSet<(String, String)>,
     items: Vec<StoredItem>,
+    terminal_outputs: VecDeque<(String, String, Arc<TerminalOutput>)>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
     evidence: HashMap<String, (String, String, Option<String>)>,
@@ -153,7 +157,104 @@ pub struct RuntimeMaps {
     children: HashMap<String, codeterm_plugin::agent_runtime::RuntimeChild>,
 }
 
+#[derive(Debug, PartialEq)]
+struct TerminalOutput {
+    text: String,
+    exit_code: Option<i64>,
+}
+
+impl TerminalOutput {
+    fn apply(&self, row: &mut ChatMsg) {
+        if !self.text.is_empty() {
+            match row.tool_result.as_deref().filter(|text| !text.is_empty()) {
+                None => row.tool_result = Some(self.text.clone()),
+                Some(text) if !text.contains(self.text.as_str()) => {
+                    row.tool_result = Some(format!("{text}\n{}", self.text));
+                }
+                _ => {}
+            }
+        }
+        row.tool_exit_code = row.tool_exit_code.or(self.exit_code);
+    }
+}
+
 impl RuntimeMaps {
+    pub(super) fn remember_terminal_output(
+        &mut self,
+        context: &RuntimeContext,
+        terminal: &str,
+        text: String,
+        exit_code: Option<i64>,
+        finished: bool,
+    ) -> Option<ChatMsg> {
+        let thread = context.thread_id.as_deref()?;
+        if self.epoch != context.epoch
+            || !self
+                .restore_binding
+                .as_ref()
+                .is_some_and(|binding| binding.matches(context))
+        {
+            return None;
+        }
+        let output = Arc::new(TerminalOutput { text, exit_code });
+        if let Some(index) = self
+            .terminal_outputs
+            .iter()
+            .position(|(owner, id, _)| owner == thread && id == terminal)
+        {
+            if self.terminal_outputs[index].2 == output && !finished {
+                return None;
+            }
+            self.terminal_outputs.remove(index);
+        }
+        self.terminal_outputs
+            .push_back((thread.into(), terminal.into(), output.clone()));
+        if self.terminal_outputs.len() > TERMINAL_SNAPSHOTS {
+            self.terminal_outputs.pop_front();
+        }
+        let stored = self.items.iter_mut().rev().find(|stored| {
+            stored.thread_id == thread
+                && stored.item.kind == "tool_call"
+                && stored.item.tool_background_task_id.as_deref() == Some(terminal)
+        })?;
+        stored.terminal_output = Some(output.clone());
+        if stored.closed && !finished {
+            return None;
+        }
+        let mut row = stored.item.clone();
+        output.apply(&mut row);
+        Some(row)
+    }
+
+    fn terminal_output(&self, thread: &str, row: &ChatMsg) -> Option<&Arc<TerminalOutput>> {
+        let terminal = row
+            .tool_background_task_id
+            .as_deref()
+            .filter(|_| row.kind == "tool_call")?;
+        self.terminal_outputs
+            .iter()
+            .find(|(owner, id, _)| owner == thread && id == terminal)
+            .map(|(_, _, output)| output)
+    }
+
+    pub(super) fn project_terminal_output(&self, thread: &str, row: &mut ChatMsg) {
+        if row.kind != "tool_call" || row.tool_background_task_id.is_none() {
+            return;
+        }
+        if let Some(output) = self.terminal_output(thread, row).or_else(|| {
+            self.items
+                .iter()
+                .find(|stored| {
+                    stored.thread_id == thread
+                        && stored.item.id == row.id
+                        && stored.item.tool_background_task_id == row.tool_background_task_id
+                })
+                .and_then(|stored| stored.terminal_output.as_ref())
+        }) {
+            output.apply(row);
+        }
+    }
+
     pub fn child(
         &self,
         epoch: u64,
@@ -165,6 +266,16 @@ impl RuntimeMaps {
     }
     pub fn sync_active_turn(&mut self, context: &RuntimeContext) {
         self.ensure_epoch(context.epoch);
+        if self
+            .restore_binding
+            .as_ref()
+            .is_some_and(|binding| !binding.matches(context))
+        {
+            self.terminal_outputs.clear();
+            for stored in &mut self.items {
+                stored.terminal_output = None;
+            }
+        }
         self.routed_inputs.retain(|send, (thread, _)| {
             context
                 .claimed_sends
@@ -698,11 +809,17 @@ pub fn observe(context: &mut RuntimeContext, event: &RuntimeEvent) {
 
 fn upsert_item(maps: &mut RuntimeMaps, thread_id: &str, item: ChatMsg) {
     let closed = item.tool_status.as_deref() != Some("running");
+    let terminal_output = maps.terminal_output(thread_id, &item).cloned();
     if let Some(stored) = maps
         .items
         .iter_mut()
         .find(|stored| stored.thread_id == thread_id && stored.item.id == item.id)
     {
+        if terminal_output.is_some()
+            || stored.item.tool_background_task_id != item.tool_background_task_id
+        {
+            stored.terminal_output = terminal_output;
+        }
         stored.item = item;
         stored.closed = closed;
     } else {
@@ -711,19 +828,29 @@ fn upsert_item(maps: &mut RuntimeMaps, thread_id: &str, item: ChatMsg) {
             thread_id: thread_id.to_string(),
             item,
             closed,
+            terminal_output,
         });
     }
     bound_items(&mut maps.items, LIVE_ITEM_CAP, LIVE_ITEM_BYTES);
 }
 
 fn bound_items(items: &mut Vec<StoredItem>, max_items: usize, max_bytes: usize) {
-    while items.len() > max_items || text_total(items) > max_bytes {
+    while items.len() > max_items || retained_bytes(items) > max_bytes {
         if let Some(index) = items.iter().position(|item| item.closed) {
             items.remove(index);
             continue;
         }
-        if text_total(items) > max_bytes && shrink_heaviest(items) {
-            continue;
+        if retained_bytes(items) > max_bytes {
+            if let Some(stored) = items
+                .iter_mut()
+                .find(|stored| stored.item.attachments.is_some())
+            {
+                stored.item.attachments = None;
+                continue;
+            }
+            if shrink_heaviest(items) {
+                continue;
+            }
         }
         if items.len() > max_items {
             items.remove(0);
@@ -733,8 +860,28 @@ fn bound_items(items: &mut Vec<StoredItem>, max_items: usize, max_bytes: usize) 
     }
 }
 
-fn text_total(items: &[StoredItem]) -> usize {
-    items.iter().map(|item| text_bytes(&item.item)).sum()
+fn retained_bytes(items: &[StoredItem]) -> usize {
+    items
+        .iter()
+        .map(|stored| {
+            let item = &stored.item;
+            text_bytes(item)
+                + item.image_data.as_deref().map_or(0, str::len)
+                + stored
+                    .terminal_output
+                    .as_ref()
+                    .map_or(0, |output| output.text.len())
+                + item
+                    .attachments
+                    .iter()
+                    .flatten()
+                    .map(|attachment| {
+                        attachment.data.as_deref().map_or(0, str::len)
+                            + attachment.url.as_deref().map_or(0, str::len)
+                    })
+                    .sum::<usize>()
+        })
+        .sum()
 }
 
 fn text_bytes(item: &ChatMsg) -> usize {

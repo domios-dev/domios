@@ -146,6 +146,56 @@ function clearEntries(state, key) {
   state[key] = /* @__PURE__ */ Object.create(null);
 }
 
+// plugins/provider-acp/src/runtimeOutput.ts
+var IMAGE_DATA_BUDGET = 256 * 1024;
+var TOOL_OUTPUT_BUDGET = 16 * 1024;
+var REDUCTION_IMAGE_BUDGET = 3 * 1024 * 1024;
+function imageAdmission() {
+  let remaining = REDUCTION_IMAGE_BUDGET;
+  return (bytes) => {
+    if (bytes > remaining) return false;
+    remaining -= bytes;
+    return true;
+  };
+}
+function inlineImage(mimeType, data) {
+  if (typeof mimeType !== "string" || mimeType.length > 128 || !/^image\/[a-zA-Z0-9.+-]+$/.test(mimeType) || typeof data !== "string" || !data.length || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return void 0;
+  return { mimeType, data };
+}
+function imageTooLarge(data) {
+  const bytes = Math.floor(data.length * 3 / 4) - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+  return `[image too large (${Math.ceil(bytes / 1024)} KB)]`;
+}
+function withoutImages(row) {
+  const { attachments: _attachments, ...textRow } = row;
+  return textRow;
+}
+function boundedOutput(value, budget) {
+  if (utf8Length(JSON.stringify(value)) <= budget) return value;
+  const total = utf8Length(value);
+  const sideBudget = Math.floor((budget - 64) / 2);
+  let head = 0, tail = value.length, headBytes = 0, tailBytes = 0, cost = 0;
+  for (const character of value) {
+    cost += utf8Length(JSON.stringify(character)) - 2;
+    if (cost > sideBudget) break;
+    head += character.length;
+    headBytes += utf8Length(character);
+  }
+  cost = 0;
+  while (tail > head) {
+    const last = value.charCodeAt(tail - 1);
+    const start = last >= 56320 && last <= 57343 && tail >= 2 && value.charCodeAt(tail - 2) >= 55296 && value.charCodeAt(tail - 2) <= 56319 ? tail - 2 : tail - 1;
+    const character = value.slice(start, tail);
+    cost += utf8Length(JSON.stringify(character)) - 2;
+    if (cost > sideBudget) break;
+    tail = start;
+    tailBytes += utf8Length(character);
+  }
+  return `${value.slice(0, head)}
+[${total - headBytes - tailBytes} bytes omitted]
+${value.slice(tail)}`;
+}
+
 // plugins/provider-acp/src/runtimeReduceTools.ts
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
@@ -160,7 +210,6 @@ var MAX_DIFF_LINES = 4096;
 var MAX_DIFF_CELLS = 4e4;
 var MAX_CONTENT_PARTS = 64;
 var MAX_LOCATIONS = 8;
-var MAX_INLINE_IMAGE_BYTES = 262144;
 function fileUriToPath(uri) {
   if (!uri.startsWith("file://")) return void 0;
   let rest = uri.slice(7);
@@ -284,10 +333,6 @@ function pushLocation(list2, path, line) {
   if (list2.some((entry) => entry.path === path && entry.line === line)) return;
   list2.push(line !== void 0 ? { path, line } : { path });
 }
-function imageDataUrl(mimeType, data) {
-  if (typeof mimeType !== "string" || !/^image\/[a-zA-Z0-9.+-]+$/.test(mimeType) || typeof data !== "string" || !data.length || data.length > MAX_INLINE_IMAGE_BYTES) return void 0;
-  return `data:${mimeType};base64,${data}`;
-}
 var TOOL_KINDS = {
   execute: "command",
   edit: "edit",
@@ -299,7 +344,7 @@ var TOOL_KINDS = {
   think: "generic",
   switch_mode: "generic"
 };
-function reduceTool(update, previous, seq) {
+function reduceTool(update, previous, seq, imageNotices = [], admitImage = () => true) {
   const id = validToolCallId(update.toolCallId);
   if (!id) return void 0;
   const row = { ...previous, id, seq: previous?.seq ?? seq, type: "tool_call", content: "", toolId: id, collapsed: true };
@@ -322,7 +367,7 @@ function reduceTool(update, previous, seq) {
     row.toolError = status === "failed";
   }
   const hasRawOutput = update.rawOutput !== void 0 && update.rawOutput !== null;
-  if (hasRawOutput)
+  if (hasRawOutput && update.rawOutput !== "")
     row.toolResult = typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
   let locations;
   if (Array.isArray(update.locations)) {
@@ -332,6 +377,19 @@ function reduceTool(update, previous, seq) {
   if (Array.isArray(update.content)) {
     const results = [];
     const diffs = [];
+    const images = [];
+    let imageBytes = 0;
+    const addImage = (mimeType, data) => {
+      const image = inlineImage(mimeType, data);
+      if (!image) return false;
+      if (imageBytes + image.data.length > IMAGE_DATA_BUDGET || !admitImage(image.data.length))
+        imageNotices.push(imageTooLarge(image.data));
+      else {
+        imageBytes += image.data.length;
+        images.push({ id: `image-${images.length + 1}`, ...image });
+      }
+      return true;
+    };
     let omitted2 = update.content.length > MAX_CONTENT_PARTS;
     for (const raw of update.content.slice(0, MAX_CONTENT_PARTS)) {
       const part = object(raw);
@@ -339,9 +397,7 @@ function reduceTool(update, previous, seq) {
         const block = object(part.content);
         if (block.type === "text" && typeof block.text === "string") results.push(block.text);
         else if (block.type === "image") {
-          const url2 = imageDataUrl(block.mimeType, block.data);
-          if (url2) results.push(url2);
-          else omitted2 = true;
+          if (!addImage(block.mimeType, block.data)) omitted2 = true;
         } else if (block.type === "resource_link") {
           const uri = text(block.uri);
           if (uri) {
@@ -363,9 +419,7 @@ function reduceTool(update, previous, seq) {
           }
           if (typeof resource.text === "string" && resource.text.length) results.push(resource.text);
           else if (typeof resource.blob === "string") {
-            const url2 = imageDataUrl(resource.mimeType, resource.blob);
-            if (url2) results.push(url2);
-            else if (uri) results.push(filePath ?? uri);
+            if (!addImage(resource.mimeType, resource.blob) && uri) results.push(filePath ?? uri);
           } else if (uri) results.push(filePath ?? uri);
         } else if (block.type === "audio") {
           const mime = text(block.mimeType) ?? "audio";
@@ -388,10 +442,12 @@ function reduceTool(update, previous, seq) {
       }
     }
     const explicitEmpty = update.content.length === 0 && previous !== void 0;
-    if (results.length || omitted2) row.toolResult = [...results, ...omitted2 ? ["ACP tool detail was omitted because the bounded diff or content limit was reached."] : []].join("\n");
-    else if (!hasRawOutput && (explicitEmpty || previous?.toolResult !== void 0)) row.toolResult = "";
+    if (results.length) row.toolResult = results.join("\n");
+    else if (!hasRawOutput && explicitEmpty) row.toolResult = "";
+    if (omitted2) row.toolDetail = [row.toolDetail, "ACP tool detail was omitted because the bounded diff or content limit was reached."].filter(Boolean).join("\n");
+    if (images.length) row.attachments = images;
     if (diffs.length) row.fileDiffs = diffs;
-    else if (explicitEmpty || previous?.fileDiffs !== void 0) row.fileDiffs = [];
+    else if (explicitEmpty) row.fileDiffs = [];
   }
   if (locations !== void 0) {
     if (locations.length) row.toolLocations = locations;
@@ -937,19 +993,20 @@ function retainedToolRow(row) {
   if (typeof row.toolBackgroundTaskId === "string") retained.toolBackgroundTaskId = boundedText(row.toolBackgroundTaskId, 128).value;
   if (typeof row.toolSummary === "string") retained.toolSummary = boundedText(row.toolSummary, 128).value;
   if (typeof row.toolDetail === "string") retained.toolDetail = boundedText(row.toolDetail, 192).value;
-  if (typeof row.toolResult === "string") retained.toolResult = boundedText(row.toolResult, 192).value;
   if (typeof row.toolArgs === "string") retained.toolArgs = boundedText(row.toolArgs, 192).value;
   if (row.toolInput !== void 0 && jsonBytes(row.toolInput) <= 256) retained.toolInput = row.toolInput;
   if (row.fileDiffs !== void 0 && jsonBytes(row.fileDiffs) <= 384) retained.fileDiffs = row.fileDiffs;
   const locs = row.toolLocations;
   if (locs !== void 0 && jsonBytes(locs) <= 384) retained.toolLocations = locs;
-  for (const key of ["toolInput", "toolArgs", "toolResult", "toolDetail", "fileDiffs", "toolLocations", "toolSummary"]) {
+  for (const key of ["toolInput", "toolArgs", "toolDetail", "fileDiffs", "toolLocations", "toolSummary"]) {
     if (jsonBytes(retained) <= 1024) break;
     delete retained[key];
   }
   return retained;
 }
 function boundedToolRow(row) {
+  if (typeof row.toolResult === "string") row.toolResult = boundedOutput(row.toolResult, TOOL_OUTPUT_BUDGET);
+  if (jsonBytes(withoutImages(row)) <= TOOL_ROW_BUDGET) return row;
   const result = { id: row.id, seq: row.seq, type: row.type, content: "", ...row.toolId ? { toolId: row.toolId } : {}, collapsed: true };
   let truncated = false;
   for (const key of ["toolTitle", "toolName"]) if (typeof row[key] === "string") {
@@ -973,11 +1030,8 @@ function boundedToolRow(row) {
     result.toolDetail = bounded.value;
     truncated || (truncated = bounded.truncated);
   }
-  if (typeof row.toolResult === "string") {
-    const bounded = boundedText(row.toolResult, 768);
-    result.toolResult = bounded.value;
-    truncated || (truncated = bounded.truncated);
-  }
+  if (row.toolResult !== void 0) result.toolResult = row.toolResult;
+  if (row.attachments) result.attachments = row.attachments;
   if (typeof row.toolArgs === "string") {
     const bounded = boundedText(row.toolArgs, 384);
     result.toolArgs = bounded.value;
@@ -1000,8 +1054,8 @@ function boundedToolRow(row) {
   if (truncated) {
     result.toolDetail = [result.toolDetail, note].filter(Boolean).join("\n");
   }
-  for (const key of ["toolInput", "toolArgs", "toolResult", "toolDetail", "toolSummary", "toolLocations", "fileDiffs"]) {
-    if (jsonBytes(result) <= TOOL_ROW_BUDGET) break;
+  for (const key of ["toolInput", "toolArgs", "toolDetail", "toolSummary", "toolLocations", "fileDiffs"]) {
+    if (jsonBytes(withoutImages(result)) <= TOOL_ROW_BUDGET) break;
     delete result[key];
     if (!result.toolDetail?.includes(note)) result.toolDetail = [result.toolDetail, note].filter(Boolean).join("\n");
   }
@@ -1013,7 +1067,8 @@ function toolPatch(row, previous) {
   for (const key of Object.keys(row)) {
     if (["id", "seq", "type", "content", "toolId"].includes(key)) continue;
     const value = row[key];
-    if (value !== void 0 && JSON.stringify(value) !== JSON.stringify(previous[key]))
+    const old = previous[key];
+    if (value !== void 0 && value !== old && (old === void 0 || JSON.stringify(value) !== JSON.stringify(old)))
       patch[key] = value;
   }
   return patch;
@@ -1084,9 +1139,9 @@ function initial(ctx, raw, cursor) {
 function emit(state, events, row, patch = false) {
   const previous = state.items[row.id];
   row.seq = previous?.seq ?? ++state.seq;
-  const maxRowBytes = row.type === "image" ? 262144 : TOOL_ROW_BUDGET;
-  if (utf8Length(JSON.stringify(row)) > maxRowBytes) {
-    row = row.type === "tool_call" ? boundedToolRow(row) : {
+  if (row.type === "tool_call") row = boundedToolRow(row);
+  else if (row.type !== "image" && jsonBytes(row) > TOOL_ROW_BUDGET) {
+    row = {
       id: row.id,
       seq: row.seq,
       type: row.type,
@@ -1119,7 +1174,7 @@ function emit(state, events, row, patch = false) {
     toolStatus: row.toolStatus
   })) {
     let exhausted = { ...row, toolStatus: "interrupted", toolInterrupted: true, toolDetail: "[ACP tool tracking capacity exhausted]" };
-    if (jsonBytes(exhausted) > TOOL_ROW_BUDGET) exhausted = boundedToolRow(exhausted);
+    exhausted = boundedToolRow(exhausted);
     events.push({ kind: "chatItem", threadId: state.sessionId, item: exhausted });
     return;
   }
@@ -1129,6 +1184,10 @@ function emit(state, events, row, patch = false) {
     if (Object.keys(update).some((key) => !["id", "seq", "type", "content", "toolId"].includes(key)))
       events.push({ kind: "chatItemPatch", threadId: state.sessionId, item: update });
   } else events.push({ kind: "chatItem", threadId: state.sessionId, item: row });
+}
+function emitImage(state, events, image, admitImage) {
+  const id = `${state.sessionId}:turn:${state.turn}:item:${++state.ordinal}`;
+  emit(state, events, image.data.length > IMAGE_DATA_BUDGET || !admitImage(image.data.length) ? { id, seq: 0, type: "assistant", content: imageTooLarge(image.data) } : { id, seq: 0, type: "image", content: "", imageData: image.data, imageMimeType: image.mimeType });
 }
 function admitToolIdentity(state, retained) {
   let bytes = mapBytes(state, "items") + utf8Length(JSON.stringify({ [retained.id]: retained })) - 1;
@@ -1268,7 +1327,7 @@ function sessionUpdate(raw) {
   const marker2 = MODE_MARKER.exec(content.text);
   return marker2 ? { sessionUpdate: "current_mode_update", currentModeId: marker2[1] } : update;
 }
-function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = false) {
+function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = false, admitImage = imageAdmission()) {
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = initial(ctx, raw, cursor);
   const events = [];
@@ -1307,13 +1366,10 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
         if (content.type === "text" && typeof content.text === "string") {
           chunkText = content.text;
         } else if (kind === "agent_message_chunk" && content.type === "image") {
-          const mime = text(content.mimeType);
-          const data = text(content.data);
-          if (mime && /^image\/[a-zA-Z0-9.+-]+$/.test(mime) && data && data.length <= 262144) {
+          const image = inlineImage(content.mimeType, content.data);
+          if (image) {
             closeChunk(ctx, state, events);
-            state.ordinal++;
-            const id = `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
-            emit(state, events, { id, seq: 0, type: "image", content: "", imageData: data, imageMimeType: mime });
+            emitImage(state, events, image, admitImage);
             if (!cursor.unattributed && !state.loading && !state.started)
               events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
           }
@@ -1327,13 +1383,10 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
           chunkText = `[${label2}](${target})`;
         } else if (kind === "agent_message_chunk" && content.type === "resource") {
           const resource = object(content.resource);
-          const mime = text(resource.mimeType);
-          const blob = text(resource.blob);
-          if (mime && /^image\/[a-zA-Z0-9.+-]+$/.test(mime) && blob && blob.length <= 262144) {
+          const image = inlineImage(resource.mimeType, resource.blob);
+          if (image) {
             closeChunk(ctx, state, events);
-            state.ordinal++;
-            const id = `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
-            emit(state, events, { id, seq: 0, type: "image", content: "", imageData: blob, imageMimeType: mime });
+            emitImage(state, events, image, admitImage);
             continue;
           }
           const uri = text(resource.uri);
@@ -1403,8 +1456,15 @@ ${body2}`;
           state.ordinal++;
           state.seenItems.push(id);
         }
-        const row = reduceTool(update, previous, state.seq + 1);
-        if (row && (previous || kind === "tool_call")) emit(state, events, row, kind === "tool_call_update");
+        const imageNotices = [];
+        const row = reduceTool(update, previous, state.seq + 1, imageNotices, admitImage);
+        if (row && (previous || kind === "tool_call")) {
+          emit(state, events, row, kind === "tool_call_update");
+          if (imageNotices.length) {
+            const noticeId = `${state.sessionId}:turn:${state.turn}:item:${++state.ordinal}`;
+            emit(state, events, { id: noticeId, seq: 0, type: "assistant", content: imageNotices.join("\n") });
+          }
+        }
       } else if (kind === "plan") {
         closeChunk(ctx, state, events);
         const id = `${ctx.threadId}:plan`;
@@ -3019,6 +3079,7 @@ function runtimeReduce(ctx, raw, frames) {
   if (!own2.length) return { state: raw, events: prompts };
   let projection = state.projection ?? raw;
   const events = [];
+  const admitImage = imageAdmission();
   for (const { frame, index } of own2) {
     const window = ctx.streamWindow;
     const witness = window?.turnRequests?.find((request2) => request2.sendId === state.promptSend?.sendId);
@@ -3045,7 +3106,7 @@ function runtimeReduce(ctx, raw, frames) {
       projection = { ...object4(reduceStream(ctx, null, [], cursor).state), turn: 0 };
     const frameContext = !window ? ctx : { ...ctx, claimedSends: ctx.claimedSends.filter((claim2) => window.turnRequests?.some((request2) => request2.sendId === claim2.sendId && request2.written === true && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)) };
     const claim = frameContext.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && claim2.sendId === state.promptSend?.sendId);
-    const reduced = reduceStream(frameContext, projection, [frame], cursor, state.inFlight && attributable && claim ? { sendId: claim.sendId, input: claim.input } : void 0);
+    const reduced = reduceStream(frameContext, projection, [frame], cursor, state.inFlight && attributable && claim ? { sendId: claim.sendId, input: claim.input } : void 0, false, admitImage);
     projection = reduced.state;
     events.push(...reduced.events);
   }

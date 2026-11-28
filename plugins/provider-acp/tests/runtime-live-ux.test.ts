@@ -168,7 +168,7 @@ test("reduceTool maps all 9 ACP ToolKinds, clickable locations, terminal content
   assert.equal(termRow.toolKind, "command");
   assert.equal(termRow.toolBackgroundTaskId, "term-99");
   assert.ok(termRow.toolResult?.includes("running suite..."));
-  assert.ok(termRow.toolResult?.includes("data:image/png;base64,iVBORw0KGgo="));
+  assert.deepEqual(termRow.attachments, [{ id: "image-1", mimeType: "image/png", data: "iVBORw0KGgo=" }]);
   const locations = (termRow as Record<string, unknown>).toolLocations as Array<{ path: string; line?: number }>;
   assert.deepEqual(locations, [
     { path: "/work/project/src/a.ts", line: 42 },
