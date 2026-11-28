@@ -15,6 +15,83 @@ async fn adopt(fixture: &Fixture, peer: &FakePeer) -> RemoteTeamMember {
         .unwrap()
 }
 
+#[tokio::test]
+async fn adopted_remote_team_utility_is_owned_by_the_worker_and_closed_with_the_team() {
+    use crate::multiplexer::types::ShellPurpose;
+    use crate::pty::manager::WindowsJobPolicy::{AllowExplicitServerBreakaway, Contained};
+    use crate::service::spawn::SpawnTabSpec;
+
+    let fixture = Fixture::new();
+    let peer = fixture.peer();
+    let member = adopt(&fixture, &peer).await;
+    let remote = &fixture.remote.service;
+    remote
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .utility_tabs
+        .max_per_team
+        .qa = Some(2);
+    let make = |team_id, detach_from_team, timeout| {
+        remote.spawn_visible_shell_impl(SpawnTabSpec {
+            creator_tab_id: Some(fixture.worker.clone()),
+            team_id,
+            detach_from_team,
+            purpose: ShellPurpose::Qa,
+            timeout,
+            ..Default::default()
+        })
+    };
+    let detached = make(None, true, None).unwrap().tab_id;
+    let error = make(Some("unrelated-team".into()), false, None).unwrap_err();
+    assert!(error.starts_with(crate::service::UTILITY_TEAM_REFUSAL));
+    let shell = make(Some(member.team_id.clone()), false, Some("60m".into()))
+        .unwrap()
+        .tab_id;
+    let inherited = make(None, false, None).unwrap().tab_id;
+    let error = make(None, false, None).unwrap_err();
+    assert!(error.starts_with("utility_tab_limit:"));
+    {
+        let mux = remote.mux.read();
+        let worker = mux.get_tab(&fixture.worker).unwrap();
+        assert!(worker.team_id.is_none());
+        assert_eq!(
+            worker.ownership.as_ref().unwrap().team.as_ref().unwrap().id,
+            member.team_id
+        );
+        for id in [&shell, &inherited] {
+            let utility = mux.get_tab(id).unwrap();
+            assert!(utility.is_remote_team_utility_of(&fixture.worker));
+            assert!(utility.ownership.is_none());
+        }
+    }
+    assert_eq!(
+        remote.shell_job_policy_for_tab(&shell),
+        AllowExplicitServerBreakaway
+    );
+    assert_eq!(remote.shell_job_policy_for_tab(&detached), Contained);
+    assert!(remote.utility_deadline_snapshot(&shell).is_some());
+
+    fixture
+        .origin
+        .service
+        .prepare_remote_team_close(&member.team_id)
+        .unwrap();
+    let receipt = fixture
+        .origin
+        .service
+        .finalize_remote_team_member_with_peer(&member, true, &peer)
+        .await
+        .unwrap();
+    assert_eq!(receipt.outcome, "closed");
+    let mux = remote.mux.read();
+    assert!(mux.get_tab(&shell).is_none());
+    assert!(mux.get_tab(&inherited).is_none());
+    assert!(mux.get_tab(&fixture.worker).is_none());
+    assert!(mux.get_tab(&detached).is_some());
+    drop(mux);
+    assert!(remote.utility_deadline_snapshot(&shell).is_none());
+}
+
 #[test]
 fn peer_authority_and_offline_decisions_preserve_the_membership_boundary() {
     use crate::mesh::types::AccessLevel;

@@ -255,7 +255,8 @@ impl ServiceContext {
                         task,
                         utility_shell,
                         utility_shell
-                            && tab.team_id.is_some()
+                            && (tab.team_id.is_some()
+                                || super::super::spawn_shell::remote_team_utility(&mux, tab))
                             && !tab
                                 .shell_profile
                                 .as_ref()

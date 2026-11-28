@@ -46,6 +46,32 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
 }
 
 #[tokio::test]
+async fn utility_team_membership_refusal_is_typed_and_does_not_create_a_tab() {
+    let (mux, caller) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = app_state(&fixture);
+    let before = state.svc.mux.read().snapshot().tabs.len();
+    let response = create_shell_tab_response(
+        AxumState(state.clone()),
+        local_headers(),
+        Json(CreateShellTabBody {
+            creator_tab_id: Some(caller),
+            team_id: Some("foreign-team".into()),
+            ..Default::default()
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let refusal: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(refusal["code"], "utility_team_refused");
+    assert_eq!(state.svc.mux.read().snapshot().tabs.len(), before);
+}
+
+#[tokio::test]
 async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
     let (mut mux, owner) = MultiplexerState::new();
     mux.set_orchestrator_role(&owner).unwrap();

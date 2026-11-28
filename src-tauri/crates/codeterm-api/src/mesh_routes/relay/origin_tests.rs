@@ -65,6 +65,53 @@ fn headers(token: &str) -> HeaderMap {
     headers
 }
 
+#[test]
+fn mesh_attachment_uploads_and_delivery_have_fresh_signatures_with_the_same_caller() {
+    let source_fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let target_fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let source = state(&source_fixture, "source");
+    let target = state(&target_fixture, "target");
+    pair(&target, &source);
+    let agent = codeterm_mesh::crown::AuthenticatedAgent {
+        instance_id: "source".into(),
+        tab_id: "sender".into(),
+        can_spawn: false,
+    };
+    for (origin, agent) in [
+        (AuthenticatedOrigin::Owner, None),
+        (AuthenticatedOrigin::Agent, Some(agent)),
+    ] {
+        let relay = super::cloud_producer::HttpRelay {
+            primary: "http://127.0.0.1:1".into(),
+            alternatives: Vec::new(),
+            origin,
+            agent: agent.clone(),
+        };
+        for path in [
+            "/api/tabs/receiver/attachments",
+            "/api/tabs/receiver/attachments",
+            "/api/tabs/receiver/send",
+        ] {
+            let command = RelayCommand {
+                method: "POST".into(),
+                path: path.into(),
+                body: Value::Null,
+                delivery_id: None,
+            };
+            let wire = relay
+                .client(&source)
+                .unwrap()
+                .relay_request(&command)
+                .unwrap();
+            let caller = super::origin::authenticate_signed_mesh_request(&target, wire.headers())
+                .unwrap_or_else(|error| panic!("Receiver refused {path}: {error:?}"));
+            assert_eq!(caller.peer_id, "source");
+            assert_eq!(caller.origin, origin);
+            assert_eq!(caller.agent, agent);
+        }
+    }
+}
+
 fn wire_request(request: reqwest::Request) -> Request<Body> {
     let body = request
         .body()

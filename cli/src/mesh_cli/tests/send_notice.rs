@@ -34,7 +34,7 @@ fn send_text_is_fire_and_forget_on_mesh() {
 }
 
 #[test]
-fn pad_attachment_send_is_local_only() {
+fn mesh_pad_attachment_refusal_points_to_file_card_transfer() {
     use clap::Parser;
 
     let command = crate::Cli::try_parse_from([
@@ -52,6 +52,8 @@ fn pad_attachment_send_is_local_only() {
     .command;
     let (method, reason, body) = cli_command_to_api(&command);
     assert_eq!(method, UNSUPPORTED_OVER_MESH);
-    assert_eq!(reason, "--attach requires both tabs on the same machine");
+    assert!(reason.contains("file card"));
+    assert!(reason.contains("absolute sender pad path"));
+    assert!(reason.contains("--from-pad"));
     assert!(body.is_none());
 }

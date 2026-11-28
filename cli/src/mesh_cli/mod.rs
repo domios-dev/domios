@@ -317,11 +317,9 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
 
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
     if method == api_map::UNSUPPORTED_OVER_MESH {
-        crate::cmd::print::fail_refused(
-            2,
-            path,
-            Some("run this command on the target machine without --mesh"),
-        );
+        let hint = (path != crate::transport::MESH_PAD_ATTACHMENT_REFUSAL)
+            .then_some("run this command on the target machine without --mesh");
+        crate::cmd::print::fail_refused(2, path, hint);
     }
     if !cli.json
         && matches!(

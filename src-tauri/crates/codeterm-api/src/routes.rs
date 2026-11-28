@@ -258,7 +258,7 @@ pub(super) fn create_router_with_preview_admission(
             "/api/workspaces/{id}/tabs/{tab_id}/move",
             post(workspace_routes::move_tab),
         )
-        .route("/api/tabs", post(tab_routes::create_shell_tab))
+        .route("/api/tabs", post(tab_routes::create_shell_tab_response))
         .route("/api/shells", get(tab_routes::list_shell_profiles))
         .route("/api/tabs/inspect", get(tab_routes::inspect_tabs))
         .route(

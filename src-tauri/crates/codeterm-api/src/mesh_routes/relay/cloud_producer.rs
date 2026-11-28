@@ -266,7 +266,7 @@ async fn resolve_cloud_outbox(
 }
 
 pub(super) enum OutboundRelayTransport {
-    Http(codeterm_service_core::mesh::transport::PeerClient),
+    Http(HttpRelay),
     CloudIngress {
         installation_id: String,
         endpoint: Option<CloudRoute>,
@@ -278,6 +278,27 @@ pub(super) enum OutboundRelayTransport {
         origin: AuthenticatedOrigin,
         agent: Option<AuthenticatedAgent>,
     },
+}
+
+pub(super) struct HttpRelay {
+    pub(super) primary: String,
+    pub(super) alternatives: Vec<String>,
+    pub(super) origin: AuthenticatedOrigin,
+    pub(super) agent: Option<AuthenticatedAgent>,
+}
+
+impl HttpRelay {
+    pub(super) fn client(
+        &self,
+        state: &AppState,
+    ) -> Result<codeterm_mesh::transport::PeerClient, (StatusCode, String)> {
+        let token = super::sign_caller(state, self.origin, self.agent.as_ref())?;
+        Ok(codeterm_mesh::transport::PeerClient::new_signed_route(
+            self.primary.clone(),
+            self.alternatives.clone(),
+            &token,
+        ))
+    }
 }
 
 pub(super) fn resolve_outbound_transport(
@@ -313,9 +334,16 @@ pub(super) fn resolve_outbound_transport(
             primary,
             alternatives,
         } => {
-            let (origin, client) =
-                origin::signed_peer_client(state, headers, primary, alternatives)?;
-            (origin, OutboundRelayTransport::Http(client))
+            let (origin, agent) = origin::authenticated_local_caller(state, headers)?;
+            (
+                origin,
+                OutboundRelayTransport::Http(HttpRelay {
+                    primary,
+                    alternatives,
+                    origin,
+                    agent,
+                }),
+            )
         }
         RelayTargetRoute::CloudIngress {
             installation_id,
@@ -356,7 +384,7 @@ pub(super) fn resolve_outbound_transport(
 }
 
 pub(super) enum ReadyOutboundTransport {
-    Http(codeterm_service_core::mesh::transport::PeerClient),
+    Http(HttpRelay),
     CloudIngress {
         installation_id: String,
         endpoint: CloudRoute,
@@ -398,7 +426,12 @@ impl ReadyOutboundTransport {
 
     pub(super) async fn fetch_identify(&self, state: &AppState) -> Option<serde_json::Value> {
         match self {
-            Self::Http(client) => client.auth_get_json("/api/identify").await.ok(),
+            Self::Http(relay) => relay
+                .client(state)
+                .ok()?
+                .auth_get_json("/api/identify")
+                .await
+                .ok(),
             Self::CloudIngress {
                 installation_id,
                 endpoint,
@@ -436,9 +469,21 @@ impl ReadyOutboundTransport {
         body: &mut serde_json::Value,
     ) -> Result<(), String> {
         match self {
-            Self::Http(client) => {
-                codeterm_service_core::service::mesh_artifacts_transfer(
-                    &state.svc, source_tab, client, method, path, body,
+            Self::Http(relay) => {
+                codeterm_service_core::service::mesh_artifacts_transfer_via(
+                    &state.svc,
+                    source_tab,
+                    method,
+                    path,
+                    body,
+                    |command| async move {
+                        relay
+                            .client(state)
+                            .map_err(|(_, message)| message)?
+                            .send_relay(&command)
+                            .await
+                            .map_err(|error| error.to_string())
+                    },
                 )
                 .await
             }
@@ -487,14 +532,24 @@ impl ReadyOutboundTransport {
         cmd: &RelayCommand,
     ) -> Result<RelayResponse, RelayResponse> {
         match self {
-            Self::Http(client) => client.send_relay(cmd).await.map_err(|err| {
-                relay_failure(
-                    err.http_status(),
-                    err.code(),
-                    err.bytes_written(),
-                    err.to_string(),
-                )
-            }),
+            Self::Http(relay) => {
+                let client = relay.client(state).map_err(|(status, message)| {
+                    relay_failure(
+                        status.as_u16(),
+                        codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
+                        Some(false),
+                        message,
+                    )
+                })?;
+                client.send_relay(cmd).await.map_err(|err| {
+                    relay_failure(
+                        err.http_status(),
+                        err.code(),
+                        err.bytes_written(),
+                        err.to_string(),
+                    )
+                })
+            }
             Self::CloudIngress {
                 installation_id,
                 endpoint,

@@ -87,9 +87,7 @@ pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
 pub mod mesh_artifacts;
-pub use mesh_artifacts::{
-    transfer as mesh_artifacts_transfer, transfer_via as mesh_artifacts_transfer_via,
-};
+pub use mesh_artifacts::transfer_via as mesh_artifacts_transfer_via;
 pub mod mesh_attachment;
 pub mod message_gateway;
 pub mod messenger;
@@ -224,6 +222,7 @@ pub mod unattended_launch;
 pub use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
+pub use spawn_shell::UTILITY_TEAM_REFUSAL;
 pub(crate) mod spawn_title;
 pub use spawn_title::validate_agent_tab_title as spawn_title_validate_agent_tab_title;
 pub mod startup_lease;

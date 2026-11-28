@@ -648,8 +648,8 @@ pub fn handle_send_text(
     system_context: Option<String>,
 ) {
     if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
-        if !pad_attachments.0.is_empty() {
-            emit_send_refusal(json, "--attach requires both tabs on the same machine");
+        if !pad_attachments.0.is_empty() || pad_attachments.1 {
+            emit_send_refusal(json, crate::transport::MESH_PAD_ATTACHMENT_REFUSAL);
         }
         if require_agent {
             emit_send_refusal(
