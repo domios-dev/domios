@@ -20,6 +20,7 @@ export interface TranscriptAuthority {
 }
 
 export type TranscriptBatchKind = "snapshot" | "delta" | "backfill";
+export type TranscriptOrder = "source" | "timestamp";
 
 export interface TranscriptSegment {
   kind: TranscriptBatchKind;
@@ -136,8 +137,9 @@ export function transcriptSourceRows(state: TranscriptState): NormalizedChatMess
     segment.rows.filter(row => !expanded.has(row.id))));
 }
 
-export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
-  return orderTimelineItems(transcriptSourceRows(state));
+export function transcriptRows(state: TranscriptState, order: TranscriptOrder = "timestamp"): NormalizedChatMessage[] {
+  const rows = transcriptSourceRows(state);
+  return order === "source" ? rows : orderTimelineItems(rows);
 }
 
 export function transcriptRowCount(state: TranscriptState): number {
@@ -458,6 +460,7 @@ function unloadedHistoryWindow(
 export function projectTranscript(
   state: TranscriptState,
   sends: readonly ChatSend[] = [],
+  order: TranscriptOrder = "timestamp",
 ): TranscriptProjection {
   const sourceSession = state.authority?.sourceSessionId;
   const ownInput = (row: NormalizedChatMessage) => sourceSession != null && row.sourceSessionId === sourceSession
@@ -486,7 +489,11 @@ export function projectTranscript(
   const { echoes, pending, outside } = reconcileSends(
     sends, committedRows, state.authority, rowStarts, unloadedHistoryWindow(state, committedRows),
   );
-  const projectedCommittedRows = projectTranscriptParts(orderTimelineItems(committedRows), sends, sourceSession);
+  const orderedCommittedRows = order === "source" ? committedRows : orderTimelineItems(committedRows);
+  const projectedCommittedRows = projectTranscriptParts(orderedCommittedRows, sends, sourceSession);
+  if (order === "source") {
+    return { rows: placePendingSends(projectedCommittedRows, pending), pending, echoes, outside };
+  }
   const structuredWindow = state.segments.some(segment => segment.range?.unit === "items");
   const structuredItems = new Set(sends.flatMap(({ matchedRow }) => {
     const record = matchedRow?.source.record;

@@ -20,5 +20,6 @@ assert.equal(merged[2],after);
 assert.equal(rows.length,2);
 assert.equal(mergeAccountNoticeRows(merged,projected),merged);
 assert.equal(mergeAccountNoticeRows(rows,[]),rows);
+assert.deepEqual(mergeAccountNoticeRows([after,before],projected).map(row=>row.id),["account-notice:own","after","before"]);
 assert.equal(accountNoticeRows(notices,"fixture","new-session").length,0);
 console.log("PASS account notices: own-session projection, chronological merge, deduplication and untouched transcript rows");

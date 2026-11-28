@@ -292,6 +292,7 @@ function TabSessionChatBody({
     observeChatSendStatus,
   } = useChatSession({
     hostRows:hostAccountRows,
+    transcriptOrder: effectiveChatBackend ? "source" : "timestamp",
     showLiveTools: supportsChatTranscriptActivity(descriptor, tab?.backing, effectiveChatBackend),
     tabId,
     cwd,

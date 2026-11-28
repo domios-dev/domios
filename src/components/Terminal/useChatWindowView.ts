@@ -20,6 +20,7 @@ import {
   type TimelineItem,
   type TranscriptState,
   type TranscriptAuthority,
+  type TranscriptOrder,
 } from "@codeterm/chat-core";
 import { type EnrichmentCache } from "./chatEnrichment";
 import { CHAT_PAGE_SIZE, CHAT_READING_SIZE, conversationEntries, earlierMessageLabel, revealEarlierMessages, revealNewerMessages } from "./chatPagingModel";
@@ -73,12 +74,14 @@ export function useChatWindowView({
   loadHistoryPage,
   queueSendsBehindTurn = false,
   hostRows,
+  transcriptOrder,
   liveToolsScope = null,
 }: {
   tabId: string;
   cwd?: string | null;
   queueSendsBehindTurn?: boolean;
   hostRows?:readonly NormalizedChatMessage[];
+  transcriptOrder?: TranscriptOrder;
   liveToolsScope?: string | null;
   agentSessionId?: string | null;
   windowKey: string;
@@ -123,7 +126,7 @@ export function useChatWindowView({
     setTranscriptAnchor(windowKey, next);
   }, [windowKey]);
 
-  const committedRows = useMemo(() => transcriptRows(transcript), [transcript]);
+  const committedRows = useMemo(() => transcriptRows(transcript, transcriptOrder), [transcript, transcriptOrder]);
   const compaction = useContextCompaction(tabId, agentSessionId ?? transcript.authority?.sourceSessionId ?? null, committedRows);
   const resetCutoffMs = useMemo(() => {
     const index = lastSessionResetIndex(committedRows);
@@ -135,7 +138,7 @@ export function useChatWindowView({
     const queued = queuedDeliveryIds(sends, queueSendsBehindTurn, deliveryMemory.current);
     return deliveryProjectionSends(sends, resetCutoffMs, queued);
   }, [sends, resetCutoffMs, queueSendsBehindTurn, windowKey]);
-  const projection = useMemo(() => projectTranscript(transcript, liveSends), [transcript, liveSends]);
+  const projection = useMemo(() => projectTranscript(transcript, liveSends, transcriptOrder), [transcript, liveSends, transcriptOrder]);
   const compactDismissals = useMemo(() => hydration === "ready"
     ? readChatSendDismissalMarkers(tabId, projection.rows)
     : EMPTY_DISMISSALS, [dismissalRevision, hydration, projection.rows, tabId]);

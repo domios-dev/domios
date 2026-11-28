@@ -155,6 +155,7 @@ export {
   type TranscriptAuthority,
   type TranscriptBatch,
   type TranscriptBatchKind,
+  type TranscriptOrder,
   type TranscriptOutcome,
   type TranscriptProjection,
   type TranscriptRange,
