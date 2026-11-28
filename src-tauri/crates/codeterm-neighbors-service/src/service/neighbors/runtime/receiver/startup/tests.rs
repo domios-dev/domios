@@ -35,8 +35,7 @@ async fn fixture() -> (
 }
 
 #[tokio::test]
-async fn preparation_followed_by_refresh_new_projection_or_account_switch_cannot_apply_local_work()
-{
+async fn grant_listener_rearm_rejects_retired_activation_without_claiming_key_revocation() {
     for transition in 0..3 {
         let (fixture, ticket) = fixture().await;
         let service = &fixture.service;
@@ -71,7 +70,13 @@ async fn preparation_followed_by_refresh_new_projection_or_account_switch_cannot
             release.send(()).unwrap();
         };
         let (result, _) = tokio::join!(apply, retire);
-        assert!(result.is_err());
+        assert_eq!(
+            result,
+            Err(Error::LocalFence {
+                phase: "activation_pending"
+            }
+            .to_string())
+        );
         assert!(fixture.ui.0.lock().is_empty());
         assert!(service.neighbor_cell().listeners.lock().active.is_empty());
     }

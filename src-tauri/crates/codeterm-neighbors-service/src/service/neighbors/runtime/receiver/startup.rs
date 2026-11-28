@@ -1,3 +1,4 @@
+use super::super::super::updates::activation_failure;
 use super::activation::{Failure as ActivationFailure, State as ActivationState};
 use super::*;
 use friends::FriendReceiver;
@@ -291,11 +292,14 @@ impl NeighborsExt for ServiceContext {
             .await
             .ok_or("Neighbor account signed out")?;
         if session.identity.uid != transport.uid {
-            return Err(Error::Revoked.to_string());
+            return Err(Error::LocalFence {
+                phase: "account_session",
+            }
+            .to_string());
         }
         let (ticket, list) = self
             .neighbor_activation_ticket(&session.identity.uid, session.login_generation)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| activation_failure(error).to_string())?;
         let prepare_service = self.clone();
         let apply_service = self.clone();
         let prepare_transport = transport.clone();
@@ -355,8 +359,14 @@ impl NeighborsExt for ServiceContext {
         let prepared = preparation.await;
         let service = self.clone();
         self.neighbor_reconciliation().submit(super::super::super::reconciliation::Kind::Activation, move || async move {
-            service.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
-            service.require_neighbor_activation_account(&ticket).await?;
+            service.require_neighbor_generation(generation).map_err(|_| Error::LocalFence { phase: "account_session" })?;
+            service.require_neighbor_activation_account(&ticket).await.map_err(|error| {
+                if error == Error::Revoked {
+                    Error::LocalFence { phase: "account_session" }
+                } else {
+                    error
+                }
+            })?;
             service.require_neighbor_activation_ticket(&ticket)?;
             let outcome = match prepared { Ok(value) => apply(value).await, Err(error) => Err(error) };
             if let Err(error) = outcome {
@@ -375,7 +385,7 @@ impl NeighborsExt for ServiceContext {
             }
             service.record_neighbor_activation(generation, None);
             Ok(())
-        }).map_err(|error| error.to_string())?.wait().await.map_err(|error| error.to_string())
+        }).map_err(|error| activation_failure(error).to_string())?.wait().await.map_err(|error| activation_failure(error).to_string())
     }
 
     async fn apply_neighbor_friend_listeners(
@@ -491,12 +501,16 @@ impl NeighborsExt for ServiceContext {
                 .get(id)
                 .filter(|tab| self.validate_neighbor_gateway(tab).is_ok())
                 .cloned();
+            let retry_failed_listener = self.neighbor_cell().failures.lock().contains_key(id);
             let mut listeners = self.neighbor_cell().listeners.lock();
-            if listeners
+            if let Some(handle) = listeners
                 .active
                 .get(id)
-                .is_some_and(|handle| !handle.task.is_finished() && handle.gateway_tab == tab)
+                .filter(|handle| !handle.task.is_finished() && handle.gateway_tab == tab)
             {
+                if retry_failed_listener {
+                    handle.retry.notify_one();
+                }
                 continue;
             }
             if let Some(previous) = listeners.active.remove(id) {

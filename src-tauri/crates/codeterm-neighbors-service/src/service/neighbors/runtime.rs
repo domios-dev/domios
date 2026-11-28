@@ -340,7 +340,12 @@ impl NeighborsExt for ServiceContext {
             .current_session()
             .await
             .map_err(|_| Error::Transport.to_string())?
-            .ok_or_else(|| Error::Revoked.to_string())?;
+            .ok_or_else(|| {
+                Error::LocalFence {
+                    phase: "account_session",
+                }
+                .to_string()
+            })?;
         let uid = session.identity.uid.clone();
         let installation_id = self.installation_id().await?.as_str().to_owned();
         let configured_label = self.configuration().mesh.instance_name.clone();
@@ -700,6 +705,7 @@ impl NeighborsExt for ServiceContext {
             &command,
             NeighborRuntimeCommand::Rotate | NeighborRuntimeCommand::Revoke
         );
+        let grant_change = matches!(&command, NeighborRuntimeCommand::SetPermission { .. });
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
                 NeighborRuntimeCommand::StopConcierge { .. } => Err(Error::InvalidRequest),
@@ -916,15 +922,22 @@ impl NeighborsExt for ServiceContext {
             self.rearm_neighbor_updates();
             self.forget_neighbor_registry();
         }
+        if grant_change && result.is_err() && self.require_neighbor_generation(generation).is_ok() {
+            self.request_neighbor_projection_refresh();
+        }
         let result = result.map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;
         let scope = lifecycle.scope.clone();
         drop(lifecycle);
-        if self
+        let activation = self
             .start_neighbor_listeners(transport, registry, scope, metadata, generation)
-            .await
-            .is_err()
+            .await;
+        if grant_change
+            && (activation.is_err() || self.neighbor_activation_stale())
+            && self.require_neighbor_generation(generation).is_ok()
         {
+            self.request_neighbor_projection_refresh();
+        } else if activation.is_err() {
             self.ui.emit(
                 "neighbor-runtime-status",
                 json!(

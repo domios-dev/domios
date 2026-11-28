@@ -199,7 +199,9 @@ impl NeighborsExt for ServiceContext {
                     .await;
                     service
                         .require_neighbor_generation(generation)
-                        .map_err(|_| Error::Revoked)?;
+                        .map_err(|_| Error::LocalFence {
+                            phase: "account_session",
+                        })?;
                     service.require_neighbors_enabled()?;
                     result.map_err(|error| {
                         let refusal = super::super::recovery::startup_error(&error);

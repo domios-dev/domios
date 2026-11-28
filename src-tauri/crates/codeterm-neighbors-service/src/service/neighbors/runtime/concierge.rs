@@ -7,6 +7,7 @@ pub mod restore;
 pub mod retirement;
 use super::super::storage::ConciergeOptions;
 use crate::service::agent_runtime::cli_exception::needs_project_handoff;
+use codeterm_neighbors::supervisor::ListenerState;
 
 pub fn launch_error(error: String) -> Error {
     if error.starts_with("neighbor_restore_grant_required:") {
@@ -320,11 +321,11 @@ impl NeighborsExt for ServiceContext {
                     .map(|saved| (saved.provider.clone(), saved.model.clone()))
             })
             .unwrap_or_default();
-        self.stop_neighbor_concierge_listener(friendship);
         let old = if let Some(id) = old
             .as_deref()
             .filter(|id| needs_project_handoff(self, id, &cwd))
         {
+            self.retire_neighbor_concierge_listener(friendship, ListenerState::Reconnecting);
             self.close_tab_async(id).await.map_err(launch_error)?;
             None
         } else {
@@ -379,6 +380,7 @@ impl NeighborsExt for ServiceContext {
             }
             return Err(error);
         }
+        self.retire_neighbor_concierge_listener(friendship, ListenerState::Reconnecting);
         if let Err(error) = metadata.save_settings(settings.clone()).await {
             if let Some(tab) = &created {
                 let _ = self.close_tab_async(tab).await;
@@ -389,7 +391,6 @@ impl NeighborsExt for ServiceContext {
         if created.is_some() {
             self.reconcile_neighbor_handling_restore(metadata, friendship, generation)
                 .await?;
-            self.stop_neighbor_concierge_listener(friendship);
             if let Some(old) = old.filter(|id| {
                 Some(id) != gateway_tab.as_ref() && self.mux.read().get_tab(id).is_some()
             }) {

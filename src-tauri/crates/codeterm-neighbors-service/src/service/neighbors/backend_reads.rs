@@ -310,6 +310,7 @@ impl NeighborsExt for ServiceContext {
 
     async fn refresh_neighbor_list(&self) -> Result<()> {
         self.invalidate_neighbor_list().await?;
+        self.request_neighbor_projection_refresh();
         self.rearm_neighbor_reads();
         Ok(())
     }

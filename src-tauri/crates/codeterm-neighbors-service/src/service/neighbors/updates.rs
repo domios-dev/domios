@@ -25,6 +25,7 @@ use tokio::sync::watch;
 pub struct UpdateCell {
     generation: AtomicU64,
     paid_changes: watch::Sender<u64>,
+    refresh: watch::Sender<()>,
     task: parking_lot::Mutex<Option<Handle>>,
 }
 
@@ -33,6 +34,7 @@ impl Default for UpdateCell {
         Self {
             generation: AtomicU64::new(0),
             paid_changes: watch::channel(0).0,
+            refresh: watch::channel(()).0,
             task: parking_lot::Mutex::new(None),
         }
     }
@@ -55,6 +57,7 @@ pub trait NeighborsExt {
         F: std::future::Future<Output = Result<()>> + Send + 'static,
         A: FnMut() -> F + Send + 'static;
     fn neighbor_paid_changed(&self);
+    fn request_neighbor_projection_refresh(&self);
     fn rearm_neighbor_updates(&self);
     fn stop_neighbor_updates(&self);
 }
@@ -123,6 +126,10 @@ impl NeighborsExt for ServiceContext {
         self.neighbor_updates()
             .paid_changes
             .send_modify(|revision| *revision = revision.wrapping_add(1));
+    }
+
+    fn request_neighbor_projection_refresh(&self) {
+        self.neighbor_updates().refresh.send_replace(());
     }
 
     fn rearm_neighbor_updates(&self) {
@@ -417,7 +424,7 @@ impl Session {
     }
 }
 
-fn activation_failure(error: Error) -> Error {
+pub(super) fn activation_failure(error: Error) -> Error {
     if error == Error::Revoked {
         Error::LocalFence {
             phase: "activation_pending",
@@ -505,7 +512,11 @@ impl ReceptionEvents for Session {
         self.service.neighbor_watch_failure("account", error);
     }
     async fn retry_after_failure(&self, attempt: usize) -> Result<()> {
-        codeterm_neighbors::supervisor::reconnect_backoff_with(self.clock.as_ref(), attempt).await;
+        let mut refresh = self.service.neighbor_updates().refresh.subscribe();
+        tokio::select! {
+            _ = refresh.changed() => {}
+            _ = codeterm_neighbors::supervisor::reconnect_backoff_with(self.clock.as_ref(), attempt) => {}
+        }
         self.current()
     }
 }
@@ -519,6 +530,16 @@ impl DocumentSession for Session {
         std::future::pending::<()>().await;
     }
     async fn listen(&self) -> Result<()> {
+        let mut refresh = self.service.neighbor_updates().refresh.subscribe();
+        loop {
+            self.listen_projection(&mut refresh).await?;
+            self.service.neighbor_projection_unavailable();
+        }
+    }
+}
+
+impl Session {
+    async fn listen_projection(&self, refresh: &mut watch::Receiver<()>) -> Result<()> {
         self.current()?;
         let mut seen = self
             .metadata
@@ -545,6 +566,7 @@ impl DocumentSession for Session {
             }
             let next = tokio::select! {
                 biased;
+                _ = refresh.changed() => return Ok(()),
                 _ = paid_changes.changed() => Ok(Event::PaidChanged),
                 state = listener.next() => state.map(Event::State),
                 signal = async {

@@ -446,7 +446,13 @@ async fn rotate_returns_without_waiting_for_revocation_while_registry_activation
     tokio::time::pause();
     let started = tokio::time::Instant::now();
     assert_eq!(rotate.await, Err(Error::Transport.to_string()));
-    assert_eq!(activation.await, Err(Error::Revoked.to_string()));
+    assert_eq!(
+        activation.await,
+        Err(Error::LocalFence {
+            phase: "activation_pending"
+        }
+        .to_string())
+    );
     assert_eq!(tokio::time::Instant::now(), started);
     assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 1);
     assert_eq!(f.port.revocation.load(Ordering::SeqCst), 1);

@@ -1,5 +1,89 @@
 use super::*;
 
+struct RefreshStream(Option<StateEvent>);
+
+#[async_trait::async_trait]
+impl StateListener for RefreshStream {
+    async fn next(&mut self) -> Result<Option<StateEvent>> {
+        match self.0.take() {
+            Some(event) => Ok(Some(event)),
+            None => std::future::pending().await,
+        }
+    }
+}
+
+struct RefreshPorts {
+    opened: AtomicUsize,
+    activated: tokio::sync::mpsc::UnboundedSender<u64>,
+}
+
+#[async_trait::async_trait]
+impl SessionPorts for RefreshPorts {
+    async fn listen_state(&self) -> Result<Box<dyn StateListener>> {
+        self.opened.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(RefreshStream(Some(StateEvent::Snapshot(
+            snapshot(27, Some("fixture-machine")),
+        )))))
+    }
+
+    async fn listen_signals(
+        &self,
+    ) -> Result<Box<dyn codeterm_neighbors::registry::RegistryListener>> {
+        Ok(Box::new(Signals(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(tokio::sync::Notify::new()),
+        )))
+    }
+
+    async fn reconcile(
+        &self,
+        _: &Session,
+        _: Value,
+        _: Option<Value>,
+        _: &mut notifications::Seen,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn activate(&self, session: &Session, list: &Value) -> Result<()> {
+        session
+            .require_activation(list["version"].as_u64().unwrap())
+            .await?;
+        let receiver = &list["friends"][0]["my_receiver"];
+        assert_eq!(receiver["enc_key_id"], "key_active");
+        self.activated
+            .send(receiver["revision"].as_u64().unwrap())
+            .unwrap();
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn grant_listener_rearm_refresh_reopens_idle_watch_at_same_receiver_revision() {
+    let (fixture, mut session, _, _, _) = fixture(Mode::Controlled).await;
+    let (activated, mut activations) = tokio::sync::mpsc::unbounded_channel();
+    let ports = Arc::new(RefreshPorts {
+        opened: AtomicUsize::new(0),
+        activated,
+    });
+    session.ports = ports.clone();
+    let active = tokio::spawn(async move { session.listen().await });
+    let verified = tokio::time::timeout(Duration::from_secs(5), async {
+        assert_eq!(activations.recv().await, Some(27));
+        fixture.service.refresh_neighbor_list().await.unwrap();
+        assert_eq!(activations.recv().await, Some(27));
+        assert_eq!(ports.opened.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            fixture.service.neighbor_projection_diagnostics().await["dirty"],
+            false
+        );
+    })
+    .await;
+    active.abort();
+    assert!(active.await.unwrap_err().is_cancelled());
+    verified.unwrap();
+}
+
 #[tokio::test]
 async fn dirty_same_version_activation_remains_retryable_and_reconnect_recovers() {
     let (f, session, ports, _, _) = fixture(Mode::Controlled).await;

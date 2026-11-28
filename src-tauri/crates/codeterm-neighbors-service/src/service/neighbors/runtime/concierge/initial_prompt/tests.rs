@@ -75,7 +75,7 @@ fn restored_initial_context_must_match_the_applied_grant() {
 }
 
 #[tokio::test]
-async fn each_permission_apply_creates_once_with_the_complete_new_initial_context() {
+async fn grant_listener_rearm_keeps_receiving_during_scoped_concierge_preparation() {
     use crate::multiplexer::state::MultiplexerState;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
@@ -118,6 +118,24 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
         let expected = initial_prompt(&friend, &permission);
         let invoked = calls.clone();
         let ws = workspace.clone();
+        let stopped = previous.as_ref().map(|gateway| {
+            let (shutdown, stopped) = tokio::sync::watch::channel(false);
+            let mut retiring = stopped.clone();
+            let task = tokio::spawn(async move {
+                let _ = retiring.changed().await;
+            });
+            service.neighbor_cell().listeners.lock().active.insert(
+                friend.clone(),
+                super::super::super::listener::Handle {
+                    gateway_tab: Some(gateway.clone()),
+                    task,
+                    retry: Arc::new(tokio::sync::Notify::new()),
+                    shutdown,
+                },
+            );
+            stopped
+        });
+        let during_prepare = stopped.clone();
         let result = service
             .apply_neighbor_permission_with(
                 &metadata,
@@ -126,6 +144,9 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
                 permission.clone(),
                 service.neighbor_history_generation(),
                 |_, _, cwd, grant, resume, _| async move {
+                    if let Some(stopped) = during_prepare {
+                        assert!(!*stopped.borrow());
+                    }
                     invoked.fetch_add(1, Ordering::SeqCst);
                     assert!(resume.is_none());
                     assert_eq!(initial_prompt(&"a".repeat(64), &grant), expected);
@@ -163,6 +184,11 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
         ));
         if let Some(old) = previous {
             assert!(service.mux.read().get_tab(&old).is_none());
+            assert!(*stopped.unwrap().borrow());
+            assert_eq!(
+                service.neighbor_cell().states.lock().get(&friend),
+                Some(&codeterm_neighbors::supervisor::ListenerState::Reconnecting)
+            );
         }
         previous = Some(gateway.to_owned());
         let saved = metadata.settings().await.unwrap();
