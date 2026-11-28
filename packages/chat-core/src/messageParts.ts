@@ -16,7 +16,8 @@ function sendSegments(payload: ExactSendText): MessageSegment[] {
 }
 
 export function splitExactSendTexts(content: string, payloads: readonly ExactSendText[]): MessageSegment[] {
-  const exact = payloads.find((payload) => payload.content === content);
+  const exact = payloads.find((payload) => payload.content === content
+    || (payload.segments?.some(segment => segment.type === "frame") && userEchoBody(payload.content) === userEchoBody(content)));
   if (exact) return sendSegments(exact);
   const segments: MessageSegment[] = [];
   let offset = 0;

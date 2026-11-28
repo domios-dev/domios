@@ -5,6 +5,7 @@ import { mergeBatchesById, mergeById } from "./merge";
 import { reconcileSends, type ChatSend, type SendEcho, type UnloadedHistoryWindow } from "./sendOrder";
 import { timestampMs } from "./time";
 import { orderTimelineItems } from "./timelineOrder";
+import { canRetainRoutedPresentation, retainRoutedPresentation } from "./routedPresentation";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open source window; byte boundaries align to complete records. */
@@ -265,11 +266,20 @@ function reduceSnapshot(
     state,
     [
       ...preserved,
-      { kind: "snapshot", range, rows: ownedRows(batch.authority, batch.rows) },
+      { kind: "snapshot", range, rows: retainRoutedRows(state, ownedRows(batch.authority, batch.rows)) },
     ],
     "adopted",
     Number.POSITIVE_INFINITY,
   );
+}
+
+function retainRoutedRows(state: TranscriptState, rows: NormalizedChatMessage[]): NormalizedChatMessage[] {
+  if (state.segments.length === 0 || !rows.some(canRetainRoutedPresentation)) return rows;
+  const previousById = new Map(transcriptSourceRows(state).map(row => [row.id, row]));
+  return rows.map(row => {
+    const previous = previousById.get(row.id);
+    return previous ? retainRoutedPresentation(previous, row) : row;
+  });
 }
 
 function supersedeRows(
@@ -313,10 +323,9 @@ function reduceDelta(
     if (range.end <= end) return { state, outcome: "ignored_stale" };
     if (range.start > end) return { state, outcome: "recover_gap" };
   }
-  const incoming = ownedRows(batch.authority, batch.rows);
-  const preserved = end != null && range.start < end
-    ? supersedeRows(state.segments, incoming)
-    : state.segments;
+  const overlaps = end != null && range.start < end;
+  const incoming = retainRoutedRows(state, ownedRows(batch.authority, batch.rows));
+  const preserved = overlaps ? supersedeRows(state.segments, incoming) : state.segments;
   return committed(
     state,
     [...preserved, { kind: "delta", range, rows: incoming }],
