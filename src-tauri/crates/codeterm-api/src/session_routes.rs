@@ -644,6 +644,7 @@ pub async fn resume_session_api(
         planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
+        regenerable_runtime_prompt: false,
         preset: None,
         resume_session_id: Some(meta.session_id.clone()),
         charter: None,
