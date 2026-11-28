@@ -960,6 +960,19 @@ impl Tab {
             && !self.roleless_tracked
     }
 
+    /// A foreign Team utility is locally owned by its creating member.
+    pub fn is_remote_team_utility_of(&self, owner: &str) -> bool {
+        self.is_utility_shell()
+            && self.team_id.is_none()
+            && self.parent_tab_id.as_deref() == Some(owner)
+            && self.spawned_by_tab_id.as_deref() == Some(owner)
+            && self
+                .close_restore
+                .as_ref()
+                .and_then(|state| state.utility_owner_tab_id.as_deref())
+                == Some(owner)
+    }
+
     pub fn prompt_identity(&self) -> Option<codeterm_types::pty::PromptIdentity> {
         let (prompt, kind) = self.pending_prompt.as_ref().zip(self.pending_prompt_kind)?;
         Some(codeterm_types::pty::PromptIdentity::new(kind, prompt))

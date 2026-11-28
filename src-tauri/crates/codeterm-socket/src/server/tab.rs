@@ -222,10 +222,16 @@ pub(super) fn dispatch(
                     command: codeterm_service_core::service::spawn::TabCommand::Shell,
                     ..Default::default()
                 })
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
+                .map_err(|message| {
+                    let code = codeterm_service_core::service::UTILITY_TEAM_REFUSAL;
+                    let refused = message
+                        .split_once(':')
+                        .is_some_and(|(prefix, _)| prefix == code);
+                    JsonRpcError {
+                        code: if refused { -32602 } else { -32603 },
+                        data: refused.then(|| serde_json::json!({ "code": code })),
+                        message,
+                    }
                 })?;
             let mut resp = serde_json::json!({
                 "id": handle.tab_id,

@@ -275,6 +275,11 @@ Use `domios send --tab ID --attach FILE` to add a pad-relative file card.
 Repeat `--attach` for several files. Add `--copy` to snapshot the attachments
 and their canvas items into the receiving tab's pad inbox.
 
+For a cross-host send, write a file card with an absolute sender pad path in
+the message and use `domios send --mesh PEER --tab ID --from-pad MESSAGE.md`.
+Both `--attach` and `--copy` require local tabs. Mesh file cards use the target
+host's attachment storage.
+
 Paths belong to the machine authoring the message. A mesh tab send, delayed send
 or mesh-routed agent report transfers these files to the target tab's host
 before delivering the message, then replaces file-card path attributes with the returned
@@ -302,4 +307,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

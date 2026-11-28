@@ -1,8 +1,87 @@
 //! Shell-tab spawning: visible Team terminals and hidden utility shells.
 
 use super::spawn::{resolve_spawn_workspace_id, SpawnTabSpec, TabHandle};
+use super::team_membership::TeamAttachment;
 use super::ServiceContext;
+use crate::multiplexer::{state::MultiplexerState, types::Tab};
 use crate::service::MuxEmitCause;
+
+pub const UTILITY_TEAM_REFUSAL: &str = "utility_team_refused";
+
+#[derive(PartialEq, Eq)]
+enum ShellTeam {
+    Local(TeamAttachment),
+    Remote {
+        owner: String,
+        team: String,
+        peer: String,
+    },
+}
+
+fn remote_team(tab: &Tab) -> Option<(&str, &str)> {
+    let ownership = tab.ownership.as_ref()?;
+    let controller = ownership.controller_tab_id.as_deref()?;
+    let team = &ownership.team.as_ref()?.id;
+    (tab.team_id.is_none()
+        && tab.agent_type.is_some()
+        && !ownership.peer_id.is_empty()
+        && !controller.is_empty()
+        && !team.is_empty()
+        && tab.report_target_tab_id.as_deref() == Some(controller)
+        && tab.report_target_mesh_peer.as_deref().is_some_and(|peer| {
+            peer == ownership.peer_id || (!peer.is_empty() && peer == ownership.peer_name)
+        }))
+    .then_some((ownership.peer_id.as_str(), team.as_str()))
+}
+
+pub(crate) fn remote_team_utility(mux: &MultiplexerState, tab: &Tab) -> bool {
+    tab.parent_tab_id.as_deref().is_some_and(|owner| {
+        tab.is_remote_team_utility_of(owner) && mux.get_tab(owner).and_then(remote_team).is_some()
+    })
+}
+
+fn resolve_shell_team(
+    mux: &MultiplexerState,
+    spec: &SpawnTabSpec,
+    workspace: &str,
+) -> Result<Option<ShellTeam>, String> {
+    let refuse = |detail: String| format!("{UTILITY_TEAM_REFUSAL}: {detail}");
+    if !spec.detach_from_team {
+        if let Some(owner) = spec.creator_tab_id.as_deref() {
+            if let Some((peer, team)) = mux.get_tab(owner).and_then(remote_team) {
+                mux.ensure_tab_membership_mutable(owner).map_err(refuse)?;
+                if spec
+                    .team_id
+                    .as_deref()
+                    .is_some_and(|requested| requested != team)
+                {
+                    return Err(refuse(format!(
+                        "Creator Tab {owner} belongs to remote Team {team}"
+                    )));
+                }
+                if mux.find_workspace_for_tab(owner).as_deref() != Some(workspace) {
+                    return Err(refuse(
+                        "Remote Team utilities must use the creator's workspace".into(),
+                    ));
+                }
+                return Ok(Some(ShellTeam::Remote {
+                    owner: owner.into(),
+                    team: team.into(),
+                    peer: peer.into(),
+                }));
+            }
+        }
+    }
+    super::team_membership::resolve_inherited_team_attachment(
+        mux,
+        spec.team_id.as_deref(),
+        spec.creator_tab_id.as_deref(),
+        workspace,
+        spec.detach_from_team,
+    )
+    .map(|team| team.map(ShellTeam::Local))
+    .map_err(refuse)
+}
 
 pub(crate) fn apply_team_shell_path(env: &mut std::collections::HashMap<String, String>) {
     #[cfg(windows)]
@@ -40,7 +119,11 @@ fn shell_job_policy_for_mux(
                 .iter()
                 .any(|id| id == tab_id)
     });
-    crate::pty::manager::shell_job_policy(team_member, tab.agent_type.is_some(), tab.purpose)
+    crate::pty::manager::shell_job_policy(
+        team_member || remote_team_utility(mux, tab),
+        tab.agent_type.is_some(),
+        tab.purpose,
+    )
 }
 
 impl ServiceContext {
@@ -87,13 +170,7 @@ impl ServiceContext {
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
-        let team_membership = super::team_membership::resolve_inherited_team_attachment(
-            &self.mux.read(),
-            spec.team_id.as_deref(),
-            spec.creator_tab_id.as_deref(),
-            &ws_id,
-            spec.detach_from_team,
-        )?;
+        let team_membership = resolve_shell_team(&self.mux.read(), &spec, &ws_id)?;
         let (resolved_cwd, warning) = if let Some(profile) = profile
             .as_ref()
             .filter(|profile| profile.wsl_distro.is_some())
@@ -120,18 +197,38 @@ impl ServiceContext {
             &super::utility_tabs::configured_limits(self.ext::<crate::config::ConfigState>()),
             spec.purpose,
         );
-        let reused = if let Some(attachment) = &team_membership {
+        let reused = {
             let mux = self.mux.read();
-            super::utility_tabs::select_slot(
-                mux.team_member_tab_ids(&attachment.team_id)
-                    .iter()
-                    .filter_map(|id| mux.get_tab(id)),
-                &attachment.team_id,
-                spec.purpose,
-                limit,
-            )?
-        } else {
-            None
+            match &team_membership {
+                Some(ShellTeam::Local(attachment)) => super::utility_tabs::select_slot(
+                    mux.team_member_tab_ids(&attachment.team_id)
+                        .iter()
+                        .filter_map(|id| mux.get_tab(id)),
+                    &attachment.team_id,
+                    spec.purpose,
+                    limit,
+                )?,
+                Some(ShellTeam::Remote { owner, team, peer }) if limit.is_some() => {
+                    super::utility_tabs::select_slot_in_scope(
+                        mux.list_workspaces()
+                            .into_iter()
+                            .flat_map(|workspace| workspace.tab_ids)
+                            .filter_map(|id| mux.get_tab(&id))
+                            .filter(|tab| {
+                                tab.parent_tab_id.as_deref().is_some_and(|parent| {
+                                    tab.is_remote_team_utility_of(parent)
+                                        && mux.get_tab(parent).and_then(remote_team)
+                                            == Some((peer.as_str(), team.as_str()))
+                                })
+                            }),
+                        team,
+                        spec.purpose,
+                        limit,
+                        |tab| tab.is_remote_team_utility_of(owner),
+                    )?
+                }
+                _ => None,
+            }
         };
         if let Some(tab_id) = reused.as_deref() {
             if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
@@ -142,6 +239,17 @@ impl ServiceContext {
         let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
+            if resolve_shell_team(&mux, &spec, &ws_id)? != team_membership {
+                return Err(format!(
+                    "{UTILITY_TEAM_REFUSAL}: Creator Tab Team changed during shell creation"
+                ));
+            }
+            let remote_depth = match &team_membership {
+                Some(ShellTeam::Remote { owner, .. }) => {
+                    mux.get_tab(owner).map(|tab| tab.depth.saturating_add(1))
+                }
+                _ => None,
+            };
             let result = match &reused {
                 Some(id) => id.clone(),
                 None => {
@@ -166,13 +274,26 @@ impl ServiceContext {
                 }
             }
             let _ = mux.set_tab_description(&result, spec.description.clone());
-            if let Some(attachment) = &team_membership {
-                super::team_membership::apply_team_attachment_under(
-                    &mut mux,
-                    attachment,
-                    &result,
-                    super::team_membership::utility_shell_parent(Some(&attachment.caller_tab_id)),
-                )?;
+            match &team_membership {
+                Some(ShellTeam::Local(attachment)) => {
+                    super::team_membership::apply_team_attachment_under(
+                        &mut mux,
+                        attachment,
+                        &result,
+                        super::team_membership::utility_shell_parent(Some(
+                            &attachment.caller_tab_id,
+                        )),
+                    )?
+                }
+                Some(ShellTeam::Remote { owner, .. }) => {
+                    let tab = mux
+                        .get_tab_mut(&result)
+                        .ok_or("Utility Tab closed during creation")?;
+                    tab.depth = remote_depth.unwrap_or(1);
+                    tab.parent_tab_id = Some(owner.clone());
+                    tab.spawned_by_tab_id = Some(owner.clone());
+                }
+                None => {}
             }
             if let Some(title) = spec.title.as_deref().filter(|_| reused.is_none()) {
                 if let Err(e) = mux.rename_tab(&result, title) {

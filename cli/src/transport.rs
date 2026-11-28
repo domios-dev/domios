@@ -9,6 +9,8 @@ const TEAM_LOCAL_ONLY: &str = "team management is local-only — run it on the t
 const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the target machine";
 const SURFACE_LOCAL_ONLY: &str =
     "surface tabs are owned by a local tab — run it on the target machine";
+pub(crate) const MESH_PAD_ATTACHMENT_REFUSAL: &str =
+    "--attach and --copy require local tabs. For mesh delivery, put a file card with an absolute sender pad path in the message and send it with --from-pad (see domios docs CHAT-BLOCKS).";
 
 /// Where a command is handled before the socket dispatch match sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,8 +142,8 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>
             socket_unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"),
         Commands::Tab { .. } => socket_rest(),
-        Commands::SendText { attach, .. } if !attach.is_empty() =>
-            socket_unsupported("--attach requires both tabs on the same machine"),
+        Commands::SendText { attach, copy, .. } if *copy || !attach.is_empty() =>
+            socket_unsupported(MESH_PAD_ATTACHMENT_REFUSAL),
         Commands::SendText { .. } => socket_rest(),
         Commands::Delayed { .. } => socket_rest(),
         Commands::Web { .. } => socket_unsupported(

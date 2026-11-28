@@ -207,7 +207,7 @@ impl ServiceContext {
                 }
                 Some(tab) => {
                     authorize_remote_worker_transfer(tab, peer, &finalization_check(request))?;
-                    if !mux.get_children_ids(&tab.id).is_empty() {
+                    if has_non_utility_children(&mux, &tab.id) {
                         return Err("remote Worker has child tabs".into());
                     }
                     if !request.force
@@ -244,7 +244,7 @@ impl ServiceContext {
                         .get_tab(id)
                         .ok_or("remote Worker disappeared before finalization")?;
                     authorize_remote_worker_transfer(tab, peer, &finalization_check(request))?;
-                    if !mux.get_children_ids(id).is_empty() {
+                    if has_non_utility_children(mux, id) {
                         return Err("remote Worker binding changed before finalization".into());
                     }
                     if !request.force
@@ -270,6 +270,16 @@ impl ServiceContext {
     }
 }
 
+fn has_non_utility_children(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    owner: &str,
+) -> bool {
+    mux.get_children_ids(owner).iter().any(|id| {
+        !mux.get_tab(id)
+            .is_some_and(|tab| tab.is_remote_team_utility_of(owner))
+    })
+}
+
 fn finalization_check(request: &RemoteWorkerFinalize) -> RemoteWorkerTransfer {
     RemoteWorkerTransfer {
         operation_id: "finalize".into(),
@@ -290,10 +300,15 @@ fn replay_committed(
     request: &RemoteWorkerTransfer,
 ) -> Result<(), String> {
     let mut check = request.clone();
-    if tab.report_target_tab_id.as_deref() == Some(&request.destination_tab_id) {
+    let already_applied = tab.report_target_tab_id.as_deref() == Some(&request.destination_tab_id);
+    if already_applied {
         check.expected_parent_tab_id = request.destination_tab_id.clone();
         check.caller_tab_id = Some(request.destination_tab_id.clone());
     }
+    let released = already_applied && tab.ownership.is_none();
     apply_remote_worker_transfer(tab, peer, &check)?;
+    if released {
+        tab.ownership = None;
+    }
     Ok(())
 }

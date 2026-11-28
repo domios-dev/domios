@@ -41,23 +41,34 @@ pub(super) fn select_slot<'a>(
     purpose: ShellPurpose,
     limit: Option<usize>,
 ) -> Result<Option<String>, String> {
+    select_slot_in_scope(
+        tabs.filter(|tab| tab.team_id.as_deref() == Some(team)),
+        team,
+        purpose,
+        limit,
+        |_| true,
+    )
+}
+
+pub(super) fn select_slot_in_scope<'a>(
+    tabs: impl Iterator<Item = &'a Tab>,
+    team: &str,
+    purpose: ShellPurpose,
+    limit: Option<usize>,
+    can_reuse: impl Fn(&Tab) -> bool,
+) -> Result<Option<String>, String> {
     let Some(limit) = limit else { return Ok(None) };
     let tabs: Vec<_> = tabs
-        .filter(|tab| {
-            tab.is_utility_shell()
-                && !tab.hidden
-                && tab.team_id.as_deref() == Some(team)
-                && tab.purpose == purpose
-        })
+        .filter(|tab| tab.is_utility_shell() && !tab.hidden && tab.purpose == purpose)
         .collect();
     if tabs.len() < limit {
         return Ok(None);
     }
     tabs.into_iter()
-        .filter(|tab| tab.shell_command_state.activity == ShellActivity::Idle && !tab.utility_command_pending)
+        .filter(|tab| can_reuse(tab) && tab.shell_command_state.activity == ShellActivity::Idle && !tab.utility_command_pending)
         .min_by(|left, right| left.utility_created_at.cmp(&right.utility_created_at).then_with(|| left.id.cmp(&right.id)))
         .map(|tab| Some(tab.id.clone()))
-        .ok_or_else(|| format!("utility_tab_limit: Team {team} reached its {purpose:?} utility tab limit ({limit}); no idle tab is available. Wait for a running tab to finish or close one"))
+        .ok_or_else(|| format!("utility_tab_limit: Team {team} reached its {purpose:?} utility tab limit ({limit}); no idle tab is available to the creator. Wait for a running tab to finish or close one"))
 }
 
 #[cfg(test)]

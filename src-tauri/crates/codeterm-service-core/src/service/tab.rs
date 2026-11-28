@@ -470,14 +470,15 @@ impl ServiceContext {
                 "tab_close",
             );
         }
-        let (close_result, history_batch) = {
+        let (close_result, history_batch, utility_shells) = {
             let mut mux = self.mux.write();
             if let Err(error) = validate_commit(&mut mux, &canonical_tab_id) {
                 mux.abort_tab_close(&reservation);
                 return Err(error);
             }
+            let utility_shells = mux.owned_utility_shells(&canonical_tab_id);
             let result = mux.close_reserved_tab_with_reason(reservation, reason);
-            (result, mux.take_closed_history_batch())
+            (result, mux.take_closed_history_batch(), utility_shells)
         };
         if let Some(batch) = history_batch {
             let evicted = batch.persist_on_blocking_thread_collect_evicted();
@@ -510,6 +511,15 @@ impl ServiceContext {
         }
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        for shell in utility_shells {
+            if let Err(error) = self.cancel_utility_timeout(&shell) {
+                log::error!("[utility-timeout] closed shell deadline cleanup failed: {error}");
+            }
+            self.forget_utility_command(&shell);
+            if let Err(error) = self.finish_tab_close(&shell) {
+                log::error!("[tab-close] utility shell {shell} cleanup failed: {error}");
+            }
+        }
         self.forget_utility_command(&canonical_tab_id);
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);

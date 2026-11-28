@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::mesh::{
-    transport::PeerClient,
-    types::{RelayCommand, RelayResponse},
-};
+use crate::mesh::types::{RelayCommand, RelayResponse};
 use crate::service::mesh_attachment::{
     parse_ingest_response, AttachmentKind, IngestRequest, MESH_ATTACHMENT_MAX_BYTES,
 };
@@ -78,23 +75,6 @@ fn rewrite(
     }
     output.push_str(&text[offset..]);
     Ok(output)
-}
-
-pub async fn transfer(
-    svc: &super::ServiceContext,
-    source_tab: Result<Option<String>, String>,
-    client: &PeerClient,
-    method: &str,
-    path: &str,
-    body: &mut serde_json::Value,
-) -> Result<(), String> {
-    transfer_via(svc, source_tab, method, path, body, |command| async move {
-        client
-            .send_relay(&command)
-            .await
-            .map_err(|error| error.to_string())
-    })
-    .await
 }
 
 pub async fn transfer_via<F, Fut>(

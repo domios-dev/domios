@@ -643,21 +643,20 @@ impl MultiplexerState {
         Ok(pty_ids)
     }
 
-    fn owned_utility_shells(&self, owner_tab_id: &str) -> Vec<String> {
-        let Some(owner_team_id) = self
+    pub fn owned_utility_shells(&self, owner_tab_id: &str) -> Vec<String> {
+        let owner_team_id = self
             .tabs
             .get(owner_tab_id)
-            .and_then(|owner| owner.team_id.as_deref())
-        else {
-            return Vec::new();
-        };
+            .and_then(|owner| owner.team_id.as_deref());
         self.get_children_ids(owner_tab_id)
             .into_iter()
             .filter(|child_id| {
                 self.tabs.get(child_id).is_some_and(|child| {
-                    child.is_utility_shell()
-                        && child.team_id.as_deref() == Some(owner_team_id)
-                        && child.spawned_by_tab_id.as_deref() == Some(owner_tab_id)
+                    child.is_remote_team_utility_of(owner_tab_id)
+                        || (owner_team_id.is_some()
+                            && child.is_utility_shell()
+                            && child.team_id.as_deref() == owner_team_id
+                            && child.spawned_by_tab_id.as_deref() == Some(owner_tab_id))
                 })
             })
             .collect()

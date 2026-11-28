@@ -95,6 +95,15 @@ pub fn apply_remote_worker_transfer(
     authorize_remote_worker_transfer(tab, origin_peer_id, request)?;
     tab.report_target_tab_id = Some(request.destination_tab_id.clone());
     tab.report_target_mesh_peer = Some(origin_peer_id.into());
+    if tab.ownership.is_none() && request.destination_team_id.is_some() {
+        tab.ownership = Some(codeterm_types::pty::RemoteOwnership {
+            controller_tab_id: None,
+            controller_title: String::new(),
+            peer_id: origin_peer_id.into(),
+            peer_name: origin_peer_id.into(),
+            team: None,
+        });
+    }
     if let Some(owner) = tab.ownership.as_mut() {
         owner.controller_tab_id = Some(request.destination_tab_id.clone());
         owner.controller_title = request.destination_tab_id.clone();
