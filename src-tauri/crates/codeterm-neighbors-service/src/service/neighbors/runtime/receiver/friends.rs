@@ -69,6 +69,11 @@ pub trait NeighborsExt {
         u64,
     );
     fn stop_neighbor_concierge_listener(&self, friendship: &str);
+    fn retire_neighbor_concierge_listener(
+        &self,
+        friendship: &str,
+        status: codeterm_neighbors::supervisor::ListenerState,
+    );
     fn neighbor_friend_receiving_here(&self, friendship: &str) -> bool;
     fn neighbor_friend_receiver(&self, friendship: &str) -> Option<ReceiverStatus>;
     fn neighbor_friend_receiver_binding(&self, friendship: &str) -> Option<String>;
@@ -133,6 +138,17 @@ impl NeighborsExt for ServiceContext {
     }
 
     fn stop_neighbor_concierge_listener(&self, friendship: &str) {
+        self.retire_neighbor_concierge_listener(
+            friendship,
+            codeterm_neighbors::supervisor::ListenerState::Stopped,
+        );
+    }
+
+    fn retire_neighbor_concierge_listener(
+        &self,
+        friendship: &str,
+        status: codeterm_neighbors::supervisor::ListenerState,
+    ) {
         let stopped = {
             let mut listeners = self.neighbor_cell().listeners.lock();
             if let Some(listener) = listeners.active.remove(friendship) {
@@ -144,16 +160,16 @@ impl NeighborsExt for ServiceContext {
             }
         };
         if stopped {
-            self.neighbor_cell().states.lock().insert(
-                friendship.into(),
-                codeterm_neighbors::supervisor::ListenerState::Stopped,
-            );
+            self.neighbor_cell()
+                .states
+                .lock()
+                .insert(friendship.into(), status);
             self.ui.emit(
                 "neighbor-runtime-status",
                 json!(
                     codeterm_neighbors::responses::NeighborListenerEvent::Listener {
                         friendship_id: Some(friendship.into()),
-                        status: codeterm_neighbors::supervisor::ListenerState::Stopped,
+                        status,
                         error: None,
                         reason: None
                     }

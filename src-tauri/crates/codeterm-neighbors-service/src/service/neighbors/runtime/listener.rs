@@ -81,7 +81,7 @@ impl InboxSession for Session {
         self.keys(&self.service.neighbor_key_store()?)
             .load()
             .await?
-            .ok_or(Error::Revoked)?;
+            .ok_or(Error::LocalKeyUnavailable)?;
         self.current()?;
         if let Some(tab) = &self.tab {
             super::pending::publish(self).await?;
@@ -104,7 +104,9 @@ impl InboxSession for Session {
             None => return Err(Error::Gateway),
         };
         if !self.service.neighbor_registry_receiving(&self.friendship) {
-            return Err(Error::Locked);
+            return Err(Error::LocalFence {
+                phase: "activation_pending",
+            });
         }
         self.current()?;
         let store = self.service.neighbor_key_store()?;

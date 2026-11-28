@@ -126,11 +126,15 @@ pub fn startup_error(message: &str) -> Error {
     if message.ends_with("(gRPC code 7)") {
         return Error::PermissionDenied;
     }
-    if message.starts_with("Sign in ")
-        || message == "Neighbor account changed"
-        || message == "Neighbor listener changed"
-    {
-        return Error::Revoked;
+    if message.starts_with("Sign in ") || message == "Neighbor account changed" {
+        return Error::LocalFence {
+            phase: "account_session",
+        };
+    }
+    if message == "Neighbor listener changed" {
+        return Error::LocalFence {
+            phase: "activation_pending",
+        };
     }
     Error::Transport
 }
