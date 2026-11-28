@@ -265,16 +265,6 @@ impl NativeHostClientSlot {
         client.diagnostics_snapshot()
     }
 
-    pub(crate) fn set_diagnostics_port_preflight(
-        &self,
-        port: u16,
-        preflight: super::webview_diagnostics::PortPreflight,
-    ) {
-        if let Some(client) = self.0.read().as_ref() {
-            client.diagnostics.set_port_preflight(port, preflight);
-        }
-    }
-
     pub(crate) async fn report_root_rendered(
         &self,
         generation: super::ClientViewGeneration,
@@ -424,11 +414,6 @@ async fn initialize_client_once(
     }
     let slot = app.state::<NativeHostClientSlot>().inner().clone();
     let allowed_origins = crate::startup::frontend_shell::native_view_origins(&app, &reply.ready);
-    let diagnostics_mode = app
-        .try_state::<crate::ClientStartupOptions>()
-        .map(|options| options.local_webview_diagnostics)
-        .unwrap_or_default();
-
     startup_started(ClientStartupStage::NativeEnrollment);
     let first = connect_native_host(
         app.clone(),
@@ -436,7 +421,6 @@ async fn initialize_client_once(
         &reply.ready,
         api_generation,
         allowed_origins.clone(),
-        diagnostics_mode,
     )
     .await;
     let connected = match first {
@@ -450,7 +434,6 @@ async fn initialize_client_once(
                 &reply.ready,
                 api_generation,
                 allowed_origins,
-                diagnostics_mode,
             )
             .await
         }
@@ -497,7 +480,6 @@ async fn connect_native_host(
     ready: &ServerReady,
     api_attachment_generation: u64,
     allowed_view_origins: HashSet<String>,
-    diagnostics_mode: crate::LocalWebviewDiagnosticsMode,
 ) -> Result<(Arc<NativeHostClient>, Stream), ClientStartupFailure> {
     let address = codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
         .ok_or_else(|| "Server native-host address is invalid".to_string())?;
@@ -580,6 +562,7 @@ async fn connect_native_host(
 
     let (outbound, outbound_rx) = mpsc::channel(MAX_PENDING_NATIVE_HOST_REQUESTS);
     let (shutdown, _) = watch::channel(false);
+    let diagnostics = crate::startup::frontend_shell::new_native_diagnostics_session(&app);
     let client = Arc::new(NativeHostClient {
         app,
         connection: challenge.connection,
@@ -597,7 +580,7 @@ async fn connect_native_host(
         retired: AtomicBool::new(false),
         view: Mutex::new(None),
         root_generation: Mutex::new(None),
-        diagnostics: super::webview_diagnostics::DiagnosticsSession::new(diagnostics_mode),
+        diagnostics,
         #[cfg(debug_assertions)]
         publish_dev_locator: super::webview_diagnostics::dev_locator_enabled(
             cfg!(debug_assertions),
