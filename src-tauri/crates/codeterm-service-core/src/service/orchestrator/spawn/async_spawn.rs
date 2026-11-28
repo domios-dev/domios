@@ -585,27 +585,6 @@ impl ServiceContext {
             } else {
                 bg_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task))
             };
-            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
-                tab.restorable_launch.account_id = params.account_id.clone();
-                tab.restorable_launch.account_namespace = params.account_namespace.clone();
-            }
-            crate::service::restored_launch::capture_tab_launch_parameters(
-                &self.mux,
-                &tab_id,
-                &self.agent_registry,
-                crate::service::restored_launch::RestorableLaunchCapture {
-                    provider_id: &agent_cmd,
-                    requested_model: model_resolution.requested_model.clone(),
-                    model: params.model.clone(),
-                    reasoning_effort: params.reasoning_effort.clone(),
-                    args: params.args.clone(),
-                    agent_name: params.agent_name.clone(),
-                    task: params.task.as_deref(),
-                    role: params.role.as_deref(),
-                    role_profile: params.role_profile.as_deref(),
-                    permission_bypass_requested: params.permission_bypass_requested(&agent_cmd),
-                },
-            );
             let launch_cmd = {
                 let service = self.clone();
                 let tab_id = tab_id.clone();
@@ -613,7 +592,30 @@ impl ServiceContext {
                 let params = params.clone();
                 let task = bg_task.clone();
                 let session = launch_session_id.clone();
+                let requested_model = model_resolution.requested_model.clone();
                 codeterm_plugin::js_runtime::spawn_blocking(move || {
+                    if let Some(tab) = service.mux.write().get_tab_mut(&tab_id) {
+                        tab.restorable_launch.account_id = params.account_id.clone();
+                        tab.restorable_launch.account_namespace = params.account_namespace.clone();
+                    }
+                    crate::service::restored_launch::capture_tab_launch_parameters(
+                        &service.mux,
+                        &tab_id,
+                        &service.agent_registry,
+                        crate::service::restored_launch::RestorableLaunchCapture {
+                            provider_id: &provider,
+                            requested_model,
+                            model: params.model.clone(),
+                            reasoning_effort: params.reasoning_effort.clone(),
+                            args: params.args.clone(),
+                            agent_name: params.agent_name.clone(),
+                            task: params.task.as_deref(),
+                            role: params.role.as_deref(),
+                            role_profile: params.role_profile.as_deref(),
+                            permission_bypass_requested: params
+                                .permission_bypass_requested(&provider),
+                        },
+                    );
                     build_or_refuse_orchestrated_launch_command(
                         &service,
                         &tab_id,

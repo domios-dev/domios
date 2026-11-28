@@ -53,26 +53,28 @@ pub(super) async fn tab_status(
     headers: HeaderMap,
     Path(tab): Path<String>,
 ) -> Result<Json<TabAccountStatus>, (StatusCode, String)> {
-    if state.svc.mux.read().get_tab(&tab).is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "The account tab is unavailable".into(),
-        ));
-    }
-    let can_verify = crate::runtime_login::require_permission_authority(&state, &headers).is_ok();
-    tokio::task::spawn_blocking(move || TabAccountStatus {
-        transition: provider_accounts::transition(&state.svc, &tab),
-        can_verify,
-        turn_active: !provider_accounts::can_try_now(&state.svc, &tab),
+    tokio::task::spawn_blocking(move || {
+        if state.svc.mux.read().get_tab(&tab).is_none() {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "The account tab is unavailable".into(),
+            ));
+        }
+        let can_verify =
+            crate::runtime_login::require_permission_authority(&state, &headers).is_ok();
+        Ok(Json(TabAccountStatus {
+            transition: provider_accounts::transition(&state.svc, &tab),
+            can_verify,
+            turn_active: !provider_accounts::can_try_now(&state.svc, &tab),
+        }))
     })
     .await
-    .map(Json)
     .map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "The account tab state is unavailable".into(),
         )
-    })
+    })?
 }
 
 pub(super) async fn select(
@@ -142,3 +144,6 @@ pub(super) async fn refresh(
     .map(Json)
     .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
+
+#[cfg(test)]
+mod tests;

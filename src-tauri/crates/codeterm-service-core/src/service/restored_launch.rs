@@ -43,15 +43,15 @@ pub(crate) fn capture_tab_launch_parameters(
     registry: &AgentRegistry,
     capture: RestorableLaunchCapture<'_>,
 ) -> RestorableLaunchParameters {
-    let team_id = mux
-        .read()
-        .get_tab(tab_id)
-        .and_then(|tab| tab.team_id.clone());
-    let neighbor_root = mux.read().get_tab(tab_id).is_some_and(|tab| {
-        tab.neighbor_authority
-            .as_ref()
-            .is_some_and(|authority| authority.root_tab_id.is_none())
-    });
+    let (team_id, neighbor_root) = {
+        let mux = mux.read();
+        let tab = mux.get_tab(tab_id);
+        (
+            tab.and_then(|tab| tab.team_id.clone()),
+            tab.and_then(|tab| tab.neighbor_authority.as_ref())
+                .is_some_and(|authority| authority.root_tab_id.is_none()),
+        )
+    };
     let identity_instructions = launch_prompt_capable(registry, capture.provider_id)
         .then(|| {
             if neighbor_root {
@@ -65,53 +65,19 @@ pub(crate) fn capture_tab_launch_parameters(
             )
         })
         .flatten();
-    let runtime_launch_options = mux.read().get_tab(tab_id).and_then(|tab| {
-        captured_runtime_launch_options(
-            capture.provider_id,
-            tab.session_binding_nonce.as_deref(),
-            tab.restorable_launch.runtime_launch_options.as_ref(),
-        )
-    });
-    let (host_approval_choice, selected_session_mode) = mux
-        .read()
-        .get_tab(tab_id)
-        .map(|tab| {
-            (
-                tab.restorable_launch.host_approval_choice,
-                tab.restorable_launch.selected_session_mode.clone(),
-            )
-        })
-        .unwrap_or_default();
+    let mut mux = mux.write();
+    let tab = mux.get_tab_mut(tab_id);
+    let previous = tab.as_deref().map(|tab| &tab.restorable_launch);
     let launch = RestorableLaunchParameters {
-        account_notices: mux
-            .read()
-            .get_tab(tab_id)
-            .map(|tab| tab.restorable_launch.account_notices.clone())
+        account_notices: previous
+            .map(|launch| launch.account_notices.clone())
             .unwrap_or_default(),
-        account_namespace: mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.restorable_launch.account_namespace.clone()),
-        account_id: mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.restorable_launch.account_id.clone()),
-        host_approval_choice,
-        selected_session_mode,
-        execution_mode: None,
-        execution_sandbox: mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.restorable_launch.execution_sandbox.clone()),
-        failed_provider: None,
-        exited_chat_binding: mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.restorable_launch.exited_chat_binding.clone()),
-        structured_runtime_mode: None,
-        context_files: None,
-        context_skills: None,
-        worker_restart: None,
+        account_namespace: previous.and_then(|launch| launch.account_namespace.clone()),
+        account_id: previous.and_then(|launch| launch.account_id.clone()),
+        host_approval_choice: previous.and_then(|launch| launch.host_approval_choice),
+        selected_session_mode: previous.and_then(|launch| launch.selected_session_mode.clone()),
+        execution_sandbox: previous.and_then(|launch| launch.execution_sandbox.clone()),
+        exited_chat_binding: previous.and_then(|launch| launch.exited_chat_binding.clone()),
         captured: true,
         requested_model: capture.requested_model,
         model: capture.model,
@@ -121,9 +87,16 @@ pub(crate) fn capture_tab_launch_parameters(
         agent_name: capture.agent_name,
         identity_instructions,
         permission_bypass_requested: capture.permission_bypass_requested,
-        runtime_launch_options,
+        runtime_launch_options: tab.as_deref().and_then(|tab| {
+            captured_runtime_launch_options(
+                capture.provider_id,
+                tab.session_binding_nonce.as_deref(),
+                tab.restorable_launch.runtime_launch_options.as_ref(),
+            )
+        }),
+        ..Default::default()
     };
-    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+    if let Some(tab) = tab {
         tab.restorable_launch = launch.clone();
     }
     launch
@@ -482,154 +455,7 @@ impl RestoredFreshLaunchInput {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        capture_tab_launch_parameters, captured_runtime_launch_options, RestorableLaunchCapture,
-    };
-
-    #[test]
-    fn restored_target_uses_only_newest_own_lineage() {
-        use crate::multiplexer::types::PriorBindingNonce;
-        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
-        let tab = mux.get_tab_mut(&id).unwrap();
-        tab.prior_session_binding_nonces.push(PriorBindingNonce {
-            session_id: Some("old-own-session".into()),
-            resume_target_session_id: None,
-            nonce: "old".into(),
-        });
-        assert_eq!(super::restored_session_target(tab), Some("old-own-session"));
-        tab.agent_session_id = Some("current-own-session".into());
-        assert_eq!(
-            super::restored_session_target(tab),
-            Some("current-own-session")
-        );
-        tab.agent_session_id = None;
-        tab.prior_session_binding_nonces.push(PriorBindingNonce {
-            session_id: None,
-            resume_target_session_id: None,
-            nonce: "unbound-fresh-launch".into(),
-        });
-        assert_eq!(super::restored_session_target(tab), None);
-    }
-
-    #[test]
-    fn capture_keeps_worker_identity_without_assignment() {
-        const IDENTITY: &str = "opaque-worker-identity-02a1";
-        const ASSIGNMENT: &str = "opaque-worker-assignment-f3b2";
-        let mut state = crate::multiplexer::state::MultiplexerState::empty();
-        let workspace_id = state.create_workspace("launch capture".into(), None).id;
-        let tab_id = state.create_tab(&workspace_id).unwrap();
-        let mux = std::sync::Arc::new(codeterm_util::lock_hold::TimedRwLock::new(
-            "restorable-launch-capture",
-            state,
-        ));
-        let registry = crate::agent::registry::AgentRegistry::new();
-        registry.register_provider(Box::new(
-            crate::agent::test_provider::MockProvider::new("capture-provider")
-                .with_session_config_delivery(),
-        ));
-        mux.write()
-            .get_tab_mut(&tab_id)
-            .unwrap()
-            .restorable_launch
-            .account_id = Some("account-capture".into());
-        let task =
-            crate::service::plan::worker_identity::attach_worker_identity(IDENTITY, ASSIGNMENT);
-
-        let launch = capture_tab_launch_parameters(
-            &mux,
-            &tab_id,
-            &registry,
-            RestorableLaunchCapture {
-                provider_id: "capture-provider",
-                requested_model: None,
-                model: None,
-                reasoning_effort: None,
-                args: None,
-                agent_name: None,
-                task: Some(&task),
-                role: Some("Worker"),
-                role_profile: None,
-                permission_bypass_requested: false,
-            },
-        );
-
-        assert!(launch.captured);
-        assert_eq!(launch.account_id.as_deref(), Some("account-capture"));
-        let identity = launch.identity_instructions.unwrap();
-        assert!(identity.contains(IDENTITY));
-        assert!(!identity.contains(ASSIGNMENT));
-        assert_eq!(
-            mux.read()
-                .get_tab(&tab_id)
-                .unwrap()
-                .restorable_launch
-                .identity_instructions
-                .as_deref(),
-            Some(identity.as_str())
-        );
-    }
-    #[test]
-    fn restored_launch_preserves_context_and_skills_without_replaying_task() {
-        let registry = crate::agent::registry::AgentRegistry::new();
-        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
-            "resume-fixture",
-        )));
-        let files = crate::plan::TaskFiles {
-            edit: vec!["/opaque/new.rs".into()],
-            read: vec!["/opaque/context.md".into()],
-        };
-        let input = super::restored_fresh_launch_input(
-            &registry,
-            crate::service::SpawnAgentParams {
-                agent: Some("resume-fixture".into()),
-                cwd: Some("/opaque/worker".into()),
-                account_id: Some("account-stale-request".into()),
-                ..Default::default()
-            },
-            crate::multiplexer::types::RestorableLaunchParameters {
-                captured: true,
-                account_id: Some("account-restored".into()),
-                context_files: Some(files.clone()),
-                context_skills: Some("opaque skills".into()),
-                ..Default::default()
-            },
-        );
-        assert_eq!(input.params.account_id.as_deref(), Some("account-restored"));
-        assert_eq!(
-            input.launch_parameters.account_id.as_deref(),
-            Some("account-restored")
-        );
-        assert_eq!(input.params.context_files, Some(files));
-        assert_eq!(
-            input.params.context_skills.as_deref(),
-            Some("opaque skills")
-        );
-        assert_eq!(input.params.cwd.as_deref(), Some("/opaque/worker"));
-        assert!(input.params.task.is_none());
-    }
-    #[test]
-    fn recapture_keeps_runtime_options_only_for_the_exact_provider_binding() {
-        let options = crate::multiplexer::types::RestorableRuntimeLaunchOptions {
-            provider_id: "fixture-provider".into(),
-            binding_nonce: "own".into(),
-            mode: "auto-accept-edits".into(),
-            ..Default::default()
-        };
-        assert_eq!(
-            captured_runtime_launch_options("fixture-provider", Some("own"), Some(&options)),
-            Some(options.clone())
-        );
-        assert!(
-            captured_runtime_launch_options("fixture-provider", Some("new"), Some(&options))
-                .is_none()
-        );
-        assert!(
-            captured_runtime_launch_options("other-provider", Some("own"), Some(&options))
-                .is_none()
-        );
-    }
-}
+mod tests;
 
 #[cfg(test)]
 #[path = "restored_launch/neighbor_tests.rs"]
