@@ -37,6 +37,7 @@ paths = [
   '''^evals/mem-embedder/REPORT\.md$''',
   '''^plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-(result|after-trigger)\.txt$''',
   '''^scripts/tests/test_pdb_identity\.py$''',
+  '''^src-tauri/crates/codeterm-account/src/account_mesh/tests/cloud_provisioning_fixtures\.json$''',
   '''^src-tauri/crates/codeterm-blueprint-types/src/blueprint_memory/credentials/tests\.rs$''',
   '''^src-tauri/crates/codeterm-blueprint-types/src/blueprint_memory/semantic_canon/tests\.rs$''',
   '''^src-tauri/crates/codeterm-crash/src/crash/image_identity/tests\.rs$''',
@@ -46,3 +47,10 @@ paths = [
   '''^src-tauri/crates/codeterm-orchestration/src/hierarchy/report_plan_ctx_tests/plan_evidence_session_test\.rs$''',
   '''^src-tauri/crates/codeterm-socket/src/server/plan_task_dispatch/tests/brief_tests\.rs$''',
 ]
+
+[[allowlists]]
+description = "Pinned SHA256 digests for public HuggingFace embedding tokenizer files in docker/cloud.Dockerfile"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^docker/cloud\.Dockerfile$''']
+regexes = ['''^[0-9a-f]{64}$''']

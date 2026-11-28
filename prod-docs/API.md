@@ -61,18 +61,40 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 | POST | `/api/account/mesh/identity` | `{kind}` | Save as owner, or request owner approval as an authenticated agent |
 | GET | `/api/mesh/identity` | — | Read a paired target's identity through the signed relay |
 | POST | `/api/mesh/identity` | `{kind}` | Save or request owner approval on the paired target through the signed relay |
+| POST | `/api/mesh/cloud/create` | `{size, name?, region?}` | Local-only. Provision a new managed cloud machine through the backend (returns `cloud_machines_unavailable` when disabled). |
 | GET | `/api/mesh/cloud/list` | — | Local-only. List managed cloud machines with state, hourly rate, endpoint, and uptime. |
 | POST | `/api/mesh/cloud/{id}/sleep` | `{}` | Local-only. Run two-phase drain on an idle cloud peer and sleep it through the backend (`machine_busy` if work runs). |
 | POST | `/api/mesh/cloud/{id}/archive` | `{}` | Local-only. Immediately archive an asleep or idle cloud machine's disk via the verified eviction pipeline (drains and sleeps first if awake and idle; refuses with `machine_busy` while work runs). |
 | POST | `/api/mesh/cloud/{id}/wake` | `{}` | Local-only. Wake a sleeping cloud machine through the backend (concurrent wakes join one wake), update its endpoint before readiness, and flush held sends in order. |
 | POST | `/api/mesh/cloud/{id}/delete` | `{confirm}` | Local-only. Delete a cloud machine through the backend; without `confirm: true` returns `delete_confirmation_required` warning about unpushed work. |
+| POST | `/api/mesh/cloud/{id}/recreate` | `{}` | Local-only. Recreate a cloud machine's container/compute while preserving its volume and identity. |
+| POST | `/api/mesh/cloud/{id}/resize-volume` | `{size_gb}` | Local-only. Resize a managed cloud machine's persistent volume through the backend. |
+| GET | `/api/mesh/cloud/{id}/bootstrap` | — | Local-only. Return sanitized warm-bootstrap status, phase timings, and provider readiness for a managed cloud machine. |
+| POST | `/api/mesh/cloud/{id}/provider-signin/prepare` | `{providers?}` | Local Owner or authorized local Agent. Request non-secret provider sign-in card bindings on a managed cloud machine. |
+| POST | `/api/mesh/cloud/{id}/provider-signin/timing` | `{started_at_ms?, completed_at_ms?}` | Local Owner only. Record human provider sign-in timing separately from automated warm-bootstrap duration. |
 | POST | `/api/mesh/cloud/resolve` | `{target, size?, name?}` | Local-only. Resolve reuse-first cloud placement (`auto` reuses awake then wakes asleep, never creates; `new` creates explicitly; `<machine>` targets one). |
 | GET | `/api/mesh/cloud/usage` | — | Local-only. Managed cloud credit usage summary and catalog (`used`, `allowance`, `purchased`, `remaining`, `cap`, `burn_per_size`, plus optional `currency`, `period_end_at`, `custom_min_cents`, `custom_max_cents`, `plan`, `sizes`, `packs`, `purchased_expiry_days`, `allowance_hours`). |
 | POST | `/api/mesh/cloud/redeem` | `{code}` | Local-only. Redeem a cloud credit promo code into the signed-in account balance; surfaces typed refusals (`invalid_code`, `expired`, `disabled`, `exhausted`, `spend_cap_exceeded`, `rate_limited` with `retry_after_seconds`). |
 | POST | `/api/mesh/cloud/checkout` | `{pack_id}` or `{pack_id:"custom", amount_cents}` | Local owner only (agents and peers refused). Create a managed cloud credit checkout session (`{url, session_id, pack_id, credits, amount_cents, currency}`); surfaces typed refusals (`invalid`, `spend_cap_exceeded`, `below_min`, `above_max`, `territory`, `unavailable`, `rate_limited`). |
 | GET | `/api/mesh/cloud/peer/idle` | — | Cloud-peer control route (Full peer access). Reports active turns, background jobs, held sends, attached viewers, and drain state. |
 | POST | `/api/mesh/cloud/peer/drain` | `{}` | Cloud-peer control route (Full peer access). Atomically enters draining iff idle (`machine_busy` otherwise); writes during drain return `machine_sleeping` with `bytes_written: false`. |
+| POST | `/api/mesh/cloud/peer/hours-exhausted` | `{}` | Cloud-peer control route (Full peer access). Notify a cloud peer that credit hours are exhausted so it drains/stops cleanly. |
 | POST | `/api/mesh/cloud/peer/reopen` | `{}` | Cloud-peer control route (Full peer access). Exits draining state back to open. |
+| POST | `/api/mesh/cloud/peer/export-archive` | `{}` | Cloud-peer control route (Full peer access). Export an encrypted disk archive during the verified eviction pipeline. |
+| POST | `/api/mesh/cloud/peer/warm-bootstrap` | `{projection}` | Cloud-peer control route (Full peer access). Apply a bounded, versioned owner projection once on an empty fresh cloud machine. |
+| GET | `/api/mesh/cloud/peer/provider-readiness` | — | Cloud-peer control route (Full peer access). Return non-secret per-provider readiness and supported login capabilities. |
+| POST | `/api/mesh/cloud/peer/provider-signin/prepare` | `{providers?}` | Cloud-peer control route (Full peer access). Prepare sign-in card bindings for signed-out supported providers without handling credentials. |
+
+#### Secure input
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/secure-input/requests` | — | Local Owner only. List pending and recent owner-submitted secure input requests (typed metadata only, never values). |
+| POST | `/api/secure-input/requests` | `{machine?, target, kind, reason}` | Local Owner or authorized local Tab. Create a flow-bound secure input request for owner submission. |
+| GET | `/api/secure-input/requests/{id}` | — | Local Owner or creating Tab. Read typed request status without exposing submitted values. |
+| POST | `/api/secure-input/requests/{id}/submit` | `{value}` | Strictly Local Owner only. Submit a secret value once for direct delivery to its declared consumer. |
+| POST | `/api/secure-input/requests/{id}/cancel` | `{}` | Local Owner or creating Tab. Cancel a pending secure input request. |
+| POST | `/api/secure-input/deliver` | `{payload}` | Target machine (Local Owner or Full-access Peer with Owner origin). Route an owner-submitted value directly to its declared consumer. |
 
 An identity mutation reports `saved` with the identity or `awaiting_owner` with the notification ID.
 
@@ -232,4 +254,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 262 -->
+<!-- revision: 263 -->

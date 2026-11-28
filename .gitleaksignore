@@ -49,3 +49,8 @@ tests/fixtures/chat/image-stress.jsonl:generic-api-key:31
 72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-util/src/redact/tests.rs:generic-api-key:6
 # Verified synthetic redaction canary: sk-live-prefixed test string in package scrub coverage, never a credential.
 50774f400542ce4be9c31abee1d9f1f9aa6ef934:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:153
+
+# Verified synthetic redaction test fixtures in warm-bootstrap tests (later built at runtime via concat); never real credentials.
+690415f276f1f7f1ce5da87b417f3b9689bc45ed:src-tauri/crates/codeterm-api/src/cloud_routes/warm_bootstrap_tests.rs:generic-api-key:81
+690415f276f1f7f1ce5da87b417f3b9689bc45ed:src-tauri/crates/codeterm-service-core/src/service/cloud_machines/warm_bootstrap/tests.rs:generic-api-key:414
+690415f276f1f7f1ce5da87b417f3b9689bc45ed:src-tauri/crates/codeterm-service-core/src/service/cloud_machines/warm_bootstrap/tests.rs:generic-api-key:496

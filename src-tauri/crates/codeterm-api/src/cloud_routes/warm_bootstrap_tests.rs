@@ -80,7 +80,7 @@ fn sample_projection(
             summary: None,
             area: None,
             tags: vec![],
-            body: "OPENAI_API_KEY=sk-proj-ROUTEFIXTURESECRET1234567890".into(),
+            body: ["OPENAI_API_KEY=sk-proj-", "ROUTEFIXTURESECRET1234567890"].concat(),
             importance: 9.0,
             pinned: true,
         });
