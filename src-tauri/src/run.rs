@@ -147,13 +147,10 @@ pub fn run(
                             crate::host_ports::native_client::NativeClientStatus::Attached
                         )
                         .then(|| {
-                            serde_json::json!({
-                                "protocol": attached.ready.protocol,
-                                "client_pid": std::process::id(),
-                                "server_pid": attached.ready.process.pid,
-                                "epoch": attached.ready.epoch,
-                                "api_address": attached.ready.api_address.to_string(),
-                            })
+                            crate::host_ports::native_client::dev_attachment_receipt(
+                                &attached.ready,
+                                std::process::id(),
+                            )
                         });
                         let handle = app_handle.clone();
                         if let Err(error) = app_handle.run_on_main_thread(move || {
@@ -173,7 +170,7 @@ pub fn run(
                             }
                             #[cfg(debug_assertions)]
                             if let Some(readiness) = readiness {
-                                eprintln!("DOMIOS_DEV_ATTACHMENT {readiness}");
+                                eprintln!("{readiness}");
                             }
                         }) {
                             crate::host_ports::native_client::startup_refused(
