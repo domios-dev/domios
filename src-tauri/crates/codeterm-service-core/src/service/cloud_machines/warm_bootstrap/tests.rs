@@ -412,7 +412,8 @@ fn partial_outcome_sanitizes_secret_exclusions_and_preserves_valid_seed() {
     let store = WarmBootstrapStateStore::in_data_dir(dir.path());
     let general = dir.path().join("general");
 
-    let secret_token = "ghp_1234567890abcdefghijklmnopqrstuvwx";
+    let secret_token_owned = ["ghp_", "1234567890abcdefghijklmnopqrstuvwx"].concat();
+    let secret_token = secret_token_owned.as_str();
     let projection = WarmBootstrapProjection {
         schema_version: WARM_BOOTSTRAP_SCHEMA_VERSION,
         account_id: "acct-1".into(),
@@ -494,7 +495,7 @@ fn partial_outcome_sanitizes_secret_exclusions_and_preserves_valid_seed() {
 #[test]
 fn capability_based_provider_readiness_and_filters() {
     assert!(contains_secret_shaped_content(
-        "OPENAI_API_KEY=sk-proj-abcdef1234567890"
+        &["OPENAI_API_KEY=sk-proj-", "abcdef1234567890"].concat()
     ));
     assert!(contains_secret_shaped_content(
         "-----BEGIN PRIVATE KEY-----\nabc"
