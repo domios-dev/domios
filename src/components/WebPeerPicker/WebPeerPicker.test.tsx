@@ -14,6 +14,7 @@ import { PairedWorkspaceInventoryContext } from "../../store/multiplexer/context
 import { usePairedWorkspaces } from "../../store/multiplexer/usePairedWorkspaces";
 import { workspaceBrowseTarget } from "../../lib/workspaceBrowseTarget";
 import { WebPeerPicker } from "./WebPeerPicker";
+import { applyCloudAvailability } from "../../lib/cloudMachines/availability";
 
 const peersResponse = vi.fn<() => Promise<unknown>>();
 const healthResponse = vi.fn<() => Promise<unknown>>();
@@ -267,6 +268,8 @@ it.each([true, false])("opens Add machine and Open Mesh in keyboard order (paire
 });
 
 it("renders kind=cloud rows with calm cloud states and never puts a usage meter inside the switcher", async () => {
+  // The out-of-hours state names cloud commerce, which shows only while cloud machines are enabled.
+  applyCloudAvailability(true);
   peersResponse.mockResolvedValue({
     local_instance_name: "Studio",
     paired: [
@@ -307,6 +310,7 @@ it("renders kind=cloud rows with calm cloud states and never puts a usage meter 
     expect(menu.querySelector('[data-peer-id="cloud-ooc"]')?.getAttribute("aria-label")).toBe("Scratch, virtual machine, asleep, out of cloud hours");
   } finally {
     await chip.unmount();
+    applyCloudAvailability(false);
   }
 });
 

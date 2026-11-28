@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, u
 import { flushSync } from "react-dom";
 import { ArrowRight, Check, ChevronDown, Moon, Network, Plus } from "lucide-react";
 import { cloudMachineCardView, type CloudListIcon } from "../../lib/cloudMachines/stateModel";
+import { useCloudMachinesEnabled } from "../../lib/cloudMachines/availability";
 import type { CloudReceipt, EnrichedMeshPeersResponse, EnrichedPairedPeer } from "../../lib/cloudMachines/types";
 import { listen } from "../../lib/bridge";
 import { effectiveWallpaper, wallpaperRenderStyle } from "../../lib/chatWallpaper";
@@ -61,6 +62,7 @@ const noWorking = () => 0;
 const noSubscription = () => () => {};
 
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
+  const cloudCommerce = useCloudMachinesEnabled();
   const [peers, setPeers] = useState<EnrichedPairedPeer[]>([]);
   const [installations, setInstallations] = useState<MeshPeersResponse["installations"]>(undefined);
   const [cloudMachines, setCloudMachines] = useState<CloudReceipt[]>([]);
@@ -311,7 +313,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             })}
             {unpairedCloud.map(machine => {
               const peerId = machine.peer_instance_id ?? machine.installation_id ?? machine.machine_id;
-              const view = cloudMachineCardView(machine);
+              const view = cloudMachineCardView(machine, null, cloudCommerce);
               return <MachineOption key={machine.machine_id} name={machine.name} identity={{ kind: "vm" }}
                 peerId={peerId} status={view.listStatus} statusIcon={view.listIcon} working={0} online={view.listOnline} selected={target?.id === peerId}
                 viewer={viewer}
