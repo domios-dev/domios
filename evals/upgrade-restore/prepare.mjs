@@ -31,6 +31,7 @@ for (const tab of leaves(document)) {
     captured_shell_profile: tab.shell_profile, captured_surface: tab.surface});
   tab.cwd = join(root, 'project');
   if (tab.agent_identity) delete tab.agent_identity.provisioned_cwd;
+  if (tab.chatbackend_plugin_id) tab.chatbackend_session_id = tab.agent_session_id;
   if (kind === 'pty') {
     tab.shell_profile = {id: 'upgrade-restore-fixture', name: 'Fixture', executable: process.execPath,
       args: [shellPath, shellTrace, tab.tab_id], wsl_distro: null};
