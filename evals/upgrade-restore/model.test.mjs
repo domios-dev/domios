@@ -6,6 +6,10 @@ import {leaves, validateCapture, requireBackings, verdict, failureReason, measur
   synthesizeHistory} from './model.mjs';
 import {peer} from './fake-peer.mjs';
 import {unavailableVerdict} from './unavailable.mjs';
+import {execFileSync} from 'node:child_process';
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const fixture = () => worstCases(root, '/isolated-fixture-project');
@@ -73,6 +77,43 @@ test('capture keeps unavailable transcripts explicit and replay refuses missing 
   document.measurements = measurements(document.snapshot, document.histories);
   assert.equal(validateCapture(document).length, 6);
   assert.throws(() => requireBackings(document), /transcript unavailable \(backing=chat_backend, provider=fixture-provider\)/);
+});
+
+test('a sanitized Codex chat backend replays through its isolated app-server thread', () => {
+  const document = fixture();
+  const tab = leaves(document)[2];
+  tab.agent_session_id = '01900000-0000-7000-8000-000000000001';
+  tab.chatbackend_plugin_id = 'codex';
+  const history = document.histories[2];
+  history.shape = [{kind: 'user', group: 0, bytes: 5}, {kind: 'assistant', group: 0, bytes: 9}];
+  history.transcript = {status: 'captured', backing_kind: 'chat_backend', provider: 'codex', reason: null};
+  tab.chatbackend_session_id = 'foreign';
+  document.measurements = measurements(document.snapshot, document.histories);
+  assert.throws(() => requireBackings(document), /chat backend session identity differs/);
+  tab.chatbackend_session_id = 'x'.repeat(36);
+  document.measurements = measurements(document.snapshot, document.histories);
+  const directory = mkdtempSync(join(tmpdir(), 'upgrade-restore-chat-backend-'));
+  try {
+    const capture = join(directory, 'capture.json');
+    writeFileSync(capture, JSON.stringify(document));
+    execFileSync(process.execPath, [fileURLToPath(new URL('./prepare.mjs', import.meta.url)), capture, directory]);
+    const prepared = JSON.parse(readFileSync(join(directory, 'desk.json'), 'utf8'));
+    const restored = requireBackings(prepared)[2];
+    const threadId = '01900000-0000-7000-8000-000000000001';
+    assert.equal(restored.chatbackend_session_id, threadId);
+    assert.equal(prepared.replay_utilities.some(row => row.tab_id === tab.tab_id), false);
+    const request = peer(prepared);
+    assert.deepEqual(request({method: 'thread/items/list', params: {threadId, turnId: 'turn-0'}}).data, [
+      {id: 'message-0', type: 'userMessage', content: [{type: 'text', text: 'xxxxx'}]},
+      {id: 'message-1', type: 'agentMessage', text: 'xxxxxxxxx'},
+    ]);
+    const actual = {...ready(restored), backing: {kind: 'chat_backend', plugin_id: 'codex', session_id: threadId}};
+    assert.equal(verdict(restored, actual).ready, true);
+    assert.equal(verdict(restored, {...actual, backing: {kind: 'pty'}}).ready, false);
+    assert.equal(verdict(restored, {...actual, backing: {...actual.backing, session_id: 'foreign'}}).ready, false);
+  } finally {
+    rmSync(directory, {recursive: true, force: true});
+  }
 });
 
 test('captured unavailable state has a separate passive oracle and rejects activation or identity drift', () => {

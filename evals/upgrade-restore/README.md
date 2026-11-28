@@ -116,7 +116,13 @@ is retained in `replay_utilities`; plugin and surface identifiers are replaced
 because capture masks their field names and values. The oracle checks exact
 fixture backing, title, cwd, purpose, hierarchy, visibility and absence of a PTY
 or provider session. This proves persisted surface restoration, not plugin UI
-rendering or browser navigation. Chat backends remain unsupported.
+rendering or browser navigation.
+
+Codex app-server leaves with captured shapes replay through the isolated fake
+app-server. Preparation resolves the masked chat backend session field to the
+leaf's retained agent session ID. Verification checks both session fields and the
+chat backend provider, requires a loaded app-server without a PTY, and compares
+the replayed history with the captured shape.
 
 With that target DEV running, stage only through the dev wrapper:
 

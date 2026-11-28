@@ -131,6 +131,10 @@ export function requireBackings(document) {
     if (transcript?.status === 'unavailable' && !capturedUnavailable(document, tab)) {
       throw new Error(`tab=${tab.tab_id}: transcript unavailable (backing=${transcript.backing_kind}, provider=${transcript.provider ?? 'none'})`);
     }
+    if (tab.chatbackend_plugin_id || tab.chatbackend_session_id || transcript?.backing_kind === 'chat_backend'
+      && transcript.status === 'captured') {
+      requireCodexChatBacking(tab, transcript);
+    }
     if (!tab.agent_type) requireUtility(tab, document.histories.find(row => row.tab_id === tab.tab_id));
     if (tab.agent_type && !(tab.claude_session_id ?? tab.agent_session_id)) {
       throw new Error(`tab=${tab.tab_id}: provider thread identity missing`);
@@ -148,6 +152,23 @@ export function requireBackings(document) {
     if (attempts.length !== 1) throw new Error(`tab=${tab.tab_id}: binding incomplete: ${attempts.length} matching live attempts`);
   }
   return tabs;
+}
+
+function requireCodexChatBacking(tab, transcript) {
+  if (tab.agent_type !== 'codex' || tab.chatbackend_plugin_id !== 'codex' || tab.surface
+    || transcript?.backing_kind !== 'chat_backend' || transcript.provider !== 'codex'
+    || !['captured', 'unavailable'].includes(transcript.status)) {
+    throw new Error(`tab=${tab.tab_id}: unsupported chat backend evidence`);
+  }
+  const session = tab.agent_session_id;
+  const saved = tab.chatbackend_session_id;
+  if (typeof session !== 'string' || !session || tab.claude_session_id != null) {
+    throw new Error(`tab=${tab.tab_id}: chat backend agent session identity missing`);
+  }
+  const maskedSession = /^[ -~]+$/.test(session) && !/["\\]/.test(session) ? 'x'.repeat(session.length) : null;
+  if (typeof saved !== 'string' || (saved !== session && saved !== maskedSession)) {
+    throw new Error(`tab=${tab.tab_id}: chat backend session identity differs`);
+  }
 }
 
 export function failureReason(error) {
@@ -213,6 +234,11 @@ export function verdict(expected, actual) {
   if (identity) return identity;
   const id = expected.tab_id;
   if (!expected.agent_type) return utilityVerdict(expected, actual);
+  if (expected.chatbackend_plugin_id && (actual.backing?.kind !== 'chat_backend'
+    || actual.backing.plugin_id !== expected.chatbackend_plugin_id
+    || actual.backing.session_id !== expected.chatbackend_session_id || actual.pty_id)) {
+    return {tab_id: id, ready: false, reason: 'chat backend identity changed after restore'};
+  }
   const runtime = actual.agent_runtime_state;
   if (runtime?.state !== 'loaded' || !(runtime.epoch > 0)) {
     return {tab_id: id, ready: false, reason: runtime?.reason ?? `runtime ${runtime?.state ?? 'missing'}`};
