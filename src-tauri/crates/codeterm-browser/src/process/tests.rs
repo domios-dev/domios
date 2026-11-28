@@ -104,9 +104,41 @@ async fn browser_process_exit_before_devtools_is_an_error() {
     let (binary, args) = fake_browser("Opening in existing browser session.", false);
     let error = BrowserProcess::spawn(Path::new(binary), &args, READY_DEADLINE)
         .await
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("before DevTools was ready"), "{error}");
+        .unwrap_err();
+    assert!(
+        matches!(
+            error.cause,
+            SpawnFailure::ExitedBeforeDevTools {
+                exit: ProcessExit { code: Some(0) },
+                ref output,
+            } if output == "Opening in existing browser session."
+        ),
+        "{error}"
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn browser_process_silent_zero_exit_before_devtools_has_a_typed_cause() {
+    let args = ["-NoProfile", "-NonInteractive", "-Command", "exit 0"].map(str::to_string);
+    let error = BrowserProcess::spawn(Path::new("powershell"), &args, READY_DEADLINE)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            error.cause,
+            SpawnFailure::ExitedBeforeDevTools {
+                exit: ProcessExit { code: Some(0) },
+                ref output,
+            } if output.is_empty()
+        ),
+        "{error}"
+    );
+    assert!(!error.process_may_be_running);
+    assert_eq!(
+        error.to_string(),
+        "browser_exited_before_devtools: browser exited before DevTools was ready (exit code 0); no startup output was captured"
+    );
 }
 
 #[tokio::test]
