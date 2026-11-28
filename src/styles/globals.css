@@ -342,6 +342,7 @@ body {
   .ct-liquid-tab-rail__tab,
   .ct-liquid-toggle,
   .ct-liquid-toggle__knob,
+  .ct-liquid-flip,
   .ct-liquid-flip__chip,
   .ct-liquid-flip__word {
     transition: none !important;
@@ -1682,13 +1683,18 @@ button {
   display: inline-flex;
   overflow: hidden;
   padding: 3px;
-  border: 1px solid var(--ct-panel-edge);
+  border: 0;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--ct-bg) 72%, var(--ct-surface));
+  background: transparent;
   color: var(--ct-muted-fg);
   font-family: var(--ct-font-mono);
   font-size: 0.625rem;
   cursor: pointer;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.ct-liquid-flip:hover,
+.ct-liquid-flip:focus-visible {
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
 }
 .ct-liquid-flip__chip {
   position: absolute;
@@ -1696,11 +1702,15 @@ button {
   bottom: 3px;
   left: 3px;
   width: calc((100% - 6px) / 2);
-  border: 1px solid var(--ct-panel-edge);
+  border: 0;
   border-radius: 5px;
-  background: var(--ct-surface);
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
   transform: translateX(0);
   pointer-events: none;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.ct-liquid-flip:hover .ct-liquid-flip__chip {
+  background: color-mix(in srgb, var(--ct-fg) 11%, transparent);
 }
 .ct-liquid-flip[aria-checked="true"] .ct-liquid-flip__chip { transform: translateX(100%); }
 .ct-liquid-flip__chip--travel {
