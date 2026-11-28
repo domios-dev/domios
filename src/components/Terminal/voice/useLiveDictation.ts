@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createDictationTransport, DICTATION_LIMIT_MS, DICTATION_PCM_BYTES } from "../../../lib/transport/dictation";
+import { createDictationTransport } from "../../../lib/transport/dictation";
 import { uid } from "../../../lib/uid";
 import { useLatestCallback } from "../../../hooks/useLatestCallback";
 import { claimCaptureOwnership, releaseCaptureOwnership } from "./localRecordingCaptureModel";
@@ -7,70 +7,8 @@ import type { DictationUpdate } from "./dictationSessionModel";
 import { clearDictationSetupHandoff } from "./DictationSetupPrompt";
 import { createDictationLevelChannel } from "./dictationLevelModel";
 import { microphoneErrorMessage } from "./audio";
-import { openCaptureContext, PCM_RESAMPLER_SOURCE, PCM_SAMPLE_RATE } from "./pcmCapture";
-
-const QUEUE_LIMIT = 12;
-const LEVEL_SAMPLES = 1120;
-const WORKLET = `
-const FRAME_BYTES = ${DICTATION_PCM_BYTES};
-const LEVEL_SAMPLES = ${LEVEL_SAMPLES};
-${PCM_RESAMPLER_SOURCE}
-class DictationCapture extends AudioWorkletProcessor {
-  constructor() {
-    super();
-    this.frame = new ArrayBuffer(FRAME_BYTES);
-    this.samples = new DataView(this.frame);
-    this.length = 0;
-    this.sent = 0;
-    this.levelSum = 0;
-    this.levelCount = 0;
-    this.active = true;
-    this.resampler = new PcmResampler(sampleRate, ${PCM_SAMPLE_RATE});
-    this.write = this.write.bind(this);
-    this.port.onmessage = ({data}) => {
-      if (data === "ack") this.sent--;
-      if (data === "finish") {
-        this.active = false;
-        if (this.length) this.send(this.frame.slice(0, this.length * 2));
-        this.port.postMessage("finished");
-      }
-    };
-  }
-  send(frame) {
-    if (this.sent >= 2) {
-      this.active = false;
-      this.port.postMessage("overflow");
-      return;
-    }
-    this.sent++;
-    this.port.postMessage(frame, [frame]);
-  }
-  write(sample) {
-    if (!this.active) return;
-    this.levelSum += sample * sample;
-    if (++this.levelCount >= LEVEL_SAMPLES) {
-      this.port.postMessage(Math.sqrt(this.levelSum / this.levelCount));
-      this.levelSum = 0;
-      this.levelCount = 0;
-    }
-    this.samples.setInt16(this.length++ * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true);
-    if (this.length * 2 === this.frame.byteLength) {
-      this.send(this.frame);
-      if (!this.active) return;
-      this.frame = new ArrayBuffer(FRAME_BYTES);
-      this.samples = new DataView(this.frame);
-      this.length = 0;
-    }
-  }
-  process(inputs) {
-    if (!this.active) return true;
-    const audio = inputs[0]?.[0];
-    if (audio) this.resampler.push(audio, this.write);
-    return true;
-  }
-}
-registerProcessor("dictation-capture", DictationCapture);
-`;
+import { openCaptureContext } from "./pcmCapture";
+import { DICTATION_BUFFER_MS, DICTATION_WORKLET_SOURCE } from "./dictationWorklet";
 
 type Phase = "idle" | "starting" | "listening" | "finishing";
 type Transport = ReturnType<typeof createDictationTransport>;
@@ -89,24 +27,25 @@ interface Capture {
   stream?: MediaStream;
   source?: MediaStreamAudioSourceNode;
   worklet?: AudioWorkletNode;
-  timer?: number;
+  endReason?: string;
   permissionPending: boolean;
   claimed: boolean;
   stopping: boolean;
   startupDone: Promise<void>;
   finish: (() => void) | null;
   tail: Promise<void>;
-  waiting: number;
   sequence: number;
   afterFinish?: () => void;
 }
 
 function release(capture: Capture) {
-  if (capture.timer !== undefined) window.clearTimeout(capture.timer);
   capture.worklet?.disconnect();
   capture.worklet?.port.close();
   capture.source?.disconnect();
   capture.stream?.getTracks().forEach(track => track.stop());
+  capture.worklet = undefined;
+  capture.source = undefined;
+  capture.stream = undefined;
   const audio = capture.audio;
   capture.audio = undefined;
   if (audio) void audio.close().catch(() => {});
@@ -135,9 +74,10 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
   const pending = useRef(false);
 
   const compositionEnded = () => {
-    if (rollback.current || (updates.current.length > 0
-      && (!enabledRef.current || deferredIdentity.current !== identityRef.current))) port.current.cancel();
-    else for (const update of updates.current) port.current.update(update);
+    if (enabledRef.current && deferredIdentity.current === identityRef.current) {
+      for (const update of updates.current) port.current.update(update);
+    }
+    if (rollback.current) port.current.cancel();
     updates.current = [];
     deferredIdentity.current = null;
     rollback.current = false;
@@ -152,11 +92,13 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     capture.finish?.();
     release(capture);
     const cancelled = capture.transport.cancel().catch(() => {});
-    updates.current = [];
-    deferredIdentity.current = null;
+    if (!enabledRef.current || identityRef.current !== capture.identity) {
+      updates.current = [];
+      deferredIdentity.current = null;
+    }
     afterComposition.current = undefined;
-    if (port.current.composing()) rollback.current = true;
-    else port.current.cancel();
+    rollback.current = true;
+    if (!port.current.composing()) compositionEnded();
     levelChannel.reset();
     setPhase("idle");
     if (reason) setError(reason);
@@ -183,7 +125,6 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     if (owned.current !== capture) return;
     if (!enabledRef.current || identityRef.current !== capture.identity) { discard(capture); return; }
     if (port.current.composing()) {
-      if (updates.current.length === 32) throw new Error("Dictation paused too long during text composition.");
       deferredIdentity.current = capture.identity;
       updates.current.push(update);
     } else port.current.update(update);
@@ -192,40 +133,53 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
   async function finalize(capture: Capture) {
     await capture.tail;
     if (owned.current !== capture) return;
-    const signal = AbortSignal.any([capture.controller.signal, AbortSignal.timeout(20_000)]);
-    publish(capture, await capture.transport.finish(++capture.sequence, signal));
+    const { update, stopReason } = await capture.transport.finish(++capture.sequence, frameSignal(capture));
+    publish(capture, update);
+    capture.endReason ??= stopReason;
     if (owned.current !== capture) return;
     owned.current = null;
     levelChannel.reset();
     setPhase("idle");
-    if (enabledRef.current && capture.afterFinish) {
+    if (capture.endReason) setError(capture.endReason);
+    else if (enabledRef.current && capture.afterFinish) {
       if (port.current.composing()) afterComposition.current = { identity: capture.identity, callback: capture.afterFinish };
       else capture.afterFinish();
     }
   }
 
-  async function stop() {
-    const capture = owned.current;
-    if (!capture || capture.stopping) return;
-    if (!capture.worklet) {
-      capture.stopping = true;
-      levelChannel.reset();
-      setPhase("finishing");
-      return;
-    }
+  function frameSignal(capture: Capture) {
+    return AbortSignal.any([capture.controller.signal, AbortSignal.timeout(DICTATION_BUFFER_MS + 100_000)]);
+  }
+
+  async function stopCapture(capture: Capture, reason?: string, workletFinished = false) {
+    if (owned.current !== capture) return;
+    capture.endReason ??= reason;
+    if (workletFinished) capture.finish?.();
+    if (capture.stopping) return;
     capture.stopping = true;
     levelChannel.reset();
     setPhase("finishing");
-    try {
+    if (!capture.worklet) return;
+    if (!workletFinished) {
+      const port = capture.worklet.port;
       const flushed = new Promise<void>(resolve => { capture.finish = resolve; });
-      capture.worklet.port.postMessage("finish");
-      const deadline = AbortSignal.timeout(3_000);
-      await Promise.race([flushed, new Promise<never>((_, reject) => {
-        deadline.addEventListener("abort", () => reject(new Error("The microphone did not finish.")), { once: true });
-      })]);
-      release(capture);
-      await finalize(capture);
-    } catch (failure) { fail(capture, failure); }
+      try {
+        port.postMessage("finish");
+        const deadline = AbortSignal.timeout(DICTATION_BUFFER_MS);
+        await Promise.race([flushed, new Promise<never>((_, reject) => {
+          deadline.addEventListener("abort", () => reject(new Error("The microphone did not finish.")), { once: true });
+        })]);
+      } catch (failure) {
+        capture.endReason ??= microphoneErrorMessage(failure);
+      }
+    }
+    release(capture);
+    try { await finalize(capture); }
+    catch (failure) { fail(capture, failure); }
+  }
+
+  async function stop() {
+    if (owned.current) await stopCapture(owned.current);
   }
 
   async function start(prepare = port.current.prepare) {
@@ -243,7 +197,7 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
     let resolveStartup!: () => void;
     const startupDone = new Promise<void>(resolve => { resolveStartup = resolve; });
     const capture: Capture = { identity, transport, controller: new AbortController(), permissionPending: false, claimed: false,
-      stopping: false, startupDone, finish: null, tail: Promise.resolve(), waiting: 0, sequence: 0, audio };
+      stopping: false, startupDone, finish: null, tail: Promise.resolve(), sequence: 0, audio };
     owned.current = capture;
     pending.current = true;
     setPhase("starting");
@@ -271,10 +225,10 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
         return;
       }
       for (const track of capture.stream.getAudioTracks()) track.addEventListener("ended", () => {
-        fail(capture, new Error("Microphone access was lost."));
+        void stopCapture(capture, "Microphone access was lost.");
       }, { once: true });
       if (capture.audio !== audio) return;
-      const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+      const url = URL.createObjectURL(new Blob([DICTATION_WORKLET_SOURCE], { type: "text/javascript" }));
       try { await audio.audioWorklet.addModule(url); }
       finally { URL.revokeObjectURL(url); }
       if (owned.current !== capture) return;
@@ -287,27 +241,30 @@ export function useLiveDictation(tabId: string, identity: string, enabled: boole
         if (owned.current !== capture) return;
         if (typeof data === "number") {
           if (!capture.stopping) levelChannel.pushRms(data);
+          worklet.port.postMessage("levelAck");
           return;
         }
         if (data === "finished") { capture.finish?.(); return; }
-        if (!(data instanceof ArrayBuffer) || capture.waiting === QUEUE_LIMIT) {
-          fail(capture, new Error("Dictation could not keep up. Try a shorter recording."));
+        if (data === "overflow") {
+          void stopCapture(capture, "Dictation stopped because the audio buffer filled.", true);
           return;
         }
-        capture.waiting++;
-        worklet.port.postMessage("ack");
+        if (!(data instanceof ArrayBuffer)) return;
+        // The worklet holds the credit until this frame leaves the transcription queue.
         capture.tail = capture.tail.then(async () => {
           if (owned.current !== capture) return;
-          const signal = AbortSignal.any([capture.controller.signal, AbortSignal.timeout(20_000)]);
-          publish(capture, await transport.frame(++capture.sequence, data, signal));
-          capture.waiting--;
+          const { update, stopReason } = await transport.frame(++capture.sequence, data, frameSignal(capture));
+          publish(capture, update);
+          if (stopReason) throw new Error(stopReason);
+          if (owned.current === capture) capture.worklet?.port.postMessage("ack");
         }).catch(failure => fail(capture, failure));
       };
-      worklet.onprocessorerror = () => fail(capture, new Error("Microphone audio processing stopped."));
+      worklet.onprocessorerror = () => {
+        void stopCapture(capture, "Microphone audio processing stopped.", true);
+      };
       source.connect(worklet).connect(audio.destination);
       await audio.resume();
       if (owned.current !== capture || capture.stopping) return;
-      capture.timer = window.setTimeout(() => void stop(), DICTATION_LIMIT_MS);
       setPhase("listening");
     } catch (failure) {
       if (owned.current !== capture) release(capture);

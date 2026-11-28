@@ -2,10 +2,7 @@ use super::*;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
 use async_trait::async_trait;
-use codeterm_plugin::transcribe::{
-    DictationSession, TranscribeError, Transcriber, TranscriberStatus, Transcript,
-};
-use codeterm_types::dictation::DictationSegment;
+use codeterm_plugin::transcribe::{TranscribeError, Transcriber, TranscriberStatus, Transcript};
 
 struct NativeFixture;
 
@@ -91,10 +88,10 @@ async fn native_session_returns_pre_stop_text_and_finishes_once() {
         .unwrap();
     assert_eq!(
         (
-            partial.session.as_str(),
-            partial.sequence,
-            partial.provisional.as_str(),
-            partial.is_final
+            partial.update.session.as_str(),
+            partial.update.sequence,
+            partial.update.provisional.as_str(),
+            partial.update.is_final
         ),
         ("session", 1, "interim speech", false)
     );
@@ -106,8 +103,8 @@ async fn native_session_returns_pre_stop_text_and_finishes_once() {
         .frame("client", "session", 2, Vec::new(), true)
         .await
         .unwrap();
-    assert!(final_update.is_final);
-    assert_eq!(final_update.committed, "final speech");
+    assert!(final_update.update.is_final);
+    assert_eq!(final_update.update.committed, "final speech");
     assert!(sessions
         .frame("client", "session", 2, Vec::new(), true)
         .await

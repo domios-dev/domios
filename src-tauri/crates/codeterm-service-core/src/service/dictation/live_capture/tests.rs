@@ -3,7 +3,12 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use codeterm_plugin::transcribe::{TranscribeError, TranscriberStatus, Transcript};
+use crate::service::dictation::rotation::{
+    HARD_BOUNDARY, PAUSE_FROM, SILENCE, VAD_WINDOW, WARM_AT,
+};
+use codeterm_plugin::transcribe::{
+    DictationSession, TranscribeError, TranscriberStatus, Transcript,
+};
 use codeterm_types::dictation::DictationStart;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
@@ -31,6 +36,7 @@ impl LiveCaptureSink for Sink {
 struct Probe {
     exclusive: bool,
     fail_finish: bool,
+    commit_frames: bool,
     active: AtomicUsize,
     peak: AtomicUsize,
     opened: AtomicUsize,
@@ -130,6 +136,8 @@ impl DictationSession for FakeEngine {
         Ok(DictationSegment {
             committed: if self.probe.fail_finish {
                 "durable prefix".into()
+            } else if self.probe.commit_frames {
+                format!("{}:{}", self.index, self.samples)
             } else {
                 String::new()
             },
@@ -449,4 +457,119 @@ async fn live_capture_reports_a_failed_flush_after_the_committed_prefix() {
             },
         ]
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn composer_dictation_keeps_every_commit_through_two_rotations() {
+    let probe = Arc::new(Probe {
+        commit_frames: true,
+        ..Default::default()
+    });
+    let (_fixture, svc, tab, _) = fixture(probe.clone());
+    assert!(matches!(
+        svc.start_dictation(
+            "client",
+            DictationStart {
+                session: "composer".into(),
+                tab_id: tab
+            }
+        )
+        .await,
+        super::super::DictationStartResult::Ready
+    ));
+    let sessions = svc.ext::<DictationSessions>();
+    let mut commits = Vec::new();
+    let mut sequence = 0;
+    let mut expected = Vec::new();
+    let mut engine = 1;
+    let frame_samples = MAX_PCM_BYTES / 2;
+    let mut engine_samples = 0;
+    let frames = 2 * HARD_BOUNDARY / frame_samples + 1;
+    for index in 0..frames {
+        if (1..=3).contains(&index) {
+            tokio::time::advance(Duration::from_secs(120)).await;
+        }
+        if engine_samples == WARM_AT {
+            timeout(Duration::from_secs(2), probe.standby_seen.notified())
+                .await
+                .unwrap();
+        }
+        sequence += 1;
+        let update = sessions
+            .frame("client", "composer", sequence, spoken(frame_samples), false)
+            .await
+            .unwrap();
+        assert!(update.stop_reason.is_none());
+        assert_eq!(update.update.sequence, sequence);
+        commits.extend(update.prior_committed);
+        if !update.update.committed.is_empty() {
+            commits.push(update.update.committed);
+        }
+        engine_samples += frame_samples;
+        if index == frames - 1 {
+            assert_eq!(update.update.provisional, "interim");
+        }
+        expected.push(format!("{engine}:{engine_samples}"));
+        if engine_samples == HARD_BOUNDARY {
+            assert!(update.update.provisional.is_empty());
+            expected.push(format!("tail {engine}"));
+            engine_samples = 0;
+            engine += 1;
+        }
+    }
+    let final_update = sessions
+        .frame("client", "composer", sequence + 1, Vec::new(), true)
+        .await
+        .unwrap();
+    assert!(final_update.update.is_final);
+    commits.extend(final_update.prior_committed);
+    commits.push(final_update.update.committed);
+    expected.push("tail 3".into());
+    assert_eq!(commits, expected);
+    assert_eq!(
+        *probe.endings.lock(),
+        [(1, HARD_BOUNDARY), (2, HARD_BOUNDARY), (3, frame_samples)]
+    );
+    assert_eq!(probe.peak.load(Ordering::SeqCst), 2);
+    assert_eq!(probe.active.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn composer_dictation_returns_commits_when_rotation_flush_fails() {
+    let probe = Arc::new(Probe {
+        fail_finish: true,
+        ..Default::default()
+    });
+    let (_fixture, svc, tab, _) = fixture(probe.clone());
+    assert!(matches!(
+        svc.start_dictation(
+            "client",
+            DictationStart {
+                session: "composer".into(),
+                tab_id: tab
+            }
+        )
+        .await,
+        super::super::DictationStartResult::Ready
+    ));
+    let sessions = svc.ext::<DictationSessions>();
+    let pcm = vec![0; MAX_PCM_BYTES];
+    for sequence in 1..=(HARD_BOUNDARY * 2 / MAX_PCM_BYTES) as u32 {
+        let update = sessions
+            .frame("client", "composer", sequence, pcm.clone(), false)
+            .await
+            .unwrap();
+        assert_eq!(update.update.committed, "durable prefix");
+        if let Some(reason) = update.stop_reason {
+            assert!(update.update.provisional.is_empty());
+            assert_eq!(reason, "The engine failed during its final update.");
+            assert_eq!(probe.active.load(Ordering::SeqCst), 0);
+            assert!(sessions
+                .frame("client", "composer", sequence + 1, pcm, false)
+                .await
+                .is_err());
+            return;
+        }
+    }
+    panic!("rotation must attempt a flush");
 }
