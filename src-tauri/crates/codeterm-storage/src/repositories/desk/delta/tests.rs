@@ -69,9 +69,7 @@ fn invalid_incoming_leaf_is_rejected_before_writer_admission() {
     incoming.workspaces[0].tabs[0].layout = DeskLayoutNode::Leaf {
         tab_id: "tab-a".into(),
         cwd: None,
-        fields: DeskLeafFields {
-            values: serde_json::json!({"foreign_field": true}),
-        },
+        fields: DeskLeafFields::new(serde_json::json!({"foreign_field": true})),
     };
     assert!(ValidatedInventory::new(incoming).is_err());
 }
@@ -85,9 +83,7 @@ fn retained_rows_are_validated_in_the_merged_target() {
     retained.layout = DeskLayoutNode::Leaf {
         tab_id: "retained".into(),
         cwd: None,
-        fields: DeskLeafFields {
-            values: serde_json::json!({"foreign_field": true}),
-        },
+        fields: DeskLeafFields::new(serde_json::json!({"foreign_field": true})),
     };
     current.workspaces[0].tabs.push(retained);
     assert!(ValidatedInventory::new(incoming.clone())

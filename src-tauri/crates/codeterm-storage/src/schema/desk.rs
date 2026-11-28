@@ -69,3 +69,14 @@ CREATE TABLE agent_session_identities (
     PRIMARY KEY (provider, session_id)
 ) STRICT;
 "#;
+
+pub(crate) const PROMPT_SCHEMA: &str = r#"
+CREATE TABLE desk_layout_prompts (
+    layout_id INTEGER PRIMARY KEY REFERENCES desk_layout_nodes(id) ON DELETE CASCADE,
+    system_prompt TEXT,
+    identity_instructions TEXT,
+    CHECK (system_prompt IS NOT NULL OR identity_instructions IS NOT NULL),
+    CHECK (coalesce(length(CAST(system_prompt AS BLOB)), 0)
+         + coalesce(length(CAST(identity_instructions AS BLOB)), 0) <= 4194304)
+) STRICT;
+"#;

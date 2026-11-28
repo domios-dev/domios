@@ -861,9 +861,9 @@ fn legacy_desk_session_field_is_refused_without_adoption() {
         .unwrap_err()
         .contains(LEGACY_SESSION_ID_FIELD));
     assert!(parse_tab_record(std::path::Path::new("isolated/last.json"), "ws", 0, tab).is_none());
-    let fields = codeterm_storage::DeskLeafFields {
-        values: serde_json::json!({(LEGACY_SESSION_ID_FIELD):"old-session"}),
-    };
+    let fields = codeterm_storage::DeskLeafFields::new(
+        serde_json::json!({(LEGACY_SESSION_ID_FIELD):"old-session"}),
+    );
     assert!(fields
         .validate()
         .unwrap_err()

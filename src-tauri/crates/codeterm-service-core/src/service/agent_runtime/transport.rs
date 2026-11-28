@@ -602,6 +602,7 @@ pub(crate) struct LaunchContext<'a> {
     pub(crate) boundary: Option<&'a std::sync::atomic::AtomicBool>,
     pub(crate) cron_owner: Option<&'a crate::agent::run_watcher::runtime_runs::CronRunAuthority>,
     pub(crate) require_signed_in: bool,
+    pub(crate) regenerable_runtime_prompt: bool,
 }
 
 pub fn is_sign_in_required_launch_error(error: &str) -> bool {
@@ -618,8 +619,15 @@ pub(crate) fn launch_with_context(
         boundary,
         cron_owner,
         require_signed_in,
+        regenerable_runtime_prompt,
     }: LaunchContext<'_>,
 ) -> Result<(), String> {
+    use crate::multiplexer::types::RuntimePromptSource;
+
+    let prompt_source = config["systemPrompt"]
+        .as_str()
+        .filter(|_| regenerable_runtime_prompt)
+        .map(|prompt| RuntimePromptSource::Regenerable(RuntimePromptSource::fingerprint(prompt)));
     let nonce = if let Some(owner) = cron_owner {
         svc.capture_cron_pad(owner)?;
         owner
@@ -651,6 +659,7 @@ pub(crate) fn launch_with_context(
         let target = mux.get_tab_mut(tab).ok_or("Runtime tab absent")?;
         target.agent_type = Some(provider.into());
         target.agent_runtime_config = Some(config);
+        target.restorable_launch.runtime_prompt_source = prompt_source;
         target.session_binding_nonce = Some(nonce.clone());
         target.chat_view = true;
         target.clone()

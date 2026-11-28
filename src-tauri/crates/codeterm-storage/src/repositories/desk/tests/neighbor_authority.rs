@@ -19,11 +19,9 @@ fn neighbor_authority_survives_validated_desk_save_and_reopen_for_roots_and_desc
         expected.workspaces[0].tabs[0].layout = DeskLayoutNode::Leaf {
             tab_id: "tab-a".into(),
             cwd: Some("C:/friend".into()),
-            fields: DeskLeafFields {
-                values: json!({"neighbor_authority": {
-                    "uid":"opaque-owner", "friendship_id":"a".repeat(64), "root_tab_id":root_tab_id
-                }}),
-            },
+            fields: DeskLeafFields::new(json!({"neighbor_authority": {
+                "uid":"opaque-owner", "friendship_id":"a".repeat(64), "root_tab_id":root_tab_id
+            }})),
         };
         storage
             .desk()
@@ -48,22 +46,16 @@ fn neighbor_authority_leaf_field_accepts_object_or_null_and_keeps_unknown_fields
         json!({"uid":"opaque-owner","friendship_id":"a".repeat(64),"root_tab_id":null}),
         json!(null),
     ] {
-        assert!(DeskLeafFields {
-            values: json!({"neighbor_authority":value})
-        }
-        .validate()
-        .is_ok());
+        assert!(DeskLeafFields::new(json!({"neighbor_authority":value}))
+            .validate()
+            .is_ok());
     }
     for value in [json!("wrong"), json!(true), json!(7), json!([])] {
-        assert!(DeskLeafFields {
-            values: json!({"neighbor_authority":value})
-        }
+        assert!(DeskLeafFields::new(json!({"neighbor_authority":value}))
+            .validate()
+            .is_err());
+    }
+    assert!(DeskLeafFields::new(json!({"neighbor_authority_typo":{}}))
         .validate()
         .is_err());
-    }
-    assert!(DeskLeafFields {
-        values: json!({"neighbor_authority_typo":{}})
-    }
-    .validate()
-    .is_err());
 }

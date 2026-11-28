@@ -1,4 +1,5 @@
-use codeterm_storage::MAX_DESK_LEAF_BYTES;
+use crate::multiplexer::types::RuntimePromptSource;
+use codeterm_storage::{DeskLeafFields, DeskPrompt, MAX_DESK_LEAF_BYTES, MAX_DESK_PROMPT_BYTES};
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -8,6 +9,9 @@ static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(Ha
 
 const RUNTIME_CONFIG: &str = "/agent_identity/agent_runtime_config";
 const SAVED_LAUNCH: &str = "/agent_identity/restorable_launch";
+const SYSTEM_PROMPT: &str = "systemPrompt";
+const IDENTITY_INSTRUCTIONS: &str = "identity_instructions";
+const PROMPT_SOURCE: &str = "runtime_prompt_source";
 
 pub(super) fn retain_tabs(snapshot: &super::SessionSnapshot) {
     let ids: HashSet<&str> = snapshot
@@ -32,14 +36,15 @@ pub(super) fn clear_omission(tab_id: &str) {
 pub(super) struct OversizedLayout {
     pub fields: &'static str,
     pub bytes: usize,
+    pub limit: usize,
 }
 
 impl std::fmt::Display for OversizedLayout {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "{} size {} exceeds {MAX_DESK_LEAF_BYTES} bytes",
-            self.fields, self.bytes
+            "{} size {} exceeds {} bytes",
+            self.fields, self.bytes, self.limit,
         )
     }
 }
@@ -54,6 +59,7 @@ pub(super) fn check_size(
         return Err(OversizedLayout {
             fields,
             bytes: size.0,
+            limit: MAX_DESK_LEAF_BYTES,
         });
     }
     Ok(())
@@ -72,39 +78,87 @@ impl std::io::Write for JsonSize {
     }
 }
 
-fn remove_field(leaf: &mut Value, parent: &str, field: &str) -> bool {
+fn take_field(leaf: &mut Value, parent: &str, field: &str) -> Option<Value> {
     leaf.pointer_mut(parent)
         .and_then(Value::as_object_mut)
         .and_then(|object| object.remove(field))
-        .is_some()
 }
 
-pub(super) fn bound_leaf(mut leaf: Value) -> Result<Value, OversizedLayout> {
+fn take_text(leaf: &mut Value, parent: &str, field: &str) -> Option<String> {
+    match take_field(leaf, parent, field)? {
+        Value::String(text) => Some(text),
+        _ => None,
+    }
+}
+
+pub(super) fn bound_leaf(mut leaf: Value) -> Result<DeskLeafFields, OversizedLayout> {
     use codeterm_types::agent::{restore_role, role_kind::builtins, AgentRole};
 
     let role = restore_role(leaf["role"].as_str(), leaf["role_profile"].as_str());
-    let manager = leaf["chatbackend_plugin_id"].is_null()
-        && role
-            .as_ref()
-            .is_some_and(|role| role.role == AgentRole::Manager);
+    let chat_backend = leaf["chatbackend_plugin_id"].is_string();
+    let manager = role
+        .as_ref()
+        .is_some_and(|role| role.role == AgentRole::Manager);
     let general = manager
         && role.as_ref().and_then(|role| role.role_profile.as_deref())
             == Some(builtins::GENERAL_AGENT);
-    if general {
+    if general && !chat_backend {
         // General Agent launch renders the current machine prompt from its role.
-        remove_field(&mut leaf, RUNTIME_CONFIG, "systemPrompt");
-        remove_field(&mut leaf, SAVED_LAUNCH, "identity_instructions");
+        take_field(&mut leaf, RUNTIME_CONFIG, SYSTEM_PROMPT);
+        take_field(&mut leaf, SAVED_LAUNCH, IDENTITY_INSTRUCTIONS);
     }
     let mut size = check_size("desk leaf fields", &leaf);
+    if size.is_err() && chat_backend {
+        let source = take_field(&mut leaf, SAVED_LAUNCH, PROMPT_SOURCE);
+        let system_prompt = take_text(&mut leaf, RUNTIME_CONFIG, SYSTEM_PROMPT).filter(|prompt| {
+            let fingerprint = source
+                .as_ref()
+                .and_then(|source| source["regenerable"].as_str());
+            !general
+                && !fingerprint
+                    .is_some_and(|digest| digest == RuntimePromptSource::fingerprint(prompt))
+        });
+        let identity_instructions = take_text(&mut leaf, SAVED_LAUNCH, IDENTITY_INSTRUCTIONS);
+        check_size("desk leaf fields", &leaf)?;
+        let prompt = DeskPrompt {
+            system_prompt,
+            identity_instructions,
+        };
+        if prompt.byte_len() > MAX_DESK_PROMPT_BYTES {
+            return Err(OversizedLayout {
+                fields: "desk prompt",
+                bytes: prompt.byte_len(),
+                limit: MAX_DESK_PROMPT_BYTES,
+            });
+        }
+        return Ok(DeskLeafFields {
+            values: leaf,
+            prompt,
+        });
+    }
     if manager && !general {
-        if size.is_err() && remove_field(&mut leaf, RUNTIME_CONFIG, "systemPrompt") {
+        if size.is_err() && take_field(&mut leaf, RUNTIME_CONFIG, SYSTEM_PROMPT).is_some() {
             size = check_size("desk leaf fields", &leaf);
         }
-        if size.is_err() && remove_field(&mut leaf, SAVED_LAUNCH, "identity_instructions") {
+        if size.is_err() && take_field(&mut leaf, SAVED_LAUNCH, IDENTITY_INSTRUCTIONS).is_some() {
             size = check_size("desk leaf fields", &leaf);
         }
     }
-    size.map(|()| leaf)
+    size.map(|()| DeskLeafFields::new(leaf))
+}
+
+pub(super) fn restore_prompt(leaf: &mut Value, prompt: DeskPrompt) {
+    if let Some(system_prompt) = prompt.system_prompt {
+        leaf["agent_identity"]["restorable_launch"][PROMPT_SOURCE] = serde_json::json!(
+            RuntimePromptSource::Preserved(RuntimePromptSource::fingerprint(&system_prompt))
+        );
+        leaf["agent_identity"]["agent_runtime_config"][SYSTEM_PROMPT] =
+            Value::String(system_prompt);
+    }
+    if let Some(identity) = prompt.identity_instructions {
+        leaf["agent_identity"]["restorable_launch"][IDENTITY_INSTRUCTIONS] =
+            Value::String(identity);
+    }
 }
 
 #[cfg(test)]

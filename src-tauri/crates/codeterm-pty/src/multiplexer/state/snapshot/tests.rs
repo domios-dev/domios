@@ -1111,6 +1111,7 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
         args: Some(vec!["--opaque-option".into(), "opaque-value".into()]),
         agent_name: Some("agent-label".into()),
         identity_instructions: Some("opaque-instruction-fragment".into()),
+        runtime_prompt_source: None,
         permission_bypass_requested: true,
         runtime_launch_options: None,
         host_approval_choice: Some(crate::multiplexer::types::HostApprovalChoice::Ask),

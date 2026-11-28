@@ -669,6 +669,59 @@ fn switch_handoff_conserves_the_claimed_payload_when_provider_proposes_a_replan(
 }
 
 #[test]
+fn restored_runtime_sends_the_recomposed_prompt_to_its_bound_thread() {
+    const PERSONA: &str = "opaque-recomposed-persona";
+    let (fixture, tab_id, peer, _cleanup) =
+        runtime_fixture_without_remote_history(RUNTIME_FIXTURE_SOURCE);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.restored_from_snapshot = true;
+        tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+        tab.restorable_launch.identity_instructions = Some(PERSONA.into());
+        tab.agent_runtime_config = Some(serde_json::json!({}));
+    }
+    let _storage = fixture.install_seeded_storage_desk();
+    let session = for_tab(&tab_id).unwrap();
+    session
+        .thread_loaded
+        .store(false, std::sync::atomic::Ordering::Release);
+    session.state.lock().phase = RuntimePhase::Loading;
+    let peer = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        for method in ["fixture/initialize", "fixture/resume"] {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(10), peer.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], method);
+            if method == "fixture/resume" {
+                assert_eq!(request["params"]["threadId"], "own-thread");
+                let instructions = request["params"]["instructions"].as_str().unwrap();
+                assert_eq!(instructions.matches(PERSONA).count(), 1);
+            }
+            let reply = serde_json::json!({"jsonrpc":"2.0","id":request["id"],"result":{}});
+            peer.get_mut()
+                .write_all(format!("{reply}\n").as_bytes())
+                .await
+                .unwrap();
+        }
+        peer
+    });
+    let _peer = crate::async_runtime::block_on(async {
+        let result = ensure(&fixture.service, &tab_id).await;
+        if result.is_err() {
+            peer.abort();
+        }
+        let peer_result = peer.await;
+        result.unwrap();
+        peer_result.unwrap()
+    });
+}
+
+#[test]
 fn fresh_runtime_history_is_empty_before_rollout_and_readable_when_ready() {
     assert_fresh_history_ready(RuntimeAuthState::SignedIn, true);
 }

@@ -16,28 +16,22 @@ fn restored_shell_fields_preserve_command_profile_and_stopped_state() {
         "close_restore": {"command": "opaque-command", "stopped": true, "record_id": "close-id", "exact_session": false},
         "shell_profile": {"id": "fixture", "name": "Fixture", "executable": "fixture-shell", "args": [], "wsl_distro": null}
     });
-    assert!(DeskLeafFields {
-        values: values.clone()
-    }
-    .validate()
-    .is_ok());
-    assert!(DeskLeafFields {
-        values: serde_json::json!({"close_restore": "wrong-type"})
-    }
-    .validate()
-    .is_err());
-    assert!(DeskLeafFields {
-        values: serde_json::json!({"shell_profile": 9})
-    }
-    .validate()
-    .is_err());
+    assert!(DeskLeafFields::new(values.clone()).validate().is_ok());
+    assert!(
+        DeskLeafFields::new(serde_json::json!({"close_restore": "wrong-type"}))
+            .validate()
+            .is_err()
+    );
+    assert!(DeskLeafFields::new(serde_json::json!({"shell_profile": 9}))
+        .validate()
+        .is_err());
 }
 
 #[test]
 fn desk_leaf_limit_counts_escaped_json_bytes_and_refuses_one_byte_over() {
-    let mut fields = DeskLeafFields {
-        values: serde_json::json!({"agent_identity":{"agent_runtime_config":{"systemPrompt":""}}}),
-    };
+    let mut fields = DeskLeafFields::new(
+        serde_json::json!({"agent_identity":{"agent_runtime_config":{"systemPrompt":""}}}),
+    );
     let empty_bytes = serde_json::to_vec(&fields.values).unwrap().len();
     let remaining = MAX_DESK_LEAF_BYTES - empty_bytes;
     let prompt = "\n".repeat(remaining / 2) + &"x".repeat(remaining % 2);
@@ -938,7 +932,7 @@ fn desk_leaf_fields_accept_a_surface_backing_object_only() {
     let surface = serde_json::json!({
         "surface": { "plugin_id": "dash", "surface_id": "board", "instance_id": "inst-1" }
     });
-    assert!(DeskLeafFields { values: surface }.validate().is_ok());
+    assert!(DeskLeafFields::new(surface).validate().is_ok());
     let resumable = serde_json::json!({
         "surface": {
             "plugin_id": "browser",
@@ -948,7 +942,7 @@ fn desk_leaf_fields_accept_a_surface_backing_object_only() {
             "resume_profile": "work"
         }
     });
-    assert!(DeskLeafFields { values: resumable }.validate().is_ok());
+    assert!(DeskLeafFields::new(resumable).validate().is_ok());
     let malformed = serde_json::json!({ "surface": "dash:board" });
-    assert!(DeskLeafFields { values: malformed }.validate().is_err());
+    assert!(DeskLeafFields::new(malformed).validate().is_err());
 }

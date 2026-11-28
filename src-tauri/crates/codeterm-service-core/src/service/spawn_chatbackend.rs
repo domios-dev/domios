@@ -529,6 +529,8 @@ impl ServiceContext {
                 workspace_id: ws_id,
                 config,
                 history_meta,
+                regenerable_runtime_prompt: launch
+                    .is_some_and(|launch| launch.params.regenerable_runtime_prompt),
                 runtime_fork,
                 emit_state_change,
                 cron_owned: local_runtime

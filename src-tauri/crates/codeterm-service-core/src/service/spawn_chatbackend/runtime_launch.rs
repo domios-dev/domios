@@ -70,6 +70,7 @@ pub(crate) struct ChatBackendRuntimeLaunch {
     pub(super) workspace_id: String,
     pub(super) config: serde_json::Value,
     pub(super) history_meta: serde_json::Value,
+    pub(super) regenerable_runtime_prompt: bool,
     pub(super) runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     pub(super) emit_state_change: bool,
     pub(super) cron_owned: bool,
@@ -101,6 +102,7 @@ impl ChatBackendRuntimeLaunch {
                 boundary: Some(&runtime_boundary),
                 cron_owner: self.cron_owner.as_ref(),
                 require_signed_in,
+                regenerable_runtime_prompt: self.regenerable_runtime_prompt,
             },
         ) {
             if let Some(owner) = &self.cron_owner {

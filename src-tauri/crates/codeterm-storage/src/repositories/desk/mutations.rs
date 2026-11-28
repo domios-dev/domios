@@ -650,7 +650,15 @@ fn insert_layout(
                  VALUES (?1, ?2, ?3, 'leaf', ?4, ?5, ?6)",
                 params![group_id, parent_id, ordinal, tab_id, cwd, fields_json],
             )?;
-            cx.conn.last_insert_rowid()
+            let id = cx.conn.last_insert_rowid();
+            let prompt = &fields.prompt;
+            if prompt.system_prompt.is_some() || prompt.identity_instructions.is_some() {
+                cx.write(
+                    "INSERT INTO desk_layout_prompts (layout_id, system_prompt, identity_instructions) VALUES (?1, ?2, ?3)",
+                    params![id, prompt.system_prompt, prompt.identity_instructions],
+                )?;
+            }
+            id
         }
         DeskLayoutNode::Split {
             orientation,

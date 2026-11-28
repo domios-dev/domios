@@ -1,8 +1,8 @@
 use super::leaf_bound::{self, OversizedLayout};
 use super::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 use codeterm_storage::{
-    Committed, Completion, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot,
-    DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage,
+    Committed, Completion, DeskAgentSessionIdentity, DeskLayoutNode, DeskSnapshot, DeskState,
+    DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage, MAX_DESK_PROMPT_BYTES,
 };
 use codeterm_types::plan::task_key::WorkspaceTaskKeys;
 use std::collections::HashSet;
@@ -329,6 +329,9 @@ fn to_desk_snapshot(
                         return Err(error.to_string())
                     }
                     Err(LayoutProjectionError::Oversized(error)) => {
+                        if error.limit == MAX_DESK_PROMPT_BYTES {
+                            return Err(format!("tab {}: {error}", tab.id));
+                        }
                         let Some(omitted_tabs) = omitted_tabs.as_deref_mut() else {
                             return Err(format!("tab {}: {error}", tab.id));
                         };
@@ -532,10 +535,7 @@ fn to_layout(
             Ok(DeskLayoutNode::Leaf {
                 tab_id: tab_id.clone(),
                 cwd: cwd.clone(),
-                fields: DeskLeafFields {
-                    values: leaf_bound::bound_leaf(value)
-                        .map_err(LayoutProjectionError::Oversized)?,
-                },
+                fields: leaf_bound::bound_leaf(value).map_err(LayoutProjectionError::Oversized)?,
             })
         }
         SplitNodeSnapshot::Split {
@@ -628,6 +628,7 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
         } => {
             fields.validate().map_err(|error| error.to_string())?;
             let mut value = fields.values;
+            leaf_bound::restore_prompt(&mut value, fields.prompt);
             let object = value
                 .as_object_mut()
                 .ok_or_else(|| "stored leaf fields are not an object".to_string())?;
