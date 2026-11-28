@@ -85,9 +85,8 @@ impl ServiceContext {
         .map_err(|error| error.to_string())?
     }
 
-    /// Fetches the remote purchase switch at startup and every five hours; a failed fetch
-    /// leaves purchases off until the next one. A change reaches the UI as account status.
-    pub fn start_purchase_switch(&self) {
+    /// Refreshes the Firebase switches on the existing schedule and publishes account changes.
+    pub fn start_remote_config(&self) {
         let service = self.weak_self();
         crate::async_runtime::spawn(async move {
             let Some(installation) = (match service.upgrade() {

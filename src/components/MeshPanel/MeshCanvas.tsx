@@ -80,10 +80,10 @@ export interface CanvasCloud {
   busyMachineId?: string | null;
   onOpenSlot: () => void;
   onCloseSlot: () => void;
-  onCreateCloud: (size: string) => void;
+  onCreateCloud?: (size: string) => void;
   onPairComputer: () => void;
   onSelectMachine: (machineId: string) => void;
-  onTopUpMachine: (machine: CloudReceipt) => void;
+  onTopUpMachine?: (machine: CloudReceipt) => void;
   onSleepMachine?: (machineId: string) => Promise<unknown>;
   onWakeMachine?: (machineId: string) => Promise<unknown>;
   onFailureAction: (action: CloudFailurePresentation["action"]) => void;
@@ -395,6 +395,7 @@ export const MeshCanvas = memo(function MeshCanvas({
         );
       }
       const { machine, peer } = p.cloud;
+      const topUp = cloud.onTopUpMachine;
       const row = peer ? account?.canvas.peerFooters.get(peer.instance_id)?.row : undefined;
       const onRename = account?.actions.onRename;
       return (
@@ -407,7 +408,7 @@ export const MeshCanvas = memo(function MeshCanvas({
             reachabilityHint={peer?.reachabilityHint}
             selected={cloud.selectedMachineId === machine.machine_id}
             onClick={() => cloud.onSelectMachine(machine.machine_id)}
-            onTopUp={() => cloud.onTopUpMachine(machine)}
+            onTopUp={topUp && (() => topUp(machine))}
             onRename={row?.target && onRename ? (name) => onRename(row, name) : undefined}
             renameUnavailable={!row || !row.target || !peer?.online}
           />

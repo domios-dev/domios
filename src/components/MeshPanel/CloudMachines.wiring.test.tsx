@@ -108,6 +108,65 @@ it("CloudMachineSlot offers Cloud machine and One of your computers with zero pr
   }
 });
 
+it("New machine offers only pairing when cloud creation is unavailable", async () => {
+  const onPairComputer = vi.fn();
+  const { host, root } = createHost();
+  try {
+    await act(async () => root.render(
+      <CloudMachineSlot usage={USAGE} isFree={false} onPairComputer={onPairComputer} onCancel={() => {}} />,
+    ));
+    const options = Array.from(host.querySelectorAll('[role="radio"]'));
+    expect(options).toHaveLength(1);
+    expect(options[0].textContent).toContain("One of your computers");
+    expect(options[0].getAttribute("aria-checked")).toBe("true");
+    const buttons = Array.from(host.querySelectorAll("button"));
+    expect(buttons.some(button => button.textContent?.trim() === "Create machine")).toBe(false);
+    await act(async () => buttons.find(button => button.textContent?.trim() === "Continue")!.click());
+    expect(onPairComputer).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("keeps an existing machine's wake, sleep and delete actions while hiding commerce", async () => {
+  const onWake = vi.fn(async () => {});
+  const onSleep = vi.fn(async () => {});
+  const onDelete = vi.fn(async () => true);
+  const { host, root } = createHost();
+  const render = (state: CloudReceipt["state"]) => act(async () => root.render(
+    <CloudMachineDrawer
+      machine={{ ...MACHINE, state }}
+      usage={USAGE}
+      idleSleepMinutes={15}
+      onClose={() => {}}
+      onRedeem={vi.fn()}
+      onSleep={onSleep}
+      onWake={onWake}
+      onDelete={onDelete}
+    />,
+  ));
+  const button = (name: string) => Array.from(host.querySelectorAll("button")).find(
+    candidate => candidate.textContent?.trim() === name,
+  );
+  try {
+    await render("awake");
+    await act(async () => button("Sleep now")!.click());
+    expect(onSleep).toHaveBeenCalledOnce();
+    expect(host.querySelector('[aria-label="Cloud hours"]')).toBeNull();
+    expect(host.textContent).not.toContain("$0.20/h");
+
+    await render("out_of_credits");
+    expect(button("Top up to wake")).toBeUndefined();
+    await act(async () => button("Wake")!.click());
+    expect(onWake).toHaveBeenCalledOnce();
+    await act(async () => button("Delete machine")!.click());
+    await act(async () => button("Delete machine")!.click());
+    expect(onDelete).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it("CloudTopUpDialog supports presets, custom amount validation, wake CTA, and Free paywall", async () => {
   const startCheckout = vi.fn(async () => ({
     url: "https://checkout.stripe.test/c/pay_123",

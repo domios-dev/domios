@@ -3,7 +3,13 @@ export type SignInStage = import("../../../gen/SignInStage").SignInStage;
 export type SignInError = import("../../../gen/AccountError").AccountError;
 export type TargetMismatch = import("../../../gen/TargetMismatch").TargetMismatch;
 export type SignInFailure = import("../../../gen/SignInFailure").SignInFailure;
-export type AccountStatus = Omit<Partial<import("../../../gen/AccountStatus").AccountStatus>, "identity" | "pending" | "target_mismatch"> & {identity: AccountIdentity | null; login_attempt_id?: string | null; pending: import("../../../gen/AccountStatus").AccountStatus["pending"]; target_mismatch?: import("../../../gen/AccountStatus").AccountStatus["target_mismatch"] | null};
+export type AccountStatus = Omit<Partial<import("../../../gen/AccountStatus").AccountStatus>, "identity" | "pending" | "target_mismatch"> & {
+  identity: AccountIdentity | null;
+  login_attempt_id?: string | null;
+  pending: import("../../../gen/AccountStatus").AccountStatus["pending"];
+  target_mismatch?: import("../../../gen/AccountStatus").AccountStatus["target_mismatch"] | null;
+  cloud_machines_enabled?: boolean;
+};
 export type AccountModel =
   | { kind: "signed_out"; sessionRevoked?: boolean; targetMismatch?: string }
   | { kind: "pending" }

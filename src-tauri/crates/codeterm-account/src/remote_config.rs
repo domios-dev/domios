@@ -1,5 +1,4 @@
-//! The purchase switch from Firebase Remote Config, kept in memory only. Any failure
-//! means purchases stay off until the next scheduled fetch.
+//! Firebase Remote Config switches kept in memory. A failed fetch clears both switches.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -13,6 +12,7 @@ pub const REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60 * 60);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 static PURCHASES_ENABLED: AtomicBool = AtomicBool::new(false);
+static CLOUD_MACHINES_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Purchases are on only when the template holds exactly the string "true".
 pub fn purchases_enabled_in(response: &Value) -> bool {
@@ -22,6 +22,17 @@ pub fn purchases_enabled_in(response: &Value) -> bool {
         == Some("true")
 }
 
+fn cloud_machines_enabled_in(response: &Value) -> bool {
+    response
+        .pointer("/entries/cloud_machines_enabled")
+        .and_then(Value::as_str)
+        == Some("true")
+}
+
+pub fn cloud_machines_enabled() -> bool {
+    CLOUD_MACHINES_ENABLED.load(Ordering::Acquire)
+}
+
 /// The last fetched value; false until a fetch says otherwise.
 pub fn purchases_enabled() -> bool {
     PURCHASES_ENABLED.load(Ordering::Acquire)
@@ -29,11 +40,15 @@ pub fn purchases_enabled() -> bool {
 
 /// Fetches once and stores the result; returns whether the switch changed.
 pub async fn refresh(installation: &InstallationId) -> bool {
-    let enabled = fetch(installation).await.unwrap_or(false);
-    PURCHASES_ENABLED.swap(enabled, Ordering::AcqRel) != enabled
+    let response = fetch(installation).await.unwrap_or(Value::Null);
+    let purchases = purchases_enabled_in(&response);
+    let cloud = cloud_machines_enabled_in(&response);
+    let purchases_changed = PURCHASES_ENABLED.swap(purchases, Ordering::AcqRel) != purchases;
+    let cloud_changed = CLOUD_MACHINES_ENABLED.swap(cloud, Ordering::AcqRel) != cloud;
+    purchases_changed || cloud_changed
 }
 
-async fn fetch(installation: &InstallationId) -> Option<bool> {
+async fn fetch(installation: &InstallationId) -> Option<Value> {
     let vendor = crate::build_config::vendor();
     let (key, project, app) = (vendor.api_key?, vendor.project_id?, vendor.app_id?);
     let mut url = url::Url::parse(&format!(
@@ -59,7 +74,7 @@ async fn fetch(installation: &InstallationId) -> Option<bool> {
         );
         return None;
     }
-    Some(purchases_enabled_in(&response.json::<Value>().await.ok()?))
+    response.json().await.ok()
 }
 
 #[cfg(test)]

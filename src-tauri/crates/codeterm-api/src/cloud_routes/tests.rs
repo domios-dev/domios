@@ -33,6 +33,7 @@ use super::CloudProvisioningOverride;
 use crate::routes;
 
 struct FakePromoProvisioning {
+    create_calls: Mutex<usize>,
     seen_codes: Mutex<Vec<String>>,
     outcomes: Mutex<VecDeque<Result<CloudPromoRedemption, CloudError>>>,
 }
@@ -40,6 +41,7 @@ struct FakePromoProvisioning {
 impl FakePromoProvisioning {
     fn new(outcomes: Vec<Result<CloudPromoRedemption, CloudError>>) -> Arc<Self> {
         Arc::new(Self {
+            create_calls: Mutex::new(0),
             seen_codes: Mutex::new(Vec::new()),
             outcomes: Mutex::new(outcomes.into()),
         })
@@ -52,6 +54,7 @@ impl CloudProvisioningPort for FakePromoProvisioning {
         &self,
         _: &ProvisioningCreateRequest,
     ) -> Result<ProvisionedMachine, CloudError> {
+        *self.create_calls.lock() += 1;
         Err(CloudError::Internal("unused".into()))
     }
 
@@ -82,6 +85,43 @@ impl CloudProvisioningPort for FakePromoProvisioning {
             .pop_front()
             .unwrap_or(Err(CloudError::PromoInvalidCode))
     }
+}
+
+#[tokio::test]
+async fn disabled_cloud_creation_refuses_both_routes_before_provisioning() {
+    crate::register_api_extensions();
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("owner-secret".into());
+    let provisioning = FakePromoProvisioning::new(vec![]);
+    assert!(state
+        .svc
+        .set_ext(CloudProvisioningOverride(provisioning.clone()))
+        .is_ok());
+    let app = routes::create_router_with_frontend(state, None);
+
+    for (path, input) in [
+        ("/api/mesh/cloud/create", json!({})),
+        ("/api/mesh/cloud/resolve", json!({ "target": "new" })),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header("authorization", "Bearer owner-secret")
+                    .header("content-type", "application/json")
+                    .body(Body::from(input.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["error"]["code"], "cloud_machines_unavailable");
+    }
+    assert_eq!(*provisioning.create_calls.lock(), 0);
+    assert!(super::require_cloud_creation(true).is_ok());
 }
 
 async fn post_redeem(app: axum::Router, token: &str, payload: Value) -> (StatusCode, Value) {

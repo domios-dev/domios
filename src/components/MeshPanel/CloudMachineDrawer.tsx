@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Archive, Moon, Play, X } from "lucide-react";
 import {
   cloudMachineCardView,
+  cloudMachineLifecycleActions,
   cloudSizeOptions,
   formatCloudUptime,
 } from "../../lib/cloudMachines/stateModel";
@@ -32,7 +33,7 @@ export interface CloudMachineDrawerProps {
   busy?: boolean;
   actionError?: string | null;
   onClose: () => void;
-  onTopUp: (forWake: boolean) => void;
+  onTopUp?: (forWake: boolean) => void;
   onRedeem: (code: string) => Promise<CloudPromoRedemption>;
   onSleep: () => Promise<unknown>;
   onArchive?: () => Promise<unknown>;
@@ -66,7 +67,7 @@ export function CloudMachineDrawer({
     headingRef.current?.focus({ preventScroll: true });
   }, []);
 
-  const view = cloudMachineCardView(machine, usage);
+  const view = cloudMachineCardView(machine, usage, Boolean(onTopUp));
   const sizeMeta = cloudSizeOptions(usage, machine.rate_per_hour).find((item) => item.id === machine.size);
   const sizeHeading = sizeMeta?.specsLabel ? `${view.sizeLabel}, ${sizeMeta.specsLabel}` : view.sizeLabel;
   const isAwake = view.state === "awake" || view.state === "draining";
@@ -77,6 +78,7 @@ export function CloudMachineDrawer({
   const rawStorageTier = machineStorageTier(machine.storage_tier, machineStorage?.tier);
   const isArchived = rawStorageTier === "cold" || rawStorageTier === "recoverable_deleted";
   const isEvicting = rawStorageTier === "evicting";
+  const actions = cloudMachineLifecycleActions(view.state, isEvicting, Boolean(onTopUp));
   const tierLabel = storageTierLabel(rawStorageTier);
   const autoArchiveLabel = formatAutoArchiveLabel(usage?.storage?.hot_days ?? 1);
   const canArchiveNow = Boolean(onArchive) && !isArchived && !isEvicting && (isAsleep || isOutOfCredits || view.state === "awake");
@@ -123,7 +125,7 @@ export function CloudMachineDrawer({
                 />
               )}
               <span>{view.drawerStatusLabel}</span>
-              {isOutOfCredits && cloudHoursStatus(usage) !== "Out of hours" && (
+              {onTopUp && isOutOfCredits && cloudHoursStatus(usage) !== "Out of hours" && (
                 <span className="ct-mesh-tag ct-mesh-tone--warning">Out of hours</span>
               )}
             </div>
@@ -141,7 +143,7 @@ export function CloudMachineDrawer({
 
         <div className="my-1 h-px bg-[var(--ct-border)]" />
 
-        {usage && (
+        {onTopUp && usage && (
           <>
             <CloudUsageMeter
               usage={usage}
@@ -178,7 +180,7 @@ export function CloudMachineDrawer({
             <dt className="w-[88px] shrink-0 text-[var(--ct-muted-fg)]">Auto-sleep</dt>
             <dd className="m-0 min-w-0 flex-1">
               <div className="text-[var(--ct-fg)]">After {idleSleepMinutes} min idle</div>
-              <div className="mt-0.5 text-[11px] text-[var(--ct-muted-fg)]">Only active time is billed</div>
+              {onTopUp && <div className="mt-0.5 text-[11px] text-[var(--ct-muted-fg)]">Only active time is billed</div>}
             </dd>
           </div>
 
@@ -189,9 +191,9 @@ export function CloudMachineDrawer({
                 {tierLabel}
               </div>
               <div className="mt-0.5 text-[11px] text-[var(--ct-muted-fg)]">
-                {isArchived
+                {isArchived && onTopUp
                   ? `Free of charge · ${autoArchiveLabel}`
-                  : `Wakes in seconds · ${autoArchiveLabel}`}
+                  : isArchived ? autoArchiveLabel : `Wakes in seconds · ${autoArchiveLabel}`}
               </div>
             </dd>
           </div>
@@ -220,7 +222,7 @@ export function CloudMachineDrawer({
               className="flex flex-col gap-2 rounded-[10px] border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-fg)_2%,var(--ct-bg))] p-3"
             >
               <p className="m-0 text-xs leading-[1.45] text-[var(--ct-fg)]">
-                Free its disk now; only your sessions, settings, memory and repo state are kept, free of charge. Repos re-clone on the next wake. Archived - wakes in ~2 min (new volume, restore, and re-clone) versus seconds from hot.
+                Free its disk now; only your sessions, settings, memory and repo state are kept{onTopUp ? ", free of charge" : ""}. Repos re-clone on the next wake. Archived - wakes in ~2 min (new volume, restore, and re-clone) versus seconds from hot.
               </p>
               <div className="flex items-center justify-end gap-2">
                 <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmArchive(false)}>
@@ -273,7 +275,7 @@ export function CloudMachineDrawer({
           ) : (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
-                {isAwake && (
+                {actions.sleep && (
                   <Button
                     type="button"
                     size="sm"
@@ -286,7 +288,7 @@ export function CloudMachineDrawer({
                     Sleep now
                   </Button>
                 )}
-                {isAsleep && !isEvicting && (
+                {actions.wake && (
                   <Button
                     type="button"
                     size="sm"
@@ -299,7 +301,7 @@ export function CloudMachineDrawer({
                     Wake
                   </Button>
                 )}
-                {isOutOfCredits && (
+                {onTopUp && isOutOfCredits && (
                   <Button type="button" size="sm" variant="primary" onClick={() => onTopUp(true)}>
                     Top up to wake
                   </Button>

@@ -463,7 +463,7 @@ pub enum PlanTaskAction {
             value_name = "TARGET",
             num_args = 0..=1,
             default_missing_value = "auto",
-            help = "Target a Domios cloud machine: auto (reuse awake or wake sleeping; never creates), new (explicit create subject to limit), or a cloud machine ID/name"
+            help = "Target an existing Domios cloud machine by ID, name, or auto (reuse awake or wake sleeping)"
         )]
         cloud: Option<String>,
     },

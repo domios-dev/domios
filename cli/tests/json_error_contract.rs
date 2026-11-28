@@ -275,7 +275,12 @@ fn stub_reply(request: &Value) -> Value {
             let params = &request["params"];
             let verb = params["method"].as_str().unwrap_or_default();
             let path = params["path"].as_str().unwrap_or_default();
-            let (status, body) = if path.contains("dmsg-ok") && verb == "DELETE" {
+            let (status, body) = if path == "/api/mesh/cloud/create" && verb == "POST" {
+                (
+                    503,
+                    r#"{"ok":false,"error":{"code":"cloud_machines_unavailable","message":"Cloud machines are not available yet"}}"#.to_string(),
+                )
+            } else if path.contains("dmsg-ok") && verb == "DELETE" {
                 (200, r#"{"id":"dmsg-ok","state":"queued"}"#.to_string())
             } else if path.contains("live1") && path.ends_with("formatted=false") {
                 (200, r#"{"tab_id":"live1","text":"hello"}"#.to_string())
@@ -347,6 +352,29 @@ fn start_stub() -> u16 {
         }
     });
     port
+}
+
+#[test]
+fn mesh_cloud_create_refuses_cleanly_when_cloud_machines_are_unavailable() {
+    let env = CliEnv::new(Some(start_stub()));
+    let output = run_cli(&env, &json_args(&["mesh", "cloud", "create"]));
+    assert!(!output.status.success());
+    let refusal = check_contract(&output).expect("cloud create refusal envelope");
+    assert_eq!(refusal["error"]["code"], "unavailable");
+    assert_eq!(
+        refusal["error"]["message"],
+        "Cloud machines are not available yet"
+    );
+
+    let help = run_cli(&env, &["mesh".into(), "cloud".into(), "--help".into()]);
+    assert!(help.status.success());
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(help
+        .lines()
+        .any(|line| line.trim_start().starts_with("list ")));
+    assert!(!help
+        .lines()
+        .any(|line| line.trim_start().starts_with("create ")));
 }
 
 struct Row {

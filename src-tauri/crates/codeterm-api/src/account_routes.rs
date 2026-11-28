@@ -25,6 +25,7 @@ pub(crate) fn unavailable(message: String) -> Error {
 pub struct AccountStatusView {
     #[serde(flatten)]
     status: Status,
+    cloud_machines_enabled: bool,
     login_attempt_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     signed_in: Option<bool>,
@@ -43,6 +44,7 @@ pub async fn status(
     ) {
         let identity = cloud.identity();
         return Ok(Json(AccountStatusView {
+            cloud_machines_enabled: false,
             signed_in: Some(identity.is_some()),
             installation_id: Some(cloud.installation_id().to_owned()),
             login_attempt_id: None,
@@ -70,6 +72,7 @@ pub async fn status(
         .svc
         .try_ext::<codeterm_neighbors_service::service::account::startup::StartupAccount>();
     Ok(Json(AccountStatusView {
+        cloud_machines_enabled: codeterm_account::remote_config::cloud_machines_enabled(),
         status: project_status(status, cached),
         login_attempt_id: attempt,
         signed_in: None,

@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
 import { NotificationOrigin } from "./NotificationOrigin";
 import type { Notification } from "../../lib/types";
-import { neighborNotificationTarget, runNotificationAction } from "../../lib/notificationActions";
+import { isCloudTopUpAction, neighborNotificationTarget, runNotificationAction } from "../../lib/notificationActions";
+import { useCloudMachinesEnabled } from "../../lib/cloudMachines/availability";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
@@ -39,6 +40,7 @@ export function NotificationPanel({
   onAnswer,
   onClose,
 }: NotificationPanelProps) {
+  const cloudEnabled = useCloudMachinesEnabled();
   const sorted = [...notifications].sort((a, b) => b.timestamp - a.timestamp);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     const newestWithBody = sorted.find((notification) => notification.body);
@@ -255,7 +257,7 @@ export function NotificationPanel({
                 ) : (
                   (notif.actions?.length ?? 0) > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {notif.actions!.map((action, index) => (
+                      {notif.actions!.filter((action) => cloudEnabled || !isCloudTopUpAction(action)).map((action, index) => (
                         <button
                           type="button"
                           key={`${action.label}-${index}`}

@@ -96,7 +96,7 @@ pub enum MeshAction {
         #[arg(long = "dry-run", requires = "stale", conflicts_with = "machine")]
         dry_run: bool,
     },
-    /// Create, list, sleep, wake, or delete cloud machines on this controller. Local-only.
+    /// Manage existing cloud machines on this controller. Local-only.
     Cloud {
         #[command(subcommand)]
         action: MeshCloudAction,

@@ -61,7 +61,6 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 | POST | `/api/account/mesh/identity` | `{kind}` | Save as owner, or request owner approval as an authenticated agent |
 | GET | `/api/mesh/identity` | — | Read a paired target's identity through the signed relay |
 | POST | `/api/mesh/identity` | `{kind}` | Save or request owner approval on the paired target through the signed relay |
-| POST | `/api/mesh/cloud/create` | `{size?, name?, retry_machine_id?, labels?}` | Local-only. Provision and enroll a managed cloud machine through the Domios backend; surfaces `limit_reached`, `lease_required`, and `credits_exhausted`. |
 | GET | `/api/mesh/cloud/list` | — | Local-only. List managed cloud machines with state, hourly rate, endpoint, and uptime. |
 | POST | `/api/mesh/cloud/{id}/sleep` | `{}` | Local-only. Run two-phase drain on an idle cloud peer and sleep it through the backend (`machine_busy` if work runs). |
 | POST | `/api/mesh/cloud/{id}/archive` | `{}` | Local-only. Immediately archive an asleep or idle cloud machine's disk via the verified eviction pipeline (drains and sleeps first if awake and idle; refuses with `machine_busy` while work runs). |
@@ -233,4 +232,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 261 -->
+<!-- revision: 262 -->

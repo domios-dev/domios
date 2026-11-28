@@ -41,7 +41,7 @@ function CloudMachineCardComponent({
   onRename,
   renameUnavailable,
 }: CloudMachineCardProps) {
-  const view = cloudMachineCardView(machine, usage);
+  const view = cloudMachineCardView(machine, usage, Boolean(onTopUp));
   const preparing = view.state === "creating" || view.state === "enrolling";
   const clickable = Boolean(onClick) && !preparing && view.state !== "failed";
 

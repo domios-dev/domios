@@ -2,7 +2,8 @@ import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { NotificationBody } from "./NotificationBody";
 import { NotificationOrigin } from "./NotificationOrigin";
-import { runNotificationAction } from "../../lib/notificationActions";
+import { isCloudTopUpAction, runNotificationAction } from "../../lib/notificationActions";
+import { useCloudMachinesEnabled } from "../../lib/cloudMachines/availability";
 import type { Notification } from "../../lib/types";
 import { X } from "lucide-react";
 import { PluginIcon } from "../Extensions/PluginIcon";
@@ -23,6 +24,7 @@ interface ToastItemProps {
 }
 
 function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastItemProps) {
+  const cloudEnabled = useCloudMachinesEnabled();
   const reducedMotion = useReducedMotion();
   const [expanded, setExpanded] = useState(false);
   const lifetime = useToastLifetime(notification.id, notification.lifetime_ms, onDismiss, {
@@ -38,7 +40,8 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
   // A choice is answered from the bell and the chat card, which keep it as a
   // log of decisions; a toast that vanishes must not offer one.
   const runnable = notification.actions?.filter((action) =>
-    action.type !== "answer" && action.type !== "respond_prompt_option",
+    action.type !== "answer" && action.type !== "respond_prompt_option" &&
+    (cloudEnabled || !isCloudTopUpAction(action)),
   ) ?? [];
   const toastActions = [
     ...(notification.local_actions ?? []),

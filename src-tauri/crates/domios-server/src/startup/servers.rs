@@ -540,7 +540,7 @@ pub(crate) fn start_servers(
     if let Some(driver) = codeterm_api::cloud_routes::start_idle_driver(cloud_driver_state) {
         std::mem::forget(driver);
     }
-    service_state.start_purchase_switch();
+    service_state.start_remote_config();
 
     let integrations = states.config.lock().integrations.clone();
     if integrations.telegram_enabled {

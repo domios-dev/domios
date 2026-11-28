@@ -13,6 +13,7 @@ import { PlanChangeDialog, type SelectedPlanChange } from "../billing/PlanChange
 import { usePlanCatalog } from "../billing/planCatalogContext";
 import { usePurchaseIntent } from "../billing/usePurchaseIntent";
 import { usePurchasesEnabled } from "../billing/purchaseSwitch";
+import { useCloudMachinesEnabled } from "../../lib/cloudMachines/availability";
 import { CommunityKeysNotice } from "../shared/CommunityLinks";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, RemoteLocalOnlyNotice, SettingsCard, SettingsPage, SettingsPill } from "./shared";
@@ -79,7 +80,8 @@ function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCar
   const enrollmentFailure = useAccountEnrollmentFailure(identity);
   useEffect(() => setRefusedAsSubscribed(false), [identity]);
   const usage = useAccountUsage(identity);
-  const cloudUsage = useCloudUsage(signedIn);
+  const cloudEnabled = useCloudMachinesEnabled();
+  const cloudUsage = useCloudUsage(signedIn && cloudEnabled);
   const [cloudTopUpOpen, setCloudTopUpOpen] = useState(false);
   const [pendingCloudCheckout, setPendingCloudCheckout] = useState<PendingCloudTopUpCheckout | null>(null);
   const [cloudReturn, setCloudReturn] = useState<{ addedHours: number; newBalance: number; rolloverSentence: string | null } | null>(null);
@@ -232,7 +234,7 @@ function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCar
           periodEnd={paidSubscription.period_end} planChangeMode={desktopBilling.subscription?.plan_change_mode ?? null} pending={desktopBilling.changing} error={desktopBilling.error}
           submitted={desktopBilling.submitted} onClose={() => setPlanChange(null)}
           onSubmit={() => { void desktopBilling.change(planChange.priceId).then(changed => { if (changed) setPlanChange(null); }); }} />}
-        {cloudTopUpOpen && (
+        {cloudEnabled && cloudTopUpOpen && (
           <CloudTopUpDialog
             mode={billing.plan?.plan === "free" && !staff ? "free" : "topup"}
             usage={cloudUsage.usage}
@@ -246,7 +248,7 @@ function LocalAccountTab({ focusCard, purchases: explicitPurchases }: { focusCar
             onCheckoutStarted={(pending) => setPendingCloudCheckout(pending)}
           />
         )}
-        {cloudReturn && (
+        {cloudEnabled && cloudReturn && (
           <CloudTopUpReturnDialog
             addedHours={cloudReturn.addedHours}
             newBalance={cloudReturn.newBalance}
