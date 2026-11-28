@@ -18,7 +18,9 @@ use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
 use super::termination::{TerminationAction, TerminationModel};
-use super::{BrowserProcess, ProcessExit, SpawnError, FORCE_TERMINATE_DEADLINE, KILL_DEADLINE};
+use super::{
+    BrowserProcess, ProcessExit, SpawnError, SpawnFailure, FORCE_TERMINATE_DEADLINE, KILL_DEADLINE,
+};
 use crate::cdp::CdpClient;
 use crate::launch::MacOsAppLaunch;
 
@@ -74,7 +76,7 @@ pub(super) async fn spawn(
         let _ = reply.send(result);
     });
     result.await.map_err(|error| SpawnError {
-        detail: format!("browser app launch task stopped: {error}"),
+        cause: SpawnFailure::Setup(format!("browser app launch task stopped: {error}")),
         process_may_be_running: true,
     })?
 }
@@ -106,24 +108,24 @@ async fn spawn_inner(
     let mut application = tokio::time::timeout_at(until, application)
         .await
         .map_err(|_| SpawnError {
-            detail: "browser app launch deadline".into(),
+            cause: SpawnFailure::Setup("browser app launch deadline".into()),
             process_may_be_running: true,
         })?
         .map_err(|error| SpawnError {
-            detail: format!("browser app launch callback stopped: {error}"),
+            cause: SpawnFailure::Setup(format!("browser app launch callback stopped: {error}")),
             process_may_be_running: true,
         })?
         .map_err(|detail| SpawnError {
-            detail,
+            cause: SpawnFailure::Setup(detail),
             process_may_be_running: true,
         })?;
     let pid = application.app.processIdentifier() as u32;
     let queue = application.exit_queue.take().ok_or_else(|| SpawnError {
-        detail: "browser app has no exit observation".into(),
+        cause: SpawnFailure::Setup("browser app has no exit observation".into()),
         process_may_be_running: true,
     })?;
     let events = events::ExitEvents::register(queue).map_err(|error| SpawnError {
-        detail: format!("browser exit observation: {error}"),
+        cause: SpawnFailure::Setup(format!("browser exit observation: {error}")),
         process_may_be_running: true,
     })?;
     let (exit_tx, exit) = watch::channel(None);
@@ -166,7 +168,7 @@ async fn spawn_inner(
                 .wait_exit_until(Instant::now() + KILL_DEADLINE)
                 .await;
             Err(SpawnError {
-                detail,
+                cause: SpawnFailure::Setup(detail),
                 process_may_be_running: exited.is_none(),
             })
         }

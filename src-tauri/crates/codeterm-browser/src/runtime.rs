@@ -126,7 +126,12 @@ async fn launch_shared(
             if !error.process_may_be_running {
                 discard_profile(&profile, &profile_dir).await;
             }
-            return Err(foreign_profile_error(&profile_dir, &error.detail));
+            let detail = foreign_profile_error(&profile_dir, &error.to_string());
+            return Err(format!(
+                "{detail} (binary {}; profile {})",
+                located.binary.display(),
+                profile_dir.display(),
+            ));
         }
     };
     let client = match CdpClient::connect(process.endpoint()).await {

@@ -33,14 +33,29 @@ fn forced_exit_window() -> Duration {
 
 #[derive(Debug)]
 pub struct SpawnError {
-    pub detail: String,
+    pub cause: SpawnFailure,
     pub process_may_be_running: bool,
+}
+
+#[derive(Debug)]
+pub enum SpawnFailure {
+    Setup(String),
+    #[cfg(windows)]
+    JobContainment(String),
+    ExitedBeforeDevTools {
+        exit: ProcessExit,
+        output: String,
+    },
+    OutputClosed(String),
+    OutputReaderStopped,
+    ReadinessDeadline(Duration),
+    InvalidEndpoint(String),
 }
 
 impl SpawnError {
     fn before_launch(detail: String) -> Self {
         Self {
-            detail,
+            cause: SpawnFailure::Setup(detail),
             process_may_be_running: false,
         }
     }
@@ -48,7 +63,45 @@ impl SpawnError {
 
 impl std::fmt::Display for SpawnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.detail)
+        match &self.cause {
+            SpawnFailure::Setup(detail) => f.write_str(detail),
+            #[cfg(windows)]
+            SpawnFailure::JobContainment(detail) => write!(
+                f,
+                "browser_job_containment_failed: could not contain or resume Chromium in its kill-on-close Job: {detail}"
+            ),
+            SpawnFailure::ExitedBeforeDevTools { exit, output } => {
+                f.write_str("browser_exited_before_devtools: browser exited before DevTools was ready")?;
+                match exit.code {
+                    Some(code) => write!(f, " (exit code {code})")?,
+                    None => f.write_str(" (no numeric exit code)")?,
+                }
+                if output.is_empty() {
+                    f.write_str("; no startup output was captured")
+                } else {
+                    write!(f, ": {output}")
+                }
+            }
+            SpawnFailure::OutputClosed(output) => {
+                f.write_str("browser_output_closed_before_devtools: browser closed output before DevTools was ready")?;
+                if output.is_empty() {
+                    Ok(())
+                } else {
+                    write!(f, ": {output}")
+                }
+            }
+            SpawnFailure::OutputReaderStopped => {
+                f.write_str("browser_output_reader_stopped: browser output reader stopped before DevTools was ready")
+            }
+            SpawnFailure::ReadinessDeadline(deadline) => write!(
+                f,
+                "browser_devtools_timeout: browser did not report a DevTools endpoint within {}s",
+                deadline.as_secs()
+            ),
+            SpawnFailure::InvalidEndpoint(detail) => {
+                write!(f, "browser_invalid_devtools_endpoint: {detail}")
+            }
+        }
     }
 }
 
@@ -108,9 +161,7 @@ impl BrowserProcess {
                 return macos::spawn(&resolved, args, spec, deadline).await;
             }
         }
-        Self::spawn_with_stdin(binary, args, deadline, Stdio::null())
-            .await
-            .map_err(SpawnError::before_launch)
+        Self::spawn_with_stdin(binary, args, deadline, Stdio::null()).await
     }
 
     async fn spawn_with_stdin(
@@ -118,7 +169,7 @@ impl BrowserProcess {
         args: &[String],
         deadline: Duration,
         stdin: Stdio,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SpawnError> {
         let mut command = tokio::process::Command::new(binary);
         #[cfg(windows)]
         codeterm_util::process_util::no_window_tokio_suspended(&mut command);
@@ -133,20 +184,40 @@ impl BrowserProcess {
         #[cfg(unix)]
         command.process_group(0);
         let started = Instant::now();
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("browser spawn failed ({}): {error}", binary.display()))?;
-        #[cfg(windows)]
-        let tree = codeterm_util::windows_job::Job::attach(&child).map_err(|error| {
-            format!("could not contain Chromium in its kill-on-close Job: {error}")
+        let mut child = command.spawn().map_err(|error| {
+            SpawnError::before_launch(format!(
+                "browser spawn failed ({}): {error}",
+                binary.display()
+            ))
         })?;
-        let pid = child.id().ok_or("browser process has no pid")?;
+        #[cfg(windows)]
+        let tree = match codeterm_util::windows_job::Job::attach(&child) {
+            Ok(tree) => tree,
+            Err(detail) => {
+                let _ = child.start_kill();
+                let exited = tokio::time::timeout(KILL_DEADLINE, child.wait()).await;
+                return Err(SpawnError {
+                    cause: SpawnFailure::JobContainment(detail),
+                    process_may_be_running: !matches!(exited, Ok(Ok(_))),
+                });
+            }
+        };
+        let pid = child
+            .id()
+            .ok_or_else(|| SpawnError::before_launch("browser process has no pid".into()))?;
         #[cfg(unix)]
-        let tree = unix_group::OwnedProcessGroup::new(pid)
-            .map_err(|error| format!("could not guard Chromium process group: {error}"))?;
-        let stderr = child.stderr.take().ok_or("browser stderr is not piped")?;
-        let stdout = child.stdout.take().ok_or("browser stdout is not piped")?;
-        let (ready_tx, mut ready_rx) = oneshot::channel();
+        let tree = unix_group::OwnedProcessGroup::new(pid).map_err(|error| {
+            SpawnError::before_launch(format!("could not guard Chromium process group: {error}"))
+        })?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| SpawnError::before_launch("browser stderr is not piped".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| SpawnError::before_launch("browser stdout is not piped".into()))?;
+        let (ready_tx, ready_rx) = oneshot::channel();
         tokio::spawn(drain_output(stderr, stdout, ready_tx));
         let (exit_tx, exit_rx) = watch::channel(None);
         let (kill_tx, kill_rx) = watch::channel(false);
@@ -158,31 +229,57 @@ impl BrowserProcess {
             exit: exit_rx,
             kill: kill_tx,
         };
-        let mut exit = process.exit.clone();
-        let readiness = tokio::time::timeout(deadline, async {
-            tokio::select! {
-                ready = &mut ready_rx => ready.unwrap_or_else(|_| Err("browser stderr reader stopped".into())),
-                code = async {
-                    exit.wait_for(Option::is_some).await.ok().and_then(|status| *status).and_then(|status| status.code)
-                } => {
-                    match ready_rx.await {
-                        Ok(Err(detail)) => Err(format!("browser exited before DevTools was ready (code {code:?}): {detail}")),
-                        _ => Err(format!("browser exited before DevTools was ready (code {code:?})")),
-                    }
-                }
+        match process
+            .await_devtools(ready_rx, started + deadline, deadline)
+            .await
+        {
+            Ok(endpoint) => process.endpoint = endpoint,
+            Err(cause) => {
+                process.kill();
+                let exited = process
+                    .wait_exit_until(Instant::now() + KILL_DEADLINE)
+                    .await;
+                return Err(SpawnError {
+                    cause,
+                    process_may_be_running: exited.is_none(),
+                });
             }
-        })
-        .await
-        .map_err(|_| {
-            format!(
-                "browser did not report a DevTools endpoint within {}s",
-                deadline.as_secs()
-            )
-        })??;
-        validate_loopback_endpoint(&readiness, &["ws"])?;
-        process.endpoint = readiness;
+        }
         process.ready_after = started.elapsed();
         Ok(process)
+    }
+
+    async fn await_devtools(
+        &self,
+        ready: oneshot::Receiver<Result<String, String>>,
+        until: Instant,
+        deadline: Duration,
+    ) -> Result<String, SpawnFailure> {
+        let (failure, exit) = match tokio::time::timeout_at(until, ready).await {
+            Ok(Ok(Ok(endpoint))) => {
+                validate_loopback_endpoint(&endpoint, &["ws"])
+                    .map_err(SpawnFailure::InvalidEndpoint)?;
+                return Ok(endpoint);
+            }
+            Ok(Ok(Err(output))) => {
+                return Err(match self.wait_exit_until(until).await {
+                    Some(exit) => SpawnFailure::ExitedBeforeDevTools { exit, output },
+                    None => SpawnFailure::OutputClosed(output),
+                });
+            }
+            Ok(Err(_)) => (SpawnFailure::OutputReaderStopped, self.exit_status()),
+            Err(_) => (
+                SpawnFailure::ReadinessDeadline(deadline),
+                self.exit_status(),
+            ),
+        };
+        Err(match exit {
+            Some(exit) => SpawnFailure::ExitedBeforeDevTools {
+                exit,
+                output: String::new(),
+            },
+            None => failure,
+        })
     }
 
     pub fn pid(&self) -> u32 {
@@ -286,11 +383,12 @@ async fn drain_output(
         }
     }
     if let Some(ready) = ready.take() {
-        let _ = ready.send(Err(format!(
-            "browser closed output before DevTools was ready: {} | {}",
-            stderr_listener.tail(),
-            stdout_listener.tail()
-        )));
+        let output = [stderr_listener.tail(), stdout_listener.tail()]
+            .into_iter()
+            .filter(|tail| !tail.is_empty())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let _ = ready.send(Err(output));
     }
 }
 
